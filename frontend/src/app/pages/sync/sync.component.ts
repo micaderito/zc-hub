@@ -158,14 +158,13 @@ export class SyncComponent implements OnInit {
 
   /** Clase CSS del chip de estado (colores por tipo de acción). */
   stateChipClass(label: string | null | undefined): string {
-    if (!label) return 'state-chip state-chip--neutral';
+    if (!label) return 'state-chip n';
     const n = label.toLowerCase().replace(/\s+/g, '-');
-    if (n.includes('venta-ml')) return 'state-chip state-chip--venta-ml';
-    if (n.includes('venta-tn')) return 'state-chip state-chip--venta-tn';
-    if (n.includes('cancelación-ml') || n.includes('cancelacion-ml')) return 'state-chip state-chip--cancelacion-ml';
-    if (n.includes('cancelación-tn') || n.includes('cancelacion-tn')) return 'state-chip state-chip--cancelacion-tn';
-    if (n.includes('devolución') || n.includes('devolucion')) return 'state-chip state-chip--devolucion';
-    return 'state-chip state-chip--neutral';
+    if (n.includes('venta-ml')) return 'state-chip vml';
+    if (n.includes('venta-tn')) return 'state-chip vtn';
+    if (n.includes('cancelación') || n.includes('cancelacion')) return 'state-chip can';
+    if (n.includes('devolución') || n.includes('devolucion')) return 'state-chip dev';
+    return 'state-chip n';
   }
 
   formatDate(iso: string): string {
