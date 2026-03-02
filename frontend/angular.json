@@ -87,7 +87,7 @@
                   "with": "src/environments/environment.prod.ts"
                 }
               ],
-              "baseHref": "/zonacuaderno-hub/",
+              "baseHref": "/zc-hub/",
               "budgets": [
                 { "type": "initial", "maximumWarning": "500kB", "maximumError": "1MB" },
                 { "type": "anyComponentStyle", "maximumWarning": "2kB", "maximumError": "6kB" }

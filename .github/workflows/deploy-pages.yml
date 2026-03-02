@@ -1,0 +1,67 @@
+# Deploy del frontend (carpeta frontend) a GitHub Pages.
+# Requiere: Settings → Secrets → BACKEND_API_URL = https://TU-DOMINIO.up.railway.app/api
+# Y: Settings → Pages → Source = GitHub Actions
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: github-pages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build (config github = baseHref para Pages)
+        run: npm run build:github
+        working-directory: frontend
+
+      - name: Inyectar BACKEND_API_URL en el build
+        env:
+          BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+        run: |
+          DIR="frontend/dist/frontend"
+          if [ -d "${DIR}/browser" ]; then
+            DIR="${DIR}/browser"
+          fi
+          find "$DIR" -name "*.js" -exec sed -i "s|__BACKEND_API_URL__|${BACKEND_API_URL}|g" {} \;
+          echo "DEPLOY_PATH=$DIR" >> $GITHUB_ENV
+
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ env.DEPLOY_PATH }}
+
+  deploy:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    environment: github-pages
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
