@@ -74,6 +74,27 @@
   @keyframes refetch-spin {
     to { transform: rotate(360deg); }
   }
+  .sync-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+    background: #e8f2ff;
+    border: 1px solid #3483fa;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    color: #1a5bb8;
+  }
+  .sync-status-spinner {
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid #b8d4f5;
+    border-top-color: #3483fa;
+    border-radius: 50%;
+    animation: refetch-spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
   .tabs {
     display: flex;
     gap: 0.5rem;
@@ -115,6 +136,9 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  tr.row-pending {
+    background: #f8fbff;
+  }
   th, td {
     padding: 0.5rem 0.75rem;
     text-align: left;

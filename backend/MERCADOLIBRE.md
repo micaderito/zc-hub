@@ -47,4 +47,23 @@ El **access_token** de ML vence. Este backend lo refresca de dos formas:
 
 Si en algún momento el refresh falla (token revocado por ML, etc.), en Inicio vas a ver **“Sesión vencida”** en Mercado Libre; en ese caso hay que **Desconectar** y **Conectar** de nuevo una sola vez.
 
-**Error 429 (Too Many Requests):** ML no publica un número exacto de requests por segundo; la doc pide *"disminuir y/o mejorar la distribución de requisiciones a lo largo del tiempo"* ([buenas prácticas](https://developers.mercadolibre.com.ar/buenas-practicas-para-uso-de-la-plataforma)). Por eso en Precio y stock, al hacer "Sincronizar" o "Actualizar precios", **no** se vuelve a pedir el análisis completo a ML (eso son ~14+ llamadas: search paginado + multiget). Solo se actualiza la UI con lo que guardaste; cuando quieras datos frescos de ML, usá el botón "Actualizar" de la lista. Si ves 429 al conectar o al refrescar token, esperá 1–2 minutos y probá de nuevo. El backend reintenta tras esperar si recibe 429 en OAuth o refresh.
+**Error 429 (Too Many Requests):** ML no publica un número exacto de requests por segundo; la doc pide *"disminuir y/o mejorar la distribución de requisiciones a lo largo del tiempo"* ([buenas prácticas](https://developers.mercadolibre.com.ar/buenas-practicas-para-uso-de-la-plataforma)). En Precio y stock, al hacer "Sincronizar" o "Actualizar precios", **no** se vuelve a pedir el análisis completo a ML; solo se actualiza la UI con lo que guardaste. Refresco global solo con el botón "Actualizar". El backend **reintenta hasta 3 veces** ante 429: si ML manda `Retry-After`, se respeta; si no, backoff exponencial (10s, 20s, 30s). Si aun así ves 429, esperá 1–2 minutos y probá de nuevo.
+
+---
+
+## Estrategia ante rate limit (qué hacemos y qué no)
+
+| Práctica | Estado |
+|----------|--------|
+| **No refrescar toda la lista después de cada edición** | ✅ Tras Sincronizar/Actualizar precios solo actualizamos ese ítem en la UI (overrides locales + caché). Refresco global solo con "Actualizar". |
+| **Debounce al refrescar** | ✅ El botón "Actualizar" usa debounce (600 ms) para no disparar varios GET si se invalida varias veces. |
+| **Reintentos ante 429 + Retry-After / backoff** | ✅ Hasta 3 reintentos; respetamos `Retry-After`; si no viene, backoff exponencial. |
+| **Single-flight y caché en backend** | ✅ Solo una ejecución de análisis a la vez por proceso; caché en DB (90 s) para no repetir el análisis en cada request. |
+| **Webhook no queme cuota al pedo** | ✅ `getOrder` (webhook) usa el mismo retry ante 429. |
+| **Bulk edit + "Aplicar cambios"** | ❌ No: cada fila tiene su botón; no hay grilla con un solo "Aplicar" que envíe un batch. |
+| **Cola en backend (serializar updates a ML)** | ✅ POST update-prices se encola: cada request espera a que termine la anterior + 450 ms antes de llamar a ML, así varios "Sincronizar" seguidos no saturan la API. |
+| **Devolver error si ML/TN falla (no 200)** | ✅ Si el PUT a ML o TN falla (ej. 429 tras reintentos), el backend responde 502 y el front no aplica el override; el usuario ve el mensaje y puede reintentar. |
+| **Retry 429 en los PUT (precio/stock)** | ✅ updateItemPrice, updateItemOrVariationStock y getItem usan fetchWith429Retry. |
+| **UI "Estamos sincronizando..." ante 429** | ❌ No: el usuario puede ver lista vacía o error; no mostramos mensaje específico de "puede tardar unos segundos". |
+
+Si en el futuro quisieras reducir aún más 429: cola de updates a ML con un worker que haga max 1 request cada 250–500 ms y dedupe por ítem; o grilla con "Aplicar cambios" que envíe un solo batch al backend.

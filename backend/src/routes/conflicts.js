@@ -11,6 +11,10 @@ export const conflictsRoutes = Router();
 /** TN: solo GET /products paginado (variants/images vienen embebidos). Timeout por ML y red. */
 const ANALYSIS_TIMEOUT_MS = 120000;
 
+/** Serializar updates a ML: cada POST update-prices espera al anterior + esta pausa (evita 429 por muchos clics seguidos). */
+const UPDATE_ML_DELAY_MS = 450;
+let updatePricesTail = Promise.resolve();
+
 /** GET análisis: coincidencias, solo ML, solo TN, sin SKU, duplicados. */
 conflictsRoutes.get('/', async (_, res) => {
   try {
@@ -128,53 +132,79 @@ conflictsRoutes.post('/link', async (req, res) => {
 /**
  * POST actualizar precios y/o stock de un par (ML y TN pueden tener valores distintos).
  * Body: { itemId, variationId?, productId, variantId, priceML?, priceTN?, stockML?, stockTN? }
+ * Las requests se serializan con una pausa entre una y otra para no saturar la API de ML.
  */
 conflictsRoutes.post('/update-prices', async (req, res) => {
-  const { itemId, variationId, productId, variantId, priceML, priceTN, stockML, stockTN } = req.body;
-  if (!itemId) return res.status(400).json({ error: 'itemId es requerido' });
-  if (productId == null || variantId == null) return res.status(400).json({ error: 'productId y variantId son requeridos' });
-  const accessToken = await getMlToken();
-  if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
-  if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
+  const myTurn = updatePricesTail.then(() => new Promise((r) => setTimeout(r, UPDATE_ML_DELAY_MS)));
+  let release;
+  updatePricesTail = new Promise((r) => { release = r; });
+  await myTurn;
 
-  let mlPriceOk = false;
-  let tnPriceOk = false;
-  let mlStockOk = false;
-  let tnStockOk = false;
-  const priceMLNum = Number(priceML);
-  const priceTNNum = Number(priceTN);
-  const stockMLNum = typeof stockML !== 'undefined' && stockML !== null ? Number(stockML) : undefined;
-  const stockTNNum = typeof stockTN !== 'undefined' && stockTN !== null ? Number(stockTN) : undefined;
+  try {
+    const { itemId, variationId, productId, variantId, priceML, priceTN, stockML, stockTN } = req.body;
+    if (!itemId) return res.status(400).json({ error: 'itemId es requerido' });
+    if (productId == null || variantId == null) return res.status(400).json({ error: 'productId y variantId son requeridos' });
+    const accessToken = await getMlToken();
+    if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
+    if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
 
-  if (priceMLNum > 0) {
-    mlPriceOk = await ml.updateItemPrice(accessToken, itemId, priceMLNum);
+    let mlPriceOk = false;
+    let tnPriceOk = false;
+    let mlStockOk = false;
+    let tnStockOk = false;
+    const priceMLNum = Number(priceML);
+    const priceTNNum = Number(priceTN);
+    const stockMLNum = typeof stockML !== 'undefined' && stockML !== null ? Number(stockML) : undefined;
+    const stockTNNum = typeof stockTN !== 'undefined' && stockTN !== null ? Number(stockTN) : undefined;
+
+    if (priceMLNum > 0) {
+      mlPriceOk = await ml.updateItemPrice(accessToken, itemId, priceMLNum);
+    }
+    if (priceTNNum > 0) {
+      tnPriceOk = await tn.updateVariantPrice(
+        tokens.tiendanube.access_token,
+        tokens.tiendanube.store_id,
+        Number(productId),
+        Number(variantId),
+        priceTNNum
+      );
+    }
+    if (stockMLNum !== undefined && stockMLNum >= 0) {
+      mlStockOk = await ml.updateItemOrVariationStock(
+        accessToken,
+        itemId,
+        variationId ?? undefined,
+        stockMLNum
+      );
+    }
+    if (stockTNNum !== undefined && stockTNNum >= 0) {
+      tnStockOk = await tn.updateVariantStock(
+        tokens.tiendanube.access_token,
+        tokens.tiendanube.store_id,
+        Number(productId),
+        Number(variantId),
+        Math.max(0, Math.floor(stockTNNum))
+      );
+    }
+
+    const mlOk = mlPriceOk || mlStockOk;
+    const tnOk = tnPriceOk || tnStockOk;
+    const triedMl = priceMLNum > 0 || (stockMLNum !== undefined && stockMLNum >= 0);
+    const triedTn = priceTNNum > 0 || (stockTNNum !== undefined && stockTNNum >= 0);
+    if (triedMl && !mlOk) {
+      return res.status(502).json({
+        error: 'Mercado Libre no pudo actualizar (puede ser límite de solicitudes). Esperá unos segundos y probá de nuevo.'
+      });
+    }
+    if (triedTn && !tnOk) {
+      return res.status(502).json({
+        error: 'Tienda Nube no pudo actualizar. Probá de nuevo.'
+      });
+    }
+
+    await invalidateAnalysisCache();
+    return res.json({ ok: true, ml: mlOk, tn: tnOk });
+  } finally {
+    release();
   }
-  if (priceTNNum > 0) {
-    tnPriceOk = await tn.updateVariantPrice(
-      tokens.tiendanube.access_token,
-      tokens.tiendanube.store_id,
-      Number(productId),
-      Number(variantId),
-      priceTNNum
-    );
-  }
-  if (stockMLNum !== undefined && stockMLNum >= 0) {
-    mlStockOk = await ml.updateItemOrVariationStock(
-      accessToken,
-      itemId,
-      variationId ?? undefined,
-      stockMLNum
-    );
-  }
-  if (stockTNNum !== undefined && stockTNNum >= 0) {
-    tnStockOk = await tn.updateVariantStock(
-      tokens.tiendanube.access_token,
-      tokens.tiendanube.store_id,
-      Number(productId),
-      Number(variantId),
-      Math.max(0, Math.floor(stockTNNum))
-    );
-  }
-  await invalidateAnalysisCache();
-  return res.json({ ok: true, ml: mlPriceOk || mlStockOk, tn: tnPriceOk || tnStockOk });
 });

@@ -7,26 +7,26 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function waitFor429(res, context = '') {
-  if (res.status !== 429) return;
+/** Si ML no manda Retry-After, usamos backoff exponencial: 10s, 20s, 40s (cap 30s). */
+function waitFor429(res, context = '', attemptIndex = 0) {
+  if (res.status !== 429) return Promise.resolve();
   const retryAfter = res.headers.get('retry-after');
-  const secs = retryAfter ? parseInt(retryAfter, 10) : 10;
+  let secs = retryAfter ? parseInt(retryAfter, 10) : Math.min(10 * Math.pow(2, attemptIndex), 30);
   const ms = Math.min(secs * 1000, 30000);
   console.warn(`[ML] 429 ${context}, esperando ${Math.round(ms / 1000)}s antes de reintentar (doc: unos segundos)`);
-  await sleep(ms);
+  return sleep(ms);
 }
 
+/** Máximo de reintentos ante 429 (intentos totales = max429Retries + 1). */
+const MAX_429_RETRIES = 3;
+
 /**
- * GET (o otro) a la API de ML con reintento ante 429. Para search, multiget, etc.
- * @param {string} url
- * @param {RequestInit} options
- * @param {string} context - nombre para el log (ej. 'search', 'multiget')
- * @returns {Promise<Response>}
+ * GET (o otro) a la API de ML con reintentos ante 429. Respeta Retry-After; si no viene, backoff exponencial.
  */
 export async function fetchWith429Retry(url, options = {}, context = '') {
   let res = await fetch(url, options);
-  if (res.status === 429) {
-    await waitFor429(res, context);
+  for (let r = 0; r < MAX_429_RETRIES && res.status === 429; r++) {
+    await waitFor429(res, context, r);
     res = await fetch(url, options);
   }
   return res;
@@ -116,17 +116,23 @@ export async function getMe(accessToken) {
 
 /** Incluir include_attributes=all para que las variaciones traigan el array attributes (ej. SELLER_SKU). */
 export async function getItem(accessToken, itemId) {
-  const res = await fetch(`${BASE}/items/${itemId}?include_attributes=all`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
+  const url = `${BASE}/items/${itemId}?include_attributes=all`;
+  const res = await fetchWith429Retry(
+    url,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getItem'
+  );
   if (!res.ok) return null;
   return res.json();
 }
 
 export async function getOrder(accessToken, orderId) {
-  const res = await fetch(`${BASE}/orders/${orderId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
+  const url = `${BASE}/orders/${orderId}`;
+  const res = await fetchWith429Retry(
+    url,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getOrder'
+  );
   if (!res.ok) return null;
   return res.json();
 }
@@ -158,14 +164,18 @@ export async function getClaimReturns(accessToken, claimId) {
 
 /** Actualizar stock de un ítem sin variaciones (publicación simple). */
 export async function updateItemStock(accessToken, itemId, quantity) {
-  const res = await fetch(`${BASE}/items/${itemId}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
+  const res = await fetchWith429Retry(
+    `${BASE}/items/${itemId}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ available_quantity: quantity })
     },
-    body: JSON.stringify({ available_quantity: quantity })
-  });
+    'updateItemStock'
+  );
   return res.ok;
 }
 
@@ -183,14 +193,18 @@ export async function updateItemOrVariationStock(accessToken, itemId, variationI
       if (String(id) === String(variationId)) return { id: Number(id), available_quantity: qty };
       return { id: Number(id) };
     });
-    const res = await fetch(`${BASE}/items/${itemId}`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
+    const res = await fetchWith429Retry(
+      `${BASE}/items/${itemId}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ variations })
       },
-      body: JSON.stringify({ variations })
-    });
+      'updateItemStock'
+    );
     return res.ok;
   }
   return updateItemStock(accessToken, itemId, qty);
@@ -198,14 +212,18 @@ export async function updateItemOrVariationStock(accessToken, itemId, variationI
 
 /** Actualizar precio de un ítem. */
 export async function updateItemPrice(accessToken, itemId, price) {
-  const res = await fetch(`${BASE}/items/${itemId}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
+  const res = await fetchWith429Retry(
+    `${BASE}/items/${itemId}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ price: price })
     },
-    body: JSON.stringify({ price: price })
-  });
+    'updateItemPrice'
+  );
   return res.ok;
 }
 

@@ -45,8 +45,16 @@ export class PrecioStockComponent {
   pairPrices: Map<string, { priceML: number; priceTN: number; syncStock: number }> = new Map();
   /** Valores guardados recientemente: se muestran sin hacer refetch a ML (evita 429). Se limpia al hacer "Actualizar lista". */
   localOverrides = signal<Map<string, { stock?: number; priceML?: number; priceTN?: number }>>(new Map());
-  savingPairId: string | null = null;
+  /** IDs de pares con actualización en cola o en proceso (Sincronizar / Actualizar precios). */
+  savingPairIds = signal<Set<string>>(new Set());
   saveError: string | null = null;
+
+  /** Cantidad de actualizaciones pendientes (en cola o guardando). */
+  pendingUpdatesCount = computed(() => this.savingPairIds().size);
+
+  isPairPending(pair: { ml: MlRow; tn: TnRow }): boolean {
+    return this.savingPairIds().has(this.getPairId(pair));
+  }
 
   /** 'all' | 'mismatch' | 'synced' | 'no-stock' | 'with-stock' */
   stockFilter = signal<'all' | 'mismatch' | 'synced' | 'no-stock' | 'with-stock'>('all');
@@ -131,6 +139,22 @@ export class PrecioStockComponent {
     this.localOverrides.set(next);
   }
 
+  private addPendingPair(pairId: string): void {
+    this.savingPairIds.update((s) => {
+      const n = new Set(s);
+      n.add(pairId);
+      return n;
+    });
+  }
+
+  private removePendingPair(pairId: string): void {
+    this.savingPairIds.update((s) => {
+      const n = new Set(s);
+      n.delete(pairId);
+      return n;
+    });
+  }
+
   getPairId(pair: { ml: MlRow; tn: TnRow }): string {
     return `${pair.ml.itemId}:${pair.ml.variationId ?? ''}:${pair.tn.productId}:${pair.tn.variantId}`;
   }
@@ -191,7 +215,7 @@ export class PrecioStockComponent {
       return;
     }
     this.saveError = null;
-    this.savingPairId = id;
+    this.addPendingPair(id);
     this.conflicts.updatePricesAndStock({
       itemId: pair.ml.itemId,
       variationId: pair.ml.variationId,
@@ -201,7 +225,7 @@ export class PrecioStockComponent {
       priceTN: p.priceTN
     }).subscribe({
       next: () => {
-        this.savingPairId = null;
+        this.removePendingPair(id);
         this.setLocalOverride(id, { priceML: p.priceML, priceTN: p.priceTN });
         const cur = this.pairPrices.get(id);
         if (cur) {
@@ -211,7 +235,7 @@ export class PrecioStockComponent {
         this.conflicts.updatePairInCache(id, { priceML: p.priceML, priceTN: p.priceTN });
       },
       error: (e) => {
-        this.savingPairId = null;
+        this.removePendingPair(id);
         this.saveError = e.error?.error || e.message || 'No se pudieron actualizar los precios.';
       }
     });
@@ -222,7 +246,7 @@ export class PrecioStockComponent {
     const p = this.getPairPrices(pair);
     const stock = Math.max(0, Math.floor(p.syncStock));
     this.saveError = null;
-    this.savingPairId = id;
+    this.addPendingPair(id);
     this.conflicts.updatePricesAndStock({
       itemId: pair.ml.itemId,
       variationId: pair.ml.variationId,
@@ -234,14 +258,14 @@ export class PrecioStockComponent {
       stockTN: stock
     }).subscribe({
       next: () => {
-        this.savingPairId = null;
+        this.removePendingPair(id);
         this.setLocalOverride(id, { stock });
         const cur = this.pairPrices.get(id);
         if (cur) cur.syncStock = stock;
         this.conflicts.updatePairInCache(id, { stock });
       },
       error: (e) => {
-        this.savingPairId = null;
+        this.removePendingPair(id);
         this.saveError = e.error?.error || e.message || 'No se pudo sincronizar el stock.';
       }
     });

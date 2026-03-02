@@ -29,6 +29,12 @@
         <span>Actualizando lista…</span>
       </div>
     }
+    @if (pendingUpdatesCount() > 0) {
+      <div class="sync-status-bar" aria-live="polite">
+        <span class="sync-status-spinner" aria-hidden="true"></span>
+        <span>Actualizando {{ pendingUpdatesCount() }} producto{{ pendingUpdatesCount() !== 1 ? 's' : '' }}… (en cola o guardando)</span>
+      </div>
+    }
     @if (saveError) {
       <div class="alert error">{{ saveError }}</div>
     }
@@ -82,7 +88,7 @@
           </thead>
           <tbody>
             @for (pair of filteredMatched(); track pair.ml.itemId + (pair.ml.variationId || '') + pair.tn.productId + pair.tn.variantId) {
-              <tr>
+              <tr [class.row-pending]="isPairPending(pair)">
                 <td class="col-sku"><code>{{ pair.sku || pair.ml.sku || pair.tn.sku || '—' }}</code></td>
                 <td class="col-ml pair-cell">
                   @if (pair.ml.thumbnail) { <img [src]="pair.ml.thumbnail" alt="" /> }
@@ -112,13 +118,13 @@
                 </td>
                 <td class="col-sync-stock">
                   <input type="number" min="0" step="1" [(ngModel)]="getPairPrices(pair).syncStock" placeholder="Nuevo stock" class="input-stock" />
-                  <button type="button" class="btn-sync-stock" (click)="syncStock(pair)" [disabled]="savingPairId === getPairId(pair)">
-                    {{ savingPairId === getPairId(pair) ? '…' : 'Sincronizar' }}
+                  <button type="button" class="btn-sync-stock" (click)="syncStock(pair)" [disabled]="isPairPending(pair)">
+                    {{ isPairPending(pair) ? '…' : 'Sincronizar' }}
                   </button>
                 </td>
                 <td class="col-actions">
-                  <button type="button" class="btn-update-prices" (click)="updatePrices(pair)" [disabled]="savingPairId === getPairId(pair)">
-                    {{ savingPairId === getPairId(pair) ? '…' : 'Actualizar precios' }}
+                  <button type="button" class="btn-update-prices" (click)="updatePrices(pair)" [disabled]="isPairPending(pair)">
+                    {{ isPairPending(pair) ? '…' : 'Actualizar precios' }}
                   </button>
                 </td>
               </tr>
