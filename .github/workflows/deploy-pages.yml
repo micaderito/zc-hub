@@ -33,6 +33,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Inyectar BACKEND_API_URL en environment.prod (antes del build)
+        env:
+          BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+        run: |
+          if [ -z "$BACKEND_API_URL" ]; then echo "ERROR: Falta el secreto BACKEND_API_URL en Settings → Secrets"; exit 1; fi
+          sed -i "s|__BACKEND_API_URL__|$BACKEND_API_URL|g" frontend/src/environments/environment.prod.ts
+
       - name: Install dependencies
         run: npm ci
         working-directory: frontend
@@ -41,15 +48,10 @@ jobs:
         run: npm run build:github
         working-directory: frontend
 
-      - name: Inyectar BACKEND_API_URL en el build
-        env:
-          BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+      - name: Definir ruta del build para Pages
         run: |
           DIR="frontend/dist/frontend"
-          if [ -d "${DIR}/browser" ]; then
-            DIR="${DIR}/browser"
-          fi
-          find "$DIR" -name "*.js" -exec sed -i "s|__BACKEND_API_URL__|${BACKEND_API_URL}|g" {} \;
+          if [ -d "${DIR}/browser" ]; then DIR="${DIR}/browser"; fi
           echo "DEPLOY_PATH=$DIR" >> $GITHUB_ENV
 
       - name: Upload artifact for Pages

@@ -70,7 +70,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.loading = false;
-        this.error = 'No se pudo conectar con el backend. ¿Está corriendo en el puerto 4000?';
+        this.error = 'No se pudo conectar con el backend. Revisá que la URL del backend esté bien configurada y que el servicio esté en línea.';
       }
     });
   }
