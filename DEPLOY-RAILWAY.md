@@ -49,6 +49,7 @@ Guía para subir el backend a **Railway** con el plan Hobby. Railway no duerme c
    | Variable | Valor |
    |----------|--------|
    | `CORS_ORIGIN` | `https://TU-USUARIO.github.io` (sin barra final) |
+   | `FRONTEND_URL` | `https://TU-USUARIO.github.io/zc-hub` — URL completa del front (GitHub Pages con path del repo; con o sin barra final). Tras conectar ML/TN te redirige acá. |
    | `ML_REDIRECT_URI` | `https://TU-SERVICIO.up.railway.app/api/auth/mercadolibre/callback` |
    | `TN_REDIRECT_URI` | `https://TU-SERVICIO.up.railway.app/api/auth/tiendanube/callback` |
    | `WEBHOOK_BASE_URL` | `https://TU-SERVICIO.up.railway.app` |
@@ -117,7 +118,7 @@ Si falla, revisá que **Root Directory** sea exactamente `backend` y que todas l
 1. [ ] Railway → New Project → Deploy from GitHub repo → elegir repo.
 2. [ ] Settings del servicio: **Root Directory** = `backend`.
 3. [ ] Build: `npm install` | Start: `npm start`.
-4. [ ] Variables: `CORS_ORIGIN`, `ML_*`, `TN_*`, `WEBHOOK_BASE_URL`, `DATABASE_URL` (y redirects con la URL de Railway).
+4. [ ] Variables: `CORS_ORIGIN`, `FRONTEND_URL` (ej. `https://TU-USUARIO.github.io/zc-hub`), `ML_*`, `TN_*`, `WEBHOOK_BASE_URL`, `DATABASE_URL` (y redirects con la URL de Railway).
 5. [ ] Settings → Networking → **Generate Domain** → anotar URL.
 6. [ ] Actualizar variables con la URL real (`ML_REDIRECT_URI`, `TN_REDIRECT_URI`, `WEBHOOK_BASE_URL`).
 7. [ ] Probar `https://TU-DOMINIO.up.railway.app/api/health`.

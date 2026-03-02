@@ -18,7 +18,8 @@ authRoutes.get('/mercadolibre/url', (_, res) => {
 authRoutes.get('/mercadolibre/callback', async (req, res) => {
   const { code } = req.query;
   const redirectUri = process.env.ML_REDIRECT_URI || 'http://localhost:4000/api/auth/mercadolibre/callback';
-  if (!code) return res.redirect(process.env.CORS_ORIGIN || 'http://localhost:4200');
+  const frontBase = process.env.FRONTEND_URL || (process.env.CORS_ORIGIN || 'http://localhost:4200') + '/';
+  if (!code) return res.redirect(frontBase);
   try {
     const data = await ml.exchangeCodeForToken(code, redirectUri);
     setMlTokenKnownInvalid(false);
@@ -29,9 +30,9 @@ authRoutes.get('/mercadolibre/callback', async (req, res) => {
       expires_at: data.expires_in ? Date.now() + data.expires_in * 1000 : null
     };
     persistTokens();
-    res.redirect((process.env.CORS_ORIGIN || 'http://localhost:4200') + '/?ml_connected=1');
+    res.redirect(frontBase.replace(/\/?$/, '/') + '?ml_connected=1');
   } catch (e) {
-    res.redirect((process.env.CORS_ORIGIN || 'http://localhost:4200') + '/?ml_error=' + encodeURIComponent(e.message));
+    res.redirect(frontBase.replace(/\/?$/, '/') + '?ml_error=' + encodeURIComponent(e.message));
   }
 });
 
@@ -48,9 +49,10 @@ authRoutes.get('/tiendanube/url', (_, res) => {
 authRoutes.get('/tiendanube/callback', async (req, res) => {
   const { code } = req.query;
   const redirectUri = process.env.TN_REDIRECT_URI || 'http://localhost:4000/api/auth/tiendanube/callback';
-  const frontOrigin = process.env.CORS_ORIGIN || 'http://localhost:4200';
+  const frontBase = process.env.FRONTEND_URL || (process.env.CORS_ORIGIN || 'http://localhost:4200') + '/';
+  const frontBaseNorm = frontBase.replace(/\/?$/, '/');
   if (!code) {
-    return res.redirect(frontOrigin + '/?tn_error=' + encodeURIComponent('Faltó el código de autorización'));
+    return res.redirect(frontBaseNorm + '?tn_error=' + encodeURIComponent('Faltó el código de autorización'));
   }
   try {
     const data = await tn.exchangeCodeForToken(code, redirectUri);
@@ -69,10 +71,10 @@ authRoutes.get('/tiendanube/callback', async (req, res) => {
         console.error('TN register webhooks:', err.message);
       }
     }
-    res.redirect(frontOrigin + '/?tn_connected=1');
+    res.redirect(frontBaseNorm + '?tn_connected=1');
   } catch (e) {
     console.error('TN callback error:', e.message);
-    res.redirect(frontOrigin + '/?tn_error=' + encodeURIComponent(e.message));
+    res.redirect(frontBaseNorm + '?tn_error=' + encodeURIComponent(e.message));
   }
 });
 
