@@ -51,6 +51,8 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/conflicts', conflictsRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
+// Por si Railway (u otro) hace health check en la raíz
+app.get('/', (_, res) => res.redirect('/api/health'));
 
 /** Refresco periódico del token de ML (cada 6 h) para que siga válido aunque no haya tráfico ni entres a la web. */
 const ML_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -67,8 +69,8 @@ function scheduleMlTokenRefresh() {
   if (ok) console.log('Base de datos (sync/audit) conectada.');
   else if (process.env.DATABASE_URL) console.warn('No se pudo conectar a la base de datos. Revisá DATABASE_URL.');
   await loadTokens();
-  app.listen(PORT, () => {
-    console.log(`Backend escuchando en http://localhost:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Backend escuchando en http://0.0.0.0:${PORT}`);
     scheduleMlTokenRefresh();
   });
 })();

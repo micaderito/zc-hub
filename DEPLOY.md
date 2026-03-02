@@ -1,35 +1,28 @@
-# Deploy: GitHub Pages (front) + Render (back)
+# Deploy: GitHub Pages (front) + Backend (Railway / Render)
 
 ## Resumen
 
 - **Frontend**: GitHub Pages (estático desde `frontend/dist/frontend`).
-- **Backend**: Render (Web Service Node).
+- **Backend**: **Railway (plan Hobby)** recomendado — 24/7, no duerme. Alternativa: Render (Web Service Node; plan gratis duerme a los ~15 min).
 
 ---
 
 ## Paso a paso (después de subir el código a GitHub)
 
-### Parte 1: Backend en Render
+### Parte 1: Backend (Railway recomendado)
 
-1. Entrá a **[render.com](https://render.com)** e iniciá sesión (o creá cuenta con GitHub).
-2. **Dashboard** → **New +** → **Web Service**.
-3. Conectá el repo de GitHub: elegí la organización/usuario y el repo (ej. `zonacuaderno-hub`). Si no aparece, autorizá a Render en GitHub.
-4. Configurá el servicio:
-   - **Name**: el que quieras (ej. `zonacuaderno-hub`). La URL será `https://NOMBRE.onrender.com`.
-   - **Region**: el más cercano a vos.
-   - **Root Directory**: `backend` (importante: así Build y Start corren dentro de `backend`).
-   - **Runtime**: Node.
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-5. En **Environment** (Variables de entorno) agregá cada variable. Reemplazá `TU-USUARIO` por tu usuario de GitHub y `TU-SERVICIO` por el **Name** del paso 4 (o la URL que te dé Render):
-   - `CORS_ORIGIN` = `https://TU-USUARIO.github.io` (sin barra final)
-   - `ML_REDIRECT_URI` = `https://TU-SERVICIO.onrender.com/api/auth/mercadolibre/callback`
-   - `TN_REDIRECT_URI` = `https://TU-SERVICIO.onrender.com/api/auth/tiendanube/callback`
-   - `WEBHOOK_BASE_URL` = `https://TU-SERVICIO.onrender.com`
-   - `ML_CLIENT_ID`, `ML_CLIENT_SECRET`, `TN_CLIENT_ID`, `TN_CLIENT_SECRET` (los que tenés en `backend/.env`)
-   - `DATABASE_URL` = connection string de Supabase (o tu Postgres)
-6. **Create Web Service**. Esperá a que termine el primer deploy (verde).
-7. Anotá la URL del backend: **https://TU-SERVICIO.onrender.com** (la vas a usar en el front).
+**Guía completa:** **[DEPLOY-RAILWAY.md](DEPLOY-RAILWAY.md)** — pasos para Railway plan Hobby (backend 24/7, no duerme).
+
+Resumen rápido:
+
+1. [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → elegir repo.
+2. En el servicio: **Settings** → **Root Directory** = `backend`. Build: `npm install`, Start: `npm start`.
+3. **Variables**: `CORS_ORIGIN`, `ML_*`, `TN_*`, `WEBHOOK_BASE_URL`, `DATABASE_URL` (ver tabla en DEPLOY-RAILWAY.md).
+4. **Settings** → **Networking** → **Generate Domain** → anotar URL (ej. `https://xxx.up.railway.app`).
+5. Actualizar en Variables las URLs con ese dominio (`ML_REDIRECT_URI`, `TN_REDIRECT_URI`, `WEBHOOK_BASE_URL`).
+6. La URL del backend para el front es `https://TU-DOMINIO.up.railway.app` (y el front usa `/api` → `BACKEND_API_URL` = `https://TU-DOMINIO.up.railway.app/api`).
+
+**Alternativa (Render):** ver sección *1. Backend en Render (detalle)* más abajo.
 
 ---
 
@@ -38,7 +31,7 @@
 1. En tu repo en **GitHub** → **Settings** → **Secrets and variables** → **Actions**.
 2. **New repository secret**:
    - **Name**: `BACKEND_API_URL`
-   - **Value**: `https://TU-SERVICIO.onrender.com/api` (la URL de Render del paso 7 **más** `/api`).
+   - **Value**: `https://TU-DOMINIO.up.railway.app/api` (la URL de tu backend **más** `/api`; si usás Render sería `https://TU-SERVICIO.onrender.com/api`).
 3. **Settings** → **Pages** (en el menú izquierdo del repo).
 4. En **Build and deployment**:
    - **Source**: elegí **GitHub Actions** (no "Deploy from a branch").
@@ -50,7 +43,9 @@ Si el repo tiene otro nombre, en `frontend/angular.json` (configuración `github
 
 ---
 
-## 1. Backend en Render (detalle)
+## 1. Backend en Render (alternativa al plan Railway)
+
+Si preferís Render en lugar de Railway:
 
 1. En [render.com](https://render.com) creá un **Web Service** y conectalo al repo de GitHub.
 
@@ -76,7 +71,7 @@ Si el repo tiene otro nombre, en `frontend/angular.json` (configuración `github
 ## 2. Frontend para GitHub Pages
 
 1. **API URL** (la URL del backend no es un secreto para el usuario final: el navegador la usa igual; sí conviene no commitearla):
-   - **Si usás el workflow de GitHub Actions** (recomendado): en el repo → **Settings → Secrets and variables → Actions** creá un secreto `BACKEND_API_URL` con el valor `https://TU-SERVICIO.onrender.com/api`. El workflow reemplaza el placeholder en el build y la URL nunca queda en el código del repo.
+   - **Si usás el workflow de GitHub Actions** (recomendado): en el repo → **Settings → Secrets and variables → Actions** creá un secreto `BACKEND_API_URL` con el valor de tu backend + `/api` (ej. `https://TU-DOMINIO.up.railway.app/api` o `https://TU-SERVICIO.onrender.com/api`). El workflow reemplaza el placeholder en el build y la URL nunca queda en el código del repo.
    - **Si hacés deploy manual**: en `frontend/src/environments/environment.prod.ts` reemplazá `__BACKEND_API_URL__` por tu URL (ej. `https://TU-SERVICIO.onrender.com/api`). No commitees ese cambio si no querés la URL en el repo.
 
 2. **Base href**: Si tu sitio en GitHub Pages es `https://TU-USUARIO.github.io/zonacuaderno-hub/`, el build debe usar base href `/zonacuaderno-hub/`. Ya hay una configuración `github` en el proyecto:
@@ -93,28 +88,26 @@ Si el repo tiene otro nombre, en `frontend/angular.json` (configuración `github
 
 4. En GitHub: **Settings → Pages** → Source: **Deploy from a branch** → rama `gh-pages` (o `main` / folder `docs`) y root `/`.
 
-5. **CORS**: El backend ya usa `CORS_ORIGIN`; en Render tené definido `CORS_ORIGIN=https://TU-USUARIO.github.io` (sin barra final).
+5. **CORS**: El backend ya usa `CORS_ORIGIN`; en Railway o Render tené definido `CORS_ORIGIN=https://TU-USUARIO.github.io` (sin barra final).
 
 ---
 
 ## 3. Después del deploy
 
-- **Mercado Libre**: En [applications.mercadolibre.com](https://applications.mercadolibre.com) actualizá la **Callback URL** a `https://TU-BACKEND.onrender.com/api/webhooks/mercadolibre` y los temas (orders_v2).
-- **Tienda Nube**: Reconectá la app desde el front (Inicio → Conectar Tienda Nube) para que el backend registre los webhooks con la URL de Render; o usá el botón "Registrar webhooks Tienda Nube" en Sincronización.
+- **Mercado Libre**: En [applications.mercadolibre.com](https://applications.mercadolibre.com) actualizá la **Callback URL** a la URL de tu backend (ej. `https://TU-DOMINIO.up.railway.app/api/auth/mercadolibre/callback`) y los temas (orders_v2).
+- **Tienda Nube**: Reconectá la app desde el front (Inicio → Conectar Tienda Nube) para que el backend registre los webhooks con la URL de tu backend; o usá el botón "Registrar webhooks Tienda Nube" en Sincronización.
 
 ---
 
-## 4. Gratis, 24/7 y sin configurar cron
+## 4. Backend 24/7 (sin dormir)
 
-En plan gratuito, **Render duerme** tras ~15 min sin tráfico; los webhooks pueden fallar. Si no querés pagar ni configurar ningún cron/external ping, la única opción real es una **VM gratis siempre encendida**:
-
-- **Oracle Cloud Free Tier**: te dan 1–2 VMs “Always Free” que no se apagan. Ahí corrés el backend con Node y queda 24/7 sin dormir ni cron. Requiere crear cuenta en Oracle, crear la VM, instalar Node y PM2 (y opcionalmente nginx + HTTPS con Let’s Encrypt para los webhooks).
-
-Guía paso a paso: **[DEPLOY-ORACLE.md](DEPLOY-ORACLE.md)**.
+- **Railway plan Hobby** (recomendado): el backend no duerme; webhooks y API responden siempre. Guía: **[DEPLOY-RAILWAY.md](DEPLOY-RAILWAY.md)**.
+- **Render plan gratis**: duerme tras ~15 min sin tráfico; los webhooks pueden fallar hasta el próximo request.
+- **Oracle Cloud Free Tier** (gratis, 24/7): VM Always Free + Node + PM2. Guía: **[DEPLOY-ORACLE.md](DEPLOY-ORACLE.md)**.
 
 ---
 
 ## 5. Notas (tokens y CORS)
 
 - **Tokens:** Con `DATABASE_URL` (Supabase) los tokens OAuth se guardan en la tabla `oauth_tokens` y sobreviven reinicios y redeploys. No hace falta reconectar ML ni TN. En local se usa también `data/tokens.json`.
-- Si cambiás el nombre del repo o la URL de GitHub Pages, actualizá `baseHref` en `angular.json` (config `github`) y `CORS_ORIGIN` en el backend (Render u Oracle).
+- Si cambiás el nombre del repo o la URL de GitHub Pages, actualizá `baseHref` en `angular.json` (config `github`) y `CORS_ORIGIN` en el backend (Railway, Render u Oracle).
