@@ -22,6 +22,8 @@ function getPool() {
 }
 
 const SYNC_ENABLED_KEY = 'stock_sync_enabled';
+const ANALYSIS_CACHE_KEY = 'conflicts_analysis_cache';
+const ANALYSIS_CACHE_TTL_MS = 90 * 1000;
 
 /** Crea las tablas si no existen. */
 export async function initDb() {
@@ -93,6 +95,46 @@ export async function initDb() {
   } catch (e) {
     console.error('DB init error:', e.message);
     return false;
+  }
+}
+
+/** Caché del análisis de conflictos (compartida entre réplicas). Evita 429 cuando varios requests/replicas piden análisis seguido. */
+export async function getAnalysisCache() {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query('SELECT value FROM sync_settings WHERE key = $1', [ANALYSIS_CACHE_KEY]);
+    if (!r.rows?.length) return null;
+    const raw = r.rows[0].value;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed?.at || Date.now() - parsed.at > ANALYSIS_CACHE_TTL_MS) return null;
+    return parsed.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setAnalysisCache(data) {
+  const p = getPool();
+  if (!p) return;
+  try {
+    await p.query(
+      `INSERT INTO sync_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      [ANALYSIS_CACHE_KEY, JSON.stringify({ at: Date.now(), data })]
+    );
+  } catch (e) {
+    console.error('setAnalysisCache:', e.message);
+  }
+}
+
+/** Invalida la caché del análisis (ej. tras actualizar SKU o precios) para que el próximo GET traiga datos frescos. */
+export async function invalidateAnalysisCache() {
+  const p = getPool();
+  if (!p) return;
+  try {
+    await p.query('DELETE FROM sync_settings WHERE key = $1', [ANALYSIS_CACHE_KEY]);
+  } catch (e) {
+    console.error('invalidateAnalysisCache:', e.message);
   }
 }
 

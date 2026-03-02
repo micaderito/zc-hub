@@ -43,6 +43,8 @@ export class PrecioStockComponent {
 
   /** Por par: valores editables para precios y para el input de sincronizar stock */
   pairPrices: Map<string, { priceML: number; priceTN: number; syncStock: number }> = new Map();
+  /** Valores guardados recientemente: se muestran sin hacer refetch a ML (evita 429). Se limpia al hacer "Actualizar lista". */
+  localOverrides = signal<Map<string, { stock?: number; priceML?: number; priceTN?: number }>>(new Map());
   savingPairId: string | null = null;
   saveError: string | null = null;
 
@@ -109,7 +111,24 @@ export class PrecioStockComponent {
   }
 
   refreshAnalysis(): void {
+    this.localOverrides.set(new Map());
     this.conflicts.invalidateAnalysis();
+  }
+
+  /** Stock a mostrar para ML o TN; usa override si acabamos de sincronizar (sin refetch). */
+  getDisplayStock(pair: { ml: MlRow; tn: TnRow }, channel: 'ml' | 'tn'): number {
+    const id = this.getPairId(pair);
+    const ov = this.localOverrides().get(id);
+    if (ov?.stock !== undefined) return ov.stock;
+    return channel === 'ml' ? (pair.ml.stock ?? 0) : (pair.tn.stock ?? 0);
+  }
+
+  private setLocalOverride(pairId: string, updates: { stock?: number; priceML?: number; priceTN?: number }): void {
+    const prev = this.localOverrides();
+    const next = new Map(prev);
+    const cur = next.get(pairId) ?? {};
+    next.set(pairId, { ...cur, ...updates });
+    this.localOverrides.set(next);
   }
 
   getPairId(pair: { ml: MlRow; tn: TnRow }): string {
@@ -145,22 +164,22 @@ export class PrecioStockComponent {
   }
 
   isStockSynced(pair: { ml: MlRow; tn: TnRow }): boolean {
-    const ml = pair.ml.stock ?? 0;
-    const tn = pair.tn.stock ?? 0;
+    const ml = this.getDisplayStock(pair, 'ml');
+    const tn = this.getDisplayStock(pair, 'tn');
     return ml === tn;
   }
 
   /** true si al menos un canal tiene stock 0. */
   hasNoStock(pair: { ml: MlRow; tn: TnRow }): boolean {
-    const ml = pair.ml.stock ?? 0;
-    const tn = pair.tn.stock ?? 0;
+    const ml = this.getDisplayStock(pair, 'ml');
+    const tn = this.getDisplayStock(pair, 'tn');
     return ml === 0 || tn === 0;
   }
 
   /** true si ambos canales tienen stock > 0. */
   hasStock(pair: { ml: MlRow; tn: TnRow }): boolean {
-    const ml = pair.ml.stock ?? 0;
-    const tn = pair.tn.stock ?? 0;
+    const ml = this.getDisplayStock(pair, 'ml');
+    const tn = this.getDisplayStock(pair, 'tn');
     return ml > 0 && tn > 0;
   }
 
@@ -183,7 +202,13 @@ export class PrecioStockComponent {
     }).subscribe({
       next: () => {
         this.savingPairId = null;
-        this.conflicts.invalidateAnalysis();
+        this.setLocalOverride(id, { priceML: p.priceML, priceTN: p.priceTN });
+        const cur = this.pairPrices.get(id);
+        if (cur) {
+          cur.priceML = p.priceML;
+          cur.priceTN = p.priceTN;
+        }
+        this.conflicts.updatePairInCache(id, { priceML: p.priceML, priceTN: p.priceTN });
       },
       error: (e) => {
         this.savingPairId = null;
@@ -210,7 +235,10 @@ export class PrecioStockComponent {
     }).subscribe({
       next: () => {
         this.savingPairId = null;
-        this.conflicts.invalidateAnalysis();
+        this.setLocalOverride(id, { stock });
+        const cur = this.pairPrices.get(id);
+        if (cur) cur.syncStock = stock;
+        this.conflicts.updatePairInCache(id, { stock });
       },
       error: (e) => {
         this.savingPairId = null;

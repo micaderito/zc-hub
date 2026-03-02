@@ -105,10 +105,10 @@
                   </span>
                 </td>
                 <td class="col-stock-ml" [class.stock-ok]="isStockSynced(pair)" [class.stock-error]="!isStockSynced(pair)">
-                  <input type="number" min="0" [value]="pair.ml.stock ?? 0" readonly disabled class="input-stock-readonly" />
+                  <input type="number" min="0" [value]="getDisplayStock(pair, 'ml')" readonly disabled class="input-stock-readonly" />
                 </td>
                 <td class="col-stock-tn" [class.stock-ok]="isStockSynced(pair)" [class.stock-error]="!isStockSynced(pair)">
-                  <input type="number" min="0" [value]="pair.tn.stock ?? 0" readonly disabled class="input-stock-readonly" />
+                  <input type="number" min="0" [value]="getDisplayStock(pair, 'tn')" readonly disabled class="input-stock-readonly" />
                 </td>
                 <td class="col-sync-stock">
                   <input type="number" min="0" step="1" [(ngModel)]="getPairPrices(pair).syncStock" placeholder="Nuevo stock" class="input-stock" />

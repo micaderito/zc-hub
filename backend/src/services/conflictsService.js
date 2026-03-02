@@ -18,6 +18,7 @@
 
 import { tokens, getMlToken, tryRefreshMlToken, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import { setResolutionFromAnalysis } from '../store.js';
+import { hasDatabase, getAnalysisCache, setAnalysisCache } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -182,14 +183,23 @@ function groupBySku(rows, key = 'sku') {
   return bySku;
 }
 
-/** Solo una ejecución a la vez: evita 429 cuando varios requests (GET, POST, webhook) piden análisis en paralelo. */
+/** Solo una ejecución a la vez por proceso. Caché en DB (90s) para que otras réplicas/requests no vuelvan a llamar a ML. */
 let analysisInFlight = null;
 
 export async function getAnalysis() {
+  if (hasDatabase()) {
+    const cached = await getAnalysisCache();
+    if (cached) return cached;
+  }
   if (analysisInFlight) return analysisInFlight;
-  const p = getAnalysisImpl().finally(() => {
-    analysisInFlight = null;
-  });
+  const p = getAnalysisImpl()
+    .then(async (result) => {
+      if (hasDatabase()) await setAnalysisCache(result);
+      return result;
+    })
+    .finally(() => {
+      analysisInFlight = null;
+    });
   analysisInFlight = p;
   return p;
 }

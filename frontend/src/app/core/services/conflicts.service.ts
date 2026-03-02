@@ -5,8 +5,16 @@ import { lastValueFrom } from 'rxjs';
 import { QueryClient } from '@tanstack/angular-query-experimental';
 import { ApiService } from './api.service';
 
+/** Debounce (ms) antes de refetch tras invalidar: varios "Sincronizar"/"Actualizar" seguidos = un solo GET. */
+const REFETCH_DEBOUNCE_MS = 600;
+
 /** Query key del análisis de conflictos; invalidar en cada add/edit/delete. */
 export const CONFLICTS_ANALYSIS_QUERY_KEY = ['conflicts', 'analysis'] as const;
+
+/** Identificador único de un par ML–TN (mismo que PrecioStockComponent.getPairId). */
+export function getPairId(pair: { ml: MlRow; tn: TnRow }): string {
+  return `${pair.ml.itemId}:${pair.ml.variationId ?? ''}:${pair.tn.productId}:${pair.tn.variantId}`;
+}
 
 export interface MlRow {
   type: 'ml';
@@ -101,14 +109,46 @@ export class ConflictsService {
   private readonly analysisInvalidated = new Subject<void>();
   readonly analysisInvalidated$: Observable<void> = this.analysisInvalidated.asObservable();
 
+  private refetchTimeout: ReturnType<typeof setTimeout> | null = null;
+
   constructor(
     private http: HttpClient,
     private api: ApiService
   ) {}
 
-  /** Llamar después de agregar/editar/borrar (link, update-sku, update-prices, etc.) para invalidar caché y refrescar. */
+  /** Invalida la caché y dispara un refetch. Con debounce: varios clics seguidos = un solo GET. */
   invalidateAnalysis(): void {
-    this.queryClient.invalidateQueries({ queryKey: CONFLICTS_ANALYSIS_QUERY_KEY });
+    this.analysisInvalidated.next();
+    if (this.refetchTimeout !== null) clearTimeout(this.refetchTimeout);
+    this.refetchTimeout = setTimeout(() => {
+      this.refetchTimeout = null;
+      this.queryClient.invalidateQueries({ queryKey: CONFLICTS_ANALYSIS_QUERY_KEY });
+    }, REFETCH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Actualiza en caché solo el par recién guardado. No hace refetch: así evitamos
+   * disparar ~14 requests a ML por cada "Sincronizar"/"Actualizar" (doc ML: distribuir requisiciones).
+   * La UI muestra el cambio al instante vía overrides locales en el componente.
+   */
+  updatePairInCache(
+    pairId: string,
+    updates: { stock?: number; priceML?: number; priceTN?: number }
+  ): void {
+    const prev = this.queryClient.getQueryData<ConflictAnalysis>(CONFLICTS_ANALYSIS_QUERY_KEY);
+    if (!prev?.matched) return;
+    const matched = prev.matched.map((pair) => {
+      if (getPairId(pair) !== pairId) return pair;
+      const ml = updates.stock !== undefined ? { ...pair.ml, stock: updates.stock } : pair.ml;
+      const tn = updates.stock !== undefined ? { ...pair.tn, stock: updates.stock } : pair.tn;
+      const ml2 = updates.priceML !== undefined ? { ...ml, price: updates.priceML } : ml;
+      const tn2 = updates.priceTN !== undefined ? { ...tn, price: updates.priceTN } : tn;
+      return { ...pair, ml: ml2, tn: tn2 };
+    });
+    this.queryClient.setQueryData<ConflictAnalysis>(CONFLICTS_ANALYSIS_QUERY_KEY, {
+      ...prev,
+      matched
+    });
     this.analysisInvalidated.next();
   }
 

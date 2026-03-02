@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { tokens, getMlToken, addResolution } from '../store.js';
 import { getAnalysis } from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
+import { invalidateAnalysisCache } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -47,6 +48,7 @@ conflictsRoutes.post('/update-sku', async (req, res) => {
       await (variationId
         ? ml.updateVariationSku(accessToken, itemId, variationId, skuTrim)
         : ml.updateItemSku(accessToken, itemId, skuTrim));
+      await invalidateAnalysisCache();
       await getAnalysis();
       return res.json({ ok: true });
     } catch (e) {
@@ -76,6 +78,7 @@ conflictsRoutes.post('/update-sku', async (req, res) => {
         Number(variantId),
         skuTrim
       );
+      await invalidateAnalysisCache();
       await getAnalysis();
       return res.json({ ok: true });
   } catch (e) {
@@ -172,5 +175,6 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       Math.max(0, Math.floor(stockTNNum))
     );
   }
+  await invalidateAnalysisCache();
   return res.json({ ok: true, ml: mlPriceOk || mlStockOk, tn: tnPriceOk || tnStockOk });
 });
