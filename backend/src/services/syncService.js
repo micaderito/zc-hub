@@ -21,7 +21,7 @@ function mlOrderItemDisplay(oi) {
 /** Arma "descripción · variante" desde el ítem de una orden TN. */
 function tnOrderItemDisplay(item) {
   const name = item?.name || item?.title || '';
-  const variant = item?.variant_name || item?.variant || item?.option ?? '';
+  const variant = item?.variant_name || item?.variant || item?.option || '';
   if (!name && !variant) return null;
   return variant ? `${name} · ${variant}` : name;
 }
