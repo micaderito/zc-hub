@@ -44,36 +44,37 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
     const items = order.order_items || [];
     const status = (order.status || '').toLowerCase();
     const statusDetail = (order.status_detail || '').toLowerCase();
+    const effectiveOrderId = String(order.id ?? orderId);
 
     if (status === 'cancelled' || status === 'canceled') {
-      const claimed = await tryClaimOrderProcessing('mercadolibre', orderId, 'restore');
+      const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'restore');
       if (!claimed) {
-        console.log('[Webhook ML] Orden %s ya se restauró stock (idempotencia), no se vuelve a restaurar.', orderId);
+        console.log('[Webhook ML] Orden %s ya se restauró stock (idempotencia), no se vuelve a restaurar.', effectiveOrderId);
         return;
       }
-      await onMercadoLibreOrderCancelled(items, orderId);
+      await onMercadoLibreOrderCancelled(items, effectiveOrderId);
       return;
     }
 
     if (status === 'paid' || status === 'confirmed') {
       if (statusDetail && statusDetail.includes('cancel')) {
-        console.log('[Webhook ML] Orden %s está en proceso de cancelación (status_detail), no se descuenta ni restaura hasta que ML confirme.', orderId);
+        console.log('[Webhook ML] Orden %s está en proceso de cancelación (status_detail), no se descuenta ni restaura hasta que ML confirme.', effectiveOrderId);
         return;
       }
-      if (await hasOrderProcessingClaimed('mercadolibre', orderId, 'restore')) {
-        console.log('[Webhook ML] Orden %s ya fue cancelada/restaurada, no se descuenta.', orderId);
+      if (await hasOrderProcessingClaimed('mercadolibre', effectiveOrderId, 'restore')) {
+        console.log('[Webhook ML] Orden %s ya fue cancelada/restaurada, no se descuenta.', effectiveOrderId);
         return;
       }
       if (!orderPaidRecently(order)) {
-        console.log('[Webhook ML] Orden %s pagada hace más de 2 h (date_closed/date_created). Solo descontamos ventas recientes; se ignora.', orderId);
+        console.log('[Webhook ML] Orden %s pagada hace más de 2 h (date_closed/date_created). Solo descontamos ventas recientes; se ignora.', effectiveOrderId);
         return;
       }
-      const claimed = await tryClaimOrderProcessing('mercadolibre', orderId, 'deduct');
+      const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'deduct');
       if (!claimed) {
-        console.log('[Webhook ML] Orden %s ya procesada (idempotencia), no se vuelve a descontar.', orderId);
+        console.log('[Webhook ML] Orden %s ya procesada (idempotencia), no se vuelve a descontar.', effectiveOrderId);
         return;
       }
-      await onMercadoLibreOrderPaid(items, orderId);
+      await onMercadoLibreOrderPaid(items, effectiveOrderId);
     }
   } catch (e) {
     if (e?.message?.includes('401') || e?.response?.status === 401) setMlTokenKnownInvalid(true);

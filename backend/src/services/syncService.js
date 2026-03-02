@@ -207,8 +207,8 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '') {
       const out = await deductStockTiendaNube(sku, quantity);
       results.push({ itemId, variationId, sku, quantity, ...out });
       if (out.ok && out.stockBefore !== undefined) {
-        const saleItemId = orderItems.length > 1
-          ? (variationId != null && variationId !== '' ? `${itemId}:${variationId}` : String(itemId))
+        const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== ''
+          ? String(oi.id)
           : null;
         await insertAuditLog({
           channelSale: 'mercadolibre',
@@ -303,8 +303,8 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '') {
       const out = await restoreStockTiendaNube(sku, quantity);
       results.push({ itemId, variationId, sku, quantity, ...out });
       if (out.ok && out.stockBefore !== undefined) {
-        const saleItemId = orderItems.length > 1
-          ? (variationId != null && variationId !== '' ? `${itemId}:${variationId}` : String(itemId))
+        const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== ''
+          ? String(oi.id)
           : null;
         await insertAuditLog({
           channelSale: 'mercadolibre',
