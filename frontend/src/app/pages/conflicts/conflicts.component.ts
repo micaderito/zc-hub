@@ -92,7 +92,9 @@ export class ConflictsComponent implements OnInit {
   readonly analysisQuery = injectQuery(() => ({
     queryKey: CONFLICTS_ANALYSIS_QUERY_KEY,
     queryFn: () => this.conflicts.getAnalysisPromise(),
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    /** No refetch al entrar si los datos son recientes. Tras 1 h se consideran viejos y puede refetchear al volver. */
+    staleTime: 60 * 60 * 1000
   }));
 
   constructor() {
