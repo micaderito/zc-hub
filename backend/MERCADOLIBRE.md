@@ -46,3 +46,5 @@ El **access_token** de ML vence. Este backend lo refresca de dos formas:
 **Deployado**: el proceso corre 24/7 y el refresco cada 6 h hace que el token se renueve solo. No tenés que entrar a la web para que siga funcionando la sincronización.
 
 Si en algún momento el refresh falla (token revocado por ML, etc.), en Inicio vas a ver **“Sesión vencida”** en Mercado Libre; en ese caso hay que **Desconectar** y **Conectar** de nuevo una sola vez.
+
+**Error 429 (Too Many Requests):** ML limita la cantidad de llamadas por minuto. Si ves "ML token error: 429" al conectar o al refrescar, esperá **1–2 minutos** sin hacer clic de nuevo y probá otra vez. El backend reintenta una vez después de esperar si recibe 429 en OAuth o refresh.
