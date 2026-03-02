@@ -16,6 +16,22 @@ async function waitFor429(res, context = '') {
   await sleep(ms);
 }
 
+/**
+ * GET (o otro) a la API de ML con reintento ante 429. Para search, multiget, etc.
+ * @param {string} url
+ * @param {RequestInit} options
+ * @param {string} context - nombre para el log (ej. 'search', 'multiget')
+ * @returns {Promise<Response>}
+ */
+export async function fetchWith429Retry(url, options = {}, context = '') {
+  let res = await fetch(url, options);
+  if (res.status === 429) {
+    await waitFor429(res, context);
+    res = await fetch(url, options);
+  }
+  return res;
+}
+
 export async function getAuthUrl(redirectUri, state) {
   const params = new URLSearchParams({
     response_type: 'code',

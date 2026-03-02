@@ -203,11 +203,15 @@ export async function getAnalysis() {
       const runSearch = async () => {
         const ids = [];
         let offset = 0;
+        const delayMs = 180;
         for (let page = 0; page < maxPages; page++) {
+          if (page > 0) await new Promise((r) => setTimeout(r, delayMs));
           const url = `https://api.mercadolibre.com/users/${userId}/items/search?limit=${limit}&offset=${offset}`;
-          const r = await fetch(url, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
+          const r = await ml.fetchWith429Retry(
+            url,
+            { headers: { Authorization: `Bearer ${token}` } },
+            'search'
+          );
           if (!r.ok) {
             if (r.status === 401) authFailed = true;
             const errText = await r.text();
@@ -235,11 +239,17 @@ export async function getAnalysis() {
       console.log('[ML] total ids obtenidos:', allIds.length);
       // Doc ML: multiget GET /items?ids=ID1,ID2,... máx 20 por request; respuesta [{ code, body }]
       const batchSize = 20;
+      const delayMs = 180;
       for (let i = 0; i < allIds.length; i += batchSize) {
+        if (i > 0) await new Promise((r) => setTimeout(r, delayMs));
         const batch = allIds.slice(i, i + batchSize);
         const idsQuery = batch.join(',');
         const url = `https://api.mercadolibre.com/items?ids=${idsQuery}&include_attributes=all`;
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await ml.fetchWith429Retry(
+          url,
+          { headers: { Authorization: `Bearer ${token}` } },
+          'multiget'
+        );
         if (!res.ok) {
           console.error('[ML] multiget failed:', res.status);
           break;
