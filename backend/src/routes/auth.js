@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { tokens, persistTokens, clearMlTokens, clearTnTokens, getMlToken, isMlTokenKnownInvalid, isTnTokenKnownInvalid, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
+import { tokens, persistTokens, persistTokensAsync, clearMlTokens, clearTnTokens, getMlToken, isMlTokenKnownInvalid, isTnTokenKnownInvalid, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -29,7 +29,7 @@ authRoutes.get('/mercadolibre/callback', async (req, res) => {
       user_id: data.user_id,
       expires_at: data.expires_in ? Date.now() + data.expires_in * 1000 : null
     };
-    persistTokens();
+    await persistTokensAsync();
     res.redirect(frontBase.replace(/\/?$/, '/') + '?ml_connected=1');
   } catch (e) {
     res.redirect(frontBase.replace(/\/?$/, '/') + '?ml_error=' + encodeURIComponent(e.message));
@@ -61,7 +61,7 @@ authRoutes.get('/tiendanube/callback', async (req, res) => {
       access_token: data.access_token,
       store_id: data.user_id
     };
-    persistTokens();
+    await persistTokensAsync();
     const baseUrl = process.env.WEBHOOK_BASE_URL;
     if (baseUrl && data.access_token && data.user_id) {
       try {

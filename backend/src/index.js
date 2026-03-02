@@ -3,6 +3,14 @@ import express from 'express';
 import cors from 'cors';
 import { initDb } from './db.js';
 import { tokens, tryRefreshMlToken, loadTokens } from './store.js';
+
+// Evitar que un rechazo no manejado o excepción no capturada tiren el proceso (Railway no reinicia por "segundo sync").
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
 import { authRoutes } from './routes/auth.js';
 import { mappingRoutes } from './routes/mapping.js';
 import { syncRoutes } from './routes/sync.js';

@@ -91,6 +91,24 @@ export function persistTokens() {
   }
 }
 
+/** Persiste tokens y espera a que la DB termine (para que sobrevivan reinicios del contenedor). */
+export async function persistTokensAsync() {
+  const payload = tokensPayload();
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(TOKENS_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Error guardando tokens:', e.message);
+  }
+  if (hasDatabase()) {
+    try {
+      await setOAuthTokens(payload);
+    } catch (e) {
+      console.error('Error guardando tokens en DB:', e.message);
+    }
+  }
+}
+
 /** Margen para refrescar el token de ML antes de que venza (24 h). Recomendación de ML: refrescar de forma proactiva. */
 const ML_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000;
 
@@ -128,7 +146,7 @@ export async function tryRefreshMlToken() {
     t.refresh_token = data.refresh_token || t.refresh_token;
     t.expires_at = data.expires_in ? Date.now() + data.expires_in * 1000 : null;
     if (data.user_id != null) t.user_id = data.user_id;
-    persistTokens();
+    await persistTokensAsync();
     return t.access_token;
   } catch (e) {
     console.warn('ML refresh token failed:', e.message);
