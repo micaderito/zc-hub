@@ -182,7 +182,19 @@ function groupBySku(rows, key = 'sku') {
   return bySku;
 }
 
+/** Solo una ejecución a la vez: evita 429 cuando varios requests (GET, POST, webhook) piden análisis en paralelo. */
+let analysisInFlight = null;
+
 export async function getAnalysis() {
+  if (analysisInFlight) return analysisInFlight;
+  const p = getAnalysisImpl().finally(() => {
+    analysisInFlight = null;
+  });
+  analysisInFlight = p;
+  return p;
+}
+
+async function getAnalysisImpl() {
   const accessToken = await getMlToken();
   const mlConnected = !!accessToken;
   const tnConnected = !!tokens.tiendanube?.access_token;

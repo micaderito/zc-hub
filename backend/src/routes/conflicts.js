@@ -78,8 +78,8 @@ conflictsRoutes.post('/update-sku', async (req, res) => {
       );
       await getAnalysis();
       return res.json({ ok: true });
-    } catch (e) {
-      const msg = e.message || 'No se pudo actualizar el SKU en Tienda Nube';
+  } catch (e) {
+    const msg = e.message || 'No se pudo actualizar el SKU en Tienda Nube';
       return res.status(502).json({ error: msg });
     }
   }
