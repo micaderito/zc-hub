@@ -127,20 +127,22 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
     const order = await tn.getOrder(tokens.tiendanube.access_token, tokens.tiendanube.store_id, id);
     if (!order) return;
     const products = order.products || [];
+    // order.number = número secuencial que ve el dueño/cliente (ej. 306); order.id = id interno.
+    const orderNumber = String(order.number ?? order.id ?? id);
     if (event === 'order/cancelled') {
       const claimed = await tryClaimOrderProcessing('tiendanube', String(id), 'restore');
       if (!claimed) {
         console.log('[Webhook TN] Orden %s ya se restauró stock (idempotencia), no se vuelve a restaurar.', id);
         return;
       }
-      await onTiendaNubeOrderCancelled(products, id);
+      await onTiendaNubeOrderCancelled(products, orderNumber);
     } else {
       const claimed = await tryClaimOrderProcessing('tiendanube', String(id), 'deduct');
       if (!claimed) {
         console.log('[Webhook TN] Orden %s ya procesada (idempotencia), no se vuelve a descontar.', id);
         return;
       }
-      await onTiendaNubeOrderPaid(products, id);
+      await onTiendaNubeOrderPaid(products, orderNumber);
     }
   } catch (e) {
     console.error('Webhook TN:', e);
