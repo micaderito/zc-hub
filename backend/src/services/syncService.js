@@ -143,6 +143,27 @@ export async function restoreStockMercadoLibre(sku, quantity) {
   return { ok, stockBefore, stockAfter: newQty };
 }
 
+/**
+ * Revierte un registro del historial: suma de nuevo la cantidad en el canal que se había descontado.
+ * @param {{ sku: string, quantity: number, updatedChannel: string }} row - fila del audit
+ * @returns {{ ok: boolean, error?: string }}
+ */
+export async function revertSyncAudit(row) {
+  const sku = (row.sku || '').trim();
+  const quantity = Math.max(0, Number(row.quantity) || 0);
+  const channel = (row.updatedChannel || '').toLowerCase();
+  if (!sku || quantity <= 0) return { ok: false, error: 'SKU o cantidad inválidos' };
+  if (channel === 'tiendanube') {
+    const out = await restoreStockTiendaNube(sku, quantity);
+    return { ok: out.ok, error: out.ok ? undefined : 'No se pudo restaurar stock en Tienda Nube (revisá que el SKU siga vinculado)' };
+  }
+  if (channel === 'mercadolibre') {
+    const out = await restoreStockMercadoLibre(sku, quantity);
+    return { ok: out.ok, error: out.ok ? undefined : 'No se pudo restaurar stock en Mercado Libre (revisá que el SKU siga vinculado)' };
+  }
+  return { ok: false, error: 'Canal no reconocido' };
+}
+
 /** Dado un item_id (y opcional variation_id) de ML, encontrar SKU y descontar en TN. Solo si sync está activada. */
 export async function onMercadoLibreOrderPaid(orderItems, orderId = '') {
   const enabled = await getSyncEnabled();

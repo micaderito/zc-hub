@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { syncPricesForSku, approvePendingReturn } from '../services/syncService.js';
+import { syncPricesForSku, approvePendingReturn, revertSyncAudit } from '../services/syncService.js';
 import { getResolvedSkus, getSkuByMlItem, getMlToken, tokens } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, setSyncEnabled, getAuditLog, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem } from '../db.js';
+import { getSyncEnabled, setSyncEnabled, getAuditLog, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem } from '../db.js';
 
 export const syncRoutes = Router();
 
@@ -46,13 +46,32 @@ syncRoutes.patch('/config', async (req, res) => {
   }
 });
 
-/** Historial de sincronización: ventas que descontaron stock en el otro canal. */
+/** Historial de sincronización: ventas que descontaron stock en el otro canal. Query: limit, offset, orderId (filtrar por nº de venta). */
 syncRoutes.get('/audit', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 100, 500);
     const offset = Number(req.query.offset) || 0;
-    const { rows, total } = await getAuditLog(limit, offset);
+    const orderId = (req.query.orderId || '').trim();
+    const { rows, total } = await getAuditLog(limit, offset, orderId);
     res.json({ rows, total });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Revierte un registro del historial: vuelve a sumar en el canal donde se había descontado. */
+syncRoutes.post('/audit/:id/revert', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id || Number.isNaN(id)) return res.status(400).json({ error: 'id inválido' });
+  try {
+    const row = await getAuditRowById(id);
+    if (!row) return res.status(404).json({ error: 'Registro no encontrado' });
+    if (row.revertedAt) return res.status(400).json({ error: 'Este registro ya fue revertido' });
+    const result = await revertSyncAudit(row);
+    if (!result.ok) return res.status(502).json({ error: result.error || 'No se pudo revertir' });
+    const updated = await setAuditReverted(id);
+    if (!updated) return res.status(409).json({ error: 'El registro fue revertido por otro proceso' });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

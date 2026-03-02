@@ -13,6 +13,17 @@ import {
 
 export const webhookRoutes = Router();
 
+/** Solo descontar ventas ML que se hayan pagado hace menos de esto (evita procesar órdenes viejas al activar sync o webhooks por entrega). */
+const ORDER_PAID_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 horas
+
+function orderPaidRecently(order) {
+  const dateStr = order.date_closed || order.date_last_updated || order.date_created;
+  if (!dateStr) return false;
+  const t = new Date(dateStr).getTime();
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t <= ORDER_PAID_MAX_AGE_MS;
+}
+
 /** Mercado Libre envía POST con application_id, resource, topic, etc. */
 webhookRoutes.post('/mercadolibre', async (req, res) => {
   res.status(200).send();
@@ -51,6 +62,10 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
       }
       if (await hasOrderProcessingClaimed('mercadolibre', orderId, 'restore')) {
         console.log('[Webhook ML] Orden %s ya fue cancelada/restaurada, no se descuenta.', orderId);
+        return;
+      }
+      if (!orderPaidRecently(order)) {
+        console.log('[Webhook ML] Orden %s pagada hace más de 2 h (date_closed/date_created). Solo descontamos ventas recientes; se ignora.', orderId);
         return;
       }
       const claimed = await tryClaimOrderProcessing('mercadolibre', orderId, 'deduct');

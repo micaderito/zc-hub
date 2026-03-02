@@ -28,6 +28,11 @@ export class SyncComponent implements OnInit {
   auditTotal = 0;
   auditLoading = true;
   auditError: string | null = null;
+  /** Filtro por nº de venta (order_id). */
+  auditOrderIdSearch = '';
+  /** ID del registro que se está revirtiendo (para deshabilitar solo ese botón). */
+  revertingAuditId: number | null = null;
+  revertError: string | null = null;
 
   /** Habilita la query de devoluciones cuando hay DB (se setea al cargar config). */
   hasDatabaseForReturns = false;
@@ -90,7 +95,9 @@ export class SyncComponent implements OnInit {
   loadAudit(): void {
     this.auditLoading = true;
     this.auditError = null;
-    this.sync.getAudit(100, 0).subscribe({
+    this.revertError = null;
+    const orderId = this.auditOrderIdSearch.trim() || undefined;
+    this.sync.getAudit(100, 0, orderId).subscribe({
       next: (r) => {
         this.auditRows = r.rows;
         this.auditTotal = r.total;
@@ -106,6 +113,27 @@ export class SyncComponent implements OnInit {
   /** Actualizar la lista del historial de sincronización. */
   refreshAudit(): void {
     this.loadAudit();
+  }
+
+  /** Buscar en el historial por nº de venta (vuelve a cargar con el filtro). */
+  searchAuditByOrderId(): void {
+    this.loadAudit();
+  }
+
+  revertAudit(row: SyncAuditRow): void {
+    if (row.revertedAt) return;
+    this.revertError = null;
+    this.revertingAuditId = row.id;
+    this.sync.revertAudit(row.id).subscribe({
+      next: () => {
+        this.revertingAuditId = null;
+        this.loadAudit();
+      },
+      error: (e) => {
+        this.revertingAuditId = null;
+        this.revertError = e.error?.error || e.message || 'No se pudo revertir.';
+      }
+    });
   }
 
   toggleSync(enabled: boolean): void {

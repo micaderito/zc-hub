@@ -55,6 +55,7 @@ export async function initDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS reverted_at TIMESTAMPTZ;`);
 
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_pending_returns (
@@ -241,30 +242,82 @@ export async function insertAuditLog(row) {
  * Lista el historial de sincronización (más recientes primero).
  * @param {number} limit
  * @param {number} offset
+ * @param {string} [orderId] - filtrar por nº de venta (order_id contiene el texto)
  */
-export async function getAuditLog(limit = 100, offset = 0) {
+export async function getAuditLog(limit = 100, offset = 0, orderId = '') {
   const p = getPool();
   if (!p) return { rows: [], total: 0 };
   try {
-    const countResult = await p.query('SELECT COUNT(*)::int AS total FROM sync_audit');
+    const orderFilter = orderId && String(orderId).trim();
+    const countSql = orderFilter
+      ? 'SELECT COUNT(*)::int AS total FROM sync_audit WHERE order_id ILIKE $1'
+      : 'SELECT COUNT(*)::int AS total FROM sync_audit';
+    const countParams = orderFilter ? ['%' + String(orderId).trim() + '%'] : [];
+    const countResult = await p.query(countSql, countParams);
     const total = countResult.rows[0]?.total ?? 0;
-    const result = await p.query(
-      `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sku, product_label AS "productLabel",
-              quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-              created_at AS "createdAt"
-       FROM sync_audit
-       ORDER BY created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [Math.min(limit, 500), offset]
-    );
+
+    const listSql = orderFilter
+      ? `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sku, product_label AS "productLabel",
+                quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
+                created_at AS "createdAt", reverted_at AS "revertedAt"
+         FROM sync_audit
+         WHERE order_id ILIKE $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`
+      : `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sku, product_label AS "productLabel",
+                quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
+                created_at AS "createdAt", reverted_at AS "revertedAt"
+         FROM sync_audit
+         ORDER BY created_at DESC
+         LIMIT $1 OFFSET $2`;
+    const listParams = orderFilter
+      ? ['%' + String(orderId).trim() + '%', Math.min(limit, 500), offset]
+      : [Math.min(limit, 500), offset];
+    const result = await p.query(listSql, listParams);
     const rows = result.rows.map(r => ({
       ...r,
-      createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null
+      createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+      revertedAt: r.revertedAt ? new Date(r.revertedAt).toISOString() : null
     }));
     return { rows, total };
   } catch (e) {
     console.error('getAuditLog:', e.message);
     return { rows: [], total: 0 };
+  }
+}
+
+/** Obtiene una fila del historial por id. */
+export async function getAuditRowById(id) {
+  const p = getPool();
+  if (!p || !id) return null;
+  try {
+    const r = await p.query(
+      `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sku, product_label AS "productLabel",
+              quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
+              reverted_at AS "revertedAt"
+       FROM sync_audit WHERE id = $1`,
+      [Number(id)]
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    return { ...row, revertedAt: row.revertedAt ? new Date(row.revertedAt) : null };
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Marca una fila del historial como revertida. */
+export async function setAuditReverted(id) {
+  const p = getPool();
+  if (!p || !id) return false;
+  try {
+    const r = await p.query(
+      'UPDATE sync_audit SET reverted_at = NOW() WHERE id = $1 AND reverted_at IS NULL RETURNING 1',
+      [Number(id)]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    return false;
   }
 }
 

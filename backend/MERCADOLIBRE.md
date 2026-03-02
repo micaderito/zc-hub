@@ -27,8 +27,12 @@ A diferencia de Tienda Nube, **Mercado Libre no usa registro de webhooks por API
 Cuando ML envía un POST a `/api/webhooks/mercadolibre` con `topic` `orders` o `orders_v2` y un `resource` tipo `/orders/123456`, el backend:
 
 - Hace GET a la API de ML para obtener el detalle de la orden.
-- Si la orden está pagada/confirmada → descuenta stock en Tienda Nube (por SKU vinculado).
-- Si la orden está cancelada → restaura stock en Tienda Nube.
+- Si la orden está **cancelada** → restaura stock en Tienda Nube (por SKU vinculado).
+- Si la orden está **pagada/confirmada** → solo descuenta stock en TN si la orden se pagó **hace menos de 2 horas** (`date_closed` / `date_created`). Así evitamos descontar por órdenes viejas cuando:
+  - Recién activás la sincronización y ML reenvía notificaciones de ventas anteriores.
+  - Llega un webhook por otro cambio (ej. “producto enviado” o “entregado”): la orden sigue con status pagado pero `date_closed` es antigua y no se vuelve a descontar.
+
+No se puede registrar solo el evento “venta pagada”: ML envía el mismo tema para distintos cambios de la orden, por eso filtramos por estado y por fecha.
 
 Asegurate de tener **sincronización activada** y productos vinculados por SKU en la página Conflictos / Precio y stock.
 

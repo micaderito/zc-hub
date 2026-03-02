@@ -18,6 +18,7 @@ export interface SyncAuditRow {
   stockBefore: number;
   stockAfter: number;
   createdAt: string;
+  revertedAt?: string | null;
 }
 
 export interface SyncAuditResponse {
@@ -56,10 +57,15 @@ export class SyncService {
     return this.http.patch<{ enabled: boolean }>(`${this.api.baseUrl}/sync/config`, { enabled });
   }
 
-  getAudit(limit = 100, offset = 0) {
-    return this.http.get<SyncAuditResponse>(`${this.api.baseUrl}/sync/audit`, {
-      params: { limit: String(limit), offset: String(offset) }
-    });
+  getAudit(limit = 100, offset = 0, orderId?: string) {
+    const params: Record<string, string> = { limit: String(limit), offset: String(offset) };
+    if (orderId != null && orderId.trim()) params['orderId'] = orderId.trim();
+    return this.http.get<SyncAuditResponse>(`${this.api.baseUrl}/sync/audit`, { params });
+  }
+
+  /** Revierte un registro del historial: vuelve a sumar el stock en el canal donde se había descontado. */
+  revertAudit(id: number) {
+    return this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/sync/audit/${id}/revert`, {});
   }
 
   /** Sincronizar precios de todos los SKU a ML y TN. */

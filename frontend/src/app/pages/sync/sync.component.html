@@ -120,6 +120,14 @@
       } @else if (auditRows.length === 0) {
         <p class="empty">Aún no hay registros. Cuando la sincronización esté activada y ocurra una venta, acá aparecerá cada descuento de stock.</p>
       } @else {
+        <div class="audit-search-bar">
+          <label for="audit-order-search">Buscar por nº de venta</label>
+          <input id="audit-order-search" type="text" [(ngModel)]="auditOrderIdSearch" placeholder="Ej. 1234567890" class="audit-search-input" (keyup.enter)="searchAuditByOrderId()" />
+          <button type="button" class="btn-audit-search" (click)="searchAuditByOrderId()">Buscar</button>
+        </div>
+        @if (revertError) {
+          <p class="alert error">{{ revertError }}</p>
+        }
         <table class="audit-table">
           <thead>
             <tr>
@@ -131,11 +139,12 @@
               <th>Actualizado en</th>
               <th>Stock antes</th>
               <th>Stock después</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             @for (row of auditRows; track row.id) {
-              <tr>
+              <tr [class.audit-row-reverted]="row.revertedAt">
                 <td>{{ formatDate(row.createdAt) }}</td>
                 <td>{{ channelLabel(row.channelSale) }}</td>
                 <td><code>{{ row.orderId || '—' }}</code></td>
@@ -149,6 +158,15 @@
                 <td>{{ channelLabel(row.updatedChannel) }}</td>
                 <td>{{ row.stockBefore }}</td>
                 <td>{{ row.stockAfter }}</td>
+                <td class="audit-actions">
+                  @if (row.revertedAt) {
+                    <span class="reverted-badge">Revertido</span>
+                  } @else {
+                    <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + (row.updatedChannel === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube')">
+                      {{ revertingAuditId === row.id ? '…' : 'Revertir' }}
+                    </button>
+                  }
+                </td>
               </tr>
             }
           </tbody>
