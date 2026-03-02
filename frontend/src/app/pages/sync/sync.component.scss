@@ -244,6 +244,18 @@
         background: #2868c7;
       }
     }
+    .btn-clear-search {
+      padding: 0.4rem 0.75rem;
+      font-size: 0.9rem;
+      border: 1px solid #6c757d;
+      background: #fff;
+      color: #6c757d;
+      border-radius: 6px;
+      cursor: pointer;
+      &:hover {
+        background: #f0f0f0;
+      }
+    }
   }
   .returns-section {
     .returns-section-header {

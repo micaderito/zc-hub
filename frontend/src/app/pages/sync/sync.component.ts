@@ -120,6 +120,12 @@ export class SyncComponent implements OnInit {
     this.loadAudit();
   }
 
+  /** Limpiar el filtro de búsqueda y cargar el listado completo. */
+  clearAuditSearch(): void {
+    this.auditOrderIdSearch = '';
+    this.loadAudit();
+  }
+
   revertAudit(row: SyncAuditRow): void {
     if (row.revertedAt) return;
     this.revertError = null;

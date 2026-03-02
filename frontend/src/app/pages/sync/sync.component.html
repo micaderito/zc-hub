@@ -117,17 +117,27 @@
         <p>Cargando historial…</p>
       } @else if (auditError) {
         <p class="alert error">{{ auditError }}</p>
-      } @else if (auditRows.length === 0) {
-        <p class="empty">Aún no hay registros. Cuando la sincronización esté activada y ocurra una venta, acá aparecerá cada descuento de stock.</p>
       } @else {
         <div class="audit-search-bar">
           <label for="audit-order-search">Buscar por nº de venta o id. ítem</label>
           <input id="audit-order-search" type="text" [(ngModel)]="auditOrderIdSearch" placeholder="Ej. 1234567890 o MLA123" class="audit-search-input" (keyup.enter)="searchAuditByOrderId()" />
           <button type="button" class="btn-audit-search" (click)="searchAuditByOrderId()">Buscar</button>
+          @if (auditOrderIdSearch.trim()) {
+            <button type="button" class="btn-clear-search" (click)="clearAuditSearch()" title="Ver listado completo">Limpiar filtro</button>
+          }
         </div>
         @if (revertError) {
           <p class="alert error">{{ revertError }}</p>
         }
+        @if (auditRows.length === 0) {
+          <p class="empty">
+            @if (auditOrderIdSearch.trim()) {
+              No hay registros que coincidan con la búsqueda. Probá otro término o usá «Limpiar filtro» para ver todo el historial.
+            } @else {
+              Aún no hay registros. Cuando la sincronización esté activada y ocurra una venta, acá aparecerá cada descuento de stock.
+            }
+          </p>
+        } @else {
         <table class="audit-table">
           <thead>
             <tr>
@@ -180,6 +190,7 @@
         </table>
         @if (auditTotal > auditRows.length) {
           <p class="muted">Mostrando {{ auditRows.length }} de {{ auditTotal }}.</p>
+        }
         }
       }
     </section>
