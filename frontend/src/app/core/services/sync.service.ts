@@ -11,8 +11,12 @@ export interface SyncAuditRow {
   id: number;
   channelSale: 'mercadolibre' | 'tiendanube';
   orderId: string;
+  /** Id. del ítem en esa venta (ML: item_id o item_id:variation_id; TN: variant_id o product_id:variant_id). */
+  saleItemId?: string | null;
   sku: string;
   productLabel: string | null;
+  /** Descripción y variante del producto para identificar más rápido. */
+  productDisplay?: string | null;
   quantity: number;
   updatedChannel: 'mercadolibre' | 'tiendanube';
   stockBefore: number;

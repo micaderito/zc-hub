@@ -46,13 +46,13 @@ syncRoutes.patch('/config', async (req, res) => {
   }
 });
 
-/** Historial de sincronización: ventas que descontaron stock en el otro canal. Query: limit, offset, orderId (filtrar por nº de venta). */
+/** Historial de sincronización. Query: limit, offset, orderId (buscar por nº venta o por id. ítem en la venta). */
 syncRoutes.get('/audit', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 100, 500);
     const offset = Number(req.query.offset) || 0;
-    const orderId = (req.query.orderId || '').trim();
-    const { rows, total } = await getAuditLog(limit, offset, orderId);
+    const search = (req.query.orderId || '').trim();
+    const { rows, total } = await getAuditLog(limit, offset, search);
     res.json({ rows, total });
   } catch (e) {
     res.status(500).json({ error: e.message });

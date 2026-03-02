@@ -9,6 +9,23 @@ import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved } from '../db.js';
 
+/** Arma "descripción | variante" desde el ítem de una orden ML (item.title + variation_attributes). */
+function mlOrderItemDisplay(oi) {
+  const title = oi?.item?.title ?? '';
+  const attrs = oi?.item?.variation_attributes ?? [];
+  const variantPart = attrs.map(a => `${a.name || a.id || ''}: ${a.value_name || a.value || ''}`).filter(Boolean).join(', ');
+  if (!title && !variantPart) return null;
+  return variantPart ? `${title} | ${variantPart}` : title;
+}
+
+/** Arma "descripción · variante" desde el ítem de una orden TN. */
+function tnOrderItemDisplay(item) {
+  const name = item?.name || item?.title || '';
+  const variant = item?.variant_name || item?.variant || item?.option ?? '';
+  if (!name && !variant) return null;
+  return variant ? `${name} · ${variant}` : name;
+}
+
 /**
  * Escribe el SKU en Mercado Libre y Tienda Nube para un mapeo.
  * Devuelve { ml: boolean, tn: boolean, mlError?: string } según si se pudo actualizar cada uno.
@@ -190,10 +207,14 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '') {
       const out = await deductStockTiendaNube(sku, quantity);
       results.push({ itemId, variationId, sku, quantity, ...out });
       if (out.ok && out.stockBefore !== undefined) {
+        const saleItemId = variationId != null && variationId !== '' ? `${itemId}:${variationId}` : String(itemId);
         await insertAuditLog({
           channelSale: 'mercadolibre',
           orderId: String(orderId),
+          saleItemId,
           sku,
+          productLabel: 'Venta ML',
+          productDisplay: mlOrderItemDisplay(oi),
           quantity,
           updatedChannel: 'tiendanube',
           stockBefore: out.stockBefore,
@@ -232,11 +253,15 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '') {
     const out = await deductStockMercadoLibre(sku, quantity);
     results.push({ variantId, sku, quantity, ...out });
     if (out.ok && out.stockBefore !== undefined) {
+      const productId = item.product_id ?? item.productId;
+      const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
       await insertAuditLog({
         channelSale: 'tiendanube',
         orderId: String(orderId),
+        saleItemId,
         sku,
-        productLabel: item.name || item.title || null,
+        productLabel: 'Venta TN',
+        productDisplay: tnOrderItemDisplay(item),
         quantity,
         updatedChannel: 'mercadolibre',
         stockBefore: out.stockBefore,
@@ -276,11 +301,14 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '') {
       const out = await restoreStockTiendaNube(sku, quantity);
       results.push({ itemId, variationId, sku, quantity, ...out });
       if (out.ok && out.stockBefore !== undefined) {
+        const saleItemId = variationId != null && variationId !== '' ? `${itemId}:${variationId}` : String(itemId);
         await insertAuditLog({
           channelSale: 'mercadolibre',
           orderId: String(orderId),
+          saleItemId,
           sku,
           productLabel: 'Cancelación ML',
+          productDisplay: mlOrderItemDisplay(oi),
           quantity,
           updatedChannel: 'tiendanube',
           stockBefore: out.stockBefore,
@@ -307,11 +335,15 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '') {
     const out = await restoreStockMercadoLibre(sku, quantity);
     results.push({ variantId, sku, quantity, ...out });
     if (out.ok && out.stockBefore !== undefined) {
+      const productId = item.product_id ?? item.productId;
+      const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
       await insertAuditLog({
         channelSale: 'tiendanube',
         orderId: String(orderId),
+        saleItemId,
         sku,
         productLabel: 'Cancelación TN',
+        productDisplay: tnOrderItemDisplay(item),
         quantity,
         updatedChannel: 'mercadolibre',
         stockBefore: out.stockBefore,
@@ -375,11 +407,14 @@ export async function approvePendingReturn(returnId) {
     const outMl = await restoreStockMercadoLibre(sku, quantity);
     mlRestored = outMl.ok;
     if (outMl.ok && outMl.stockBefore !== undefined) {
+      const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
       await insertAuditLog({
         channelSale: 'mercadolibre',
         orderId: String(row.orderId),
+        saleItemId,
         sku,
-        productLabel: 'Devolución ML aprobada',
+        productLabel: 'Devolución aprobada',
+        productDisplay: row.productLabel ?? null,
         quantity,
         updatedChannel: 'mercadolibre',
         stockBefore: outMl.stockBefore,
@@ -394,11 +429,14 @@ export async function approvePendingReturn(returnId) {
     const outTn = await restoreStockTiendaNube(sku, quantity);
     tnRestored = outTn.ok;
     if (outTn.ok && outTn.stockBefore !== undefined) {
+      const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
       await insertAuditLog({
         channelSale: 'mercadolibre',
         orderId: String(row.orderId),
+        saleItemId,
         sku,
-        productLabel: 'Devolución ML aprobada',
+        productLabel: 'Devolución aprobada',
+        productDisplay: row.productLabel ?? null,
         quantity,
         updatedChannel: 'tiendanube',
         stockBefore: outTn.stockBefore,

@@ -140,6 +140,45 @@
       color: #666;
       margin-top: 0.15rem;
     }
+    .product-display-cell {
+      max-width: 280px;
+      word-break: break-word;
+      color: #444;
+    }
+    .state-chip {
+      display: inline-block;
+      padding: 0.25rem 0.6rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      border-radius: 999px;
+      white-space: nowrap;
+      &.state-chip--venta-ml {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+      &.state-chip--venta-tn {
+        background: #cce5ff;
+        color: #004085;
+        border: 1px solid #b8daff;
+      }
+      &.state-chip--cancelacion-ml,
+      &.state-chip--cancelacion-tn {
+        background: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeeba;
+      }
+      &.state-chip--devolucion {
+        background: #e2d5f1;
+        color: #4a2c6a;
+        border: 1px solid #d4c4e8;
+      }
+      &.state-chip--neutral {
+        background: #e9ecef;
+        color: #495057;
+        border: 1px solid #dee2e6;
+      }
+    }
     .audit-actions {
       white-space: nowrap;
     }

@@ -121,8 +121,8 @@
         <p class="empty">Aún no hay registros. Cuando la sincronización esté activada y ocurra una venta, acá aparecerá cada descuento de stock.</p>
       } @else {
         <div class="audit-search-bar">
-          <label for="audit-order-search">Buscar por nº de venta</label>
-          <input id="audit-order-search" type="text" [(ngModel)]="auditOrderIdSearch" placeholder="Ej. 1234567890" class="audit-search-input" (keyup.enter)="searchAuditByOrderId()" />
+          <label for="audit-order-search">Buscar por nº de venta o id. ítem</label>
+          <input id="audit-order-search" type="text" [(ngModel)]="auditOrderIdSearch" placeholder="Ej. 1234567890 o MLA123" class="audit-search-input" (keyup.enter)="searchAuditByOrderId()" />
           <button type="button" class="btn-audit-search" (click)="searchAuditByOrderId()">Buscar</button>
         </div>
         @if (revertError) {
@@ -134,7 +134,10 @@
               <th>Fecha</th>
               <th>Canal de la venta</th>
               <th>Nº venta</th>
-              <th>SKU / Producto</th>
+              <th>Id. ítem</th>
+              <th>SKU</th>
+              <th>Estado</th>
+              <th>Descripción / variante</th>
               <th>Cantidad</th>
               <th>Actualizado en</th>
               <th>Stock antes</th>
@@ -148,12 +151,16 @@
                 <td>{{ formatDate(row.createdAt) }}</td>
                 <td>{{ channelLabel(row.channelSale) }}</td>
                 <td><code>{{ row.orderId || '—' }}</code></td>
+                <td><code>{{ row.saleItemId || '—' }}</code></td>
+                <td><code>{{ row.sku }}</code></td>
                 <td>
-                  <code>{{ row.sku }}</code>
                   @if (row.productLabel) {
-                    <span class="product-label">{{ row.productLabel }}</span>
+                    <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
+                  } @else {
+                    —
                   }
                 </td>
+                <td class="product-display-cell">{{ row.productDisplay || '—' }}</td>
                 <td>{{ row.quantity }}</td>
                 <td>{{ channelLabel(row.updatedChannel) }}</td>
                 <td>{{ row.stockBefore }}</td>

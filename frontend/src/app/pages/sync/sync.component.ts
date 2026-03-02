@@ -156,6 +156,18 @@ export class SyncComponent implements OnInit {
     return ch === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube';
   }
 
+  /** Clase CSS del chip de estado (colores por tipo de acción). */
+  stateChipClass(label: string | null | undefined): string {
+    if (!label) return 'state-chip state-chip--neutral';
+    const n = label.toLowerCase().replace(/\s+/g, '-');
+    if (n.includes('venta-ml')) return 'state-chip state-chip--venta-ml';
+    if (n.includes('venta-tn')) return 'state-chip state-chip--venta-tn';
+    if (n.includes('cancelación-ml') || n.includes('cancelacion-ml')) return 'state-chip state-chip--cancelacion-ml';
+    if (n.includes('cancelación-tn') || n.includes('cancelacion-tn')) return 'state-chip state-chip--cancelacion-tn';
+    if (n.includes('devolución') || n.includes('devolucion')) return 'state-chip state-chip--devolucion';
+    return 'state-chip state-chip--neutral';
+  }
+
   formatDate(iso: string): string {
     if (!iso) return '—';
     const d = new Date(iso);
