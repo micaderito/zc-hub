@@ -1,0 +1,162 @@
+<div class="sync-page">
+  <h1>Sincronización de stock</h1>
+  <p class="subtitle">Cuando hay una venta en Mercado Libre o Tienda Nube, podés descontar el stock automáticamente en la otra plataforma. Acá activás o desactivás esa sincronización y ves el historial de cambios.</p>
+
+  @if (error) {
+    <div class="alert error">{{ error }}</div>
+  }
+
+  @if (loading) {
+    <p>Cargando…</p>
+  } @else if (config) {
+    <section class="config-section">
+      <h2>Estado</h2>
+      @if (!config.hasDatabase) {
+        <div class="alert warn">
+          <strong>Base de datos no configurada.</strong> Para activar la sincronización y guardar el historial, configurá DATABASE_URL en el backend (recomendado: Supabase). Ver instrucciones más abajo.
+        </div>
+      } @else {
+        <div class="toggle-row">
+          <span class="toggle-label">Sincronización de stock</span>
+          <label class="switch">
+            <input type="checkbox" [checked]="config.enabled" (change)="toggleSync($any($event.target).checked)" [disabled]="savingToggle" />
+            <span class="slider"></span>
+          </label>
+          <span class="toggle-status">{{ config.enabled ? 'Activada' : 'Desactivada' }}</span>
+        </div>
+        <p class="help">Si está activada, cada venta en ML o TN descontará el stock en la otra plataforma (según el SKU vinculado). Por defecto viene desactivada.</p>
+        <div class="webhooks-row">
+          <button type="button" class="btn-register-webhooks" (click)="registerWebhooks()" [disabled]="registeringWebhooks" title="Registrar en Tienda Nube la URL que recibe órdenes (pagadas, canceladas, etc.). Útil si cambiaste la URL de ngrok.">
+            {{ registeringWebhooks ? 'Registrando…' : 'Registrar webhooks Tienda Nube' }}
+          </button>
+          @if (webhooksResult) {
+            <span class="webhooks-result" [class.error]="webhooksResult.startsWith('Error')">{{ webhooksResult }}</span>
+          }
+        </div>
+        <p class="help muted">Tienda Nube debe tener configurada la URL pública (WEBHOOK_BASE_URL en el backend). Si cambiás de ngrok, actualizá esa variable y usá este botón.</p>
+      }
+    </section>
+
+    @if (config.hasDatabase) {
+    <section class="returns-section">
+      <div class="returns-section-header">
+        <h2>Devoluciones de Mercado Libre</h2>
+        <button type="button" class="btn-refresh-returns" (click)="refreshReturns()" [disabled]="fetchingReturns" title="Traer devoluciones desde ML y refrescar la lista">
+          {{ fetchingReturns ? 'Actualizando…' : 'Actualizar' }}
+        </button>
+      </div>
+      <p class="help">Al entrar a esta página se buscan las devoluciones en ML. Cuando hayas verificado cada una, usá «Restaurar stock (ML y TN)» y restauramos en ambas plataformas.</p>
+
+      <div class="returns-actions">
+        <span class="returns-add-label">Agregar por nº de orden:</span>
+        <input type="text" [(ngModel)]="returnOrderId" placeholder="Nº de orden ML" class="input-order-id" />
+        <button type="button" (click)="addReturnsByOrder()" [disabled]="!returnOrderId.trim() || addingReturn">
+          {{ addingReturn ? 'Cargando…' : 'Agregar ítems' }}
+        </button>
+      </div>
+      @if (fetchResult) {
+        <p class="fetch-result">{{ fetchResult }}</p>
+      }
+
+      @if (returnsError) {
+        <div class="alert error">{{ returnsError }}</div>
+      }
+
+      @if (returnsLoading) {
+        <p>Cargando devoluciones…</p>
+      } @else if (returnsRows.length === 0) {
+        <p class="empty">No hay devoluciones pendientes. Usá «Actualizar» para buscar de nuevo en ML o agregá una orden por número.</p>
+      } @else {
+        <table class="audit-table returns-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Orden ML</th>
+              <th>SKU / Producto</th>
+              <th>Cantidad</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of returnsRows; track row.id) {
+              <tr>
+                <td>{{ formatDate(row.createdAt) }}</td>
+                <td><code>{{ row.orderId }}</code></td>
+                <td>
+                  <code>{{ row.sku || '—' }}</code>
+                  @if (row.productLabel) {
+                    <span class="product-label">{{ row.productLabel }}</span>
+                  }
+                </td>
+                <td>{{ row.quantity }}</td>
+                <td>
+                  <button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId === row.id">
+                    {{ approvingId === row.id ? 'Restaurando…' : 'Restaurar stock (ML y TN)' }}
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+    </section>
+    }
+
+    <section class="audit-section">
+      <div class="audit-section-header">
+        <h2>Historial de sincronización</h2>
+        @if (config.hasDatabase) {
+          <button type="button" class="btn-refresh-audit" (click)="refreshAudit()" [disabled]="auditLoading" title="Actualizar lista">
+            {{ auditLoading ? 'Actualizando…' : 'Actualizar' }}
+          </button>
+        }
+      </div>
+      @if (!config.hasDatabase) {
+        <p class="muted">El historial se guarda cuando hay una base de datos configurada.</p>
+      } @else if (auditLoading) {
+        <p>Cargando historial…</p>
+      } @else if (auditError) {
+        <p class="alert error">{{ auditError }}</p>
+      } @else if (auditRows.length === 0) {
+        <p class="empty">Aún no hay registros. Cuando la sincronización esté activada y ocurra una venta, acá aparecerá cada descuento de stock.</p>
+      } @else {
+        <table class="audit-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Canal de la venta</th>
+              <th>Nº venta</th>
+              <th>SKU / Producto</th>
+              <th>Cantidad</th>
+              <th>Actualizado en</th>
+              <th>Stock antes</th>
+              <th>Stock después</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of auditRows; track row.id) {
+              <tr>
+                <td>{{ formatDate(row.createdAt) }}</td>
+                <td>{{ channelLabel(row.channelSale) }}</td>
+                <td><code>{{ row.orderId || '—' }}</code></td>
+                <td>
+                  <code>{{ row.sku }}</code>
+                  @if (row.productLabel) {
+                    <span class="product-label">{{ row.productLabel }}</span>
+                  }
+                </td>
+                <td>{{ row.quantity }}</td>
+                <td>{{ channelLabel(row.updatedChannel) }}</td>
+                <td>{{ row.stockBefore }}</td>
+                <td>{{ row.stockAfter }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        @if (auditTotal > auditRows.length) {
+          <p class="muted">Mostrando {{ auditRows.length }} de {{ auditTotal }}.</p>
+        }
+      }
+    </section>
+  }
+</div>

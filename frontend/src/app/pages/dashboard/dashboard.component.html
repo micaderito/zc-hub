@@ -1,0 +1,72 @@
+<div class="dashboard">
+  <h1>Sincronización ML ↔ Tienda Nube</h1>
+  <p class="subtitle">Stock y precios por SKU. Precio distinto para cada canal.</p>
+
+  @if (error) {
+    <div class="alert error">{{ error }}</div>
+  }
+
+  @if (loading) {
+    <p>Cargando estado…</p>
+  } @else if (status) {
+    <section class="connections">
+      <h2>Conexiones</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="badge" [class.connected]="status.mercadolibre" [class.expired]="status.mercadolibreExpired">Mercado Libre</span>
+          @if (status.mercadolibre) {
+            <p>Conectado</p>
+            <button type="button" class="btn-disconnect" (click)="disconnectML()" [disabled]="disconnectingML">Desconectar</button>
+          } @else if (status.mercadolibreExpired) {
+            <p class="expired-msg">Sesión vencida</p>
+            <button type="button" (click)="reconnectML()">Reconectar</button>
+          } @else {
+            <button type="button" (click)="connectML()">Conectar Mercado Libre</button>
+          }
+        </div>
+        <div class="card">
+          <span class="badge" [class.connected]="status.tiendanube" [class.expired]="status.tiendanubeExpired">Tienda Nube</span>
+          @if (status.tiendanube) {
+            <p>Conectado</p>
+            <button type="button" class="btn-disconnect" (click)="disconnectTN()" [disabled]="disconnectingTN">Desconectar</button>
+          } @else if (status.tiendanubeExpired) {
+            <p class="expired-msg">Sesión vencida</p>
+            <button type="button" (click)="reconnectTN()">Reconectar</button>
+          } @else {
+            <button type="button" (click)="connectTN()">Conectar Tienda Nube</button>
+          }
+        </div>
+      </div>
+    </section>
+
+    @if (status.mercadolibre && status.tiendanube) {
+      <section class="sync">
+        <h2>Sincronizar precios</h2>
+        <p>Envía los precios configurados en Precio y stock a cada canal (ML y TN).</p>
+        <button type="button" (click)="syncAllPrices()" [disabled]="syncing">
+          {{ syncing ? 'Sincronizando…' : 'Sincronizar todos los precios' }}
+        </button>
+        @if (syncResult && !syncing) {
+          <div class="sync-result">
+            @for (entry of syncResult | keyvalue; track entry.key) {
+              <div class="row">
+                <strong>{{ entry.key }}</strong>
+                <span>ML: {{ entry.value.ml ? '✓' : '—' }}</span>
+                <span>TN: {{ entry.value.tn ? '✓' : '—' }}</span>
+              </div>
+            }
+          </div>
+        }
+      </section>
+    }
+
+    <section class="info">
+      <h2>Cómo funciona</h2>
+      <ul>
+        <li><strong>Precio y stock:</strong> Ahí definís el SKU y qué publicación de ML y qué variante de TN corresponden. Podés tener un producto con variantes en ML y varios productos en TN: el matcheo es por SKU.</li>
+        <li><strong>Precios:</strong> Definís precio para Mercado Libre y otro para Tienda Nube. Al sincronizar, cada canal recibe su precio.</li>
+        <li><strong>Stock en tiempo real:</strong> Cuando hay una venta en ML o TN, el backend recibe un webhook y descuenta el stock en el otro canal. Necesitás una URL pública (ej. con ngrok) para que ML y TN puedan llamar a tu backend.</li>
+      </ul>
+    </section>
+  }
+</div>

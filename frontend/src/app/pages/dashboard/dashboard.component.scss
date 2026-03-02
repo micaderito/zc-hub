@@ -1,0 +1,124 @@
+.dashboard {
+  h1 {
+    font-size: 1.75rem;
+    margin-bottom: 0.25rem;
+  }
+  .subtitle {
+    color: #666;
+    margin-bottom: 1.5rem;
+  }
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    &.error {
+      background: #fee;
+      color: #c00;
+    }
+  }
+  section {
+    margin-bottom: 2rem;
+    h2 {
+      font-size: 1.1rem;
+      margin-bottom: 0.75rem;
+    }
+  }
+  .cards {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    min-width: 200px;
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      background: #eee;
+      font-size: 0.85rem;
+      margin-bottom: 0.5rem;
+      &.connected {
+        background: #d4edda;
+        color: #155724;
+      }
+      &.expired {
+        background: #fff3cd;
+        color: #856404;
+      }
+    }
+    .expired-msg {
+      color: #856404;
+      font-size: 0.9rem;
+    }
+    p {
+      margin: 0.5rem 0 0;
+      font-size: 0.9rem;
+      color: #555;
+    }
+    button {
+      margin-top: 0.5rem;
+      margin-right: 0.5rem;
+      padding: 0.4rem 0.8rem;
+      background: #3483fa;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      &:hover {
+        background: #2968c8;
+      }
+      &.reconnect {
+        background: transparent;
+        color: #3483fa;
+        border: 1px solid #3483fa;
+        &:hover {
+          background: #e8f4ff;
+        }
+      }
+      &.btn-disconnect {
+        background: transparent;
+        color: #666;
+        border: 1px solid #ccc;
+        &:hover:not(:disabled) {
+          background: #f5f5f5;
+          border-color: #999;
+        }
+        &:disabled {
+          opacity: 0.7;
+          cursor: wait;
+        }
+      }
+    }
+  }
+  .sync button {
+    padding: 0.5rem 1rem;
+    background: #28a745;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    &:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+  }
+  .sync-result {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    .row {
+      display: flex;
+      gap: 1rem;
+      padding: 0.25rem 0;
+    }
+  }
+  .info ul {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: #444;
+    line-height: 1.5;
+  }
+}

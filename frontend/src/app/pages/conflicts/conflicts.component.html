@@ -1,0 +1,261 @@
+<div class="conflicts">
+  <div class="page-header">
+    <div>
+      <h1>Sincronizar y resolver conflictos</h1>
+      <p class="subtitle">Ya tenés productos en ambas cuentas. Acá podés ver coincidencias por SKU, ítems sin par, sin SKU o con SKU duplicado, y resolverlos manualmente.</p>
+    </div>
+    @if (analysis && !loading) {
+      <button type="button" class="btn-refresh" (click)="refreshAnalysis()" [disabled]="fetching" [title]="fetching ? 'Actualizando…' : 'Actualizar lista'">
+        {{ fetching ? 'Actualizando…' : 'Actualizar' }}
+      </button>
+    }
+  </div>
+
+  @if (error) {
+    <div class="alert error">{{ error }}</div>
+  }
+
+  @if (loading) {
+    <p>Cargando análisis…</p>
+  } @else if (analysis && !analysis.mlConnected) {
+    <p class="alert">Conectá Mercado Libre en <a routerLink="/">Inicio</a>.</p>
+  } @else if (analysis && !analysis.tnConnected) {
+    <p class="alert">Conectá Tienda Nube en <a routerLink="/">Inicio</a>.</p>
+  } @else if (analysis) {
+    @if (analysis.mlAuthError) {
+      <p class="alert">La sesión de Mercado Libre venció. Reconectá desde <a routerLink="/">Inicio</a> para ver ítems de ML.</p>
+    }
+    <div class="summary">
+      <div class="card info"><span class="num">{{ analysis.summary.totalML ?? '—' }}</span> Ítems ML</div>
+      <div class="card info"><span class="num">{{ analysis.summary.totalTN ?? '—' }}</span> Variantes TN</div>
+      <div class="card"><span class="num">{{ analysis.summary.matched }}</span> Coinciden por SKU</div>
+      <div class="card"><span class="num">{{ analysis.summary.resolved }}</span> Vinculados (mismo SKU)</div>
+      <div class="card warn"><span class="num">{{ analysis.summary.onlyML }}</span> Solo en ML</div>
+      <div class="card warn"><span class="num">{{ analysis.summary.onlyTN }}</span> Solo en TN</div>
+      <div class="card warn"><span class="num">{{ analysis.summary.noSkuML + analysis.summary.noSkuTN }}</span> Sin SKU</div>
+      <div class="card warn"><span class="num">{{ analysis.summary.duplicateSkuML + analysis.summary.duplicateSkuTN }}</span> SKU duplicados</div>
+    </div>
+
+    <div class="list-area">
+    @if (fetching) {
+      <div class="refetch-overlay" aria-live="polite">
+        <span class="refetch-spinner" aria-hidden="true"></span>
+        <span>Actualizando lista…</span>
+      </div>
+    }
+    <div class="tabs">
+      <button type="button" [class.active]="tab === 'resumen'" (click)="tab = 'resumen'">Resumen</button>
+      <button type="button" [class.active]="tab === 'coincidencias'" (click)="tab = 'coincidencias'">Coincidencias ({{ analysis.matched.length }})</button>
+      <button type="button" [class.active]="tab === 'solo-ml'" (click)="tab = 'solo-ml'">Solo en ML ({{ analysis.onlyML.length }})</button>
+      <button type="button" [class.active]="tab === 'solo-tn'" (click)="tab = 'solo-tn'">Solo en TN ({{ analysis.onlyTN.length }})</button>
+      <button type="button" [class.active]="tab === 'sin-sku'" (click)="tab = 'sin-sku'">Sin SKU ({{ analysis.noSkuML.length + analysis.noSkuTN.length }})</button>
+      <button type="button" [class.active]="tab === 'duplicados'" (click)="tab = 'duplicados'">Duplicados ({{ analysis.duplicateSkuML.length + analysis.duplicateSkuTN.length }})</button>
+    </div>
+
+    @if (tab !== 'resumen') {
+      <div class="search-bar">
+        <input type="text" [(ngModel)]="searchQuery" placeholder="Buscar por título o SKU…" class="search-input" />
+      </div>
+    }
+
+    @if (tab === 'resumen') {
+      <app-conflicts-resumen-tab [analysis]="analysis" />
+    }
+    @if (tab === 'coincidencias') {
+      <app-conflicts-coincidencias-tab
+        [analysis]="analysis"
+        [searchQuery]="searchQuery"
+        (editSku)="onEditSku($event)"
+        (editBothSku)="openEditBothSkuModal($event)"
+      />
+    }
+    @if (tab === 'solo-ml') {
+      <app-conflicts-solo-ml-tab
+        [rows]="analysis.onlyML"
+        [searchQuery]="searchQuery"
+        (editSku)="onEditSku($event)"
+        (linkFromMl)="openLinkFromMl($event)"
+      />
+    }
+    @if (tab === 'solo-tn') {
+      <app-conflicts-solo-tn-tab
+        [rows]="analysis.onlyTN"
+        [searchQuery]="searchQuery"
+        (editSku)="onEditSku($event)"
+        (linkFromTn)="openLinkFromTn($event)"
+      />
+    }
+    @if (tab === 'sin-sku') {
+      <app-conflicts-sin-sku-tab
+        [noSkuML]="analysis.noSkuML"
+        [noSkuTN]="analysis.noSkuTN"
+        [searchQuery]="searchQuery"
+        (editSku)="onEditSku($event)"
+        (linkFromMl)="openLinkFromMl($event)"
+        (linkFromTn)="openLinkFromTn($event)"
+      />
+    }
+    @if (tab === 'duplicados') {
+      <app-conflicts-duplicados-tab
+        [duplicateSkuML]="analysis.duplicateSkuML"
+        [duplicateSkuTN]="analysis.duplicateSkuTN"
+        [searchQuery]="searchQuery"
+        (editSku)="onEditSku($event)"
+        (editBulkSku)="onBulkEditSku($event)"
+      />
+    }
+    </div>
+
+    <!-- Modal: Vincular manualmente -->
+    @if (showLinkModal) {
+      <div class="modal">
+        <div class="modal-content">
+          <h2>Vincular publicación ML con variante TN</h2>
+          <p>Indicá qué publicación de Mercado Libre corresponde a qué variante de Tienda Nube y con qué SKU (único). Opcionalmente actualizamos el SKU en ambas plataformas.</p>
+          @if (linkError) {
+            <div class="alert error">{{ linkError }}</div>
+          }
+          <div class="link-pair">
+            @if (linkMl) {
+              <div class="side">
+                @if (linkMl.thumbnail) { <img [src]="linkMl.thumbnail" alt="" class="pair-thumb" /> }
+                <span><strong>ML</strong> {{ mlLabel(linkMl) }} <code>{{ linkMl.sku || '—' }}</code></span>
+              </div>
+            }
+            @if (linkTn) {
+              <div class="side">
+                @if (linkTn.thumbnail) { <img [src]="linkTn.thumbnail" alt="" class="pair-thumb" /> }
+                <span><strong>TN</strong> {{ tnLabel(linkTn) }} <code>{{ linkTn.sku || '—' }}</code></span>
+              </div>
+            }
+          </div>
+          @if (linkMl && !linkTn && analysis) {
+            <p>Elegí la variante de Tienda Nube a vincular:</p>
+            <input type="text" [(ngModel)]="linkSearchQuery" placeholder="Buscar por título o SKU…" class="link-modal-search" />
+            <div class="pick-list">
+              @for (tn of filteredLinkTnOptions; track tn.productId + tn.variantId) {
+                <button type="button" class="chip" (click)="chooseTnForLink(tn)">
+                  @if (tn.thumbnail) { <img [src]="tn.thumbnail" alt="" class="chip-thumb" /> }
+                  {{ tnLabel(tn) }} ({{ tn.sku || 'sin SKU' }})
+                </button>
+              }
+            </div>
+          }
+          @if (linkTn && !linkMl && analysis) {
+            <p>Elegí la publicación de Mercado Libre a vincular:</p>
+            <input type="text" [(ngModel)]="linkSearchQuery" placeholder="Buscar por título o SKU…" class="link-modal-search" />
+            <div class="pick-list">
+              @for (ml of filteredLinkMlOptions; track ml.itemId + (ml.variationId || '')) {
+                <button type="button" class="chip" (click)="chooseMlForLink(ml)">
+                  @if (ml.thumbnail) { <img [src]="ml.thumbnail" alt="" class="chip-thumb" /> }
+                  {{ mlLabel(ml) }} ({{ ml.sku || 'sin SKU' }})
+                </button>
+              }
+            </div>
+          }
+          @if (linkMl && linkTn) {
+            <label>
+              SKU (único para este par)
+              <input type="text" [(ngModel)]="linkSku" placeholder="ej. CUAD-A4-100" />
+            </label>
+            <p class="help">Al vincular solo se actualiza el SKU en ambas plataformas. Los precios son opcionales.</p>
+            <details class="optional-prices">
+              <summary>Actualizar también precios (opcional)</summary>
+              <label>
+                Precio ML
+                <span class="input-currency">
+                  <input type="text" appCurrencyInput [(ngModel)]="linkPriceML" placeholder="0,00" />
+                </span>
+              </label>
+              <label>
+                Precio TN
+                <span class="input-currency">
+                  <input type="text" appCurrencyInput [(ngModel)]="linkPriceTN" placeholder="0,00" />
+                </span>
+              </label>
+            </details>
+            <div class="modal-actions">
+              <button type="button" (click)="closeLinkModal()">Cancelar</button>
+              <button type="button" (click)="saveLink()" [disabled]="savingLink || !linkSku.trim()">{{ savingLink ? 'Guardando…' : 'Vincular' }}</button>
+            </div>
+          }
+          @if (!linkMl || !linkTn) {
+            <div class="modal-actions">
+              <button type="button" (click)="closeLinkModal()">Cerrar</button>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Modal: Editar ambos SKU (coincidencias) -->
+    @if (showEditBothSkuModal && editBothPair) {
+      <div class="modal">
+        <div class="modal-content">
+          <h2>Editar ambos SKU</h2>
+          <p>Actualizá el SKU en Mercado Libre y en Tienda Nube para este par.</p>
+          <p class="edit-target">{{ mlLabel(editBothPair.ml) }}</p>
+          <p class="edit-target">{{ tnLabel(editBothPair.tn) }}</p>
+          <label>
+            SKU en Mercado Libre
+            <input type="text" [(ngModel)]="editBothSkuML" placeholder="ej. CUAD-A4-100" />
+          </label>
+          <label>
+            SKU en Tienda Nube
+            <input type="text" [(ngModel)]="editBothSkuTN" placeholder="ej. CUAD-A4-100" />
+          </label>
+          <div class="modal-actions">
+            <button type="button" (click)="closeEditBothSkuModal()">Cancelar</button>
+            <button type="button" (click)="saveEditBothSku()" [disabled]="savingEditBoth || (!editBothSkuML.trim() && !editBothSkuTN.trim())">
+              {{ savingEditBoth ? 'Guardando…' : 'Guardar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Modal: Editar SKU -->
+    @if (showEditSkuModal && editSkuTarget) {
+      <div class="modal">
+        <div class="modal-content">
+          <h2>Editar SKU</h2>
+          <p>El SKU se actualizará en {{ editSkuTarget.channel === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube' }}.</p>
+          <p class="edit-target">{{ getEditSkuLabel() }}</p>
+          <label>
+            Nuevo SKU
+            <input type="text" [(ngModel)]="editSkuValue" placeholder="ej. CUAD-A4-100" />
+          </label>
+          <div class="modal-actions">
+            <button type="button" (click)="closeEditSkuModal()">Cancelar</button>
+            <button type="button" (click)="saveEditSku()" [disabled]="savingSku || !editSkuValue.trim()">{{ savingSku ? 'Guardando…' : 'Guardar' }}</button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Modal: Edición masiva de SKU (duplicados) -->
+    @if (showBulkEditSkuModal && bulkEditChannel) {
+      <div class="modal">
+        <div class="modal-content modal-content--wide">
+          <h2>Editar SKU en lote</h2>
+          <p>SKU duplicado «<strong>{{ bulkEditSku }}</strong>» en {{ bulkEditChannel === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube' }}. Asigná un SKU único a cada ítem (los que dejes vacíos o igual al actual no se actualizan).</p>
+          @if (bulkEditError) {
+            <div class="alert error">{{ bulkEditError }}</div>
+          }
+          <div class="bulk-edit-list">
+            @for (row of bulkEditItems; track getBulkEditRowTrackId(row); let i = $index) {
+              <div class="bulk-edit-row">
+                <span class="bulk-edit-label">{{ getBulkEditRowLabel(row) }}</span>
+                <input type="text" [(ngModel)]="bulkEditNewSkus[i]" placeholder="Nuevo SKU" class="bulk-edit-input" />
+              </div>
+            }
+          </div>
+          <div class="modal-actions">
+            <button type="button" (click)="closeBulkEditSkuModal()">Cancelar</button>
+            <button type="button" (click)="saveBulkEditSku()" [disabled]="savingBulkSku">{{ savingBulkSku ? 'Actualizando…' : 'Aplicar' }}</button>
+          </div>
+        </div>
+      </div>
+    }
+  }
+</div>

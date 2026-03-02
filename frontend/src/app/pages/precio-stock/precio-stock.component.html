@@ -1,0 +1,132 @@
+<div class="precio-stock">
+  <div class="page-header">
+    <div>
+      <h1>Precio y stock</h1>
+      <p class="subtitle">Solo aparecen productos que coinciden por SKU en ML y TN. Actualizá precios por canal y sincronizá el stock en ambos con un solo valor.</p>
+    </div>
+    @if (analysis() && !loading()) {
+      <button type="button" class="btn-refresh" (click)="refreshAnalysis()" [disabled]="fetching()" [title]="fetching() ? 'Actualizando…' : 'Actualizar lista'">
+        {{ fetching() ? 'Actualizando…' : 'Actualizar' }}
+      </button>
+    }
+  </div>
+
+  @if (error()) {
+    <div class="alert error">{{ error() }}</div>
+  }
+
+  @if (loading()) {
+    <p>Cargando…</p>
+  } @else if (analysis() && (!analysis()!.mlConnected || !analysis()!.tnConnected)) {
+    <p class="alert">Conectá Mercado Libre y Tienda Nube en <a routerLink="/">Inicio</a>.</p>
+  } @else if (analysis()?.mlAuthError) {
+    <p class="alert">La sesión de Mercado Libre venció. Reconectá desde <a routerLink="/">Inicio</a>.</p>
+  } @else if (analysis()) {
+    <div class="list-area">
+    @if (fetching()) {
+      <div class="refetch-overlay" aria-live="polite">
+        <span class="refetch-spinner" aria-hidden="true"></span>
+        <span>Actualizando lista…</span>
+      </div>
+    }
+    @if (saveError) {
+      <div class="alert error">{{ saveError }}</div>
+    }
+    @if (analysis()!.matched.length === 0) {
+      <p class="empty">No hay productos que coincidan por SKU. Vinculá pares desde <a routerLink="/conflictos">Conflictos</a>.</p>
+    } @else {
+      <div class="tabs">
+        <button type="button" [class.active]="stockFilter() === 'all'" (click)="stockFilter.set('all')">
+          Todos ({{ analysis()!.matched.length }})
+        </button>
+        <button type="button" [class.active]="stockFilter() === 'mismatch'" (click)="stockFilter.set('mismatch')">
+          Solo stock distinto ({{ mismatchCount() }})
+        </button>
+        <button type="button" [class.active]="stockFilter() === 'synced'" (click)="stockFilter.set('synced')">
+          Mismo stock ({{ syncedCount() }})
+        </button>
+        <button type="button" [class.active]="stockFilter() === 'no-stock'" (click)="stockFilter.set('no-stock')">
+          Sin stock ({{ noStockCount() }})
+        </button>
+        <button type="button" [class.active]="stockFilter() === 'with-stock'" (click)="stockFilter.set('with-stock')">
+          Con stock ({{ withStockCount() }})
+        </button>
+      </div>
+      <div class="search-bar">
+        <input type="text" [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)" placeholder="Buscar por título, SKU o variante…" class="search-input" />
+      </div>
+      <section>
+        <table class="table table-precio-stock">
+          <colgroup>
+            <col class="col-sku" />
+            <col class="col-ml" />
+            <col class="col-tn" />
+            <col class="col-price-ml" />
+            <col class="col-price-tn" />
+            <col class="col-stock-ml" />
+            <col class="col-stock-tn" />
+            <col class="col-sync-stock" />
+            <col class="col-actions" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Descripción</th>
+              <th>Precio ML</th>
+              <th>Precio TN</th>
+              <th>Stock ML</th>
+              <th>Stock TN</th>
+              <th>Sincronizar stock</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (pair of filteredMatched(); track pair.ml.itemId + (pair.ml.variationId || '') + pair.tn.productId + pair.tn.variantId) {
+              <tr>
+                <td class="col-sku"><code>{{ pair.sku || pair.ml.sku || pair.tn.sku || '—' }}</code></td>
+                <td class="col-ml pair-cell">
+                  @if (pair.ml.thumbnail) { <img [src]="pair.ml.thumbnail" alt="" /> }
+                  @else { <span class="no-thumb">—</span> }
+                  <span class="pair-label">{{ mlLabel(pair.ml) }}</span>
+                </td>
+                <td class="col-tn pair-cell">
+                  @if (pair.tn.thumbnail) { <img [src]="pair.tn.thumbnail" alt="" /> }
+                  @else { <span class="no-thumb">—</span> }
+                  <span class="pair-label">{{ tnLabel(pair.tn) }}</span>
+                </td>
+                <td class="col-price-ml">
+                  <span class="input-currency">
+                    <input type="text" appCurrencyInput [(ngModel)]="getPairPrices(pair).priceML" placeholder="0,00" class="input-price" />
+                  </span>
+                </td>
+                <td class="col-price-tn">
+                  <span class="input-currency">
+                    <input type="text" appCurrencyInput [(ngModel)]="getPairPrices(pair).priceTN" placeholder="0,00" class="input-price" />
+                  </span>
+                </td>
+                <td class="col-stock-ml" [class.stock-ok]="isStockSynced(pair)" [class.stock-error]="!isStockSynced(pair)">
+                  <input type="number" min="0" [value]="pair.ml.stock ?? 0" readonly disabled class="input-stock-readonly" />
+                </td>
+                <td class="col-stock-tn" [class.stock-ok]="isStockSynced(pair)" [class.stock-error]="!isStockSynced(pair)">
+                  <input type="number" min="0" [value]="pair.tn.stock ?? 0" readonly disabled class="input-stock-readonly" />
+                </td>
+                <td class="col-sync-stock">
+                  <input type="number" min="0" step="1" [(ngModel)]="getPairPrices(pair).syncStock" placeholder="Nuevo stock" class="input-stock" />
+                  <button type="button" class="btn-sync-stock" (click)="syncStock(pair)" [disabled]="savingPairId === getPairId(pair)">
+                    {{ savingPairId === getPairId(pair) ? '…' : 'Sincronizar' }}
+                  </button>
+                </td>
+                <td class="col-actions">
+                  <button type="button" class="btn-update-prices" (click)="updatePrices(pair)" [disabled]="savingPairId === getPairId(pair)">
+                    {{ savingPairId === getPairId(pair) ? '…' : 'Actualizar precios' }}
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </section>
+    }
+    </div>
+  }
+</div>

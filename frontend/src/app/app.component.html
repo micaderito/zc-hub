@@ -1,0 +1,21 @@
+@if (globalError.message()) {
+  <div class="global-error">
+    <span class="global-error-text">{{ globalError.message() }}</span>
+    <button type="button" class="global-error-dismiss" (click)="globalError.clear()" aria-label="Cerrar">×</button>
+  </div>
+}
+
+<nav class="nav">
+  <a routerLink="/" class="logo">Zona Cuaderno</a>
+  <div class="links">
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Inicio</a>
+    <a routerLink="/conflictos" routerLinkActive="active">Conflictos</a>
+    <a routerLink="/precio-stock" routerLinkActive="active">Precio y stock</a>
+    <a routerLink="/sincronizacion" routerLinkActive="active">Sincronización</a>
+  </div>
+</nav>
+
+<div class="content-wrap">
+  <router-outlet />
+</div>
+
