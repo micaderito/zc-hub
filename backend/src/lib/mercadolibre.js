@@ -2,7 +2,7 @@ import fetch from 'node-fetch';
 
 const BASE = 'https://api.mercadolibre.com';
 
-/** Espera segundos (429 = rate limit; ML a veces no envía Retry-After, usamos 60s por defecto). */
+/** Doc ML: "local_rate_limited (429): Inténtalo de nuevo en unos segundos." */
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -10,9 +10,9 @@ function sleep(ms) {
 async function waitFor429(res, context = '') {
   if (res.status !== 429) return;
   const retryAfter = res.headers.get('retry-after');
-  const secs = retryAfter ? parseInt(retryAfter, 10) : 60;
-  const ms = Math.min(secs * 1000, 120000);
-  console.warn(`[ML] 429 ${context}, esperando ${Math.round(ms / 1000)}s antes de reintentar`);
+  const secs = retryAfter ? parseInt(retryAfter, 10) : 10;
+  const ms = Math.min(secs * 1000, 30000);
+  console.warn(`[ML] 429 ${context}, esperando ${Math.round(ms / 1000)}s antes de reintentar (doc: unos segundos)`);
   await sleep(ms);
 }
 
@@ -42,11 +42,17 @@ export async function getAuthUrl(redirectUri, state) {
   return `https://auth.mercadolibre.com.ar/authorization?${params}`;
 }
 
+/** Doc ML: POST con accept + content-type; redirect_uri debe coincidir exactamente con el de la autorización. */
+const OAUTH_HEADERS = {
+  'Accept': 'application/json',
+  'Content-Type': 'application/x-www-form-urlencoded'
+};
+
 export async function exchangeCodeForToken(code, redirectUri) {
   const doRequest = () =>
     fetch('https://api.mercadolibre.com/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: OAUTH_HEADERS,
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         client_id: process.env.ML_CLIENT_ID,
@@ -55,8 +61,9 @@ export async function exchangeCodeForToken(code, redirectUri) {
         redirect_uri: redirectUri
       })
     });
+  const maxRetries = 2;
   let res = await doRequest();
-  if (res.status === 429) {
+  for (let r = 0; r < maxRetries && res.status === 429; r++) {
     await waitFor429(res, 'exchangeCodeForToken');
     res = await doRequest();
   }
@@ -71,7 +78,7 @@ export async function refreshAccessToken(refreshToken) {
   const doRequest = () =>
     fetch('https://api.mercadolibre.com/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: OAUTH_HEADERS,
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         client_id: process.env.ML_CLIENT_ID,
@@ -79,8 +86,9 @@ export async function refreshAccessToken(refreshToken) {
         refresh_token: refreshToken
       })
     });
+  const maxRetries = 2;
   let res = await doRequest();
-  if (res.status === 429) {
+  for (let r = 0; r < maxRetries && res.status === 429; r++) {
     await waitFor429(res, 'refreshAccessToken');
     res = await doRequest();
   }

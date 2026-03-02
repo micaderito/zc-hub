@@ -109,8 +109,8 @@ export async function persistTokensAsync() {
   }
 }
 
-/** Margen para refrescar el token de ML antes de que venza (24 h). Recomendación de ML: refrescar de forma proactiva. */
-const ML_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000;
+/** Doc ML: access token expira en 6 h. Refrescar solo cuando pierda validez (margin 1 h). */
+const ML_REFRESH_MARGIN_MS = 60 * 60 * 1000;
 
 /** Obtiene access_token de ML; refresca si está por vencer o ya venció. Si falta user_id, lo obtiene con /users/me. */
 export async function getMlToken() {
@@ -136,22 +136,39 @@ export async function getMlToken() {
   return t.access_token;
 }
 
-/** Intenta refrescar el token de ML; devuelve el nuevo access_token o null. */
+/**
+ * Intenta refrescar el token de ML. Doc ML: el refresh_token es de uso único; la respuesta trae
+ * un nuevo refresh_token que hay que guardar; el anterior queda inválido.
+ * Solo una ejecución a la vez: si dos refreshes corren en paralelo (webhooks + sync + timer),
+ * el segundo usa el refresh_token viejo y ML devuelve invalid_grant.
+ */
+let refreshInFlight = null;
+
 export async function tryRefreshMlToken() {
+  if (refreshInFlight) {
+    await refreshInFlight;
+    return tokens.mercadolibre?.access_token || null;
+  }
   const t = tokens.mercadolibre;
   if (!t?.refresh_token) return null;
-  try {
-    const data = await ml.refreshAccessToken(t.refresh_token);
-    t.access_token = data.access_token;
-    t.refresh_token = data.refresh_token || t.refresh_token;
-    t.expires_at = data.expires_in ? Date.now() + data.expires_in * 1000 : null;
-    if (data.user_id != null) t.user_id = data.user_id;
-    await persistTokensAsync();
-    return t.access_token;
-  } catch (e) {
-    console.warn('ML refresh token failed:', e.message);
-    return null;
-  }
+  const doRefresh = async () => {
+    try {
+      const data = await ml.refreshAccessToken(t.refresh_token);
+      t.access_token = data.access_token;
+      t.refresh_token = data.refresh_token || t.refresh_token;
+      t.expires_at = data.expires_in ? Date.now() + data.expires_in * 1000 : null;
+      if (data.user_id != null) t.user_id = data.user_id;
+      await persistTokensAsync();
+      return t.access_token;
+    } catch (e) {
+      console.warn('ML refresh token failed:', e.message);
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  };
+  refreshInFlight = doRefresh();
+  return refreshInFlight;
 }
 
 /** Desconecta Mercado Libre: borra tokens para que el usuario pueda reconectar. */

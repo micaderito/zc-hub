@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { initDb } from './db.js';
-import { tokens, tryRefreshMlToken, loadTokens } from './store.js';
+import { tokens, getMlToken, loadTokens } from './store.js';
 
 // Evitar que un rechazo no manejado o excepción no capturada tiren el proceso (Railway no reinicia por "segundo sync").
 process.on('unhandledRejection', (reason, promise) => {
@@ -62,13 +62,13 @@ app.get('/api/health', (_, res) => res.json({ ok: true }));
 // Por si Railway (u otro) hace health check en la raíz
 app.get('/', (_, res) => res.redirect('/api/health'));
 
-/** Refresco periódico del token de ML (cada 6 h) para que siga válido aunque no haya tráfico ni entres a la web. */
+/** Refresco periódico del token de ML (cada 6 h). Usa getMlToken() para respetar single-flight del refresh. */
 const ML_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 function scheduleMlTokenRefresh() {
   setInterval(async () => {
     if (!tokens.mercadolibre?.refresh_token) return;
-    const ok = await tryRefreshMlToken();
-    if (ok) console.log('[ML] Token refrescado en segundo plano.');
+    const token = await getMlToken();
+    if (token) console.log('[ML] Token refrescado en segundo plano.');
   }, ML_REFRESH_INTERVAL_MS);
 }
 
