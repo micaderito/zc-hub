@@ -39,6 +39,8 @@ function parseMlResourceId(resource) {
 const pendingMlOrderIds = [];
 const PENDING_ORDER_MAX = 50;
 const PENDING_ORDER_MAX_AGE_MS = 30 * 60 * 1000; // 30 min
+/** Misma orden siendo obtenida por otro request: no duplicar getOrder (evita 429). No usamos "recently processed" para no perder cancelaciones. */
+const inFlightOrderIds = new Set();
 
 function enqueuePendingMlOrder(orderId) {
   if (!orderId || pendingMlOrderIds.some((e) => e.orderId === orderId)) return;
@@ -46,6 +48,10 @@ function enqueuePendingMlOrder(orderId) {
     pendingMlOrderIds.shift();
   }
   pendingMlOrderIds.push({ orderId, addedAt: Date.now() });
+}
+
+function isOrderIdPending(orderId) {
+  return !!orderId && pendingMlOrderIds.some((e) => e.orderId === orderId);
 }
 
 /** Procesa una orden ya obtenida: cancel → restaurar, paid → descontar. Sin responder HTTP. */
@@ -158,6 +164,15 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
     res.status(200).send();
     return;
   }
+  if (isOrderIdPending(orderId)) {
+    res.status(200).send();
+    return;
+  }
+  if (inFlightOrderIds.has(orderId)) {
+    res.status(200).send();
+    return;
+  }
+  inFlightOrderIds.add(orderId);
   try {
     let order = await ml.getOrder(accessToken, orderId);
     if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
@@ -188,6 +203,8 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
       console.error('Webhook ML:', e);
       res.status(200).send();
     }
+  } finally {
+    inFlightOrderIds.delete(orderId);
   }
 });
 
