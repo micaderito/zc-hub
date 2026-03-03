@@ -354,14 +354,22 @@ syncRoutes.post('/returns', async (req, res) => {
   try {
     let order = await ml.getOrder(accessToken, orderId);
     const userId = tokens.mercadolibre?.user_id;
+    console.log('[returns/add] orderId=%s getOrder=%s order_items=%s', orderId, order ? 'ok' : 'null', order?.order_items?.length ?? 0);
+
     if (!order?.order_items?.length && userId) {
       const searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
-      const orderResults = searchRes?.results ?? [];
+      const orderResults = searchRes?.results ?? searchRes?.elements ?? [];
+      console.log('[returns/add] search q=%s responseKeys=%s resultsLen=%s', orderId, Object.keys(searchRes || {}).join(','), orderResults.length);
+      if (orderResults.length > 0) {
+        const first = orderResults[0];
+        console.log('[returns/add] firstResult keys=%s id=%s config.items=%s', Object.keys(first).join(','), first?.id, first?.config?.items ? JSON.stringify(first.config.items).slice(0, 200) : 'n/a');
+      }
       let found = orderResults[0];
-      if (found) {
-        const internalId = found.id ?? found.orders?.[0]?.id;
+      if (found != null) {
+        const internalId = typeof found === 'object' ? (found.id ?? found.orders?.[0]?.id) : found;
         if (internalId != null) {
           const fullOrder = await ml.getOrder(accessToken, String(internalId));
+          console.log('[returns/add] getOrder(internalId=%s)=%s order_items=%s', internalId, fullOrder ? 'ok' : 'null', fullOrder?.order_items?.length ?? 0);
           if (fullOrder?.order_items?.length) order = fullOrder;
         }
         if (!order?.order_items?.length && found.order_items?.length) order = found;
@@ -369,16 +377,23 @@ syncRoutes.post('/returns', async (req, res) => {
       if (!order?.order_items?.length) {
         for (let offset = 0; offset < 150; offset += 50) {
           const bySeller = await ml.getOrdersSearch(accessToken, { seller: userId, limit: 50, offset });
-          const list = bySeller?.results ?? [];
+          const list = bySeller?.results ?? bySeller?.elements ?? [];
           if (list.length === 0) break;
+          if (offset === 0) console.log('[returns/add] bySeller firstPage keys=%s len=%s firstKeys=%s', Object.keys(bySeller || {}).join(','), list.length, Object.keys(list[0] || {}).join(','));
+          const orderIdStr = String(orderId);
           const byItemId = list.find((r) => {
-            const orderIdStr = String(orderId);
-            if (String(r?.id ?? '') === orderIdStr) return true;
-            const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
-            return items.some((it) => String(it?.id ?? it) === orderIdStr);
+            if (r == null) return false;
+            if (typeof r === 'object') {
+              if (String(r?.id ?? '') === orderIdStr) return true;
+              const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
+              const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
+              return arr.some((it) => String(it?.id ?? it) === orderIdStr);
+            }
+            return String(r) === orderIdStr;
           });
-          if (byItemId) {
-            const internalId = byItemId.id ?? byItemId.orders?.[0]?.id;
+          if (byItemId != null) {
+            const internalId = typeof byItemId === 'object' ? (byItemId.id ?? byItemId.orders?.[0]?.id) : byItemId;
+            console.log('[returns/add] byItemId match internalId=%s', internalId);
             if (internalId != null) {
               const fullOrder = await ml.getOrder(accessToken, String(internalId));
               if (fullOrder?.order_items?.length) {
@@ -391,7 +406,10 @@ syncRoutes.post('/returns', async (req, res) => {
         }
       }
     }
-    if (!order?.order_items?.length) return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
+    if (!order?.order_items?.length) {
+      console.log('[returns/add] no order found for orderId=%s', orderId);
+      return res.status(404).json({ error: ORDER_NOT_FOUND_MSG + ' Revisá la consola del servidor (logs [returns/add]) para ver qué devolvió ML.' });
+    }
     const items = order.order_items || [];
     const displayOrderId = order.payments?.[0]?.order_id ?? order.id ?? orderId;
 
