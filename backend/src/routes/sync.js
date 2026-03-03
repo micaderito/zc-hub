@@ -47,10 +47,11 @@ syncRoutes.patch('/config', async (req, res) => {
   }
 });
 
-/** Reintentar sincronización de una orden ML (p. ej. cuando el webhook la marcó procesada pero no descontó). Body: { orderId } (ID de la orden en ML, ej. 2000015378994092). */
+/** Reintentar sincronización por pack_id (nro de venta). GET pack → por cada order_id se libera claim, GET order y se descuenta; en audit se guarda pack_id como nro de venta. */
 syncRoutes.post('/reprocess-order', async (req, res) => {
-  const orderId = (req.body?.orderId || '').trim();
-  if (!orderId) return res.status(400).json({ error: 'orderId es requerido' });
+  const rawPackId = (req.body?.packId ?? req.body?.orderId ?? '').trim();
+  const packId = rawPackId.replace(/\D/g, '') || rawPackId;
+  if (!packId) return res.status(400).json({ error: 'packId es requerido (nro de venta que ves en la app de ML).' });
   const accessToken = await getMlToken();
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada' });
@@ -61,51 +62,44 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
         error: 'Sincronización desactivada. Activá el switch «Sincronización de stock» en esta página y volvé a intentar.'
       });
     }
-    await releaseOrderProcessingClaim('mercadolibre', orderId, 'deduct');
-    let order = await ml.getOrder(accessToken, orderId);
-    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
-      const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
-      const results = searchRes?.results ?? [];
-      const found = results[0];
-      if (found?.order_items?.length) {
-        order = found;
-      } else if (found?.id) {
-        order = await ml.getOrder(accessToken, String(found.id));
-      }
+    const pack = await ml.getPack(accessToken, packId);
+    if (!pack?.orders?.length) {
+      return res.status(404).json({ error: 'Pack no encontrado. Usá el nro de venta (pack id) que ves en la app de ML.' });
     }
-    if (!order?.order_items?.length) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
-    const items = order.order_items || [];
-    const effectiveOrderId = String(order.payments?.[0]?.order_id ?? order.id ?? orderId);
-
-    let itemsWithSku = 0;
-    for (const oi of items) {
-      const itemId = oi?.item?.id;
-      const variationId = oi?.item?.variation_id ?? oi?.variation_id;
-      if (!itemId) continue;
-      let sku = getSkuByMlItem(itemId, variationId);
-      if (!sku && accessToken) {
-        const item = await ml.getItem(accessToken, itemId);
-        if (item) sku = ml.extractSkuFromItem(item);
-        if (!sku && item?.variations?.length && variationId) {
-          const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
-          if (v?.seller_sku) sku = v.seller_sku;
+    let totalSynced = 0;
+    for (const o of pack.orders) {
+      const orderId = String(o?.id ?? o);
+      if (!orderId) continue;
+      await releaseOrderProcessingClaim('mercadolibre', orderId, 'deduct');
+      const order = await ml.getOrder(accessToken, orderId);
+      if (!order?.order_items?.length) continue;
+      const items = order.order_items || [];
+      let itemsWithSku = 0;
+      for (const oi of items) {
+        const itemId = oi?.item?.id;
+        const variationId = oi?.item?.variation_id ?? oi?.variation_id;
+        if (!itemId) continue;
+        let sku = getSkuByMlItem(itemId, variationId);
+        if (!sku) {
+          const item = await ml.getItem(accessToken, itemId);
+          if (item) sku = ml.extractSkuFromItem(item);
+          if (!sku && item?.variations?.length && variationId) {
+            const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
+            if (v?.seller_sku) sku = v.seller_sku;
+          }
         }
+        if (sku) itemsWithSku++;
       }
-      if (sku) itemsWithSku++;
+      if (itemsWithSku === 0) continue;
+      const results = await onMercadoLibreOrderPaid(items, packId, order, order.id);
+      totalSynced += results.length;
     }
-    if (itemsWithSku === 0) {
+    if (totalSynced === 0) {
       return res.status(400).json({
-        error: 'Ningún ítem de esta orden tiene SKU vinculado. Entrá a Conflictos (Precio y stock), actualizá la lista y vinculá el producto de ML con el de Tienda Nube (mismo SKU en ambos). Sin ese vínculo no podemos descontar stock.'
+        error: 'Ningún ítem del pack tiene SKU vinculado o no se pudo descontar en TN. Revisá Conflictos (Precio y stock).'
       });
     }
-
-    const results = await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
-    if (results.length === 0) {
-      return res.status(400).json({
-        error: 'No se descontó stock (el ítem tiene SKU pero falló la actualización en TN). Revisá que el producto siga vinculado en Conflictos.'
-      });
-    }
-    res.json({ ok: true, orderId: effectiveOrderId, itemsSynced: results.length });
+    res.json({ ok: true, orderId: packId, itemsSynced: totalSynced });
   } catch (e) {
     console.error('reprocess-order:', e);
     res.status(500).json({ error: e.message || 'Error al reprocesar' });
@@ -268,14 +262,13 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
     if (!userId) {
       return res.status(400).json({ error: 'Falta user_id de ML (reconectá Mercado Libre).' });
     }
-    // ML exige al menos [resource+resource_id] o [player_role+player_user_id]. Usamos el vendedor como respondent.
-    // Primero pedimos solo type=return (devoluciones); si no viene el campo type en la respuesta, usamos todos los resultados.
+    // ML: player_role+player_user_id obligatorios; type=return (devoluciones); status=opened para listar solo abiertas.
     let claims = [];
     let requestedWithTypeReturn = false;
     for (const useType of [true, false]) {
       let collected = [];
       for (let offset = 0; offset < 100; offset += 50) {
-        const params = { limit: 50, offset, player_role: 'respondent', player_user_id: userId };
+        const params = { limit: 50, offset, player_role: 'respondent', player_user_id: userId, status: 'opened' };
         if (useType) {
           params.type = 'return';
           requestedWithTypeReturn = true;
@@ -323,66 +316,55 @@ function normalizeOrderId(input) {
   return digits || s;
 }
 
-/** Agregar devoluciones desde una orden de ML: trae los ítems de la orden y los deja pendientes. */
+/** Agregar devoluciones desde un pack de ML (pack_id = nro de venta). GET pack → por cada order_id del pack, GET order y se agregan ítems a pendientes. orderId en BD = pack_id (nro de venta). */
 syncRoutes.post('/returns', async (req, res) => {
-  const rawOrderId = (req.body?.orderId || '').trim();
-  if (!rawOrderId) return res.status(400).json({ error: 'orderId es requerido' });
-  const orderId = normalizeOrderId(rawOrderId);
+  const rawPackId = (req.body?.packId ?? req.body?.orderId ?? '').trim();
+  const packId = normalizeOrderId(rawPackId);
+  if (!packId) return res.status(400).json({ error: 'packId es requerido (nro de venta que ves en la app de ML).' });
   const accessToken = await getMlToken();
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada (DATABASE_URL).' });
 
-  const ORDER_NOT_FOUND_MSG = 'Orden no encontrada. Usá el order id que ves en la app de ML.';
-
   try {
-    let order = await ml.getOrder(accessToken, orderId);
-    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
-      const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
-      const results = searchRes?.results ?? [];
-      const found = results[0];
-      if (found?.order_items?.length) {
-        order = found;
-      } else if (found?.id) {
-        order = await ml.getOrder(accessToken, String(found.id));
-      }
+    const pack = await ml.getPack(accessToken, packId);
+    if (!pack?.orders?.length) {
+      return res.status(404).json({ error: 'Pack no encontrado. Usá el nro de venta (pack id) que ves en la app de ML.' });
     }
-    if (!order?.order_items?.length) {
-      return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
-    }
-    const items = order.order_items || [];
-    const displayOrderId = order.payments?.[0]?.order_id ?? order.id ?? orderId;
-
     const created = [];
-    for (const oi of items) {
-      const itemId = oi?.item?.id;
-      const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
-      const quantity = oi?.quantity ?? 1;
-      const productLabel = oi?.item?.title ?? null;
-      if (!itemId) continue;
-
-      let sku = getSkuByMlItem(itemId, variationId);
-      if (!sku && accessToken) {
-        const item = await ml.getItem(accessToken, itemId);
-        if (item) sku = ml.extractSkuFromItem(item);
-        if (!sku && item?.variations?.length && variationId) {
-          const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
-          if (v?.seller_sku) sku = v.seller_sku;
+    for (const o of pack.orders) {
+      const orderId = o?.id ?? o;
+      if (orderId == null) continue;
+      const order = await ml.getOrder(accessToken, String(orderId));
+      if (!order?.order_items?.length) continue;
+      for (const oi of order.order_items) {
+        const itemId = oi?.item?.id;
+        const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
+        const quantity = oi?.quantity ?? 1;
+        const productLabel = oi?.item?.title ?? null;
+        if (!itemId) continue;
+        let sku = getSkuByMlItem(itemId, variationId);
+        if (!sku) {
+          const item = await ml.getItem(accessToken, itemId);
+          if (item) sku = ml.extractSkuFromItem(item);
+          if (!sku && item?.variations?.length && variationId) {
+            const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
+            if (v?.seller_sku) sku = v.seller_sku;
+          }
         }
+        const row = await insertPendingReturn({
+          orderId: String(packId),
+          itemId,
+          variationId: variationId ?? undefined,
+          sku: sku || null,
+          quantity,
+          productLabel
+        });
+        if (row) created.push(row);
       }
-
-      const row = await insertPendingReturn({
-        orderId: String(displayOrderId),
-        itemId,
-        variationId: variationId ?? undefined,
-        sku: sku || null,
-        quantity,
-        productLabel
-      });
-      if (row) created.push(row);
     }
     res.status(201).json({ created: created.length, rows: created });
   } catch (e) {
-    res.status(500).json({ error: e.message || 'Error al cargar la orden' });
+    res.status(500).json({ error: e.message || 'Error al cargar el pack' });
   }
 });
 

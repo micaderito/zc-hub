@@ -48,13 +48,13 @@
       <p class="help">Al entrar a esta página se buscan las devoluciones en ML. Cuando hayas verificado cada una, usá «Restaurar stock (ML y TN)» y restauramos en ambas plataformas.</p>
 
       <div class="returns-actions">
-        <span class="returns-add-label">Agregar por ID de orden ML:</span>
-        <input type="text" [(ngModel)]="returnOrderId" placeholder="Order id que ves en la app de ML" class="input-order-id" />
+        <span class="returns-add-label">Agregar por nro de venta (pack id):</span>
+        <input type="text" [(ngModel)]="returnOrderId" placeholder="Nro de venta (pack id) ej. 2000011838697695" class="input-order-id" />
         <button type="button" (click)="addReturnsByOrder()" [disabled]="!returnOrderId.trim() || addingReturn">
           {{ addingReturn ? 'Cargando…' : 'Agregar ítems' }}
         </button>
       </div>
-      <p class="help muted">Order id que ves en la app de Mercado Libre.</p>
+      <p class="help muted">Nro de venta = pack id que ves en la app de ML (cada pack tiene varias órdenes/productos).</p>
       @if (fetchResult) {
         <p class="fetch-result">{{ fetchResult }}</p>
       }
@@ -120,7 +120,7 @@
         <p class="alert error">{{ auditError }}</p>
       } @else {
         <div class="audit-search-bar">
-          <label for="audit-order-search">Buscar por nº de venta o id. ítem</label>
+          <label for="audit-order-search">Buscar por nro de venta (pack) o nro de orden</label>
           <input id="audit-order-search" type="text" [(ngModel)]="auditOrderIdSearch" placeholder="Ej. 1234567890 o MLA123" class="audit-search-input" (keyup.enter)="searchAuditByOrderId()" />
           <button type="button" class="btn-audit-search" (click)="searchAuditByOrderId()">Buscar</button>
           @if (auditOrderIdSearch.trim()) {
@@ -129,7 +129,7 @@
         </div>
         <div class="audit-reprocess-row">
           <span class="audit-reprocess-label">Venta ML que no se registró (reintentar):</span>
-          <input type="text" [(ngModel)]="reprocessOrderId" placeholder="ID orden ej. 2000015378994092" class="audit-search-input" (keyup.enter)="reprocessOrder()" />
+          <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta (pack id) ej. 2000011838697695" class="audit-search-input" (keyup.enter)="reprocessOrder()" />
           <button type="button" class="btn-audit-search" (click)="reprocessOrder()" [disabled]="!reprocessOrderId.trim() || reprocessingOrder">
             {{ reprocessingOrder ? '…' : 'Reintentar' }}
           </button>
@@ -154,8 +154,8 @@
             <tr>
               <th>Fecha</th>
               <th>Canal de la venta</th>
-              <th>Nº venta</th>
-              <th>Id. ítem</th>
+              <th>Nº venta (pack)</th>
+              <th>Nº orden</th>
               <th>SKU</th>
               <th>Estado</th>
               <th>Descripción / variante</th>

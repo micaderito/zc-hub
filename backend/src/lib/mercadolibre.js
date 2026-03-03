@@ -126,6 +126,22 @@ export async function getItem(accessToken, itemId) {
   return res.json();
 }
 
+/** Pack (venta con uno o más órdenes). GET /packs/:packId. Reintenta ante 429. */
+export async function getPack(accessToken, packId) {
+  const url = `${BASE}/packs/${packId}`;
+  const res = await fetchWith429Retry(
+    url,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getPack'
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn('[ML] getPack failed:', res.status, packId, text?.slice(0, 150));
+    return null;
+  }
+  return res.json();
+}
+
 export async function getOrder(accessToken, orderId) {
   const url = `${BASE}/orders/${orderId}`;
   const res = await fetchWith429Retry(

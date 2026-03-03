@@ -181,8 +181,8 @@ export async function revertSyncAudit(row) {
   return { ok: false, error: 'Canal no reconocido' };
 }
 
-/** Dado un item_id (y opcional variation_id) de ML, encontrar SKU y descontar en TN. Solo si sync está activada. orderPayload = respuesta getOrder ML (opcional, para guardar en audit). */
-export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPayload = null) {
+/** Dado un item_id (y opcional variation_id) de ML, encontrar SKU y descontar en TN. orderId = nro de venta (pack_id); saleOrderId opcional = nro de orden (order id del pack). */
+export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPayload = null, saleOrderId = null) {
   const enabled = await getSyncEnabled();
   if (!enabled) return [];
   const results = [];
@@ -207,9 +207,7 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
       const out = await deductStockTiendaNube(sku, quantity);
       results.push({ itemId, variationId, sku, quantity, ...out });
       if (out.ok && out.stockBefore !== undefined) {
-        const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== ''
-          ? String(oi.id)
-          : null;
+        const saleItemId = saleOrderId != null ? String(saleOrderId) : (orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null);
         await insertAuditLog({
           channelSale: 'mercadolibre',
           orderId: String(orderId),
