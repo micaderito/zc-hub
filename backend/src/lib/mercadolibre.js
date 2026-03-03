@@ -137,10 +137,11 @@ export async function getOrder(accessToken, orderId) {
   return res.json();
 }
 
-/** Buscar órdenes del vendedor (orders/search). Params: seller (user_id), limit, offset. Reintenta ante 429. */
+/** Buscar órdenes del vendedor (orders/search). Params: seller (user_id), q (order id o nº venta), limit, offset. Reintenta ante 429. */
 export async function getOrdersSearch(accessToken, params = {}) {
   const q = new URLSearchParams();
   if (params.seller != null) q.set('seller', params.seller);
+  if (params.q != null && params.q !== '') q.set('q', String(params.q).trim());
   if (params.limit != null) q.set('limit', params.limit);
   if (params.offset != null) q.set('offset', params.offset);
   const url = `${BASE}/orders/search?${q.toString()}`;

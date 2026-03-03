@@ -47,7 +47,7 @@ syncRoutes.patch('/config', async (req, res) => {
   }
 });
 
-/** Reintentar sincronización de una orden ML (p. ej. cuando el webhook la marcó procesada pero no descontó por sync off o ítem sin SKU). Body: { orderId } (ID de la orden en ML, ej. 2000015378994092). */
+/** Reintentar sincronización de una orden ML (p. ej. cuando el webhook la marcó procesada pero no descontó). Body: { orderId } (ID de la orden en ML, ej. 2000015378994092). */
 syncRoutes.post('/reprocess-order', async (req, res) => {
   const orderId = (req.body?.orderId || '').trim();
   if (!orderId) return res.status(400).json({ error: 'orderId es requerido' });
@@ -55,15 +55,50 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada' });
   try {
+    const syncEnabled = await getSyncEnabled();
+    if (!syncEnabled) {
+      return res.status(400).json({
+        error: 'Sincronización desactivada. Activá el switch «Sincronización de stock» en esta página y volvé a intentar.'
+      });
+    }
     await releaseOrderProcessingClaim('mercadolibre', orderId, 'deduct');
-    const order = await ml.getOrder(accessToken, orderId);
+    let order = await ml.getOrder(accessToken, orderId);
+    if (!order && tokens.mercadolibre?.user_id) {
+      const { getOrdersSearch } = await import('../lib/mercadolibre.js');
+      const searchRes = await getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
+      const found = searchRes?.results?.[0];
+      if (found && found.order_items?.length) order = found;
+    }
     if (!order) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
     const items = order.order_items || [];
-    const effectiveOrderId = String(order.id ?? orderId);
+    const effectiveOrderId = String(order.payments?.[0]?.order_id ?? order.id ?? orderId);
+
+    let itemsWithSku = 0;
+    for (const oi of items) {
+      const itemId = oi?.item?.id;
+      const variationId = oi?.item?.variation_id ?? oi?.variation_id;
+      if (!itemId) continue;
+      let sku = getSkuByMlItem(itemId, variationId);
+      if (!sku && accessToken) {
+        const item = await ml.getItem(accessToken, itemId);
+        if (item) sku = ml.extractSkuFromItem(item);
+        if (!sku && item?.variations?.length && variationId) {
+          const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
+          if (v?.seller_sku) sku = v.seller_sku;
+        }
+      }
+      if (sku) itemsWithSku++;
+    }
+    if (itemsWithSku === 0) {
+      return res.status(400).json({
+        error: 'Ningún ítem de esta orden tiene SKU vinculado. Entrá a Conflictos (Precio y stock), actualizá la lista y vinculá el producto de ML con el de Tienda Nube (mismo SKU en ambos). Sin ese vínculo no podemos descontar stock.'
+      });
+    }
+
     const results = await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
     if (results.length === 0) {
       return res.status(400).json({
-        error: 'No se pudo sincronizar ningún ítem. Revisá que la sincronización esté activada y que el producto esté vinculado por SKU en Conflictos.'
+        error: 'No se descontó stock (el ítem tiene SKU pero falló la actualización en TN). Revisá que el producto siga vinculado en Conflictos.'
       });
     }
     res.json({ ok: true, orderId: effectiveOrderId, itemsSynced: results.length });
@@ -163,8 +198,16 @@ export async function processClaimToPendingReturns(accessToken, claim) {
   if (returnsList.length > 0 && !orderId && returnsList[0]?.resource_id) orderId = returnsList[0].resource_id;
   if (!orderId || isExplicitlyClosed) return { created: 0, skipped: 0 };
 
-  const order = await ml.getOrder(accessToken, orderId);
+  let order = await ml.getOrder(accessToken, orderId);
+  if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
+    const { getOrdersSearch } = await import('../lib/mercadolibre.js');
+    const searchRes = await getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: String(orderId), limit: 10 });
+    const found = searchRes?.results?.[0];
+    if (found?.order_items?.length) order = found;
+  }
   if (!order?.order_items?.length) return { created: 0, skipped: 0 };
+
+  const displayOrderId = String(order.payments?.[0]?.order_id ?? order.id ?? orderId);
 
   let created = 0;
   let skipped = 0;
@@ -193,7 +236,7 @@ export async function processClaimToPendingReturns(accessToken, claim) {
 
     const row = await insertPendingReturn({
       claimId,
-      orderId,
+      orderId: displayOrderId,
       itemId,
       variationId: variationId ?? undefined,
       sku: sku || null,
@@ -272,18 +315,19 @@ syncRoutes.post('/returns', async (req, res) => {
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada (DATABASE_URL).' });
 
-  const ORDER_NOT_FOUND_MSG = 'Orden no encontrada. Usá el ID de la orden de ML (número largo, ej. 2000007819609432). Lo ves al abrir la venta en ML, en la URL o en Detalles de la operación. No uses el número de venta corto del panel.';
+  const ORDER_NOT_FOUND_MSG = 'Orden no encontrada. Usá el número de venta que ves en tu panel de ML (ej. 2000015378994092).';
 
   try {
     let order = await ml.getOrder(accessToken, orderId);
     if (!order && tokens.mercadolibre?.user_id) {
-      const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, limit: 100 });
+      const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
       const results = searchRes?.results ?? [];
-      const found = results.find((o) => String(o.id) === String(orderId));
+      const found = results[0];
       if (found && found.order_items?.length) order = found;
     }
     if (!order) return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
     const items = order.order_items || [];
+    const displayOrderId = order.payments?.[0]?.order_id ?? order.id ?? orderId;
     if (items.length === 0) return res.status(400).json({ error: 'La orden no tiene ítems' });
 
     const created = [];
@@ -305,7 +349,7 @@ syncRoutes.post('/returns', async (req, res) => {
       }
 
       const row = await insertPendingReturn({
-        orderId,
+        orderId: String(displayOrderId),
         itemId,
         variationId: variationId ?? undefined,
         sku: sku || null,
