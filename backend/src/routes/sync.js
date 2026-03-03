@@ -78,17 +78,24 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
         if (!order?.order_items?.length && found.order_items?.length) order = found;
       }
       if (!order?.order_items?.length) {
-        for (let offset = 0; offset < 150; offset += 50) {
+        for (let offset = 0; offset < 250; offset += 50) {
           searchRes = await getOrdersSearch(accessToken, { seller: userId, limit: 50, offset });
           const list = searchRes?.results ?? [];
           if (list.length === 0) break;
           const orderIdStr = String(orderId);
           const byItemId = list.find((r) => {
+            if (!r || typeof r !== 'object') return false;
             if (String(r?.id ?? '') === orderIdStr) return true;
+            const orderItems = r?.order_items ?? [];
+            if (orderItems.some((oi) => String(oi?.item?.id ?? oi?.id ?? oi?.item ?? oi) === orderIdStr)) return true;
             const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
             return items.some((it) => String(it?.id ?? it) === orderIdStr);
           });
           if (byItemId) {
+            if (byItemId.order_items?.length) {
+              order = byItemId;
+              break;
+            }
             const internalId = byItemId.id ?? byItemId.orders?.[0]?.id;
             if (internalId != null) {
               const fullOrder = await ml.getOrder(accessToken, String(internalId));
@@ -379,7 +386,7 @@ syncRoutes.post('/returns', async (req, res) => {
         if (!order?.order_items?.length && found.order_items?.length) order = found;
       }
       if (!order?.order_items?.length) {
-        for (let offset = 0; offset < 150; offset += 50) {
+        for (let offset = 0; offset < 250; offset += 50) {
           const bySeller = await ml.getOrdersSearch(accessToken, { seller: userId, limit: 50, offset });
           const list = bySeller?.results ?? bySeller?.elements ?? [];
           if (list.length === 0) break;
@@ -389,6 +396,8 @@ syncRoutes.post('/returns', async (req, res) => {
             if (r == null) return false;
             if (typeof r === 'object') {
               if (String(r?.id ?? '') === orderIdStr) return true;
+              const orderItems = r?.order_items ?? [];
+              if (orderItems.some((oi) => String(oi?.item?.id ?? oi?.id ?? oi?.item ?? oi) === orderIdStr)) return true;
               const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
               const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
               return arr.some((it) => String(it?.id ?? it) === orderIdStr);
@@ -396,8 +405,11 @@ syncRoutes.post('/returns', async (req, res) => {
             return String(r) === orderIdStr;
           });
           if (byItemId != null) {
+            if (byItemId.order_items?.length) {
+              order = byItemId;
+              break;
+            }
             const internalId = typeof byItemId === 'object' ? (byItemId.id ?? byItemId.orders?.[0]?.id) : byItemId;
-            console.log('[returns/add] byItemId match internalId=%s', internalId);
             if (internalId != null) {
               const fullOrder = await ml.getOrder(accessToken, String(internalId));
               if (fullOrder?.order_items?.length) {
