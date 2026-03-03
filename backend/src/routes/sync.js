@@ -68,14 +68,26 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
       const { getOrdersSearch } = await import('../lib/mercadolibre.js');
       let searchRes = await getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
       let results = searchRes?.results ?? [];
+      if (results.length === 0) {
+        searchRes = await getOrdersSearch(accessToken, { seller: userId, item: orderId, limit: 10 });
+        results = searchRes?.results ?? [];
+        if (results.length === 0 && /^\d+$/.test(orderId)) {
+          searchRes = await getOrdersSearch(accessToken, { seller: userId, item: `MLA${orderId}`, limit: 10 });
+          results = searchRes?.results ?? [];
+        }
+      }
       let found = results[0];
       if (found) {
-        const internalId = found.id ?? found.orders?.[0]?.id;
-        if (internalId != null) {
-          const fullOrder = await ml.getOrder(accessToken, String(internalId));
-          if (fullOrder?.order_items?.length) order = fullOrder;
+        if (found.order_items?.length) {
+          order = found;
+        } else {
+          const internalId = found.id ?? found.orders?.[0]?.id;
+          if (internalId != null) {
+            const fullOrder = await ml.getOrder(accessToken, String(internalId));
+            if (fullOrder?.order_items?.length) order = fullOrder;
+          }
+          if (!order?.order_items?.length && found.order_items?.length) order = found;
         }
-        if (!order?.order_items?.length && found.order_items?.length) order = found;
       }
       if (!order?.order_items?.length) {
         for (let offset = 0; offset < 250; offset += 50) {
@@ -305,12 +317,17 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
       return res.status(400).json({ error: 'Falta user_id de ML (reconectá Mercado Libre).' });
     }
     // ML exige al menos [resource+resource_id] o [player_role+player_user_id]. Usamos el vendedor como respondent.
+    // Primero pedimos solo type=return (devoluciones); si no viene el campo type en la respuesta, usamos todos los resultados.
     let claims = [];
+    let requestedWithTypeReturn = false;
     for (const useType of [true, false]) {
       let collected = [];
       for (let offset = 0; offset < 100; offset += 50) {
         const params = { limit: 50, offset, player_role: 'respondent', player_user_id: userId };
-        if (useType) params.type = 'return';
+        if (useType) {
+          params.type = 'return';
+          requestedWithTypeReturn = true;
+        }
         const searchRes = await ml.getClaimsSearch(accessToken, params);
         const page = searchRes?.data ?? searchRes?.results ?? [];
         if (page.length === 0) break;
@@ -321,10 +338,13 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
         claims = collected;
         break;
       }
+      requestedWithTypeReturn = false;
     }
     const returnClaims = claims.filter((c) => (c.type || '').toLowerCase() === 'return');
-    const listToUse = returnClaims.length > 0 ? returnClaims : claims.filter((c) => (c.type || '').toLowerCase() === 'return');
-    console.log('[returns/fetch] claims total=%s, type=return=%s, procesando=%s', claims.length, returnClaims.length, listToUse.length);
+    const listToUse = requestedWithTypeReturn
+      ? claims
+      : (returnClaims.length > 0 ? returnClaims : claims.filter((c) => (c.type || '').toLowerCase() === 'return'));
+    console.log('[returns/fetch] claims total=%s, con type=return en request=%s, procesando=%s', claims.length, requestedWithTypeReturn, listToUse.length);
 
     let created = 0;
     let skipped = 0;
@@ -368,22 +388,29 @@ syncRoutes.post('/returns', async (req, res) => {
     console.log('[returns/add] orderId=%s getOrder=%s order_items=%s', orderId, order ? 'ok' : 'null', order?.order_items?.length ?? 0);
 
     if (!order?.order_items?.length && userId) {
-      const searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
-      const orderResults = searchRes?.results ?? searchRes?.elements ?? [];
-      console.log('[returns/add] search q=%s responseKeys=%s resultsLen=%s', orderId, Object.keys(searchRes || {}).join(','), orderResults.length);
-      if (orderResults.length > 0) {
-        const first = orderResults[0];
-        console.log('[returns/add] firstResult keys=%s id=%s config.items=%s', Object.keys(first).join(','), first?.id, first?.config?.items ? JSON.stringify(first.config.items).slice(0, 200) : 'n/a');
+      let searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
+      let orderResults = searchRes?.results ?? searchRes?.elements ?? [];
+      if (orderResults.length === 0) {
+        searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, item: orderId, limit: 10 });
+        orderResults = searchRes?.results ?? searchRes?.elements ?? [];
+        if (orderResults.length === 0 && /^\d+$/.test(orderId)) {
+          const withPrefix = `MLA${orderId}`;
+          searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, item: withPrefix, limit: 10 });
+          orderResults = searchRes?.results ?? searchRes?.elements ?? [];
+        }
       }
       let found = orderResults[0];
       if (found != null) {
-        const internalId = typeof found === 'object' ? (found.id ?? found.orders?.[0]?.id) : found;
-        if (internalId != null) {
-          const fullOrder = await ml.getOrder(accessToken, String(internalId));
-          console.log('[returns/add] getOrder(internalId=%s)=%s order_items=%s', internalId, fullOrder ? 'ok' : 'null', fullOrder?.order_items?.length ?? 0);
-          if (fullOrder?.order_items?.length) order = fullOrder;
+        if (found.order_items?.length) {
+          order = found;
+        } else {
+          const internalId = typeof found === 'object' ? (found.id ?? found.orders?.[0]?.id) : found;
+          if (internalId != null) {
+            const fullOrder = await ml.getOrder(accessToken, String(internalId));
+            if (fullOrder?.order_items?.length) order = fullOrder;
+          }
+          if (!order?.order_items?.length && found.order_items?.length) order = found;
         }
-        if (!order?.order_items?.length && found.order_items?.length) order = found;
       }
       if (!order?.order_items?.length) {
         for (let offset = 0; offset < 500; offset += 50) {
