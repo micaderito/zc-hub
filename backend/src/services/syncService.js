@@ -181,10 +181,13 @@ export async function revertSyncAudit(row) {
   return { ok: false, error: 'Canal no reconocido' };
 }
 
-/** Dado un item_id (y opcional variation_id) de ML, encontrar SKU y descontar en TN. orderId = nro de venta (pack_id); saleOrderId opcional = nro de orden (order id del pack). */
+/** Dado un item_id (y opcional variation_id) de ML, encontrar SKU y descontar en TN. orderId = nro de venta (pack_id); saleOrderId opcional = nro de orden (order id del pack). Usa mapeo Conflictos, luego seller_sku del ítem en la orden, luego GET item ML. */
 export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPayload = null, saleOrderId = null) {
   const enabled = await getSyncEnabled();
-  if (!enabled) return [];
+  if (!enabled) {
+    console.warn('[Sync] ML orden %s: sincronización desactivada, no se descuenta.', orderId);
+    return [];
+  }
   const results = [];
   for (const oi of orderItems) {
     const itemId = oi?.item?.id;
@@ -192,6 +195,7 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
     const quantity = oi?.quantity ?? 1;
     if (!itemId) continue;
     let sku = getSkuByMlItem(itemId, variationId);
+    if (!sku && oi?.item?.seller_sku) sku = String(oi.item.seller_sku).trim() || null;
     if (!sku) {
       const accessToken = await getMlToken();
       if (accessToken) {
@@ -203,25 +207,30 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
         }
       }
     }
-    if (sku) {
-      const out = await deductStockTiendaNube(sku, quantity);
-      results.push({ itemId, variationId, sku, quantity, ...out });
-      if (out.ok && out.stockBefore !== undefined) {
-        const saleItemId = saleOrderId != null ? String(saleOrderId) : (orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null);
-        await insertAuditLog({
-          channelSale: 'mercadolibre',
-          orderId: String(orderId),
-          saleItemId,
-          sku,
-          productLabel: 'Venta ML',
-          productDisplay: mlOrderItemDisplay(oi),
-          quantity,
-          updatedChannel: 'tiendanube',
-          stockBefore: out.stockBefore,
-          stockAfter: out.stockAfter ?? out.stockBefore - quantity,
-          notificationPayload: orderPayload
-        });
-      }
+    if (!sku) {
+      console.warn('[Sync] ML orden %s: ítem %s sin SKU (mapeo, order_item.seller_sku y GET item).', orderId, itemId);
+      continue;
+    }
+    const out = await deductStockTiendaNube(sku, quantity);
+    results.push({ itemId, variationId, sku, quantity, ...out });
+    if (!out.ok) {
+      console.warn('[Sync] ML orden %s: ítem %s SKU=%s — descuento en TN falló (variante no en TN o API).', orderId, itemId, sku);
+    }
+    if (out.ok && out.stockBefore !== undefined) {
+      const saleItemId = saleOrderId != null ? String(saleOrderId) : (orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null);
+      await insertAuditLog({
+        channelSale: 'mercadolibre',
+        orderId: String(orderId),
+        saleItemId,
+        sku,
+        productLabel: 'Venta ML',
+        productDisplay: mlOrderItemDisplay(oi),
+        quantity,
+        updatedChannel: 'tiendanube',
+        stockBefore: out.stockBefore,
+        stockAfter: out.stockAfter ?? out.stockBefore - quantity,
+        notificationPayload: orderPayload
+      });
     }
   }
   return results;

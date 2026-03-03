@@ -126,7 +126,7 @@ export async function getItem(accessToken, itemId) {
   return res.json();
 }
 
-/** Pack (venta con uno o más órdenes). GET /packs/:packId. Reintenta ante 429. */
+/** Pack (nro de venta): GET https://api.mercadolibre.com/packs/:packId → { id, orders: [{ id: orderId }, ...], shipment, status, ... }. Reintenta ante 429. */
 export async function getPack(accessToken, packId) {
   const url = `${BASE}/packs/${packId}`;
   const res = await fetchWith429Retry(
@@ -142,6 +142,7 @@ export async function getPack(accessToken, packId) {
   return res.json();
 }
 
+/** Orden: GET https://api.mercadolibre.com/orders/:orderId → { id, pack_id, order_items: [{ item: { id, title }, quantity }, ...], payments, status, ... }. Reintenta ante 429. */
 export async function getOrder(accessToken, orderId) {
   const url = `${BASE}/orders/${orderId}`;
   const res = await fetchWith429Retry(

@@ -47,7 +47,11 @@ syncRoutes.patch('/config', async (req, res) => {
   }
 });
 
-/** Reintentar sincronización por pack_id (nro de venta). GET pack → por cada order_id se libera claim, GET order y se descuenta; en audit se guarda pack_id como nro de venta. */
+/** Reintentar sincronización por pack_id (nro de venta).
+ * Flujo: 1) GET /packs/:packId → { orders: [{ id: 2000015382437056 }, ...] }
+ *        2) Por cada orders[].id → GET /orders/:orderId → { order_items: [...], pack_id, ... }
+ *        3) onMercadoLibreOrderPaid(items, packId, order) → descuenta en TN y crea sync_audit (nro venta = pack_id, nro orden = order.id).
+ */
 syncRoutes.post('/reprocess-order', async (req, res) => {
   const rawPackId = (req.body?.packId ?? req.body?.orderId ?? '').trim();
   const packId = rawPackId.replace(/\D/g, '') || rawPackId;
@@ -63,11 +67,12 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
       });
     }
     const pack = await ml.getPack(accessToken, packId);
-    if (!pack?.orders?.length) {
+    const ordersList = pack?.orders ?? pack?.data?.orders ?? (Array.isArray(pack?.data) ? pack.data : []);
+    if (!pack || !Array.isArray(ordersList) || ordersList.length === 0) {
       return res.status(404).json({ error: 'Pack no encontrado. Usá el nro de venta (pack id) que ves en la app de ML.' });
     }
     let totalSynced = 0;
-    for (const o of pack.orders) {
+    for (const o of ordersList) {
       const orderId = String(o?.id ?? o);
       if (!orderId) continue;
       await releaseOrderProcessingClaim('mercadolibre', orderId, 'deduct');
@@ -316,7 +321,11 @@ function normalizeOrderId(input) {
   return digits || s;
 }
 
-/** Agregar devoluciones desde un pack de ML (pack_id = nro de venta). GET pack → por cada order_id del pack, GET order y se agregan ítems a pendientes. orderId en BD = pack_id (nro de venta). */
+/** Agregar devoluciones desde un pack de ML (pack_id = nro de venta).
+ * Flujo: 1) GET /packs/:packId → { orders: [{ id: 2000015382437056 }, ...] }
+ *        2) Por cada orders[].id → GET /orders/:orderId → { order_items: [...], pack_id, ... }
+ *        3) Por cada order_item se inserta en sync_pending_returns (orderId = pack_id para mostrar como nro de venta).
+ */
 syncRoutes.post('/returns', async (req, res) => {
   const rawPackId = (req.body?.packId ?? req.body?.orderId ?? '').trim();
   const packId = normalizeOrderId(rawPackId);
@@ -327,11 +336,18 @@ syncRoutes.post('/returns', async (req, res) => {
 
   try {
     const pack = await ml.getPack(accessToken, packId);
-    if (!pack?.orders?.length) {
-      return res.status(404).json({ error: 'Pack no encontrado. Usá el nro de venta (pack id) que ves en la app de ML.' });
+    if (!pack) {
+      console.warn('[returns/add] getPack devolvió null para packId=%s', packId);
+      return res.status(502).json({ error: 'No se pudo obtener el pack desde ML (revisá token y consola del servidor: [ML] getPack failed).' });
     }
+    const ordersList = pack.orders ?? pack.data?.orders ?? (Array.isArray(pack.data) ? pack.data : []);
+    if (!Array.isArray(ordersList) || ordersList.length === 0) {
+      console.warn('[returns/add] pack sin órdenes, keys=%s', Object.keys(pack).join(','));
+      return res.status(404).json({ error: 'Pack sin órdenes o estructura inesperada. Revisá la consola del servidor.' });
+    }
+    console.log('[returns/add] pack %s: %s órdenes', packId, ordersList.length);
     const created = [];
-    for (const o of pack.orders) {
+    for (const o of ordersList) {
       const orderId = o?.id ?? o;
       if (orderId == null) continue;
       const order = await ml.getOrder(accessToken, String(orderId));
@@ -362,8 +378,12 @@ syncRoutes.post('/returns', async (req, res) => {
         if (row) created.push(row);
       }
     }
+    if (ordersList.length > 0 && created.length === 0) {
+      return res.status(502).json({ error: 'Se encontró el pack pero no se pudieron cargar ítems (GET order falló o no hay order_items). Revisá la consola del servidor [ML] getOrder failed.' });
+    }
     res.status(201).json({ created: created.length, rows: created });
   } catch (e) {
+    console.error('[returns/add]', e);
     res.status(500).json({ error: e.message || 'Error al cargar el pack' });
   }
 });

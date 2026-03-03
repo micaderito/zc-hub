@@ -127,7 +127,7 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
       const results = await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
       if (results.length === 0) {
         await releaseOrderProcessingClaim('mercadolibre', effectiveOrderId, 'deduct');
-        console.warn('[Webhook ML] Orden %s: no se descontó ningún ítem (sync desactivada o ítem sin SKU en Conflictos). Claim liberado para que puedas reintentar.', effectiveOrderId);
+        console.warn('[Webhook ML] Orden %s: no se descontó ningún ítem. Revisá los logs [Sync] arriba (sync desactivada, ítem sin SKU o descuento TN fallido). Claim liberado para reintentar.', effectiveOrderId);
       }
     }
   } catch (e) {
