@@ -63,11 +63,12 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
     }
     await releaseOrderProcessingClaim('mercadolibre', orderId, 'deduct');
     let order = await ml.getOrder(accessToken, orderId);
-    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
+    const userId = tokens.mercadolibre?.user_id;
+    if (!order?.order_items?.length && userId) {
       const { getOrdersSearch } = await import('../lib/mercadolibre.js');
-      const searchRes = await getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
-      const results = searchRes?.results ?? [];
-      const found = results[0];
+      let searchRes = await getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
+      let results = searchRes?.results ?? [];
+      let found = results[0];
       if (found) {
         const internalId = found.id ?? found.orders?.[0]?.id;
         if (internalId != null) {
@@ -75,6 +76,30 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
           if (fullOrder?.order_items?.length) order = fullOrder;
         }
         if (!order?.order_items?.length && found.order_items?.length) order = found;
+      }
+      if (!order?.order_items?.length) {
+        for (let offset = 0; offset < 150; offset += 50) {
+          searchRes = await getOrdersSearch(accessToken, { seller: userId, limit: 50, offset });
+          const list = searchRes?.results ?? [];
+          if (list.length === 0) break;
+          const orderIdStr = String(orderId);
+          const byItemId = list.find((r) => {
+            if (String(r?.id ?? '') === orderIdStr) return true;
+            const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
+            return items.some((it) => String(it?.id ?? it) === orderIdStr);
+          });
+          if (byItemId) {
+            const internalId = byItemId.id ?? byItemId.orders?.[0]?.id;
+            if (internalId != null) {
+              const fullOrder = await ml.getOrder(accessToken, String(internalId));
+              if (fullOrder?.order_items?.length) {
+                order = fullOrder;
+                break;
+              }
+            }
+          }
+          if (order?.order_items?.length || list.length < 50) break;
+        }
       }
     }
     if (!order?.order_items?.length) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
@@ -324,14 +349,15 @@ syncRoutes.post('/returns', async (req, res) => {
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada (DATABASE_URL).' });
 
-  const ORDER_NOT_FOUND_MSG = 'Orden no encontrada. Usá el número de venta que ves en tu panel de ML (ej. 2000015378994092).';
+  const ORDER_NOT_FOUND_MSG = 'Orden no encontrada. Usá el número de venta (order id) o el id del ítem dentro de la venta (ej. 2000011712234731).';
 
   try {
     let order = await ml.getOrder(accessToken, orderId);
-    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
-      const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
+    const userId = tokens.mercadolibre?.user_id;
+    if (!order?.order_items?.length && userId) {
+      const searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
       const orderResults = searchRes?.results ?? [];
-      const found = orderResults[0];
+      let found = orderResults[0];
       if (found) {
         const internalId = found.id ?? found.orders?.[0]?.id;
         if (internalId != null) {
@@ -339,6 +365,30 @@ syncRoutes.post('/returns', async (req, res) => {
           if (fullOrder?.order_items?.length) order = fullOrder;
         }
         if (!order?.order_items?.length && found.order_items?.length) order = found;
+      }
+      if (!order?.order_items?.length) {
+        for (let offset = 0; offset < 150; offset += 50) {
+          const bySeller = await ml.getOrdersSearch(accessToken, { seller: userId, limit: 50, offset });
+          const list = bySeller?.results ?? [];
+          if (list.length === 0) break;
+          const byItemId = list.find((r) => {
+            const orderIdStr = String(orderId);
+            if (String(r?.id ?? '') === orderIdStr) return true;
+            const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
+            return items.some((it) => String(it?.id ?? it) === orderIdStr);
+          });
+          if (byItemId) {
+            const internalId = byItemId.id ?? byItemId.orders?.[0]?.id;
+            if (internalId != null) {
+              const fullOrder = await ml.getOrder(accessToken, String(internalId));
+              if (fullOrder?.order_items?.length) {
+                order = fullOrder;
+                break;
+              }
+            }
+          }
+          if (order?.order_items?.length || list.length < 50) break;
+        }
       }
     }
     if (!order?.order_items?.length) return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
