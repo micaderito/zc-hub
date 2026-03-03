@@ -3,13 +3,14 @@ import { tokens, getResolvedSkus, getMlToken, setMlTokenKnownInvalid } from '../
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { getAnalysis } from '../services/conflictsService.js';
-import { tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
+import { tryClaimOrderProcessing, hasOrderProcessingClaimed, releaseOrderProcessingClaim, hasDatabase } from '../db.js';
 import {
   onMercadoLibreOrderPaid,
   onMercadoLibreOrderCancelled,
   onTiendaNubeOrderPaid,
   onTiendaNubeOrderCancelled
 } from '../services/syncService.js';
+import { processClaimToPendingReturns } from './sync.js';
 
 export const webhookRoutes = Router();
 
@@ -24,12 +25,44 @@ function orderPaidRecently(order) {
   return Date.now() - t <= ORDER_PAID_MAX_AGE_MS;
 }
 
+/** Extrae el ID de un recurso ML (puede ser número o URL tipo .../claims/123 o .../orders/456). */
+function parseMlResourceId(resource) {
+  if (resource == null) return null;
+  if (typeof resource === 'number' && !Number.isNaN(resource)) return String(resource);
+  const s = String(resource).trim();
+  if (!s) return null;
+  const match = s.match(/\/(?:claims|orders)\/(\d+)$/i) || s.match(/^(\d+)$/);
+  return match ? match[1] : null;
+}
+
 /** Mercado Libre envía POST con application_id, resource, topic, etc. */
 webhookRoutes.post('/mercadolibre', async (req, res) => {
   const body = req.body || {};
   console.log('[Webhook ML] Notificación recibida, body:', JSON.stringify(body));
   res.status(200).send();
   const { topic, resource } = body;
+
+  if (topic === 'claims' || topic === 'claims_actions') {
+    const claimId = parseMlResourceId(resource);
+    if (!claimId) return;
+    const accessToken = await getMlToken();
+    if (!accessToken) return;
+    if (!hasDatabase()) return;
+    try {
+      const claim = await ml.getClaim(accessToken, claimId);
+      if (!claim) return;
+      const type = (claim.type || '').toLowerCase();
+      if (type !== 'return') return;
+      const out = await processClaimToPendingReturns(accessToken, claim);
+      if (out.created > 0 || out.skipped > 0) {
+        console.log('[Webhook ML] Devolución claim %s agregada a pendientes: created=%s, skipped=%s', claimId, out.created, out.skipped);
+      }
+    } catch (e) {
+      console.error('[Webhook ML] claims:', e);
+    }
+    return;
+  }
+
   if (topic !== 'orders' && topic !== 'orders_v2') return;
   const orderId = typeof resource === 'string'
     ? resource.replace(/https:\/\/api\.mercadolibre\.com\/orders\/?/i, '').replace(/^\/orders\/?/, '').trim() || null
@@ -77,7 +110,11 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
         console.log('[Webhook ML] Orden %s ya procesada (idempotencia), no se vuelve a descontar.', effectiveOrderId);
         return;
       }
-      await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
+      const results = await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
+      if (results.length === 0) {
+        await releaseOrderProcessingClaim('mercadolibre', effectiveOrderId, 'deduct');
+        console.warn('[Webhook ML] Orden %s: no se descontó ningún ítem (sync desactivada o ítem sin SKU en Conflictos). Claim liberado para que puedas reintentar.', effectiveOrderId);
+      }
     }
   } catch (e) {
     if (e?.message?.includes('401') || e?.response?.status === 401) setMlTokenKnownInvalid(true);

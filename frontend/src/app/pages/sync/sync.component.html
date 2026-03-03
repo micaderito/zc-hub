@@ -48,12 +48,13 @@
       <p class="help">Al entrar a esta página se buscan las devoluciones en ML. Cuando hayas verificado cada una, usá «Restaurar stock (ML y TN)» y restauramos en ambas plataformas.</p>
 
       <div class="returns-actions">
-        <span class="returns-add-label">Agregar por nº de orden:</span>
-        <input type="text" [(ngModel)]="returnOrderId" placeholder="Nº de orden ML" class="input-order-id" />
+        <span class="returns-add-label">Agregar por ID de orden ML:</span>
+        <input type="text" [(ngModel)]="returnOrderId" placeholder="Ej. 2000007819609432 (ID largo, no el nº corto)" class="input-order-id" />
         <button type="button" (click)="addReturnsByOrder()" [disabled]="!returnOrderId.trim() || addingReturn">
           {{ addingReturn ? 'Cargando…' : 'Agregar ítems' }}
         </button>
       </div>
+      <p class="help muted">El ID es el número largo que ves al abrir la venta en Mercado Libre (en la URL o en Detalles). No uses el número de venta corto del panel.</p>
       @if (fetchResult) {
         <p class="fetch-result">{{ fetchResult }}</p>
       }
@@ -124,6 +125,16 @@
           <button type="button" class="btn-audit-search" (click)="searchAuditByOrderId()">Buscar</button>
           @if (auditOrderIdSearch.trim()) {
             <button type="button" class="btn-clear-search" (click)="clearAuditSearch()" title="Ver listado completo">Limpiar filtro</button>
+          }
+        </div>
+        <div class="audit-reprocess-row">
+          <span class="audit-reprocess-label">Venta ML que no se registró (reintentar):</span>
+          <input type="text" [(ngModel)]="reprocessOrderId" placeholder="ID orden ej. 2000015378994092" class="audit-search-input" (keyup.enter)="reprocessOrder()" />
+          <button type="button" class="btn-audit-search" (click)="reprocessOrder()" [disabled]="!reprocessOrderId.trim() || reprocessingOrder">
+            {{ reprocessingOrder ? '…' : 'Reintentar' }}
+          </button>
+          @if (reprocessResult) {
+            <span class="reprocess-result" [class.error]="reprocessResult.startsWith('Error')">{{ reprocessResult }}</span>
           }
         </div>
         @if (revertError) {

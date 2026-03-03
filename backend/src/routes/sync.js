@@ -3,7 +3,8 @@ import { syncPricesForSku, approvePendingReturn, revertSyncAudit } from '../serv
 import { getResolvedSkus, getSkuByMlItem, getMlToken, tokens } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, setSyncEnabled, getAuditLog, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem } from '../db.js';
+import { getSyncEnabled, setSyncEnabled, getAuditLog, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, releaseOrderProcessingClaim } from '../db.js';
+import { onMercadoLibreOrderPaid } from '../services/syncService.js';
 
 export const syncRoutes = Router();
 
@@ -43,6 +44,32 @@ syncRoutes.patch('/config', async (req, res) => {
     res.json({ enabled });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+/** Reintentar sincronización de una orden ML (p. ej. cuando el webhook la marcó procesada pero no descontó por sync off o ítem sin SKU). Body: { orderId } (ID de la orden en ML, ej. 2000015378994092). */
+syncRoutes.post('/reprocess-order', async (req, res) => {
+  const orderId = (req.body?.orderId || '').trim();
+  if (!orderId) return res.status(400).json({ error: 'orderId es requerido' });
+  const accessToken = await getMlToken();
+  if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
+  if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada' });
+  try {
+    await releaseOrderProcessingClaim('mercadolibre', orderId, 'deduct');
+    const order = await ml.getOrder(accessToken, orderId);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
+    const items = order.order_items || [];
+    const effectiveOrderId = String(order.id ?? orderId);
+    const results = await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
+    if (results.length === 0) {
+      return res.status(400).json({
+        error: 'No se pudo sincronizar ningún ítem. Revisá que la sincronización esté activada y que el producto esté vinculado por SKU en Conflictos.'
+      });
+    }
+    res.json({ ok: true, orderId: effectiveOrderId, itemsSynced: results.length });
+  } catch (e) {
+    console.error('reprocess-order:', e);
+    res.status(500).json({ error: e.message || 'Error al reprocesar' });
   }
 });
 
@@ -117,6 +144,67 @@ const ML_RETURN_CLOSED_STATUSES = ['closed', 'delivered', 'expired', 'failed', '
 const RETURNS_FETCH_CACHE_TTL_MS = 2 * 60 * 1000;
 let returnsFetchCache = { at: 0, result: null };
 
+/**
+ * Procesa un reclamo de ML: si es devolución (return) y no está cerrada, agrega sus ítems a sync_pending_returns.
+ * Usado por POST /returns/fetch y por el webhook de notificaciones de claims.
+ * @returns {{ created: number, skipped: number }}
+ */
+export async function processClaimToPendingReturns(accessToken, claim) {
+  const claimId = claim.id;
+  let orderId = claim.resource_id;
+  if (!claimId) return { created: 0, skipped: 0 };
+  if (!hasDatabase()) return { created: 0, skipped: 0 };
+
+  const returnsData = await ml.getClaimReturns(accessToken, claimId);
+  const singleReturn = returnsData && typeof returnsData === 'object' && !Array.isArray(returnsData) && (returnsData.id != null || returnsData.claim_id != null || returnsData.status != null);
+  const returnsList = Array.isArray(returnsData) ? returnsData : singleReturn ? [returnsData] : [];
+  const returnStatus = returnsList.length > 0 ? String(returnsList[0]?.status || '').toLowerCase() : '';
+  const isExplicitlyClosed = returnStatus && ML_RETURN_CLOSED_STATUSES.includes(returnStatus);
+  if (returnsList.length > 0 && !orderId && returnsList[0]?.resource_id) orderId = returnsList[0].resource_id;
+  if (!orderId || isExplicitlyClosed) return { created: 0, skipped: 0 };
+
+  const order = await ml.getOrder(accessToken, orderId);
+  if (!order?.order_items?.length) return { created: 0, skipped: 0 };
+
+  let created = 0;
+  let skipped = 0;
+  for (const oi of order.order_items) {
+    const itemId = oi?.item?.id;
+    const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
+    const quantity = oi?.quantity ?? 1;
+    const productLabel = oi?.item?.title ?? null;
+    if (!itemId) continue;
+
+    const exists = await hasPendingReturnForClaimItem(claimId, itemId, variationId);
+    if (exists) {
+      skipped++;
+      continue;
+    }
+
+    let sku = getSkuByMlItem(itemId, variationId);
+    if (!sku) {
+      const item = await ml.getItem(accessToken, itemId);
+      if (item) sku = ml.extractSkuFromItem(item);
+      if (!sku && item?.variations?.length && variationId) {
+        const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
+        if (v?.seller_sku) sku = v.seller_sku;
+      }
+    }
+
+    const row = await insertPendingReturn({
+      claimId,
+      orderId,
+      itemId,
+      variationId: variationId ?? undefined,
+      sku: sku || null,
+      quantity,
+      productLabel
+    });
+    if (row) created++;
+  }
+  return { created, skipped };
+}
+
 /** Traer devoluciones desde ML: reclamos tipo "return" (por type en API o en código). Incluimos todo lo que no esté explícitamente cerrado. */
 syncRoutes.post('/returns/fetch', async (_, res) => {
   const accessToken = await getMlToken();
@@ -154,56 +242,9 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
     let skipped = 0;
 
     for (const claim of listToUse) {
-      const claimId = claim.id;
-      let orderId = claim.resource_id;
-      if (!claimId) continue;
-
-      const returnsData = await ml.getClaimReturns(accessToken, claimId);
-      const singleReturn = returnsData && typeof returnsData === 'object' && !Array.isArray(returnsData) && (returnsData.id != null || returnsData.claim_id != null || returnsData.status != null);
-      const returnsList = Array.isArray(returnsData) ? returnsData : singleReturn ? [returnsData] : [];
-      const returnStatus = returnsList.length > 0 ? String(returnsList[0]?.status || '').toLowerCase() : '';
-      const isExplicitlyClosed = returnStatus && ML_RETURN_CLOSED_STATUSES.includes(returnStatus);
-      if (returnsList.length > 0 && !orderId && returnsList[0]?.resource_id) orderId = returnsList[0].resource_id;
-      if (!orderId) continue;
-      if (isExplicitlyClosed) continue;
-
-      const order = await ml.getOrder(accessToken, orderId);
-      if (!order?.order_items?.length) continue;
-
-      for (const oi of order.order_items) {
-        const itemId = oi?.item?.id;
-        const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
-        const quantity = oi?.quantity ?? 1;
-        const productLabel = oi?.item?.title ?? null;
-        if (!itemId) continue;
-
-        const exists = await hasPendingReturnForClaimItem(claimId, itemId, variationId);
-        if (exists) {
-          skipped++;
-          continue;
-        }
-
-        let sku = getSkuByMlItem(itemId, variationId);
-        if (!sku) {
-          const item = await ml.getItem(accessToken, itemId);
-          if (item) sku = ml.extractSkuFromItem(item);
-          if (!sku && item?.variations?.length && variationId) {
-            const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
-            if (v?.seller_sku) sku = v.seller_sku;
-          }
-        }
-
-        const row = await insertPendingReturn({
-          claimId,
-          orderId,
-          itemId,
-          variationId: variationId ?? undefined,
-          sku: sku || null,
-          quantity,
-          productLabel
-        });
-        if (row) created++;
-      }
+      const out = await processClaimToPendingReturns(accessToken, claim);
+      created += out.created;
+      skipped += out.skipped;
     }
 
     const result = { ok: true, claimsChecked: claims.length, created, skipped };
@@ -215,17 +256,33 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
   }
 });
 
+/** Normaliza el ID de orden: quita espacios y deja solo dígitos (por si pegaron con espacios o guiones). */
+function normalizeOrderId(input) {
+  const s = String(input || '').trim();
+  const digits = s.replace(/\D/g, '');
+  return digits || s;
+}
+
 /** Agregar devoluciones desde una orden de ML: trae los ítems de la orden y los deja pendientes. */
 syncRoutes.post('/returns', async (req, res) => {
-  const orderId = (req.body?.orderId || '').trim();
-  if (!orderId) return res.status(400).json({ error: 'orderId es requerido' });
+  const rawOrderId = (req.body?.orderId || '').trim();
+  if (!rawOrderId) return res.status(400).json({ error: 'orderId es requerido' });
+  const orderId = normalizeOrderId(rawOrderId);
   const accessToken = await getMlToken();
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada (DATABASE_URL).' });
 
+  const ORDER_NOT_FOUND_MSG = 'Orden no encontrada. Usá el ID de la orden de ML (número largo, ej. 2000007819609432). Lo ves al abrir la venta en ML, en la URL o en Detalles de la operación. No uses el número de venta corto del panel.';
+
   try {
-    const order = await ml.getOrder(accessToken, orderId);
-    if (!order) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
+    let order = await ml.getOrder(accessToken, orderId);
+    if (!order && tokens.mercadolibre?.user_id) {
+      const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, limit: 100 });
+      const results = searchRes?.results ?? [];
+      const found = results.find((o) => String(o.id) === String(orderId));
+      if (found && found.order_items?.length) order = found;
+    }
+    if (!order) return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
     const items = order.order_items || [];
     if (items.length === 0) return res.status(400).json({ error: 'La orden no tiene ítems' });
 

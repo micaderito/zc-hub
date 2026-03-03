@@ -214,6 +214,21 @@ export async function hasOrderProcessingClaimed(channelSale, orderId, operation)
   }
 }
 
+/** Libera el claim de una orden para que pueda volver a procesarse (p. ej. si no se pudo sincronizar nada). */
+export async function releaseOrderProcessingClaim(channelSale, orderId, operation) {
+  const p = getPool();
+  if (!p || !orderId) return false;
+  try {
+    const r = await p.query(
+      'DELETE FROM sync_processed_orders WHERE channel_sale = $1 AND order_id = $2 AND operation = $3 RETURNING 1',
+      [channelSale, String(orderId), operation]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    return false;
+  }
+}
+
 /**
  * Registra una línea del historial de sincronización.
  * @param {object} row - { channelSale, orderId, sku, productLabel?, productDisplay?, quantity, updatedChannel, stockBefore, stockAfter, saleItemId?, notificationPayload? }

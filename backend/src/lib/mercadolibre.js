@@ -137,6 +137,33 @@ export async function getOrder(accessToken, orderId) {
   return res.json();
 }
 
+/** Buscar órdenes del vendedor (orders/search). Params: seller (user_id), limit, offset. Reintenta ante 429. */
+export async function getOrdersSearch(accessToken, params = {}) {
+  const q = new URLSearchParams();
+  if (params.seller != null) q.set('seller', params.seller);
+  if (params.limit != null) q.set('limit', params.limit);
+  if (params.offset != null) q.set('offset', params.offset);
+  const url = `${BASE}/orders/search?${q.toString()}`;
+  const res = await fetchWith429Retry(
+    url,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getOrdersSearch'
+  );
+  if (!res.ok) return null;
+  return res.json();
+}
+
+/** Detalle de un reclamo por ID (post-purchase v1). Reintenta ante 429. */
+export async function getClaim(accessToken, claimId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/post-purchase/v1/claims/${claimId}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getClaim'
+  );
+  if (!res.ok) return null;
+  return res.json();
+}
+
 /** Listar reclamos/devoluciones del vendedor (post-purchase). Params: limit, offset, status, stage, type, resource, etc. Reintenta ante 429. */
 export async function getClaimsSearch(accessToken, params = {}) {
   const q = new URLSearchParams();

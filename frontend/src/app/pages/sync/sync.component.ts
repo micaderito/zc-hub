@@ -34,6 +34,10 @@ export class SyncComponent implements OnInit {
   revertingAuditId: number | null = null;
   revertError: string | null = null;
 
+  reprocessOrderId = '';
+  reprocessingOrder = false;
+  reprocessResult: string | null = null;
+
   /** Habilita la query de devoluciones cuando hay DB (se setea al cargar config). */
   hasDatabaseForReturns = false;
 
@@ -126,6 +130,28 @@ export class SyncComponent implements OnInit {
   clearAuditSearch(): void {
     this.auditOrderIdSearch = '';
     this.loadAudit();
+  }
+
+  /** Reintentar sincronización de una venta ML que no se registró (sync estaba off o ítem sin SKU). */
+  reprocessOrder(): void {
+    const id = this.reprocessOrderId.trim();
+    if (!id) return;
+    this.reprocessResult = null;
+    this.reprocessingOrder = true;
+    this.sync.reprocessOrder(id).subscribe({
+      next: (r) => {
+        this.reprocessingOrder = false;
+        this.reprocessResult = r.ok ? `Orden ${r.orderId} sincronizada: ${r.itemsSynced} ítem(s) descontados.` : null;
+        if (r.ok) {
+          this.reprocessOrderId = '';
+          this.loadAudit();
+        }
+      },
+      error: (e) => {
+        this.reprocessingOrder = false;
+        this.reprocessResult = e.error?.error || e.message || 'Error al reintentar.';
+      }
+    });
   }
 
   revertAudit(row: SyncAuditRow): void {

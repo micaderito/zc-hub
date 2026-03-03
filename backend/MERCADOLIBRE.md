@@ -20,7 +20,14 @@ A diferencia de Tienda Nube, **Mercado Libre no usa registro de webhooks por API
    - **orders_v2** (recomendado): notificaciones de creación y cambios en ventas confirmadas.
    - **orders** (legacy): también lo soporta este backend.
 
-5. Guardá los cambios. No hace falta “desconectar” ni volver a autorizar: ML empieza a enviar notificaciones a esa URL para los temas elegidos.
+5. **Devoluciones (Post Purchase)**  
+   Para que las devoluciones de ML aparezcan en Sincronización sin depender del botón "Actualizar":
+   - En la misma aplicación, entrá a la sección **Post Purchase** (o "Notificaciones" / temas avanzados).
+   - Activá el filtro **claims** (notificaciones cuando hay un reclamo en tus ventas).
+   - Opcional: **claims_actions** (cuando se ejecuta una acción en un reclamo).
+   ML enviará un POST a la **misma URL** (`/api/webhooks/mercadolibre`) con `topic: "claims"` (o `claims_actions`). El backend detecta devoluciones (`type: "return"`) y las agrega a "Devoluciones de Mercado Libre" al instante.
+
+6. Guardá los cambios. No hace falta “desconectar” ni volver a autorizar: ML empieza a enviar notificaciones a esa URL para los temas elegidos.
 
 ## Qué hace este backend
 

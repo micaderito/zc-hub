@@ -72,6 +72,14 @@ export class SyncService {
     return this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/sync/audit/${id}/revert`, {});
   }
 
+  /** Reintentar sincronización de una orden ML (cuando el webhook la marcó procesada pero no descontó). */
+  reprocessOrder(orderId: string) {
+    return this.http.post<{ ok: boolean; orderId: string; itemsSynced: number }>(
+      `${this.api.baseUrl}/sync/reprocess-order`,
+      { orderId: orderId.trim() }
+    );
+  }
+
   /** Sincronizar precios de todos los SKU a ML y TN. */
   syncAllPrices() {
     return this.http.post<Record<string, { ml?: boolean; tn?: boolean; error?: string }>>(
