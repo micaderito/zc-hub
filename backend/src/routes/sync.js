@@ -293,12 +293,16 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
   }
 
   try {
-    // Buscar con type=return; si no viene nada, repetir sin type y filtrar en código. Paginamos para no perder devoluciones atrás.
+    const userId = tokens.mercadolibre?.user_id;
+    if (!userId) {
+      return res.status(400).json({ error: 'Falta user_id de ML (reconectá Mercado Libre).' });
+    }
+    // ML exige al menos [resource+resource_id] o [player_role+player_user_id]. Usamos el vendedor como respondent.
     let claims = [];
     for (const useType of [true, false]) {
       let collected = [];
       for (let offset = 0; offset < 100; offset += 50) {
-        const params = { limit: 50, offset, resource: 'order' };
+        const params = { limit: 50, offset, player_role: 'respondent', player_user_id: userId };
         if (useType) params.type = 'return';
         const searchRes = await ml.getClaimsSearch(accessToken, params);
         const page = searchRes?.data ?? searchRes?.results ?? [];

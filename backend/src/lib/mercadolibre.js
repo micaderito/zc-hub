@@ -144,10 +144,7 @@ export async function getOrder(accessToken, orderId) {
 /** Buscar órdenes del vendedor (orders/search). Params: seller (user_id), q (order id o nº venta), limit, offset. Reintenta ante 429. */
 export async function getOrdersSearch(accessToken, params = {}) {
   const q = new URLSearchParams();
-  if (params.seller != null) {
-    q.set('seller', params.seller);
-    q.set('caller.id', params.seller);
-  }
+  if (params.seller != null) q.set('seller', params.seller);
   if (params.q != null && params.q !== '') q.set('q', String(params.q).trim());
   if (params.limit != null) q.set('limit', params.limit);
   if (params.offset != null) q.set('offset', params.offset);
@@ -176,7 +173,7 @@ export async function getClaim(accessToken, claimId) {
   return res.json();
 }
 
-/** Listar reclamos/devoluciones del vendedor (post-purchase). Params: limit, offset, status, stage, type, resource, etc. Reintenta ante 429. */
+/** Listar reclamos/devoluciones del vendedor (post-purchase). ML exige al menos: [resource+resource_id] o [player_role+player_user_id]. Reintenta ante 429. */
 export async function getClaimsSearch(accessToken, params = {}) {
   const q = new URLSearchParams();
   if (params.limit != null) q.set('limit', params.limit);
@@ -185,6 +182,9 @@ export async function getClaimsSearch(accessToken, params = {}) {
   if (params.stage) q.set('stage', params.stage);
   if (params.type) q.set('type', params.type);
   if (params.resource) q.set('resource', params.resource);
+  if (params.resource_id) q.set('resource_id', params.resource_id);
+  if (params.player_role) q.set('player_role', params.player_role);
+  if (params.player_user_id != null) q.set('player_user_id', params.player_user_id);
   const url = `${BASE}/post-purchase/v1/claims/search?${q.toString()}`;
   const res = await fetchWith429Retry(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 'getClaimsSearch');
   if (!res.ok) {
