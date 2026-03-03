@@ -162,6 +162,7 @@ export async function tryRefreshMlToken() {
       return t.access_token;
     } catch (e) {
       console.warn('ML refresh token failed:', e.message);
+      setMlTokenKnownInvalid(true);
       return null;
     } finally {
       refreshInFlight = null;

@@ -62,14 +62,18 @@ app.get('/api/health', (_, res) => res.json({ ok: true }));
 // Por si Railway (u otro) hace health check en la raíz
 app.get('/', (_, res) => res.redirect('/api/health'));
 
-/** Refresco periódico del token de ML (cada 6 h). Usa getMlToken() para respetar single-flight del refresh. */
-const ML_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** Refresco periódico del token de ML. El access_token de ML vence a las 6 h; refrescamos cada 4 h para no quedar vencidos. */
+const ML_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const ML_REFRESH_INITIAL_DELAY_MS = 90 * 1000;
+
 function scheduleMlTokenRefresh() {
-  setInterval(async () => {
+  const runRefresh = async () => {
     if (!tokens.mercadolibre?.refresh_token) return;
     const token = await getMlToken();
     if (token) console.log('[ML] Token refrescado en segundo plano.');
-  }, ML_REFRESH_INTERVAL_MS);
+  };
+  setTimeout(runRefresh, ML_REFRESH_INITIAL_DELAY_MS);
+  setInterval(runRefresh, ML_REFRESH_INTERVAL_MS);
 }
 
 (async () => {
