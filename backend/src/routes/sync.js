@@ -63,14 +63,21 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
     }
     await releaseOrderProcessingClaim('mercadolibre', orderId, 'deduct');
     let order = await ml.getOrder(accessToken, orderId);
-    if (!order && tokens.mercadolibre?.user_id) {
+    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
       const { getOrdersSearch } = await import('../lib/mercadolibre.js');
       const searchRes = await getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
       const results = searchRes?.results ?? [];
       const found = results[0];
-      if (found && found.order_items?.length) order = found;
+      if (found) {
+        const internalId = found.id ?? found.orders?.[0]?.id;
+        if (internalId != null) {
+          const fullOrder = await ml.getOrder(accessToken, String(internalId));
+          if (fullOrder?.order_items?.length) order = fullOrder;
+        }
+        if (!order?.order_items?.length && found.order_items?.length) order = found;
+      }
     }
-    if (!order) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
+    if (!order?.order_items?.length) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
     const items = order.order_items || [];
     const effectiveOrderId = String(order.payments?.[0]?.order_id ?? order.id ?? orderId);
 
@@ -321,16 +328,22 @@ syncRoutes.post('/returns', async (req, res) => {
 
   try {
     let order = await ml.getOrder(accessToken, orderId);
-    if (!order && tokens.mercadolibre?.user_id) {
+    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
       const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
       const orderResults = searchRes?.results ?? [];
       const found = orderResults[0];
-      if (found && found.order_items?.length) order = found;
+      if (found) {
+        const internalId = found.id ?? found.orders?.[0]?.id;
+        if (internalId != null) {
+          const fullOrder = await ml.getOrder(accessToken, String(internalId));
+          if (fullOrder?.order_items?.length) order = fullOrder;
+        }
+        if (!order?.order_items?.length && found.order_items?.length) order = found;
+      }
     }
-    if (!order) return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
+    if (!order?.order_items?.length) return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
     const items = order.order_items || [];
     const displayOrderId = order.payments?.[0]?.order_id ?? order.id ?? orderId;
-    if (items.length === 0) return res.status(400).json({ error: 'La orden no tiene ítems' });
 
     const created = [];
     for (const oi of items) {
