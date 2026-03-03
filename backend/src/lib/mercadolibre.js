@@ -153,6 +153,11 @@ export async function getOrder(accessToken, orderId) {
   if (!res.ok) {
     const text = await res.text();
     console.warn('[ML] getOrder failed:', res.status, orderId, text?.slice(0, 200));
+    if (res.status === 429) {
+      const e = new Error(`ML rate limited (429) order ${orderId}`);
+      e.statusCode = 429;
+      throw e;
+    }
     return null;
   }
   return res.json();
@@ -175,6 +180,11 @@ export async function getOrdersSearch(accessToken, params = {}) {
   if (!res.ok) {
     const text = await res.text();
     console.warn('[ML] getOrdersSearch failed:', res.status, text?.slice(0, 200));
+    if (res.status === 429) {
+      const e = new Error('ML rate limited (429) getOrdersSearch');
+      e.statusCode = 429;
+      throw e;
+    }
     return null;
   }
   return res.json();

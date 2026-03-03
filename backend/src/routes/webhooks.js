@@ -35,14 +35,93 @@ function parseMlResourceId(resource) {
   return match ? match[1] : null;
 }
 
+/** Cola de órdenes ML que no se pudieron obtener por 429; se procesan en background sin devolver 503 (evita loop). */
+const pendingMlOrderIds = [];
+const PENDING_ORDER_MAX = 50;
+const PENDING_ORDER_MAX_AGE_MS = 30 * 60 * 1000; // 30 min
+
+function enqueuePendingMlOrder(orderId) {
+  if (!orderId || pendingMlOrderIds.some((e) => e.orderId === orderId)) return;
+  if (pendingMlOrderIds.length >= PENDING_ORDER_MAX) {
+    pendingMlOrderIds.shift();
+  }
+  pendingMlOrderIds.push({ orderId, addedAt: Date.now() });
+}
+
+/** Procesa una orden ya obtenida: cancel → restaurar, paid → descontar. Sin responder HTTP. */
+async function processMlOrderPayload(order, orderId) {
+  const items = order.order_items || [];
+  const status = (order.status || '').toLowerCase();
+  const statusDetail = (order.status_detail || '').toLowerCase();
+  const effectiveOrderId = String(order.id ?? orderId);
+
+  if (status === 'cancelled' || status === 'canceled') {
+    const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'restore');
+    if (!claimed) {
+      console.log('[Webhook ML] Orden %s ya se restauró stock (idempotencia).', effectiveOrderId);
+      return;
+    }
+    await onMercadoLibreOrderCancelled(items, effectiveOrderId, order);
+    console.log('[Webhook ML] Orden %s cancelación registrada y stock restaurado.', effectiveOrderId);
+    return;
+  }
+
+  if (status === 'paid' || status === 'confirmed') {
+    if (statusDetail && statusDetail.includes('cancel')) return;
+    if (await hasOrderProcessingClaimed('mercadolibre', effectiveOrderId, 'restore')) return;
+    if (!orderPaidRecently(order)) return;
+    const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'deduct');
+    if (!claimed) return;
+    const results = await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
+    if (results.length === 0) {
+      await releaseOrderProcessingClaim('mercadolibre', effectiveOrderId, 'deduct');
+    }
+  }
+}
+
+/** Worker: cada 60s intenta obtener y procesar una orden pendiente (evita 429 en loop). */
+const ML_PENDING_INTERVAL_MS = 60 * 1000;
+let pendingMlOrderInterval = setInterval(async () => {
+  if (pendingMlOrderIds.length === 0) return;
+  const now = Date.now();
+  const entry = pendingMlOrderIds.shift();
+  if (now - entry.addedAt > PENDING_ORDER_MAX_AGE_MS) {
+    console.log('[Webhook ML] Orden pendiente %s descartada por antigüedad.', entry.orderId);
+    return;
+  }
+  const accessToken = await getMlToken();
+  if (!accessToken) return;
+  try {
+    let order = await ml.getOrder(accessToken, entry.orderId);
+    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
+      try {
+        const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: entry.orderId, limit: 10 });
+        const results = searchRes?.results ?? [];
+        const found = results[0];
+        if (found?.order_items?.length) order = found;
+        else if (found?.id) order = await ml.getOrder(accessToken, String(found.id));
+      } catch (_) {}
+    }
+    if (order?.order_items?.length) {
+      console.log('[Webhook ML] Orden pendiente %s obtenida, status=%s. Procesando.', order.id ?? entry.orderId, order.status);
+      await processMlOrderPayload(order, entry.orderId);
+    }
+  } catch (e) {
+    if (e?.statusCode === 429) {
+      enqueuePendingMlOrder(entry.orderId);
+    }
+  }
+}, ML_PENDING_INTERVAL_MS);
+pendingMlOrderInterval.unref?.();
+
 /** Mercado Libre envía POST con application_id, resource, topic, etc. */
 webhookRoutes.post('/mercadolibre', async (req, res) => {
   const body = req.body || {};
   console.log('[Webhook ML] Notificación recibida, body:', JSON.stringify(body));
-  res.status(200).send();
   const { topic, resource } = body;
 
   if (topic === 'claims' || topic === 'claims_actions') {
+    res.status(200).send();
     const claimId = parseMlResourceId(resource);
     if (!claimId) return;
     const accessToken = await getMlToken();
@@ -63,15 +142,20 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
     return;
   }
 
-  if (topic !== 'orders' && topic !== 'orders_v2') return;
+  if (topic !== 'orders' && topic !== 'orders_v2') {
+    res.status(200).send();
+    return;
+  }
   const orderId = parseMlResourceId(resource);
   if (!orderId) {
     console.warn('[Webhook ML] orders: resource inválido o vacío', typeof resource, resource);
+    res.status(200).send();
     return;
   }
   const accessToken = await getMlToken();
   if (!accessToken) {
     console.warn('[Webhook ML] Sin token válido (reconectá ML en Inicio). No se puede obtener la orden.');
+    res.status(200).send();
     return;
   }
   try {
@@ -88,51 +172,22 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
     }
     if (!order?.order_items?.length) {
       console.warn('[Webhook ML] No se pudo obtener la orden %s', orderId);
+      res.status(200).send();
       return;
     }
     console.log('[Webhook ML] Orden obtenida, order_id=%s, status=%s, items=%s', order.id ?? orderId, order.status, (order.order_items || []).length);
-    const items = order.order_items || [];
-    const status = (order.status || '').toLowerCase();
-    const statusDetail = (order.status_detail || '').toLowerCase();
-    const effectiveOrderId = String(order.id ?? orderId);
-
-    if (status === 'cancelled' || status === 'canceled') {
-      const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'restore');
-      if (!claimed) {
-        console.log('[Webhook ML] Orden %s ya se restauró stock (idempotencia), no se vuelve a restaurar.', effectiveOrderId);
-        return;
-      }
-      await onMercadoLibreOrderCancelled(items, effectiveOrderId, order);
-      return;
-    }
-
-    if (status === 'paid' || status === 'confirmed') {
-      if (statusDetail && statusDetail.includes('cancel')) {
-        console.log('[Webhook ML] Orden %s está en proceso de cancelación (status_detail), no se descuenta ni restaura hasta que ML confirme.', effectiveOrderId);
-        return;
-      }
-      if (await hasOrderProcessingClaimed('mercadolibre', effectiveOrderId, 'restore')) {
-        console.log('[Webhook ML] Orden %s ya fue cancelada/restaurada, no se descuenta.', effectiveOrderId);
-        return;
-      }
-      if (!orderPaidRecently(order)) {
-        console.log('[Webhook ML] Orden %s pagada hace más de 2 h (date_closed/date_created). Solo descontamos ventas recientes; se ignora.', effectiveOrderId);
-        return;
-      }
-      const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'deduct');
-      if (!claimed) {
-        console.log('[Webhook ML] Orden %s ya procesada (idempotencia), no se vuelve a descontar.', effectiveOrderId);
-        return;
-      }
-      const results = await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
-      if (results.length === 0) {
-        await releaseOrderProcessingClaim('mercadolibre', effectiveOrderId, 'deduct');
-        console.warn('[Webhook ML] Orden %s: no se descontó ningún ítem. Revisá los logs [Sync] arriba (sync desactivada, ítem sin SKU o descuento TN fallido). Claim liberado para reintentar.', effectiveOrderId);
-      }
-    }
+    await processMlOrderPayload(order, orderId);
+    res.status(200).send();
   } catch (e) {
-    if (e?.message?.includes('401') || e?.response?.status === 401) setMlTokenKnownInvalid(true);
-    console.error('Webhook ML:', e);
+    if (e?.statusCode === 429) {
+      enqueuePendingMlOrder(orderId);
+      console.warn('[Webhook ML] 429 al obtener orden %s. Respondiendo 200 (sin loop) y encolando para procesar en 1 min.', orderId);
+      res.status(200).send();
+    } else {
+      if (e?.message?.includes('401') || e?.response?.status === 401) setMlTokenKnownInvalid(true);
+      console.error('Webhook ML:', e);
+      res.status(200).send();
+    }
   }
 });
 
