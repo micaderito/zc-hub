@@ -386,23 +386,32 @@ syncRoutes.post('/returns', async (req, res) => {
         if (!order?.order_items?.length && found.order_items?.length) order = found;
       }
       if (!order?.order_items?.length) {
-        for (let offset = 0; offset < 250; offset += 50) {
+        for (let offset = 0; offset < 500; offset += 50) {
           const bySeller = await ml.getOrdersSearch(accessToken, { seller: userId, limit: 50, offset });
           const list = bySeller?.results ?? bySeller?.elements ?? [];
           if (list.length === 0) break;
-          if (offset === 0) console.log('[returns/add] bySeller firstPage keys=%s len=%s firstKeys=%s', Object.keys(bySeller || {}).join(','), list.length, Object.keys(list[0] || {}).join(','));
+          if (offset === 0) {
+            const first = list[0];
+            const ids = (first?.order_items ?? []).slice(0, 3).map((oi) => oi?.item?.id ?? oi?.id ?? oi?.item ?? oi);
+            console.log('[returns/add] bySeller len=%s buscando=%s sample item ids=%s', list.length, orderId, JSON.stringify(ids));
+          }
           const orderIdStr = String(orderId);
+          const matchItemId = (val) => {
+            if (val == null) return false;
+            const s = String(val);
+            return s === orderIdStr || s.endsWith(orderIdStr) || s.replace(/^[A-Z]{3}/, '') === orderIdStr;
+          };
           const byItemId = list.find((r) => {
             if (r == null) return false;
             if (typeof r === 'object') {
-              if (String(r?.id ?? '') === orderIdStr) return true;
+              if (matchItemId(r?.id)) return true;
               const orderItems = r?.order_items ?? [];
-              if (orderItems.some((oi) => String(oi?.item?.id ?? oi?.id ?? oi?.item ?? oi) === orderIdStr)) return true;
+              if (orderItems.some((oi) => matchItemId(oi?.item?.id ?? oi?.id ?? oi?.item ?? oi))) return true;
               const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
               const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
-              return arr.some((it) => String(it?.id ?? it) === orderIdStr);
+              return arr.some((it) => matchItemId(it?.id ?? it));
             }
-            return String(r) === orderIdStr;
+            return matchItemId(r);
           });
           if (byItemId != null) {
             if (byItemId.order_items?.length) {
@@ -420,6 +429,7 @@ syncRoutes.post('/returns', async (req, res) => {
           }
           if (order?.order_items?.length || list.length < 50) break;
         }
+        console.log('[returns/add] bySeller scanned up to %s orders, no match', 500);
       }
     }
     if (!order?.order_items?.length) {
