@@ -110,22 +110,32 @@ syncRoutes.get('/returns', async (_, res) => {
   }
 });
 
-/** Traer devoluciones desde ML: consulta reclamos con devolución y agrega sus ítems como pendientes. */
+/** Estados de devolución ML que consideramos "pendiente" (aún no recibida/cerrada). */
+const ML_RETURN_PENDING_STATUSES = ['opened', 'shipped'];
+
+/** Traer devoluciones desde ML: consulta reclamos tipo "return" y agrega ítems como pendientes si la devolución está abierta o en envío. */
 syncRoutes.post('/returns/fetch', async (_, res) => {
   const accessToken = await getMlToken();
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada (DATABASE_URL).' });
 
   try {
-    const searchRes = await ml.getClaimsSearch(accessToken, { limit: 50, resource: 'order' });
+    const searchRes = await ml.getClaimsSearch(accessToken, { limit: 50, resource: 'order', type: 'return' });
     const claims = searchRes?.data ?? searchRes?.results ?? [];
     let created = 0;
     let skipped = 0;
 
     for (const claim of claims) {
       const claimId = claim.id;
-      const orderId = claim.resource_id;
-      if (!claimId || !orderId) continue;
+      let orderId = claim.resource_id;
+      if (!claimId) continue;
+
+      const returnsData = await ml.getClaimReturns(accessToken, claimId);
+      const singleReturn = returnsData && typeof returnsData === 'object' && !Array.isArray(returnsData) && (returnsData.id != null || returnsData.claim_id != null || returnsData.status != null);
+      const returnsList = Array.isArray(returnsData) ? returnsData : singleReturn ? [returnsData] : [];
+      const hasPendingReturn = returnsList.length === 0 || returnsList.some((r) => r?.status && ML_RETURN_PENDING_STATUSES.includes(String(r.status).toLowerCase()));
+      if (returnsList.length > 0 && !orderId && returnsList[0]?.resource_id) orderId = returnsList[0].resource_id;
+      if (!orderId || !hasPendingReturn) continue;
 
       const order = await ml.getOrder(accessToken, orderId);
       if (!order?.order_items?.length) continue;

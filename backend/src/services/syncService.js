@@ -181,8 +181,8 @@ export async function revertSyncAudit(row) {
   return { ok: false, error: 'Canal no reconocido' };
 }
 
-/** Dado un item_id (y opcional variation_id) de ML, encontrar SKU y descontar en TN. Solo si sync está activada. */
-export async function onMercadoLibreOrderPaid(orderItems, orderId = '') {
+/** Dado un item_id (y opcional variation_id) de ML, encontrar SKU y descontar en TN. Solo si sync está activada. orderPayload = respuesta getOrder ML (opcional, para guardar en audit). */
+export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPayload = null) {
   const enabled = await getSyncEnabled();
   if (!enabled) return [];
   const results = [];
@@ -220,7 +220,8 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '') {
           quantity,
           updatedChannel: 'tiendanube',
           stockBefore: out.stockBefore,
-          stockAfter: out.stockAfter ?? out.stockBefore - quantity
+          stockAfter: out.stockAfter ?? out.stockBefore - quantity,
+          notificationPayload: orderPayload
         });
       }
     }
@@ -228,8 +229,8 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '') {
   return results;
 }
 
-/** Dado variant_id de TN, encontrar SKU y descontar en ML. Solo si sync está activada. */
-export async function onTiendaNubeOrderPaid(orderItems, orderId = '') {
+/** Dado variant_id de TN, encontrar SKU y descontar en ML. Solo si sync está activada. orderPayload = respuesta getOrder TN (opcional, para guardar en audit). */
+export async function onTiendaNubeOrderPaid(orderItems, orderId = '', orderPayload = null) {
   const enabled = await getSyncEnabled();
   if (!enabled) {
     console.warn('[Sync] TN orden %s: sincronización desactivada, no se descuenta stock en ML.', orderId);
@@ -267,7 +268,8 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '') {
         quantity,
         updatedChannel: 'mercadolibre',
         stockBefore: out.stockBefore,
-        stockAfter: out.stockAfter ?? out.stockBefore - quantity
+        stockAfter: out.stockAfter ?? out.stockBefore - quantity,
+        notificationPayload: orderPayload
       });
       console.log('[Sync] TN orden %s: descontado stock ML SKU %s, cantidad %s (antes %s, después %s)', orderId, sku, quantity, out.stockBefore, out.stockAfter);
     } else {
@@ -277,8 +279,8 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '') {
   return results;
 }
 
-/** Orden ML cancelada: restaurar stock en TN por cada ítem. Solo si sync está activada. */
-export async function onMercadoLibreOrderCancelled(orderItems, orderId = '') {
+/** Orden ML cancelada: restaurar stock en TN por cada ítem. Solo si sync está activada. orderPayload = respuesta getOrder ML (opcional). */
+export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', orderPayload = null) {
   const enabled = await getSyncEnabled();
   if (!enabled) return [];
   const results = [];
@@ -316,7 +318,8 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '') {
           quantity,
           updatedChannel: 'tiendanube',
           stockBefore: out.stockBefore,
-          stockAfter: out.stockAfter ?? out.stockBefore + quantity
+          stockAfter: out.stockAfter ?? out.stockBefore + quantity,
+          notificationPayload: orderPayload
         });
       }
     }
@@ -324,8 +327,8 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '') {
   return results;
 }
 
-/** Orden TN cancelada: restaurar stock en ML por cada producto. Solo si sync está activada. */
-export async function onTiendaNubeOrderCancelled(orderItems, orderId = '') {
+/** Orden TN cancelada: restaurar stock en ML por cada producto. Solo si sync está activada. orderPayload = respuesta getOrder TN (opcional). */
+export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', orderPayload = null) {
   const enabled = await getSyncEnabled();
   if (!enabled) return [];
   const results = [];
@@ -351,7 +354,8 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '') {
         quantity,
         updatedChannel: 'mercadolibre',
         stockBefore: out.stockBefore,
-        stockAfter: out.stockAfter ?? out.stockBefore + quantity
+        stockAfter: out.stockAfter ?? out.stockBefore + quantity,
+        notificationPayload: orderPayload
       });
     }
   }

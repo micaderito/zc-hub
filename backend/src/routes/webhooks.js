@@ -26,8 +26,10 @@ function orderPaidRecently(order) {
 
 /** Mercado Libre envía POST con application_id, resource, topic, etc. */
 webhookRoutes.post('/mercadolibre', async (req, res) => {
+  const body = req.body || {};
+  console.log('[Webhook ML] Notificación recibida, body:', JSON.stringify(body));
   res.status(200).send();
-  const { topic, resource } = req.body || {};
+  const { topic, resource } = body;
   if (topic !== 'orders' && topic !== 'orders_v2') return;
   const orderId = typeof resource === 'string'
     ? resource.replace(/https:\/\/api\.mercadolibre\.com\/orders\/?/i, '').replace(/^\/orders\/?/, '').trim() || null
@@ -41,6 +43,7 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
   try {
     const order = await ml.getOrder(accessToken, orderId);
     if (!order) return;
+    console.log('[Webhook ML] Orden obtenida de API, order_id=%s, status=%s, items=%s', order.id ?? orderId, order.status, (order.order_items || []).length);
     const items = order.order_items || [];
     const status = (order.status || '').toLowerCase();
     const statusDetail = (order.status_detail || '').toLowerCase();
@@ -52,7 +55,7 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
         console.log('[Webhook ML] Orden %s ya se restauró stock (idempotencia), no se vuelve a restaurar.', effectiveOrderId);
         return;
       }
-      await onMercadoLibreOrderCancelled(items, effectiveOrderId);
+      await onMercadoLibreOrderCancelled(items, effectiveOrderId, order);
       return;
     }
 
@@ -74,7 +77,7 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
         console.log('[Webhook ML] Orden %s ya procesada (idempotencia), no se vuelve a descontar.', effectiveOrderId);
         return;
       }
-      await onMercadoLibreOrderPaid(items, effectiveOrderId);
+      await onMercadoLibreOrderPaid(items, effectiveOrderId, order);
     }
   } catch (e) {
     if (e?.message?.includes('401') || e?.response?.status === 401) setMlTokenKnownInvalid(true);
@@ -84,7 +87,8 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
 
 /** Tienda Nube: verificación HMAC y evento order/paid, order/created, etc. */
 webhookRoutes.post('/tiendanube', async (req, res) => {
-  console.log('[Webhook TN] POST recibido, body keys:', req.body ? Object.keys(req.body) : []);
+  const body = req.body || {};
+  console.log('[Webhook TN] Notificación recibida, body:', JSON.stringify(body));
   const hmacHeader = req.headers['x-linkedstore-hmac-sha256'];
   const secret = process.env.TN_CLIENT_SECRET?.trim?.() ?? process.env.TN_CLIENT_SECRET ?? '';
   if (secret && hmacHeader) {
@@ -107,7 +111,7 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
     console.warn('[Webhook TN] TN_CLIENT_SECRET está definido pero no vino header x-linkedstore-hmac-sha256.');
   }
   res.status(200).send();
-  const { event, id } = req.body || {};
+  const { event, id } = body;
   console.log('[Webhook TN] event=%s, orderId=%s', event, id);
   if (id == null) {
     if (event != null) console.log('[Webhook TN] Evento sin id, se ignora.');
@@ -127,6 +131,7 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
     }
     const order = await tn.getOrder(tokens.tiendanube.access_token, tokens.tiendanube.store_id, id);
     if (!order) return;
+    console.log('[Webhook TN] Orden obtenida de API, order.id=%s, number=%s, products=%s', order.id, order.number, (order.products || []).length);
     const products = order.products || [];
     // order.number = número secuencial que ve el dueño/cliente (ej. 306); order.id = id interno.
     const orderNumber = String(order.number ?? order.id ?? id);
@@ -136,14 +141,14 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
         console.log('[Webhook TN] Orden %s ya se restauró stock (idempotencia), no se vuelve a restaurar.', id);
         return;
       }
-      await onTiendaNubeOrderCancelled(products, orderNumber);
+      await onTiendaNubeOrderCancelled(products, orderNumber, order);
     } else {
       const claimed = await tryClaimOrderProcessing('tiendanube', String(id), 'deduct');
       if (!claimed) {
         console.log('[Webhook TN] Orden %s ya procesada (idempotencia), no se vuelve a descontar.', id);
         return;
       }
-      await onTiendaNubeOrderPaid(products, orderNumber);
+      await onTiendaNubeOrderPaid(products, orderNumber, order);
     }
   } catch (e) {
     console.error('Webhook TN:', e);

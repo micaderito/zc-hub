@@ -58,6 +58,7 @@ export async function initDb() {
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS reverted_at TIMESTAMPTZ;`);
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS sale_item_id VARCHAR(128);`);
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS product_display VARCHAR(1024);`);
+    await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS notification_payload TEXT;`);
 
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_pending_returns (
@@ -215,18 +216,22 @@ export async function hasOrderProcessingClaimed(channelSale, orderId, operation)
 
 /**
  * Registra una línea del historial de sincronización.
- * @param {object} row - { channelSale, orderId, sku, productLabel?, productDisplay?, quantity, updatedChannel, stockBefore, stockAfter, saleItemId? }
+ * @param {object} row - { channelSale, orderId, sku, productLabel?, productDisplay?, quantity, updatedChannel, stockBefore, stockAfter, saleItemId?, notificationPayload? }
  * saleItemId = id del ítem en esa venta (ML: item_id o item_id:variation_id; TN: variant_id o product_id:variant_id).
  * productLabel = estado/acción que afecta el stock: "Venta ML", "Venta TN", "Cancelación ML", "Cancelación TN", "Devolución aprobada".
  * productDisplay = descripción y variante del producto (nombre + variante); no usar productLabel para el nombre del producto.
+ * notificationPayload = JSON crudo de la orden (respuesta getOrder ML/TN) para auditoría.
  */
 export async function insertAuditLog(row) {
   const p = getPool();
   if (!p) return;
   try {
+    const payloadStr = row.notificationPayload != null
+      ? (typeof row.notificationPayload === 'string' ? row.notificationPayload : JSON.stringify(row.notificationPayload))
+      : null;
     await p.query(
-      `INSERT INTO sync_audit (channel_sale, order_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO sync_audit (channel_sale, order_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         row.channelSale,
         row.orderId || '',
@@ -237,7 +242,8 @@ export async function insertAuditLog(row) {
         row.quantity ?? 0,
         row.updatedChannel,
         row.stockBefore ?? 0,
-        row.stockAfter ?? 0
+        row.stockAfter ?? 0,
+        payloadStr
       ]
     );
   } catch (e) {
@@ -267,14 +273,14 @@ export async function getAuditLog(limit = 100, offset = 0, search = '') {
     const listSql = pattern
       ? `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
                 quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-                created_at AS "createdAt", reverted_at AS "revertedAt"
+                created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
          FROM sync_audit
          WHERE (order_id ILIKE $1 OR sale_item_id ILIKE $1)
          ORDER BY created_at DESC
          LIMIT $2 OFFSET $3`
       : `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
                 quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-                created_at AS "createdAt", reverted_at AS "revertedAt"
+                created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
          FROM sync_audit
          ORDER BY created_at DESC
          LIMIT $1 OFFSET $2`;
@@ -303,7 +309,7 @@ export async function getAuditRowById(id) {
     const r = await p.query(
       `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
               quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-              reverted_at AS "revertedAt"
+              reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
        FROM sync_audit WHERE id = $1`,
       [Number(id)]
     );

@@ -137,13 +137,14 @@ export async function getOrder(accessToken, orderId) {
   return res.json();
 }
 
-/** Listar reclamos/devoluciones del vendedor (post-purchase). Params: limit, offset, status, stage, etc. */
+/** Listar reclamos/devoluciones del vendedor (post-purchase). Params: limit, offset, status, stage, type, resource, etc. */
 export async function getClaimsSearch(accessToken, params = {}) {
   const q = new URLSearchParams();
   if (params.limit != null) q.set('limit', params.limit);
   if (params.offset != null) q.set('offset', params.offset);
   if (params.status) q.set('status', params.status);
   if (params.stage) q.set('stage', params.stage);
+  if (params.type) q.set('type', params.type);
   if (params.resource) q.set('resource', params.resource);
   const url = `${BASE}/post-purchase/v1/claims/search?${q.toString()}`;
   const res = await fetch(url, {

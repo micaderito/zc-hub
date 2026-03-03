@@ -109,7 +109,10 @@ export async function persistTokensAsync() {
   }
 }
 
-/** Doc ML: access token expira en 6 h. Refrescar solo cuando pierda validez (margin 1 h). */
+/**
+ * Doc ML: access token expira en 6 h (10800 s). Refrescar cuando falte 1 h para no quedar vencidos.
+ * Ref: https://developers.mercadolibre.com.ar/es_ar/autenticacion-y-autorizacion (Refresh token: uso único; guardar el nuevo de cada respuesta).
+ */
 const ML_REFRESH_MARGIN_MS = 60 * 60 * 1000;
 
 /** Obtiene access_token de ML; refresca si está por vencer o ya venció. Si falta user_id, lo obtiene con /users/me. */
@@ -155,7 +158,8 @@ export async function tryRefreshMlToken() {
     try {
       const data = await ml.refreshAccessToken(t.refresh_token);
       t.access_token = data.access_token;
-      t.refresh_token = data.refresh_token || t.refresh_token;
+      // Doc ML: el refresh_token es de uso único; la respuesta trae uno nuevo que hay que guardar
+      t.refresh_token = data.refresh_token ?? t.refresh_token;
       t.expires_at = data.expires_in ? Date.now() + data.expires_in * 1000 : null;
       if (data.user_id != null) t.user_id = data.user_id;
       await persistTokensAsync();
