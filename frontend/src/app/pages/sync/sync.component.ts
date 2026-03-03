@@ -49,7 +49,9 @@ export class SyncComponent implements OnInit {
     queryKey: SYNC_RETURNS_QUERY_KEY,
     queryFn: () => firstValueFrom(this.sync.getReturns()),
     enabled: this.hasDatabaseForReturns,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 5 * 60 * 1000
   }));
 
   readonly fetchReturnsMutation = injectMutation(() => ({

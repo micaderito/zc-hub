@@ -137,7 +137,7 @@ export async function getOrder(accessToken, orderId) {
   return res.json();
 }
 
-/** Listar reclamos/devoluciones del vendedor (post-purchase). Params: limit, offset, status, stage, type, resource, etc. */
+/** Listar reclamos/devoluciones del vendedor (post-purchase). Params: limit, offset, status, stage, type, resource, etc. Reintenta ante 429. */
 export async function getClaimsSearch(accessToken, params = {}) {
   const q = new URLSearchParams();
   if (params.limit != null) q.set('limit', params.limit);
@@ -147,18 +147,18 @@ export async function getClaimsSearch(accessToken, params = {}) {
   if (params.type) q.set('type', params.type);
   if (params.resource) q.set('resource', params.resource);
   const url = `${BASE}/post-purchase/v1/claims/search?${q.toString()}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
+  const res = await fetchWith429Retry(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 'getClaimsSearch');
   if (!res.ok) return null;
   return res.json();
 }
 
-/** Detalle de devoluciones de un reclamo. Devuelve info de envío y puede incluir ítems. */
+/** Detalle de devoluciones de un reclamo. Devuelve info de envío y puede incluir ítems. Reintenta ante 429. */
 export async function getClaimReturns(accessToken, claimId) {
-  const res = await fetch(`${BASE}/post-purchase/v2/claims/${claimId}/returns`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
+  const res = await fetchWith429Retry(
+    `${BASE}/post-purchase/v2/claims/${claimId}/returns`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getClaimReturns'
+  );
   if (!res.ok) return null;
   return res.json();
 }

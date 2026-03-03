@@ -110,22 +110,50 @@ syncRoutes.get('/returns', async (_, res) => {
   }
 });
 
-/** Estados de devolución ML que consideramos "pendiente" (aún no recibida/cerrada). */
-const ML_RETURN_PENDING_STATUSES = ['opened', 'shipped'];
+/** Estados de devolución ML que consideramos ya cerrados (no mostrar como pendiente). */
+const ML_RETURN_CLOSED_STATUSES = ['closed', 'delivered', 'expired', 'failed', 'cancelled', 'canceled', 'not_delivered'];
 
-/** Traer devoluciones desde ML: consulta reclamos tipo "return" y agrega ítems como pendientes si la devolución está abierta o en envío. */
+/** Caché del último fetch de devoluciones (evita 429 por clics seguidos en Actualizar). TTL 2 min. */
+const RETURNS_FETCH_CACHE_TTL_MS = 2 * 60 * 1000;
+let returnsFetchCache = { at: 0, result: null };
+
+/** Traer devoluciones desde ML: reclamos tipo "return" (por type en API o en código). Incluimos todo lo que no esté explícitamente cerrado. */
 syncRoutes.post('/returns/fetch', async (_, res) => {
   const accessToken = await getMlToken();
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada (DATABASE_URL).' });
 
+  if (returnsFetchCache.result && Date.now() - returnsFetchCache.at < RETURNS_FETCH_CACHE_TTL_MS) {
+    return res.json({ ...returnsFetchCache.result, cached: true });
+  }
+
   try {
-    const searchRes = await ml.getClaimsSearch(accessToken, { limit: 50, resource: 'order', type: 'return' });
-    const claims = searchRes?.data ?? searchRes?.results ?? [];
+    // Buscar con type=return; si no viene nada, repetir sin type y filtrar en código. Paginamos para no perder devoluciones atrás.
+    let claims = [];
+    for (const useType of [true, false]) {
+      let collected = [];
+      for (let offset = 0; offset < 100; offset += 50) {
+        const params = { limit: 50, offset, resource: 'order' };
+        if (useType) params.type = 'return';
+        const searchRes = await ml.getClaimsSearch(accessToken, params);
+        const page = searchRes?.data ?? searchRes?.results ?? [];
+        if (page.length === 0) break;
+        collected = collected.concat(page);
+        if (page.length < 50) break;
+      }
+      if (collected.length > 0) {
+        claims = collected;
+        break;
+      }
+    }
+    const returnClaims = claims.filter((c) => (c.type || '').toLowerCase() === 'return');
+    const listToUse = returnClaims.length > 0 ? returnClaims : claims.filter((c) => (c.type || '').toLowerCase() === 'return');
+    console.log('[returns/fetch] claims total=%s, type=return=%s, procesando=%s', claims.length, returnClaims.length, listToUse.length);
+
     let created = 0;
     let skipped = 0;
 
-    for (const claim of claims) {
+    for (const claim of listToUse) {
       const claimId = claim.id;
       let orderId = claim.resource_id;
       if (!claimId) continue;
@@ -133,9 +161,11 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
       const returnsData = await ml.getClaimReturns(accessToken, claimId);
       const singleReturn = returnsData && typeof returnsData === 'object' && !Array.isArray(returnsData) && (returnsData.id != null || returnsData.claim_id != null || returnsData.status != null);
       const returnsList = Array.isArray(returnsData) ? returnsData : singleReturn ? [returnsData] : [];
-      const hasPendingReturn = returnsList.length === 0 || returnsList.some((r) => r?.status && ML_RETURN_PENDING_STATUSES.includes(String(r.status).toLowerCase()));
+      const returnStatus = returnsList.length > 0 ? String(returnsList[0]?.status || '').toLowerCase() : '';
+      const isExplicitlyClosed = returnStatus && ML_RETURN_CLOSED_STATUSES.includes(returnStatus);
       if (returnsList.length > 0 && !orderId && returnsList[0]?.resource_id) orderId = returnsList[0].resource_id;
-      if (!orderId || !hasPendingReturn) continue;
+      if (!orderId) continue;
+      if (isExplicitlyClosed) continue;
 
       const order = await ml.getOrder(accessToken, orderId);
       if (!order?.order_items?.length) continue;
@@ -176,7 +206,9 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
       }
     }
 
-    res.json({ ok: true, claimsChecked: claims.length, created, skipped });
+    const result = { ok: true, claimsChecked: claims.length, created, skipped };
+    returnsFetchCache = { at: Date.now(), result };
+    res.json(result);
   } catch (e) {
     console.error('returns/fetch:', e);
     res.status(500).json({ error: e.message || 'Error al traer devoluciones desde ML' });
