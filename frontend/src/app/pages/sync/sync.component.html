@@ -49,12 +49,12 @@
 
       <div class="returns-actions">
         <span class="returns-add-label">Agregar por ID de orden ML:</span>
-        <input type="text" [(ngModel)]="returnOrderId" placeholder="ID de orden o de ítem (ej. 2000011712234731)" class="input-order-id" />
+        <input type="text" [(ngModel)]="returnOrderId" placeholder="Order id que ves en la app de ML" class="input-order-id" />
         <button type="button" (click)="addReturnsByOrder()" [disabled]="!returnOrderId.trim() || addingReturn">
           {{ addingReturn ? 'Cargando…' : 'Agregar ítems' }}
         </button>
       </div>
-      <p class="help muted">Podés usar el ID de la orden (número largo de la venta en ML) o el ID del ítem dentro de la venta (útil si es un ítem de una venta grande).</p>
+      <p class="help muted">Order id que ves en la app de Mercado Libre.</p>
       @if (fetchResult) {
         <p class="fetch-result">{{ fetchResult }}</p>
       }

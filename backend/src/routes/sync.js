@@ -63,64 +63,14 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
     }
     await releaseOrderProcessingClaim('mercadolibre', orderId, 'deduct');
     let order = await ml.getOrder(accessToken, orderId);
-    const userId = tokens.mercadolibre?.user_id;
-    if (!order?.order_items?.length && userId) {
-      const { getOrdersSearch } = await import('../lib/mercadolibre.js');
-      let searchRes = await getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
-      let results = searchRes?.results ?? [];
-      if (results.length === 0) {
-        searchRes = await getOrdersSearch(accessToken, { seller: userId, item: orderId, limit: 10 });
-        results = searchRes?.results ?? [];
-        if (results.length === 0 && /^\d+$/.test(orderId)) {
-          searchRes = await getOrdersSearch(accessToken, { seller: userId, item: `MLA${orderId}`, limit: 10 });
-          results = searchRes?.results ?? [];
-        }
-      }
-      let found = results[0];
-      if (found) {
-        if (found.order_items?.length) {
-          order = found;
-        } else {
-          const internalId = found.id ?? found.orders?.[0]?.id;
-          if (internalId != null) {
-            const fullOrder = await ml.getOrder(accessToken, String(internalId));
-            if (fullOrder?.order_items?.length) order = fullOrder;
-          }
-          if (!order?.order_items?.length && found.order_items?.length) order = found;
-        }
-      }
-      if (!order?.order_items?.length) {
-        for (let offset = 0; offset < 250; offset += 50) {
-          searchRes = await getOrdersSearch(accessToken, { seller: userId, limit: 50, offset });
-          const list = searchRes?.results ?? [];
-          if (list.length === 0) break;
-          const orderIdStr = String(orderId);
-          const byItemId = list.find((r) => {
-            if (!r || typeof r !== 'object') return false;
-            if (String(r?.id ?? '') === orderIdStr) return true;
-            const payments = r?.payments ?? [];
-            if (payments.some((p) => String(p?.order_id ?? p?.orderId ?? '') === orderIdStr)) return true;
-            const orderItems = r?.order_items ?? [];
-            if (orderItems.some((oi) => String(oi?.item?.id ?? oi?.id ?? oi?.item ?? oi) === orderIdStr)) return true;
-            const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
-            return items.some((it) => String(it?.id ?? it) === orderIdStr);
-          });
-          if (byItemId) {
-            if (byItemId.order_items?.length) {
-              order = byItemId;
-              break;
-            }
-            const internalId = byItemId.id ?? byItemId.orders?.[0]?.id;
-            if (internalId != null) {
-              const fullOrder = await ml.getOrder(accessToken, String(internalId));
-              if (fullOrder?.order_items?.length) {
-                order = fullOrder;
-                break;
-              }
-            }
-          }
-          if (order?.order_items?.length || list.length < 50) break;
-        }
+    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
+      const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
+      const results = searchRes?.results ?? [];
+      const found = results[0];
+      if (found?.order_items?.length) {
+        order = found;
+      } else if (found?.id) {
+        order = await ml.getOrder(accessToken, String(found.id));
       }
     }
     if (!order?.order_items?.length) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
@@ -382,90 +332,22 @@ syncRoutes.post('/returns', async (req, res) => {
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada (DATABASE_URL).' });
 
-  const ORDER_NOT_FOUND_MSG = 'Orden no encontrada. Usá el número de venta (order id) o el id del ítem dentro de la venta (ej. 2000011712234731).';
+  const ORDER_NOT_FOUND_MSG = 'Orden no encontrada. Usá el order id que ves en la app de ML.';
 
   try {
     let order = await ml.getOrder(accessToken, orderId);
-    const userId = tokens.mercadolibre?.user_id;
-    console.log('[returns/add] orderId=%s getOrder=%s order_items=%s', orderId, order ? 'ok' : 'null', order?.order_items?.length ?? 0);
-
-    if (!order?.order_items?.length && userId) {
-      let searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
-      let orderResults = searchRes?.results ?? searchRes?.elements ?? [];
-      if (orderResults.length === 0) {
-        searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, item: orderId, limit: 10 });
-        orderResults = searchRes?.results ?? searchRes?.elements ?? [];
-        if (orderResults.length === 0 && /^\d+$/.test(orderId)) {
-          const withPrefix = `MLA${orderId}`;
-          searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, item: withPrefix, limit: 10 });
-          orderResults = searchRes?.results ?? searchRes?.elements ?? [];
-        }
-      }
-      let found = orderResults[0];
-      if (found != null) {
-        if (found.order_items?.length) {
-          order = found;
-        } else {
-          const internalId = typeof found === 'object' ? (found.id ?? found.orders?.[0]?.id) : found;
-          if (internalId != null) {
-            const fullOrder = await ml.getOrder(accessToken, String(internalId));
-            if (fullOrder?.order_items?.length) order = fullOrder;
-          }
-          if (!order?.order_items?.length && found.order_items?.length) order = found;
-        }
-      }
-      if (!order?.order_items?.length) {
-        for (let offset = 0; offset < 500; offset += 50) {
-          const bySeller = await ml.getOrdersSearch(accessToken, { seller: userId, limit: 50, offset });
-          const list = bySeller?.results ?? bySeller?.elements ?? [];
-          if (list.length === 0) break;
-          if (offset === 0) {
-            const first = list[0];
-            const ids = (first?.order_items ?? []).slice(0, 3).map((oi) => oi?.item?.id ?? oi?.id ?? oi?.item ?? oi);
-            console.log('[returns/add] bySeller len=%s buscando=%s sample item ids=%s', list.length, orderId, JSON.stringify(ids));
-          }
-          const orderIdStr = String(orderId);
-          const matchItemId = (val) => {
-            if (val == null) return false;
-            const s = String(val);
-            return s === orderIdStr || s.endsWith(orderIdStr) || s.replace(/^[A-Z]{3}/, '') === orderIdStr;
-          };
-          const byItemId = list.find((r) => {
-            if (r == null) return false;
-            if (typeof r === 'object') {
-              if (matchItemId(r?.id)) return true;
-              const payments = r?.payments ?? [];
-              if (payments.some((p) => String(p?.order_id ?? p?.orderId ?? '') === orderIdStr)) return true;
-              const orderItems = r?.order_items ?? [];
-              if (orderItems.some((oi) => matchItemId(oi?.item?.id ?? oi?.id ?? oi?.item ?? oi))) return true;
-              const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
-              const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
-              return arr.some((it) => matchItemId(it?.id ?? it));
-            }
-            return matchItemId(r);
-          });
-          if (byItemId != null) {
-            if (byItemId.order_items?.length) {
-              order = byItemId;
-              break;
-            }
-            const internalId = typeof byItemId === 'object' ? (byItemId.id ?? byItemId.orders?.[0]?.id) : byItemId;
-            if (internalId != null) {
-              const fullOrder = await ml.getOrder(accessToken, String(internalId));
-              if (fullOrder?.order_items?.length) {
-                order = fullOrder;
-                break;
-              }
-            }
-          }
-          if (order?.order_items?.length || list.length < 50) break;
-        }
-        console.log('[returns/add] bySeller scanned up to %s orders, no match', 500);
+    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
+      const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
+      const results = searchRes?.results ?? [];
+      const found = results[0];
+      if (found?.order_items?.length) {
+        order = found;
+      } else if (found?.id) {
+        order = await ml.getOrder(accessToken, String(found.id));
       }
     }
     if (!order?.order_items?.length) {
-      console.log('[returns/add] no order found for orderId=%s', orderId);
-      return res.status(404).json({ error: ORDER_NOT_FOUND_MSG + ' Revisá la consola del servidor (logs [returns/add]) para ver qué devolvió ML.' });
+      return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
     }
     const items = order.order_items || [];
     const displayOrderId = order.payments?.[0]?.order_id ?? order.id ?? orderId;
