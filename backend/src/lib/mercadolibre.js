@@ -133,7 +133,11 @@ export async function getOrder(accessToken, orderId) {
     { headers: { Authorization: `Bearer ${accessToken}` } },
     'getOrder'
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn('[ML] getOrder failed:', res.status, orderId, text?.slice(0, 200));
+    return null;
+  }
   return res.json();
 }
 
@@ -150,7 +154,11 @@ export async function getOrdersSearch(accessToken, params = {}) {
     { headers: { Authorization: `Bearer ${accessToken}` } },
     'getOrdersSearch'
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn('[ML] getOrdersSearch failed:', res.status, text?.slice(0, 200));
+    return null;
+  }
   return res.json();
 }
 
@@ -176,7 +184,11 @@ export async function getClaimsSearch(accessToken, params = {}) {
   if (params.resource) q.set('resource', params.resource);
   const url = `${BASE}/post-purchase/v1/claims/search?${q.toString()}`;
   const res = await fetchWith429Retry(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 'getClaimsSearch');
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn('[ML] getClaimsSearch failed:', res.status, text?.slice(0, 200));
+    return null;
+  }
   return res.json();
 }
 

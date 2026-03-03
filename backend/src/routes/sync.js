@@ -66,7 +66,8 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
     if (!order && tokens.mercadolibre?.user_id) {
       const { getOrdersSearch } = await import('../lib/mercadolibre.js');
       const searchRes = await getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
-      const found = searchRes?.results?.[0];
+      const results = searchRes?.results ?? [];
+      const found = results[0];
       if (found && found.order_items?.length) order = found;
     }
     if (!order) return res.status(404).json({ error: 'Orden no encontrada en Mercado Libre' });
@@ -202,7 +203,8 @@ export async function processClaimToPendingReturns(accessToken, claim) {
   if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
     const { getOrdersSearch } = await import('../lib/mercadolibre.js');
     const searchRes = await getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: String(orderId), limit: 10 });
-    const found = searchRes?.results?.[0];
+    const resultsList = searchRes?.results ?? [];
+    const found = resultsList[0];
     if (found?.order_items?.length) order = found;
   }
   if (!order?.order_items?.length) return { created: 0, skipped: 0 };
@@ -321,8 +323,8 @@ syncRoutes.post('/returns', async (req, res) => {
     let order = await ml.getOrder(accessToken, orderId);
     if (!order && tokens.mercadolibre?.user_id) {
       const searchRes = await ml.getOrdersSearch(accessToken, { seller: tokens.mercadolibre.user_id, q: orderId, limit: 10 });
-      const results = searchRes?.results ?? [];
-      const found = results[0];
+      const orderResults = searchRes?.results ?? [];
+      const found = orderResults[0];
       if (found && found.order_items?.length) order = found;
     }
     if (!order) return res.status(404).json({ error: ORDER_NOT_FOUND_MSG });
