@@ -64,23 +64,54 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
   }
 
   if (topic !== 'orders' && topic !== 'orders_v2') return;
-  const orderId = typeof resource === 'string'
-    ? resource.replace(/https:\/\/api\.mercadolibre\.com\/orders\/?/i, '').replace(/^\/orders\/?/, '').trim() || null
-    : null;
-  if (!orderId) return;
+  const orderId = parseMlResourceId(resource);
+  if (!orderId) {
+    console.warn('[Webhook ML] orders: resource inválido o vacío', typeof resource, resource);
+    return;
+  }
   const accessToken = await getMlToken();
   if (!accessToken) {
     console.warn('[Webhook ML] Sin token válido (reconectá ML en Inicio). No se puede obtener la orden.');
     return;
   }
   try {
-    const order = await ml.getOrder(accessToken, orderId);
-    if (!order) return;
+    let order = await ml.getOrder(accessToken, orderId);
+    if (!order?.order_items?.length && tokens.mercadolibre?.user_id) {
+      const userId = tokens.mercadolibre.user_id;
+      let searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, q: orderId, limit: 10 });
+      let results = searchRes?.results ?? [];
+      if (results.length === 0) {
+        searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, item: orderId, limit: 10 });
+        results = searchRes?.results ?? [];
+        if (results.length === 0 && /^\d+$/.test(orderId)) {
+          searchRes = await ml.getOrdersSearch(accessToken, { seller: userId, item: `MLA${orderId}`, limit: 10 });
+          results = searchRes?.results ?? [];
+        }
+      }
+      const found = results[0];
+      if (found?.order_items?.length) {
+        order = found;
+      } else if (found) {
+        const internalId = found.id ?? found.orders?.[0]?.id;
+        if (internalId != null) {
+          const fullOrder = await ml.getOrder(accessToken, String(internalId));
+          if (fullOrder?.order_items?.length) order = fullOrder;
+        }
+      }
+    }
+    if (!order) {
+      console.warn('[Webhook ML] No se pudo obtener la orden %s (GET /orders devolvió 404 o sin resultados). Revisá que el resource del webhook sea el order id correcto.', orderId);
+      return;
+    }
+    if (!order.order_items?.length) {
+      console.warn('[Webhook ML] Orden %s sin order_items, se ignora.', order.id ?? orderId);
+      return;
+    }
     console.log('[Webhook ML] Orden obtenida de API, order_id=%s, status=%s, items=%s', order.id ?? orderId, order.status, (order.order_items || []).length);
     const items = order.order_items || [];
     const status = (order.status || '').toLowerCase();
     const statusDetail = (order.status_detail || '').toLowerCase();
-    const effectiveOrderId = String(order.id ?? orderId);
+    const effectiveOrderId = String(order.payments?.[0]?.order_id ?? order.id ?? orderId);
 
     if (status === 'cancelled' || status === 'canceled') {
       const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'restore');

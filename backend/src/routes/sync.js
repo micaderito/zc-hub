@@ -98,6 +98,8 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
           const byItemId = list.find((r) => {
             if (!r || typeof r !== 'object') return false;
             if (String(r?.id ?? '') === orderIdStr) return true;
+            const payments = r?.payments ?? [];
+            if (payments.some((p) => String(p?.order_id ?? p?.orderId ?? '') === orderIdStr)) return true;
             const orderItems = r?.order_items ?? [];
             if (orderItems.some((oi) => String(oi?.item?.id ?? oi?.id ?? oi?.item ?? oi) === orderIdStr)) return true;
             const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
@@ -432,6 +434,8 @@ syncRoutes.post('/returns', async (req, res) => {
             if (r == null) return false;
             if (typeof r === 'object') {
               if (matchItemId(r?.id)) return true;
+              const payments = r?.payments ?? [];
+              if (payments.some((p) => String(p?.order_id ?? p?.orderId ?? '') === orderIdStr)) return true;
               const orderItems = r?.order_items ?? [];
               if (orderItems.some((oi) => matchItemId(oi?.item?.id ?? oi?.id ?? oi?.item ?? oi))) return true;
               const items = r?.config?.items ?? r?.orders?.[0]?.items ?? [];
