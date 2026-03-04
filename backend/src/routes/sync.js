@@ -47,8 +47,8 @@ syncRoutes.patch('/config', async (req, res) => {
   }
 });
 
-/** Reintentar sincronización por pack_id (nro de venta).
- * Flujo: 1) GET /packs/:packId → { orders: [{ id: 2000015382437056 }, ...] }
+/** Reintentar sincronización por pack_id (nro de venta) o order_id (venta de un solo producto).
+ * Flujo: 1) GET /packs/:packId; si no hay pack, GET /orders/:id (por si es order id).
  *        2) Por cada orders[].id → GET /orders/:orderId → { order_items: [...], pack_id, ... }
  *        3) onMercadoLibreOrderPaid(items, packId, order) → descuenta en TN y crea sync_audit (nro venta = pack_id, nro orden = order.id).
  */
@@ -66,10 +66,16 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
         error: 'Sincronización desactivada. Activá el switch «Sincronización de stock» en esta página y volvé a intentar.'
       });
     }
-    const pack = await ml.getPack(accessToken, packId);
-    const ordersList = pack?.orders ?? pack?.data?.orders ?? (Array.isArray(pack?.data) ? pack.data : []);
+    let pack = await ml.getPack(accessToken, packId);
+    let ordersList = pack?.orders ?? pack?.data?.orders ?? (Array.isArray(pack?.data) ? pack.data : []);
     if (!pack || !Array.isArray(ordersList) || ordersList.length === 0) {
-      return res.status(404).json({ error: 'Pack no encontrado. Usá el nro de venta (pack id) que ves en la app de ML.' });
+      const singleOrder = await ml.getOrder(accessToken, packId);
+      if (singleOrder?.order_items?.length) {
+        ordersList = [{ id: singleOrder.id ?? packId }];
+      }
+    }
+    if (!Array.isArray(ordersList) || ordersList.length === 0) {
+      return res.status(404).json({ error: 'Pack u orden no encontrado. Usá el nro de venta (pack id) o el id de orden que ves en ML.' });
     }
     let totalSynced = 0;
     for (const o of ordersList) {
@@ -321,8 +327,8 @@ function normalizeOrderId(input) {
   return digits || s;
 }
 
-/** Agregar devoluciones desde un pack de ML (pack_id = nro de venta).
- * Flujo: 1) GET /packs/:packId → { orders: [{ id: 2000015382437056 }, ...] }
+/** Agregar devoluciones desde un pack de ML (pack_id = nro de venta) o desde una orden (order_id si es venta de un solo producto).
+ * Flujo: 1) GET /packs/:packId; si no hay pack, GET /orders/:id (por si es order id).
  *        2) Por cada orders[].id → GET /orders/:orderId → { order_items: [...], pack_id, ... }
  *        3) Por cada order_item se inserta en sync_pending_returns (orderId = pack_id para mostrar como nro de venta).
  */
@@ -335,17 +341,18 @@ syncRoutes.post('/returns', async (req, res) => {
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada (DATABASE_URL).' });
 
   try {
-    const pack = await ml.getPack(accessToken, packId);
-    if (!pack) {
-      console.warn('[returns/add] getPack devolvió null para packId=%s', packId);
-      return res.status(502).json({ error: 'No se pudo obtener el pack desde ML (revisá token y consola del servidor: [ML] getPack failed).' });
+    let pack = await ml.getPack(accessToken, packId);
+    let ordersList = pack?.orders ?? pack?.data?.orders ?? (Array.isArray(pack?.data) ? pack.data : []);
+    if (!pack || !Array.isArray(ordersList) || ordersList.length === 0) {
+      const singleOrder = await ml.getOrder(accessToken, packId);
+      if (singleOrder?.order_items?.length) {
+        ordersList = [{ id: singleOrder.id ?? packId }];
+      }
     }
-    const ordersList = pack.orders ?? pack.data?.orders ?? (Array.isArray(pack.data) ? pack.data : []);
     if (!Array.isArray(ordersList) || ordersList.length === 0) {
-      console.warn('[returns/add] pack sin órdenes, keys=%s', Object.keys(pack).join(','));
-      return res.status(404).json({ error: 'Pack sin órdenes o estructura inesperada. Revisá la consola del servidor.' });
+      return res.status(404).json({ error: 'Pack u orden no encontrado. Usá el nro de venta (pack id) o el id de orden que ves en ML.' });
     }
-    console.log('[returns/add] pack %s: %s órdenes', packId, ordersList.length);
+    console.log('[returns/add] pack/orden %s: %s órdenes', packId, ordersList.length);
     const created = [];
     for (const o of ordersList) {
       const orderId = o?.id ?? o;

@@ -83,7 +83,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   reconnectML() {
-    this.connectML();
+    this.error = null;
+    this.auth.disconnectMercadoLibre().subscribe({
+      next: () => this.connectML(),
+      error: e => this.error = e.error?.error || e.message || 'Error al desconectar para reconectar'
+    });
   }
 
   connectTN() {
@@ -94,7 +98,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   reconnectTN() {
-    this.connectTN();
+    this.error = null;
+    this.auth.disconnectTiendaNube().subscribe({
+      next: () => this.connectTN(),
+      error: e => this.error = e.error?.error || e.message || 'Error al desconectar para reconectar'
+    });
   }
 
   disconnectML() {

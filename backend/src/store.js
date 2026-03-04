@@ -162,6 +162,7 @@ export async function tryRefreshMlToken() {
       t.refresh_token = data.refresh_token ?? t.refresh_token;
       t.expires_at = data.expires_in ? Date.now() + data.expires_in * 1000 : null;
       if (data.user_id != null) t.user_id = data.user_id;
+      setMlTokenKnownInvalid(false);
       await persistTokensAsync();
       return t.access_token;
     } catch (e) {

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { tokens, persistTokens, persistTokensAsync, clearMlTokens, clearTnTokens, getMlToken, isMlTokenKnownInvalid, isTnTokenKnownInvalid, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
+import { tokens, persistTokens, persistTokensAsync, clearMlTokens, clearTnTokens, getMlToken, isTnTokenKnownInvalid, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -81,12 +81,11 @@ authRoutes.get('/tiendanube/callback', async (req, res) => {
 authRoutes.get('/status', async (_, res) => {
   const hasStoredMl = !!(tokens.mercadolibre?.access_token || tokens.mercadolibre?.refresh_token);
   const hasStoredTn = !!tokens.tiendanube?.access_token;
-  const mlKnownInvalid = isMlTokenKnownInvalid();
   const tnKnownInvalid = isTnTokenKnownInvalid();
-  const mlToken = mlKnownInvalid ? null : await getMlToken();
+  const mlToken = hasStoredMl ? await getMlToken() : null;
   res.json({
     mercadolibre: !!mlToken,
-    mercadolibreExpired: (hasStoredMl && !mlToken) || mlKnownInvalid,
+    mercadolibreExpired: hasStoredMl && !mlToken,
     tiendanube: hasStoredTn && !tnKnownInvalid,
     tiendanubeExpired: hasStoredTn && tnKnownInvalid
   });
