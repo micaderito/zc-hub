@@ -93,6 +93,23 @@ En `backend/.env`:
 | `TN_CLIENT_SECRET` | client_secret de tu app de Tienda Nube. |
 | `TN_REDIRECT_URI` | Redirect URI de la app de TN (ej. `http://localhost:4000/api/auth/tiendanube/callback`). |
 | `WEBHOOK_BASE_URL` | URL pública del backend para que ML/TN llamen a los webhooks (en desarrollo podés usar [ngrok](https://ngrok.com/): `ngrok http 4000`). |
+| `DATABASE_URL` | (Opcional) Postgres (Supabase u otro) para sincronización y auditoría. |
+| `ML_MAX_CONCURRENT` | (Opcional) Máximo de requests a la API de ML en vuelo a la vez. Default `4`. Ver [Límite de requests a Mercado Libre](#límite-de-requests-a-mercado-libre-429). |
+| `ML_MIN_SPACING_MS` | (Opcional) Espaciado mínimo entre requests a ML, en ms. Default `350` (~170 req/min). Subilo si seguís viendo 429. |
+
+---
+
+## Límite de requests a Mercado Libre (429)
+
+La API de Mercado Libre limita la cantidad de requests por minuto: si se la satura, responde `429 (local_rate_limited)`. Para evitar que se pierdan actualizaciones de stock/SKU, **todas** las llamadas a ML pasan por un único limitador global ([`backend/src/lib/mlLimiter.js`](backend/src/lib/mlLimiter.js)) que:
+
+- limita la concurrencia (`ML_MAX_CONCURRENT`, default 4) y espacia los requests (`ML_MIN_SPACING_MS`, default 350 ms);
+- ante un 429, pausa **todo** el caño durante el tiempo que indica ML (header `Retry-After`) o un backoff exponencial con jitter, y reintenta hasta 5 veces;
+- para leer varias publicaciones usa el **multiget** de ML (`GET /items?ids=...`, hasta 20 por llamada) en vez de un request por ítem.
+
+Si tu cuenta maneja mucho volumen y seguís viendo 429, subí `ML_MIN_SPACING_MS` (ej. `600`) o bajá `ML_MAX_CONCURRENT`.
+
+> Nota: el limitador vive en memoria del proceso. Con una sola instancia del backend alcanza; si se escala a varias réplicas, cada una tiene su propio presupuesto de requests.
 
 ---
 

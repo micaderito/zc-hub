@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import { mlSchedule, pauseMlFor } from './mlLimiter.js';
 
 const BASE = 'https://api.mercadolibre.com';
 
@@ -7,27 +8,42 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Si ML no manda Retry-After, usamos backoff exponencial: 10s, 20s, 40s (cap 30s). */
+/**
+ * Espera ante un 429. Respeta Retry-After si viene; si no, backoff exponencial
+ * (10s, 20s, 40s… cap 30s) con jitter para evitar que varias llamadas reintenten
+ * todas en el mismo instante. Además pausa TODO el caño a ML (pauseMlFor) para
+ * que un solo 429 frene a las demás llamadas pendientes, no solo a esta.
+ */
 function waitFor429(res, context = '', attemptIndex = 0) {
   if (res.status !== 429) return Promise.resolve();
   const retryAfter = res.headers.get('retry-after');
-  let secs = retryAfter ? parseInt(retryAfter, 10) : Math.min(10 * Math.pow(2, attemptIndex), 30);
+  let secs;
+  if (retryAfter) {
+    secs = parseInt(retryAfter, 10) || 1;
+  } else {
+    const base = Math.min(10 * Math.pow(2, attemptIndex), 30);
+    // Jitter ±50% para desincronizar reintentos concurrentes.
+    secs = base * (0.75 + Math.random() * 0.5);
+  }
   const ms = Math.min(secs * 1000, 30000);
+  pauseMlFor(ms / 1000);
   console.warn(`[ML] 429 ${context}, esperando ${Math.round(ms / 1000)}s antes de reintentar (doc: unos segundos)`);
   return sleep(ms);
 }
 
 /** Máximo de reintentos ante 429 (intentos totales = max429Retries + 1). */
-const MAX_429_RETRIES = 3;
+const MAX_429_RETRIES = 5;
 
 /**
- * GET (o otro) a la API de ML con reintentos ante 429. Respeta Retry-After; si no viene, backoff exponencial.
+ * GET (o otro) a la API de ML con reintentos ante 429. Respeta Retry-After; si no
+ * viene, backoff exponencial con jitter. Cada intento pasa por el limitador global
+ * (mlSchedule), que espacia los requests y respeta el cooldown por 429.
  */
 export async function fetchWith429Retry(url, options = {}, context = '') {
-  let res = await fetch(url, options);
+  let res = await mlSchedule(() => fetch(url, options));
   for (let r = 0; r < MAX_429_RETRIES && res.status === 429; r++) {
     await waitFor429(res, context, r);
-    res = await fetch(url, options);
+    res = await mlSchedule(() => fetch(url, options));
   }
   return res;
 }
@@ -50,7 +66,7 @@ const OAUTH_HEADERS = {
 
 export async function exchangeCodeForToken(code, redirectUri) {
   const doRequest = () =>
-    fetch('https://api.mercadolibre.com/oauth/token', {
+    mlSchedule(() => fetch('https://api.mercadolibre.com/oauth/token', {
       method: 'POST',
       headers: OAUTH_HEADERS,
       body: new URLSearchParams({
@@ -60,7 +76,7 @@ export async function exchangeCodeForToken(code, redirectUri) {
         code,
         redirect_uri: redirectUri
       })
-    });
+    }));
   const maxRetries = 2;
   let res = await doRequest();
   for (let r = 0; r < maxRetries && res.status === 429; r++) {
@@ -76,7 +92,7 @@ export async function exchangeCodeForToken(code, redirectUri) {
 
 export async function refreshAccessToken(refreshToken) {
   const doRequest = () =>
-    fetch('https://api.mercadolibre.com/oauth/token', {
+    mlSchedule(() => fetch('https://api.mercadolibre.com/oauth/token', {
       method: 'POST',
       headers: OAUTH_HEADERS,
       body: new URLSearchParams({
@@ -85,7 +101,7 @@ export async function refreshAccessToken(refreshToken) {
         client_secret: process.env.ML_CLIENT_SECRET,
         refresh_token: refreshToken
       })
-    });
+    }));
   const maxRetries = 2;
   let res = await doRequest();
   for (let r = 0; r < maxRetries && res.status === 429; r++) {
@@ -102,9 +118,9 @@ export async function refreshAccessToken(refreshToken) {
 /** Usuario actual (para obtener user_id si falta en tokens). Reintenta una vez si 429. */
 export async function getMe(accessToken) {
   const doRequest = () =>
-    fetch(`${BASE}/users/me`, {
+    mlSchedule(() => fetch(`${BASE}/users/me`, {
       headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    }));
   let res = await doRequest();
   if (res.status === 429) {
     await waitFor429(res, 'getMe');
@@ -124,6 +140,44 @@ export async function getItem(accessToken, itemId) {
   );
   if (!res.ok) return null;
   return res.json();
+}
+
+/** ML permite pedir como máximo 20 ítems por llamada al multiget. */
+const MULTIGET_MAX_IDS = 20;
+
+/**
+ * Multiget de ítems: GET /items?ids=ID1,ID2,...&attributes=...
+ * Trae hasta 20 ítems por request (los pedimos en tandas), en vez de un GET por ítem.
+ * ML responde un array "verb format": [{ code, body }, ...]; devolvemos solo los body
+ * de las entradas con code 200. `attributes` (opcional) limita los campos a traer.
+ *
+ * Nota: ML documenta `include_attributes=all` solo en el GET de un ítem. Acá pedimos
+ * `variations` como campo del ítem; trae el array con su `seller_sku`. Si en producción
+ * se observa que el multiget no devuelve `variations`, hay que volver a getItem para
+ * los ítems con variantes (ver propuesta).
+ */
+export async function getItems(accessToken, ids, attributes) {
+  const all = (ids || []).map((x) => String(x)).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < all.length; i += MULTIGET_MAX_IDS) {
+    const chunk = all.slice(i, i + MULTIGET_MAX_IDS);
+    const params = new URLSearchParams({ ids: chunk.join(',') });
+    if (attributes) params.set('attributes', attributes);
+    const res = await fetchWith429Retry(
+      `${BASE}/items?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+      'getItems'
+    );
+    if (!res.ok) {
+      console.warn('[ML] getItems falló:', res.status, chunk.length, 'ids');
+      continue;
+    }
+    const arr = await res.json();
+    for (const entry of Array.isArray(arr) ? arr : []) {
+      if (entry?.code === 200 && entry.body) out.push(entry.body);
+    }
+  }
+  return out;
 }
 
 /** Pack (nro de venta): GET https://api.mercadolibre.com/packs/:packId → { id, orders: [{ id: orderId }, ...], shipment, status, ... }. Reintenta ante 429. */
@@ -344,11 +398,11 @@ export async function updateItemSku(accessToken, itemId, sku) {
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json'
   };
-  let res = await fetch(`${BASE}/items/${itemId}`, {
-    method: 'PUT',
-    headers,
-    body: JSON.stringify({ seller_sku: sku })
-  });
+  let res = await fetchWith429Retry(
+    `${BASE}/items/${itemId}`,
+    { method: 'PUT', headers, body: JSON.stringify({ seller_sku: sku }) },
+    'updateItemSku'
+  );
   if (res.ok) return true;
   const errMsg = await errorMessage(res);
   const canRetryViaAttributes =
@@ -361,11 +415,11 @@ export async function updateItemSku(accessToken, itemId, sku) {
   const item = await getItem(accessToken, itemId);
   if (!item) throw new Error(errMsg);
   const attributes = attributesWithSku(item.attributes, sku);
-  res = await fetch(`${BASE}/items/${itemId}`, {
-    method: 'PUT',
-    headers,
-    body: JSON.stringify({ attributes })
-  });
+  res = await fetchWith429Retry(
+    `${BASE}/items/${itemId}`,
+    { method: 'PUT', headers, body: JSON.stringify({ attributes }) },
+    'updateItemSku:attributes'
+  );
   if (!res.ok) throw new Error(await errorMessage(res));
   return true;
 }
@@ -422,11 +476,11 @@ export async function updateVariationSku(accessToken, itemId, variationId, sku) 
     }
     return { id: v.id };
   });
-  const res = await fetch(`${BASE}/items/${itemId}`, {
-    method: 'PUT',
-    headers,
-    body: JSON.stringify({ variations })
-  });
+  const res = await fetchWith429Retry(
+    `${BASE}/items/${itemId}`,
+    { method: 'PUT', headers, body: JSON.stringify({ variations }) },
+    'updateVariationSku'
+  );
   if (!res.ok) {
     const errMsg = await errorMessage(res);
     throw new Error(errMsg);
