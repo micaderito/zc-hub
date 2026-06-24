@@ -5,17 +5,43 @@
   </div>
 }
 
-<nav class="nav">
-  <a routerLink="/" class="logo">Zona Cuaderno</a>
-  <div class="links">
-    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Inicio</a>
-    <a routerLink="/conflictos" routerLinkActive="active">Conflictos</a>
-    <a routerLink="/precio-stock" routerLinkActive="active">Precio y stock</a>
-    <a routerLink="/sincronizacion" routerLinkActive="active">Sincronización</a>
-  </div>
-</nav>
+<div class="shell">
+  <aside class="sidebar">
+    <a routerLink="/" class="brand">
+      <span class="brand-mark"><i class="ti ti-notebook"></i></span>
+      <span class="brand-text">
+        <span class="brand-name">Zona Cuaderno</span>
+        <span class="brand-sub">Hub de ventas</span>
+      </span>
+    </a>
 
-<div class="content-wrap">
-  <router-outlet />
+    <nav class="nav">
+      @for (item of nav; track item.path) {
+        <a
+          [routerLink]="item.path"
+          routerLinkActive="active"
+          [routerLinkActiveOptions]="{ exact: !!item.exact }"
+          class="nav-item"
+        >
+          <i class="ti {{ item.icon }}"></i>
+          <span>{{ item.label }}</span>
+        </a>
+      }
+    </nav>
+
+    <div class="sidebar-foot">
+      <button type="button" class="nav-item theme-toggle" (click)="theme.toggle()">
+        <i class="ti" [class.ti-moon]="theme.theme() === 'light'" [class.ti-sun]="theme.theme() === 'dark'"></i>
+        <span>{{ theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro' }}</span>
+      </button>
+      <div class="user-chip">
+        <span class="avatar">MD</span>
+        <span class="user-name">Mica</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <router-outlet />
+  </main>
 </div>
-

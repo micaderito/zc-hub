@@ -1,20 +1,24 @@
-// Estilos compartidos por los tab components (section, table, dup-group).
-// Cada tab importa este archivo para que sus tablas y listas se vean igual que antes.
+// Estilos compartidos por los tab components de Conflictos.
 section {
   margin-bottom: 1.5rem;
+
   h3 {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
     margin-top: 1rem;
     margin-bottom: 0.5rem;
   }
 }
 
-// Contenedor con alto fijo y scroll para grillas (evita listas muy largas).
 .grid-scroll {
   max-height: 320px;
   overflow-y: auto;
-  border: 1px solid #eee;
-  border-radius: 6px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
   margin-bottom: 1rem;
+  background: var(--surface);
+
   .table {
     margin-bottom: 0;
   }
@@ -23,196 +27,253 @@ section {
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.78rem;
+  color: var(--text);
+
   th, td {
-    padding: 0.5rem 0.75rem;
+    padding: 0.45rem 0.6rem;
     text-align: left;
-    border-bottom: 1px solid #eee;
+    border-bottom: 0.5px solid var(--border);
   }
+
+  th {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-2);
+    background: var(--surface-2);
+  }
+
   .thumb {
-    width: 48px;
+    width: 44px;
     padding-right: 0.5rem;
     vertical-align: middle;
+
     img {
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       object-fit: cover;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
     }
   }
+
   &.table-coincidencias {
     table-layout: fixed;
     width: 100%;
-    col.col-sku {
-      width: 110px;
-    }
-    col.col-ml {
-      width: 35%;
-    }
-    col.col-tn {
-      width: 30%;
-    }
-    col.col-price-ml {
-      width: 90px;
-    }
-    col.col-price-tn {
-      width: 90px;
-    }
-    col.col-stock {
-      width: 75px;
-    }
-    col.col-actions {
-      width: auto;
-      min-width: 260px;
-    }
-    td.col-sku {
-      width: 110px;
-      vertical-align: middle;
-    }
+
+    col.col-sku     { width: 110px; }
+    col.col-ml      { width: 35%; }
+    col.col-tn      { width: 30%; }
+    col.col-price-ml { width: 90px; }
+    col.col-price-tn { width: 90px; }
+    col.col-stock   { width: 75px; }
+    col.col-actions { width: auto; min-width: 260px; }
+
+    td.col-sku { width: 110px; vertical-align: middle; }
     td.col-ml,
-    td.col-tn {
-      overflow: hidden;
-      vertical-align: middle;
-    }
+    td.col-tn  { overflow: hidden; vertical-align: middle; }
+
     td.col-price-ml,
     td.col-price-tn {
       vertical-align: middle;
+
       .input-price {
         width: 100%;
-        max-width: 85px;
+        max-width: 80px;
+        font-family: inherit;
+        font-size: 0.75rem;
         padding: 0.25rem 0.4rem;
-        font-size: 0.85rem;
-        border: 1px solid #ccc;
-        border-radius: 4px;
+        border: 0.5px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--bg);
+        color: var(--text);
         box-sizing: border-box;
+
+        &:focus {
+          outline: none;
+          border-color: var(--brand);
+        }
       }
     }
+
     td.col-stock {
       vertical-align: middle;
+
       .input-stock {
         width: 100%;
-        max-width: 70px;
+        max-width: 68px;
+        font-family: inherit;
+        font-size: 0.75rem;
         padding: 0.25rem 0.4rem;
-        font-size: 0.85rem;
-        border: 1px solid #ccc;
-        border-radius: 4px;
+        border: 0.5px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--bg);
+        color: var(--text);
         box-sizing: border-box;
+
+        &:focus {
+          outline: none;
+          border-color: var(--brand);
+        }
       }
     }
+
     td.cell-actions {
       vertical-align: middle;
       white-space: nowrap;
+
       .btn-update-prices {
         margin-top: 0.25rem;
-        background: #28a745;
-        border-color: #28a745;
+        background: var(--ok-bg) !important;
+        border-color: var(--ok) !important;
+        color: var(--ok) !important;
+
         &:disabled {
-          opacity: 0.7;
+          opacity: 0.5;
           cursor: not-allowed;
         }
       }
     }
+
     .pair-cell {
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      padding: 0.5rem 0.75rem;
+      padding: 0.45rem 0.6rem;
       min-width: 0;
       box-sizing: border-box;
+
       img {
-        width: 48px;
-        height: 48px;
+        width: 44px;
+        height: 44px;
         flex-shrink: 0;
         object-fit: cover;
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
       }
+
       .no-thumb {
-        width: 48px;
-        height: 48px;
+        width: 44px;
+        height: 44px;
         flex-shrink: 0;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        background: #f0f0f0;
-        border-radius: 4px;
-        color: #999;
-        font-size: 0.9rem;
+        background: var(--surface-2);
+        border-radius: var(--radius-sm);
+        color: var(--text-3);
+        font-size: 0.75rem;
       }
+
       .pair-label {
         flex: 1;
-        font-size: 0.85rem;
+        font-size: 0.78rem;
         line-height: 1.25;
+        color: var(--text);
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
       }
     }
   }
+
   code {
-    background: #f5f5f5;
-    padding: 0.2rem 0.4rem;
+    background: var(--surface-2);
+    padding: 0.1rem 0.35rem;
     border-radius: 4px;
+    font-size: 0.72rem;
+    color: var(--text);
   }
+
   button {
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 500;
     padding: 0.25rem 0.5rem;
-    font-size: 0.85rem;
-    border: 1px solid #3483fa;
-    background: #3483fa;
-    color: #fff;
-    border-radius: 4px;
+    border: 0.5px solid var(--brand);
+    background: var(--brand-bg);
+    color: var(--brand);
+    border-radius: var(--radius-sm);
     cursor: pointer;
     margin-right: 0.35rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: opacity 0.15s ease;
+
+    &:hover:not(:disabled) { opacity: 0.85; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+
     &.link {
-      background: #28a745;
-      border-color: #28a745;
+      background: var(--ok-bg);
+      border-color: var(--ok);
+      color: var(--ok);
     }
   }
 }
 
 .dup-group {
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
   padding: 0.75rem;
-  border: 1px solid #eee;
-  border-radius: 6px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+
   .dup-group-header {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
+
     .btn-bulk {
-      padding: 0.25rem 0.6rem;
-      font-size: 0.85rem;
-      border: 1px solid #3483fa;
-      background: #3483fa;
-      color: #fff;
-      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 0.25rem 0.55rem;
+      border: 0.5px solid var(--brand);
+      background: var(--brand-bg);
+      color: var(--brand);
+      border-radius: var(--radius-sm);
       cursor: pointer;
       margin-left: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
     }
   }
+
   ul {
     margin: 0.5rem 0 0;
     padding-left: 1.25rem;
   }
+
   li {
+    font-size: 0.78rem;
+    color: var(--text);
     margin: 0.25rem 0;
     display: flex;
     align-items: center;
     gap: 0.5rem;
+
     .dup-thumb {
-      width: 32px;
-      height: 32px;
+      width: 30px;
+      height: 30px;
       object-fit: cover;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
     }
   }
-  button {
+
+  button:not(.btn-bulk) {
     margin-left: 0.5rem;
+    font-family: inherit;
+    font-size: 0.72rem;
     padding: 0.2rem 0.4rem;
-    font-size: 0.8rem;
-    border: 1px solid #666;
-    background: #fff;
-    border-radius: 4px;
+    border: 0.5px solid var(--border);
+    background: var(--surface);
+    color: var(--text-2);
+    border-radius: var(--radius-sm);
     cursor: pointer;
+
+    &:hover { background: var(--surface-2); }
   }
 }

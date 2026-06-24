@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zona Cuaderno Hub — prototipo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #e9ebef; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; }
+    .doc-note { max-width: 1100px; margin: 0 auto 16px; font-size: 13px; color: #5d6373; }
+    #zc3 { max-width: 1100px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div class="doc-note">
+    Prototipo de referencia del rediseño. Usá el botón <b>Modo oscuro / Modo claro</b> (abajo a la izquierda) y la navegación del costado. No es funcional: es la guía visual del producto.
+  </div>
+
+  <div id="zc3" style="font-family:var(--font-sans, 'Inter', sans-serif);border-radius:16px;overflow:hidden;border:0.5px solid var(--zc-bd);background:var(--zc-bg);color:var(--zc-tx);display:flex;min-height:600px">
+
+    <style>
+      #zc3{--zc-bg:#f5f6f8;--zc-surf:#ffffff;--zc-surf2:#eef0f3;--zc-bd:rgba(20,22,40,.12);--zc-tx:#1a1c2e;--zc-tx2:#5d6373;--zc-tx3:#9aa0ad;--zc-brand:#5b54e6;--zc-brandbg:#ecebfd;--zc-ml:#ffe600;--zc-mlbg:#fff7bf;--zc-mltx:#5c5400;--zc-tn:#2b8aef;--zc-tnbg:#e3eefc;--zc-tntx:#114e8e;--zc-ok:#1d9e75;--zc-okbg:#e1f5ee;--zc-warn:#ba7517;--zc-warnbg:#faeeda;--zc-err:#d04444;--zc-errbg:#fcebeb;}
+      #zc3.dark{--zc-bg:#0e1017;--zc-surf:#171a22;--zc-surf2:#1f232d;--zc-bd:rgba(255,255,255,.11);--zc-tx:#e8eaf0;--zc-tx2:#a2a8b5;--zc-tx3:#6a7180;--zc-brand:#8b85ff;--zc-brandbg:#26233f;--zc-ml:#ffe600;--zc-mlbg:#3a3600;--zc-mltx:#ffe600;--zc-tn:#67abf5;--zc-tnbg:#13314f;--zc-tntx:#9cc7f7;--zc-ok:#5dcaa5;--zc-okbg:#0f3a30;--zc-warn:#efa83a;--zc-warnbg:#3a2a0e;--zc-err:#e07a7a;--zc-errbg:#3a1414;}
+      #zc3 *{box-sizing:border-box}
+      #zc3 .nav-i{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;color:var(--zc-tx2);cursor:pointer;font-size:13px;border:none;background:none;width:100%;text-align:left}
+      #zc3 .nav-i:hover{background:var(--zc-surf2)}
+      #zc3 .nav-i.on{background:var(--zc-brandbg);color:var(--zc-brand);font-weight:500}
+      #zc3 .nav-i i{font-size:17px}
+      #zc3 .card{background:var(--zc-surf);border:0.5px solid var(--zc-bd);border-radius:12px}
+      #zc3 .btn{font-family:inherit;font-size:12.5px;border:0.5px solid var(--zc-bd);background:var(--zc-surf);color:var(--zc-tx);border-radius:9px;padding:7px 13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+      #zc3 .btn:hover{background:var(--zc-surf2)}
+      #zc3 .btn.pri{background:var(--zc-brand);color:#fff;border-color:transparent}
+      #zc3 .btn-s{font-size:11px;padding:5px 10px}
+      #zc3 .in,#zc3 select.in{font-family:inherit;font-size:12.5px;width:100%;padding:7px 10px;border:0.5px solid var(--zc-bd);border-radius:8px;background:var(--zc-bg);color:var(--zc-tx)}
+      #zc3 .lbl{font-size:11px;color:var(--zc-tx2);font-weight:500;display:flex;align-items:center;gap:6px;margin-bottom:5px}
+      #zc3 .hint{font-size:10px;color:var(--zc-tx3);margin-top:4px;display:flex;align-items:center;gap:4px}
+      #zc3 .pg{display:none}
+      #zc3 .pg.on{display:block}
+      #zc3 .badge{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;display:inline-flex;align-items:center;gap:3px}
+      #zc3 .bml{background:var(--zc-mlbg);color:var(--zc-mltx)}
+      #zc3 .bok{background:var(--zc-okbg);color:var(--zc-ok)}
+      #zc3 .bwarn{background:var(--zc-warnbg);color:var(--zc-warn)}
+      #zc3 .req{color:var(--zc-err);font-weight:500}
+      #zc3 .tag-com{background:var(--zc-surf2);color:var(--zc-tx3);font-size:9px;font-weight:500;padding:1px 6px;border-radius:5px;display:inline-flex;align-items:center;gap:3px}
+      #zc3 .tag-own{background:var(--zc-brandbg);color:var(--zc-brand);font-size:9px;font-weight:500;padding:1px 6px;border-radius:5px;display:inline-flex;align-items:center;gap:3px}
+      #zc3 .dot{width:9px;height:9px;border-radius:3px;background:var(--zc-ml);display:inline-block}
+      #zc3 th{font-size:10px;color:var(--zc-tx3);font-weight:500;text-align:left;padding:7px 9px;text-transform:uppercase;letter-spacing:.03em}
+      #zc3 td{font-size:12px;padding:9px;border-top:0.5px solid var(--zc-bd);vertical-align:middle}
+      #zc3 .thumb{width:40px;height:40px;border-radius:7px;background:var(--zc-surf2);display:flex;align-items:center;justify-content:center;color:var(--zc-tx3);flex-shrink:0}
+      #zc3 .ph{border:1px dashed var(--zc-bd);border-radius:8px;background:var(--zc-bg);display:flex;align-items:center;justify-content:center;color:var(--zc-tx3)}
+      #zc3 .sechd{display:flex;align-items:center;gap:8px;margin-bottom:13px}
+      #zc3 .g2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+      #zc3 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px}
+      #zc3 .fld{margin-bottom:12px}
+    </style>
+
+    <aside style="width:170px;flex-shrink:0;background:var(--zc-surf);border-right:0.5px solid var(--zc-bd);padding:14px 10px;display:flex;flex-direction:column;gap:3px">
+      <div style="display:flex;align-items:center;gap:9px;padding:6px 10px 14px">
+        <div style="width:30px;height:30px;border-radius:9px;background:var(--zc-brand);display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0"><i class="ti ti-notebook" style="font-size:18px"></i></div>
+        <div style="line-height:1.1"><div style="font-size:13px;font-weight:500">Zona Cuaderno</div><div style="font-size:10px;color:var(--zc-tx3)">Hub de ventas</div></div>
+      </div>
+      <button class="nav-i" data-p="inicio"><i class="ti ti-layout-dashboard"></i>Inicio</button>
+      <button class="nav-i" data-p="productos"><i class="ti ti-box"></i>Productos</button>
+      <button class="nav-i on" data-p="crear"><i class="ti ti-plus"></i>Crear producto</button>
+      <button class="nav-i" data-p="conflictos"><i class="ti ti-alert-triangle"></i>Conflictos</button>
+      <button class="nav-i" data-p="sync"><i class="ti ti-refresh"></i>Sincronización</button>
+      <div style="flex:1"></div>
+      <button id="zc3-th" class="nav-i"><i class="ti ti-moon"></i><span id="zc3-th-t">Modo oscuro</span></button>
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;margin-top:4px;border-top:0.5px solid var(--zc-bd)">
+        <div style="width:26px;height:26px;border-radius:50%;background:var(--zc-tnbg);color:var(--zc-tntx);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500">MD</div>
+        <div style="font-size:11px;color:var(--zc-tx2)">Mica</div>
+      </div>
+    </aside>
+
+    <main style="flex:1;min-width:0;background:var(--zc-bg);padding:18px 20px">
+
+      <div class="pg" data-pg="inicio">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px"><div><h2 style="margin:0;font-size:18px;font-weight:500">Inicio</h2><p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Tus dos canales, en un solo lugar.</p></div><button class="btn pri btn-s"><i class="ti ti-refresh"></i>Sincronizar todo</button></div>
+        <div class="g2" style="margin-bottom:14px">
+          <div class="card" style="padding:13px 15px;display:flex;align-items:center;gap:11px"><span class="dot" style="width:14px;height:14px"></span><div style="flex:1"><div style="font-size:12.5px;font-weight:500">Mercado Libre</div><div style="font-size:11px;color:var(--zc-ok)"><i class="ti ti-circle-check" style="font-size:12px;vertical-align:-1px"></i> Conectado</div></div></div>
+          <div class="card" style="padding:13px 15px;display:flex;align-items:center;gap:11px"><i class="ti ti-shopping-bag" style="font-size:17px;color:var(--zc-tn)"></i><div style="flex:1"><div style="font-size:12.5px;font-weight:500">Tienda Nube</div><div style="font-size:11px;color:var(--zc-ok)"><i class="ti ti-circle-check" style="font-size:12px;vertical-align:-1px"></i> Conectado</div></div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+          <div class="card" style="padding:12px 13px"><div style="font-size:11px;color:var(--zc-tx2)">Productos</div><div style="font-size:22px;font-weight:500;margin-top:2px">248</div></div>
+          <div class="card" style="padding:12px 13px"><div style="font-size:11px;color:var(--zc-tx2)">Sincronizados</div><div style="font-size:22px;font-weight:500;margin-top:2px;color:var(--zc-ok)">231</div></div>
+          <div class="card" style="padding:12px 13px"><div style="font-size:11px;color:var(--zc-tx2)">A revisar</div><div style="font-size:22px;font-weight:500;margin-top:2px;color:var(--zc-warn)">17</div></div>
+          <div class="card" style="padding:12px 13px"><div style="font-size:11px;color:var(--zc-tx2)">Ventas hoy</div><div style="font-size:22px;font-weight:500;margin-top:2px">34</div></div>
+        </div>
+        <div class="card" style="padding:14px 16px"><div style="font-size:12.5px;font-weight:500;margin-bottom:10px">Actividad reciente</div>
+          <div style="display:flex;align-items:center;gap:10px;font-size:12px;margin-bottom:9px"><span class="badge bml"><span class="dot"></span>ML</span><span style="flex:1;color:var(--zc-tx2)">Venta «Cuaderno A4 Tapa Dura» · –1</span><span style="color:var(--zc-tx3);font-size:11px">4 min</span></div>
+          <div style="display:flex;align-items:center;gap:10px;font-size:12px;margin-bottom:9px"><span class="badge" style="background:var(--zc-tnbg);color:var(--zc-tntx)">◆ TN</span><span style="flex:1;color:var(--zc-tx2)">Stock «Libreta Punteada» · 12 → 11</span><span style="color:var(--zc-tx3);font-size:11px">22 min</span></div>
+          <div style="display:flex;align-items:center;gap:10px;font-size:12px"><span class="badge bok"><i class="ti ti-check" style="font-size:11px"></i></span><span style="flex:1;color:var(--zc-tx2)">«Agenda 2026» publicada en ambos canales</span><span style="color:var(--zc-tx3);font-size:11px">1 h</span></div>
+        </div>
+      </div>
+
+      <div class="pg" data-pg="productos">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px"><div><h2 style="margin:0;font-size:18px;font-weight:500">Productos</h2><p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Stock y precio de ambos canales, combinados por SKU.</p></div><button class="btn pri btn-s" data-goto="crear"><i class="ti ti-plus"></i>Crear</button></div>
+        <div style="display:flex;gap:8px;margin-bottom:12px"><div style="flex:1;position:relative"><i class="ti ti-search" style="position:absolute;left:10px;top:8px;font-size:15px;color:var(--zc-tx3)"></i><input class="in" placeholder="Buscar por nombre o SKU…" style="padding-left:32px"></div><button class="btn btn-s"><i class="ti ti-filter"></i>Estado</button></div>
+        <div class="card" style="overflow:hidden"><table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:40%"><col style="width:16%"><col style="width:21%"><col style="width:23%"></colgroup>
+          <thead><tr><th>Producto</th><th>SKU</th><th><span class="dot"></span> M. Libre</th><th style="color:var(--zc-tn)">◆ T. Nube</th></tr></thead><tbody>
+          <tr><td><div style="display:flex;align-items:center;gap:9px"><div class="thumb"><i class="ti ti-notebook"></i></div><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Cuaderno A4 Tapa Dura</span></div></td><td style="color:var(--zc-tx2)">CUA-A4-TD</td><td>$8.900 · <b>12</b></td><td>$8.500 · <b>12</b> <span class="badge bok">sync</span></td></tr>
+          <tr><td><div style="display:flex;align-items:center;gap:9px"><div class="thumb"><i class="ti ti-book"></i></div><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Libreta Punteada A5</span></div></td><td style="color:var(--zc-tx2)">LIB-A5-PT</td><td>$5.200 · <b>11</b></td><td>$4.990 · <b style="color:var(--zc-warn)">9</b> <span class="badge bwarn">≠</span></td></tr>
+          <tr><td><div style="display:flex;align-items:center;gap:9px"><div class="thumb"><i class="ti ti-calendar"></i></div><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Agenda 2026 Semanal</span></div></td><td style="color:var(--zc-tx2)">AGE-26-SM</td><td>$12.500 · <b>30</b></td><td>$11.900 · <b>30</b> <span class="badge bok">sync</span></td></tr>
+          <tr><td><div style="display:flex;align-items:center;gap:9px"><div class="thumb"><i class="ti ti-pencil"></i></div><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Set Bolígrafos x5</span></div></td><td style="color:var(--zc-tx2)">SET-BOL-5</td><td style="color:var(--zc-tx3)">— sin publicar</td><td>$3.400 · <b>50</b> <span class="badge bml">solo TN</span></td></tr>
+          </tbody></table></div>
+      </div>
+
+      <div class="pg on" data-pg="crear">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px"><div><h2 style="margin:0;font-size:18px;font-weight:500">Crear producto</h2><p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Cargá los datos comunes una vez y publicá en los dos canales.</p></div></div>
+        <div style="display:flex;align-items:center;gap:14px;font-size:10px;color:var(--zc-tx3);margin:8px 0 14px"><span><span class="req">*</span> obligatorio</span><span class="tag-com"><i class="ti ti-link" style="font-size:9px"></i>del común</span><span class="tag-own"><i class="ti ti-pencil" style="font-size:9px"></i>propio del canal</span></div>
+
+        <div class="card" style="padding:15px 16px;margin-bottom:13px">
+          <div class="sechd"><i class="ti ti-stack-2" style="font-size:16px;color:var(--zc-brand)"></i><span style="font-size:13px;font-weight:500">Datos comunes</span><span style="font-size:10px;color:var(--zc-tx3)">— se comparten en ambos canales</span></div>
+          <div class="g2 fld"><div><label class="lbl">Nombre base <span class="req">*</span></label><input class="in" value="Cuaderno A4 Tapa Dura"></div><div><label class="lbl">SKU <span class="req">*</span></label><input class="in" value="CUA-A4-TD"><div class="hint"><i class="ti ti-link" style="font-size:10px"></i>ML: SELLER_SKU · TN: sku — es la clave que une ambos</div></div></div>
+          <div class="g3 fld"><div><label class="lbl">Marca</label><input class="in" value="Zona Cuaderno"></div><div><label class="lbl">Código de barras (GTIN/EAN)</label><input class="in" value="7791234567890"></div><div><label class="lbl">Condición <span class="req">*</span></label><select class="in"><option>Nuevo</option><option>Usado</option></select></div></div>
+          <div class="fld"><label class="lbl">Peso y dimensiones <span class="req">*</span></label><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:9px"><input class="in" value="480" placeholder="Peso (g)"><input class="in" value="30" placeholder="Largo (cm)"><input class="in" value="22" placeholder="Ancho (cm)"><input class="in" value="3" placeholder="Alto (cm)"></div><div class="hint"><i class="ti ti-arrows-shuffle" style="font-size:10px"></i>ML: «30x22x3,480» (g/cm) · TN: 0,48 kg + cm — se convierte automáticamente</div></div>
+          <div class="fld" style="margin-bottom:0"><label class="lbl">Palabras clave / SEO</label><input class="in" value="cuaderno, tapa dura, a4, anillado, oficina"></div>
+        </div>
+
+        <div class="card" style="padding:15px 16px;margin-bottom:13px;border-top:3px solid var(--zc-ml)">
+          <div class="sechd"><span class="dot" style="width:14px;height:14px"></span><span style="font-size:13px;font-weight:500">Mercado Libre</span><span class="badge bml" style="margin-left:auto">1 publicación con variantes</span></div>
+          <div class="fld"><label class="lbl">Título de la publicación <span class="req">*</span> <span class="tag-own"><i class="ti ti-pencil" style="font-size:9px"></i>propio</span></label><input class="in" value="Cuaderno A4 Tapa Dura Premium Anillado 480g" style="border-color:var(--zc-brand)"></div>
+          <div class="g2 fld"><div><label class="lbl">Categoría ML (category_id) <span class="req">*</span></label><div style="display:flex;gap:7px"><input class="in" value="MLA1652 · Cuadernos"><button class="btn btn-s" style="white-space:nowrap"><i class="ti ti-wand"></i>Predecir</button></div></div><div><label class="lbl">Tipo de publicación <span class="req">*</span></label><select class="in"><option>Clásica (gold_special)</option><option>Premium (gold_pro)</option><option>Gratuita (free)</option></select></div></div>
+          <div class="g3 fld"><div><label class="lbl">Precio <span class="req">*</span></label><input class="in" value="$8.900"></div><div><label class="lbl">Moneda <span class="req">*</span></label><select class="in"><option>ARS</option><option>USD</option></select></div><div><label class="lbl">Stock <span class="req">*</span></label><input class="in" value="12"></div></div>
+          <div class="fld"><label class="lbl">Atributos de la categoría <span class="req">*</span></label><div style="display:grid;grid-template-columns:1fr 1fr;gap:9px"><div style="background:var(--zc-surf2);border-radius:8px;padding:7px 10px;font-size:11.5px;display:flex;justify-content:space-between"><span style="color:var(--zc-tx2)">Marca</span><span>Zona Cuaderno <span class="tag-com"><i class="ti ti-link" style="font-size:9px"></i></span></span></div><div style="background:var(--zc-surf2);border-radius:8px;padding:7px 10px;font-size:11.5px;display:flex;justify-content:space-between"><span style="color:var(--zc-tx2)">Modelo</span><input class="in" value="A4-TD" style="width:90px;padding:3px 7px;font-size:11px"></div><div style="background:var(--zc-surf2);border-radius:8px;padding:7px 10px;font-size:11.5px;display:flex;justify-content:space-between"><span style="color:var(--zc-tx2)">Material tapa</span><input class="in" value="Cartón" style="width:90px;padding:3px 7px;font-size:11px"></div><div style="background:var(--zc-surf2);border-radius:8px;padding:7px 10px;font-size:11.5px;display:flex;justify-content:space-between"><span style="color:var(--zc-tx2)">Rayado</span><input class="in" value="Cuadriculado" style="width:90px;padding:3px 7px;font-size:11px"></div></div><div class="hint"><i class="ti ti-refresh" style="font-size:10px"></i>se cargan dinámicamente según la categoría (GET /categories/{id}/attributes)</div></div>
+          <div class="g2 fld"><div><label class="lbl">Garantía — tipo</label><select class="in"><option>Garantía del vendedor</option><option>Garantía de fábrica</option><option>Sin garantía</option></select></div><div><label class="lbl">Garantía — tiempo</label><input class="in" value="90 días"></div></div>
+          <div class="fld"><label class="lbl">Envío</label><div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:9px;align-items:center"><select class="in"><option>Mercado Envíos (me2)</option><option>A convenir (custom)</option></select><label style="font-size:11.5px;color:var(--zc-tx2);display:flex;align-items:center;gap:6px"><input type="checkbox"> Envío gratis</label><label style="font-size:11.5px;color:var(--zc-tx2);display:flex;align-items:center;gap:6px"><input type="checkbox"> Retiro en persona</label></div></div>
+          <div class="fld"><label class="lbl">Descripción (texto plano) <span class="tag-own"><i class="ti ti-pencil" style="font-size:9px"></i>propio</span></label><textarea class="in" rows="2" style="resize:none;border-color:var(--zc-brand)">Cuaderno premium con tapa rígida. Envío full. Ideal para oficina y estudio.</textarea></div>
+          <div class="fld" style="margin-bottom:0"><label class="lbl">Imágenes <span class="tag-own"><i class="ti ti-pencil" style="font-size:9px"></i>propias de ML</span></label><div style="display:flex;gap:7px"><div class="thumb" style="width:44px;height:44px"><i class="ti ti-photo"></i></div><div class="thumb" style="width:44px;height:44px"><i class="ti ti-photo"></i></div><div class="ph" style="width:44px;height:44px"><i class="ti ti-plus"></i></div></div><div class="hint">hasta ~10 · la primera es la principal</div></div>
+        </div>
+
+        <div class="card" style="padding:15px 16px;margin-bottom:13px;border-top:3px solid var(--zc-tn)">
+          <div class="sechd"><i class="ti ti-shopping-bag" style="font-size:15px;color:var(--zc-tn)"></i><span style="font-size:13px;font-weight:500">Tienda Nube</span><span class="badge" style="margin-left:auto;background:var(--zc-tnbg);color:var(--zc-tntx)">1 producto por variante</span></div>
+          <div class="g2 fld"><div><label class="lbl">Nombre (es) <span class="req">*</span></label><input class="in" value="Cuaderno A4 Tapa Dura"></div><div><label class="lbl">Nombre (pt)</label><input class="in" value="Caderno A4 Capa Dura"><div class="hint"><i class="ti ti-language" style="font-size:10px"></i>TN admite varios idiomas</div></div></div>
+          <div class="g2 fld"><div><label class="lbl">Handle / URL</label><input class="in" value="cuaderno-a4-tapa-dura"></div><div><label class="lbl">Categorías TN</label><input class="in" value="Cuadernos, Oficina"></div></div>
+          <div class="g3 fld"><div><label class="lbl">Precio <span class="req">*</span></label><input class="in" value="$8.500"></div><div><label class="lbl">Precio promocional</label><input class="in" value="$7.900"></div><div><label class="lbl">Stock <span class="req">*</span></label><input class="in" value="12"></div></div>
+          <div class="g2 fld"><div><label class="lbl">SEO — título</label><input class="in" value="Cuaderno A4 Tapa Dura | Zona Cuaderno"></div><div><label class="lbl">SEO — descripción</label><input class="in" value="Cuaderno premium tapa dura, 480g. Envío a todo el país."></div></div>
+          <div class="g3 fld"><div><label class="lbl">Tags</label><input class="in" value="escolar, oficina"></div><div><label class="lbl">Video (URL)</label><input class="in" value="https://youtu.be/…"></div><div><label class="lbl" style="margin-top:1px">Opciones</label><label style="font-size:11.5px;color:var(--zc-tx2);display:flex;align-items:center;gap:6px;padding-top:7px"><input type="checkbox"> Envío gratis</label></div></div>
+          <div class="fld"><label class="lbl">Descripción (HTML) <span class="tag-own"><i class="ti ti-pencil" style="font-size:9px"></i>propio</span></label><textarea class="in" rows="2" style="resize:none;border-color:var(--zc-brand)">Cuaderno de tapa dura con diseño exclusivo. Personalizá con tu nombre en el checkout.</textarea></div>
+          <div class="fld" style="margin-bottom:0"><label class="lbl">Imágenes <span class="tag-own"><i class="ti ti-pencil" style="font-size:9px"></i>propias de TN</span></label><div style="display:flex;gap:7px"><div class="thumb" style="width:44px;height:44px"><i class="ti ti-photo"></i></div><div class="ph" style="width:44px;height:44px"><i class="ti ti-plus"></i></div></div></div>
+        </div>
+
+        <div class="card" style="padding:13px 16px;margin-bottom:13px;display:flex;align-items:center;gap:11px"><i class="ti ti-layout-grid" style="font-size:16px;color:var(--zc-tx2)"></i><div style="flex:1"><div style="font-size:12.5px;font-weight:500">¿Tiene variantes? (tamaño, color)</div><div style="font-size:10.5px;color:var(--zc-tx2)">Generá la matriz: cada combinación lleva su SKU, precio y stock por canal.</div></div><button class="btn btn-s"><i class="ti ti-plus"></i>Agregar variantes</button></div>
+
+        <div style="display:flex;justify-content:flex-end;gap:9px"><button class="btn">Guardar borrador</button><button class="btn pri"><i class="ti ti-rocket"></i>Publicar en ambos</button></div>
+      </div>
+
+      <div class="pg" data-pg="conflictos">
+        <div style="margin-bottom:14px"><h2 style="margin:0;font-size:18px;font-weight:500">Conflictos</h2><p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Lo que el matcheo por SKU no resolvió solo.</p></div>
+        <div class="g2" style="margin-bottom:11px"><div class="card" style="padding:13px 14px"><div style="font-size:11px;color:var(--zc-tx2)">Solo en ML</div><div style="font-size:21px;font-weight:500;margin-top:2px">6</div></div><div class="card" style="padding:13px 14px"><div style="font-size:11px;color:var(--zc-tx2)">Solo en TN</div><div style="font-size:21px;font-weight:500;margin-top:2px">4</div></div></div>
+        <div class="card" style="padding:13px 14px"><div class="sechd" style="margin-bottom:11px"><i class="ti ti-alert-triangle" style="font-size:15px;color:var(--zc-warn)"></i><span style="font-size:12.5px;font-weight:500">Sin SKU · 3 publicaciones</span></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:0.5px solid var(--zc-bd)"><span class="badge bml"><span class="dot"></span>ML</span><span style="flex:1;font-size:12px">Set Bolígrafos x5</span><input class="in" placeholder="Asignar SKU…" style="width:120px;font-size:11px;padding:5px 8px"><button class="btn btn-s">Vincular</button></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:0.5px solid var(--zc-bd)"><span class="badge" style="background:var(--zc-tnbg);color:var(--zc-tntx)">◆ TN</span><span style="flex:1;font-size:12px">Marcador Pastel</span><input class="in" placeholder="Asignar SKU…" style="width:120px;font-size:11px;padding:5px 8px"><button class="btn btn-s">Vincular</button></div>
+        </div>
+      </div>
+
+      <div class="pg" data-pg="sync">
+        <div style="margin-bottom:14px"><h2 style="margin:0;font-size:18px;font-weight:500">Sincronización</h2><p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Webhooks que llegaron de cada canal y ajustaron el stock.</p></div>
+        <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:12px"><div style="padding:12px 16px;display:flex;align-items:center;gap:10px;flex:1"><i class="ti ti-bolt" style="font-size:18px;color:var(--zc-ok)"></i><div><div style="font-size:12.5px;font-weight:500">Sincronización automática activa</div><div style="font-size:11px;color:var(--zc-tx2)">Una venta en un canal descuenta el stock en el otro.</div></div></div><div style="padding-right:16px"><div style="width:38px;height:22px;border-radius:20px;background:var(--zc-ok);position:relative"><div style="width:16px;height:16px;border-radius:50%;background:#fff;position:absolute;right:3px;top:3px"></div></div></div></div>
+        <div class="card" style="overflow:hidden"><table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:15%"><col style="width:39%"><col style="width:17%"><col style="width:29%"></colgroup>
+          <thead><tr><th>Canal</th><th>Evento</th><th>Stock</th><th>Estado</th></tr></thead><tbody>
+          <tr><td><span class="badge bml"><span class="dot"></span>ML</span></td><td>Venta · Cuaderno A4 Tapa Dura</td><td>13 → 12</td><td><span class="badge bok"><i class="ti ti-check" style="font-size:11px"></i> aplicado en TN</span></td></tr>
+          <tr><td><span class="badge" style="background:var(--zc-tnbg);color:var(--zc-tntx)">◆ TN</span></td><td>Venta · Libreta Punteada A5</td><td>12 → 11</td><td><span class="badge bok"><i class="ti ti-check" style="font-size:11px"></i> aplicado en ML</span></td></tr>
+          <tr><td><span class="badge bml"><span class="dot"></span>ML</span></td><td>Devolución · Agenda 2026</td><td>29 → 30</td><td><span class="badge bok"><i class="ti ti-check" style="font-size:11px"></i> aplicado en TN</span></td></tr>
+          <tr><td><span class="badge bml"><span class="dot"></span>ML</span></td><td>Venta · Set Bolígrafos x5</td><td>—</td><td><span class="badge bwarn"><i class="ti ti-alert-triangle" style="font-size:11px"></i> sin SKU mapeado</span></td></tr>
+          </tbody></table></div>
+      </div>
+
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      var app = document.getElementById('zc3');
+      function go(p) {
+        app.querySelectorAll('.nav-i[data-p]').forEach(function (b) { b.classList.toggle('on', b.dataset.p === p); });
+        app.querySelectorAll('.pg').forEach(function (s) { s.classList.toggle('on', s.dataset.pg === p); });
+      }
+      app.querySelectorAll('.nav-i[data-p]').forEach(function (b) { b.addEventListener('click', function () { go(b.dataset.p); }); });
+      app.querySelectorAll('[data-goto]').forEach(function (b) { b.addEventListener('click', function () { go(b.dataset.goto); }); });
+      var t = document.getElementById('zc3-th');
+      t.addEventListener('click', function () {
+        var d = app.classList.toggle('dark');
+        t.querySelector('i').className = d ? 'ti ti-sun' : 'ti ti-moon';
+        document.getElementById('zc3-th-t').textContent = d ? 'Modo claro' : 'Modo oscuro';
+      });
+    })();
+  </script>
+</body>
+</html>
