@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { initDb } from './db.js';
 import { tokens, getMlToken, loadTokens } from './store.js';
+import { startMlTaskWorker } from './lib/mlTaskQueue.js';
 
 // Evitar que un rechazo no manejado o excepción no capturada tiren el proceso (Railway no reinicia por "segundo sync").
 process.on('unhandledRejection', (reason, promise) => {
@@ -81,8 +82,12 @@ function scheduleMlTokenRefresh() {
 
 (async () => {
   const ok = await initDb();
-  if (ok) console.log('Base de datos (sync/audit) conectada.');
-  else if (process.env.DATABASE_URL) console.warn('No se pudo conectar a la base de datos. Revisá DATABASE_URL.');
+  if (ok) {
+    console.log('Base de datos (sync/audit) conectada.');
+    startMlTaskWorker();
+  } else if (process.env.DATABASE_URL) {
+    console.warn('No se pudo conectar a la base de datos. Revisá DATABASE_URL.');
+  }
   await loadTokens();
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Backend escuchando en http://0.0.0.0:${PORT}`);
