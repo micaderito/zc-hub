@@ -5,14 +5,16 @@
   </div>
 }
 
-<div class="shell">
+<div class="shell" [class.sidebar-collapsed]="collapsed()">
   <aside class="sidebar">
     <a routerLink="/" class="brand">
-      <span class="brand-mark"><i class="ti ti-notebook"></i></span>
-      <span class="brand-text">
-        <span class="brand-name">Zona Cuaderno</span>
-        <span class="brand-sub">Hub de ventas</span>
-      </span>
+      <img class="brand-logo" src="logo.png" alt="Zona Cuaderno" />
+      @if (!collapsed()) {
+        <span class="brand-text">
+          <span class="brand-name">Zona Cuaderno</span>
+          <span class="brand-sub">Hub de ventas</span>
+        </span>
+      }
     </a>
 
     <nav class="nav">
@@ -22,22 +24,46 @@
           routerLinkActive="active"
           [routerLinkActiveOptions]="{ exact: !!item.exact }"
           class="nav-item"
+          [title]="collapsed() ? item.label : ''"
         >
           <i class="ti {{ item.icon }}"></i>
-          <span>{{ item.label }}</span>
+          @if (!collapsed()) {
+            <span>{{ item.label }}</span>
+          }
         </a>
       }
     </nav>
 
     <div class="sidebar-foot">
-      <button type="button" class="nav-item theme-toggle" (click)="theme.toggle()">
+      <button
+        type="button"
+        class="nav-item theme-toggle"
+        (click)="theme.toggle()"
+        [title]="collapsed() ? (theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro') : ''"
+      >
         <i class="ti" [class.ti-moon]="theme.theme() === 'light'" [class.ti-sun]="theme.theme() === 'dark'"></i>
-        <span>{{ theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro' }}</span>
+        @if (!collapsed()) {
+          <span>{{ theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro' }}</span>
+        }
       </button>
-      <div class="user-chip">
+      <div class="user-chip" [title]="collapsed() ? 'Mica' : ''">
         <span class="avatar">MD</span>
-        <span class="user-name">Mica</span>
+        @if (!collapsed()) {
+          <span class="user-name">Mica</span>
+        }
       </div>
+      <button
+        type="button"
+        class="nav-item collapse-toggle"
+        (click)="toggleSidebar()"
+        [title]="collapsed() ? 'Expandir panel' : 'Colapsar panel'"
+        aria-label="Colapsar panel"
+      >
+        <i class="ti" [class.ti-layout-sidebar-left-collapse]="!collapsed()" [class.ti-layout-sidebar-left-expand]="collapsed()"></i>
+        @if (!collapsed()) {
+          <span>Colapsar panel</span>
+        }
+      </button>
     </div>
   </aside>
 
