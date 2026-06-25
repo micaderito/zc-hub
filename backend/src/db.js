@@ -485,6 +485,21 @@ export async function hasPendingReturnForClaimItem(claimId, itemId, variationId)
   }
 }
 
+/** Devuelve true si existe alguna devolución pendiente para la orden (por order_id). */
+export async function hasPendingReturnForOrder(orderId) {
+  const p = getPool();
+  if (!p || !orderId) return false;
+  try {
+    const r = await p.query(
+      `SELECT 1 FROM sync_pending_returns WHERE order_id = $1 AND status = 'pending' LIMIT 1`,
+      [String(orderId)]
+    );
+    return r.rows.length > 0;
+  } catch (e) {
+    return false;
+  }
+}
+
 /**
  * Obtiene una devolución por id.
  */
