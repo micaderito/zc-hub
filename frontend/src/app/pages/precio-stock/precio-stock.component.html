@@ -62,6 +62,7 @@
         <input type="text" [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)" placeholder="Buscar por título, SKU o variante…" class="search-input" />
       </div>
       <section>
+        <div class="table-scroll">
         <table class="table table-precio-stock">
           <colgroup>
             <col class="col-sku" />
@@ -131,6 +132,7 @@
             }
           </tbody>
         </table>
+        </div>
       </section>
     }
     </div>

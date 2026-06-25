@@ -471,4 +471,22 @@ label {
   .ship-row {
     grid-template-columns: 1fr;
   }
+
+  .actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+
+    .zc-btn {
+      justify-content: center;
+      text-align: center;
+    }
+  }
+
+  .mode-opt {
+    min-width: 0;
+  }
+
+  .axis-input {
+    width: 100%;
+  }
 }

@@ -176,6 +176,12 @@ a {
   min-height: 60px;
 }
 
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .zc-badge {
   font-size: 0.66rem;
   font-weight: 500;

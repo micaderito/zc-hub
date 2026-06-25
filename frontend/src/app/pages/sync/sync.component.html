@@ -68,6 +68,7 @@
       } @else if (returnsRows.length === 0) {
         <p class="empty">No hay devoluciones pendientes. Usá «Actualizar» para buscar de nuevo en ML o agregá una orden por número.</p>
       } @else {
+        <div class="table-scroll">
         <table class="audit-table returns-table">
           <thead>
             <tr>
@@ -99,6 +100,7 @@
             }
           </tbody>
         </table>
+        </div>
       }
     </section>
     }
@@ -136,6 +138,7 @@
       } @else if (pendingTasks.length === 0) {
         <p class="empty">No hay actualizaciones en cola. Cuando edites un SKU o haya una venta que descuente stock en ML, las verás acá hasta que se completen.</p>
       } @else {
+        <div class="table-scroll">
         <table class="audit-table tasks-table">
           <thead>
             <tr>
@@ -172,6 +175,7 @@
             }
           </tbody>
         </table>
+        </div>
       }
     </section>
     }
@@ -222,6 +226,7 @@
             }
           </p>
         } @else {
+        <div class="table-scroll">
         <table class="audit-table">
           <thead>
             <tr>
@@ -272,6 +277,7 @@
             }
           </tbody>
         </table>
+        </div>
         @if (auditTotal > auditRows.length) {
           <p class="muted">Mostrando {{ auditRows.length }} de {{ auditTotal }}.</p>
         }

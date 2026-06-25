@@ -435,7 +435,8 @@
       border-radius: var(--radius-sm);
       background: var(--bg);
       color: var(--text);
-      min-width: 220px;
+      width: 100%;
+      max-width: 260px;
 
       &::placeholder { color: var(--text-3); }
 
