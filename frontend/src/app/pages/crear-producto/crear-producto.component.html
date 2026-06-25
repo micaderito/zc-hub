@@ -1,0 +1,438 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Crear producto</h1>
+      <p class="subtitle">Cargá los datos comunes una vez y publicá en los dos canales.</p>
+    </div>
+  </header>
+
+  <div class="legend">
+    <span><span class="req">*</span> obligatorio</span>
+    <span class="tag tag-com"><i class="ti ti-link"></i> del común</span>
+    <span class="tag tag-own"><i class="ti ti-pencil"></i> propio del canal</span>
+  </div>
+
+  <!-- ===== Datos comunes ===== -->
+  <section class="zc-card block">
+    <div class="block-head">
+      <i class="ti ti-stack-2 ico-brand"></i>
+      <span class="block-title">Datos comunes</span>
+      <span class="block-note">— se comparten en ambos canales</span>
+    </div>
+
+    <div class="grid-2 field">
+      <label>
+        <span class="lbl">Nombre base <span class="req">*</span></span>
+        <input class="zc-input" [(ngModel)]="draft().common.baseName" />
+      </label>
+      <label>
+        <span class="lbl">SKU <span class="req">*</span></span>
+        <input class="zc-input" [(ngModel)]="draft().common.sku" />
+        <span class="hint"><i class="ti ti-link"></i> ML: SELLER_SKU · TN: sku — es la clave que une ambos</span>
+      </label>
+    </div>
+
+    <div class="grid-3 field">
+      <label>
+        <span class="lbl">Marca</span>
+        <input class="zc-input" [(ngModel)]="draft().common.brand" />
+      </label>
+      <label>
+        <span class="lbl">Código de barras (GTIN/EAN)</span>
+        <input class="zc-input" [(ngModel)]="draft().common.barcode" />
+      </label>
+      <label>
+        <span class="lbl">Condición <span class="req">*</span></span>
+        <select class="zc-select" [(ngModel)]="draft().common.condition">
+          <option value="new">Nuevo</option>
+          <option value="used">Usado</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Peso y dimensiones <span class="req">*</span></span>
+      <div class="grid-4">
+        <input class="zc-input" type="number" [(ngModel)]="draft().common.weightG" placeholder="Peso (g)" />
+        <input class="zc-input" type="number" [(ngModel)]="draft().common.lengthCm" placeholder="Largo (cm)" />
+        <input class="zc-input" type="number" [(ngModel)]="draft().common.widthCm" placeholder="Ancho (cm)" />
+        <input class="zc-input" type="number" [(ngModel)]="draft().common.heightCm" placeholder="Alto (cm)" />
+      </div>
+      <span class="hint"><i class="ti ti-arrows-shuffle"></i> ML: «30x22x3,480» (g/cm) · TN: kg + cm — se convierte automáticamente</span>
+    </div>
+
+    <label class="field no-mb">
+      <span class="lbl">Palabras clave / SEO</span>
+      <input class="zc-input" [(ngModel)]="draft().common.seoKeywords" />
+    </label>
+  </section>
+
+  <!-- ===== Mercado Libre ===== -->
+  <section class="zc-card block channel-ml">
+    <div class="block-head">
+      <span class="dot dot-ml"></span>
+      <span class="block-title">Mercado Libre</span>
+      <span class="mode-badge ml">{{ mlProjection() }}</span>
+    </div>
+
+    <div class="field mode-row">
+      <span class="lbl">¿Cómo se publica este grupo en ML?</span>
+      <div class="mode-toggle">
+        <button
+          type="button"
+          class="mode-opt"
+          [class.on]="draft().ml.mappingMode === 'single_with_variants'"
+          (click)="setMode('ml', 'single_with_variants')"
+        >
+          <i class="ti ti-layers-subtract"></i> 1 publicación con variantes
+        </button>
+        <button
+          type="button"
+          class="mode-opt"
+          [class.on]="draft().ml.mappingMode === 'one_per_variant'"
+          (click)="setMode('ml', 'one_per_variant')"
+        >
+          <i class="ti ti-layout-grid"></i> 1 publicación por variante
+        </button>
+      </div>
+    </div>
+
+    <!-- override: título -->
+    <div class="field">
+      <span class="lbl">
+        Título de la publicación <span class="req">*</span>
+        <ng-container [ngTemplateOutlet]="ovTag" [ngTemplateOutletContext]="{ f: draft().ml.title }"></ng-container>
+      </span>
+      @if (draft().ml.title.inherited) {
+        <div class="inherited" (click)="makeOwn(draft().ml.title, draft().common.baseName)">
+          <span>{{ draft().common.baseName }}</span>
+          <i class="ti ti-pencil"></i>
+        </div>
+      } @else {
+        <input class="zc-input is-own" [(ngModel)]="draft().ml.title.value" />
+        <span class="hint revert" (click)="revert(draft().ml.title)"><i class="ti ti-rotate"></i> común: {{ draft().common.baseName }}</span>
+      }
+    </div>
+
+    <div class="grid-2 field">
+      <label>
+        <span class="lbl">Categoría ML (category_id) <span class="req">*</span></span>
+        <div class="with-btn">
+          <input class="zc-input" [(ngModel)]="draft().ml.categoryId" />
+          <button type="button" class="zc-btn small"><i class="ti ti-wand"></i> Predecir</button>
+        </div>
+      </label>
+      <label>
+        <span class="lbl">Tipo de publicación <span class="req">*</span></span>
+        <select class="zc-select" [(ngModel)]="draft().ml.listingType">
+          <option value="gold_special">Clásica (gold_special)</option>
+          <option value="gold_pro">Premium (gold_pro)</option>
+          <option value="free">Gratuita (free)</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- atributos de categoría (dinámicos) -->
+    <div class="field">
+      <span class="lbl">Atributos de la categoría <span class="req">*</span></span>
+      <div class="attrs">
+        @for (attr of draft().ml.attributes; track $index) {
+          <div class="attr-row">
+            <span class="attr-name">{{ attr.name || attr.id }}</span>
+            @if (attr.inherited) {
+              <span class="attr-val">{{ attr.value }} <span class="tag tag-com"><i class="ti ti-link"></i></span></span>
+            } @else {
+              <input class="zc-input attr-input" [(ngModel)]="attr.value" />
+            }
+            <button type="button" class="icon-btn" (click)="removeMlAttribute($index)" aria-label="Quitar"><i class="ti ti-x"></i></button>
+          </div>
+        }
+      </div>
+      <div class="attrs-actions">
+        <button type="button" class="zc-btn small" (click)="addMlAttribute()"><i class="ti ti-plus"></i> Agregar atributo</button>
+        <span class="hint"><i class="ti ti-refresh"></i> se cargan según la categoría (GET /categories/{{ '{' }}id{{ '}' }}/attributes)</span>
+      </div>
+    </div>
+
+    <div class="grid-2 field">
+      <label>
+        <span class="lbl">Garantía — tipo</span>
+        <select class="zc-select" [(ngModel)]="draft().ml.warrantyType">
+          <option>Garantía del vendedor</option>
+          <option>Garantía de fábrica</option>
+          <option>Sin garantía</option>
+        </select>
+      </label>
+      <label>
+        <span class="lbl">Garantía — tiempo</span>
+        <input class="zc-input" [(ngModel)]="draft().ml.warrantyTime" />
+      </label>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Envío</span>
+      <div class="ship-row">
+        <select class="zc-select" [(ngModel)]="draft().ml.shippingMode">
+          <option value="me2">Mercado Envíos (me2)</option>
+          <option value="custom">A convenir (custom)</option>
+        </select>
+        <label class="check"><input type="checkbox" [(ngModel)]="draft().ml.freeShipping" /> Envío gratis</label>
+        <label class="check"><input type="checkbox" [(ngModel)]="draft().ml.localPickup" /> Retiro en persona</label>
+      </div>
+    </div>
+
+    <!-- override: descripción -->
+    <div class="field">
+      <span class="lbl">
+        Descripción (texto plano)
+        <ng-container [ngTemplateOutlet]="ovTag" [ngTemplateOutletContext]="{ f: draft().ml.description }"></ng-container>
+      </span>
+      @if (draft().ml.description.inherited) {
+        <div class="inherited" (click)="makeOwn(draft().ml.description, '')">
+          <span class="muted">Sin descripción común — clic para escribir una propia</span>
+          <i class="ti ti-pencil"></i>
+        </div>
+      } @else {
+        <textarea class="zc-textarea is-own" rows="2" [(ngModel)]="draft().ml.description.value"></textarea>
+        <span class="hint revert" (click)="revert(draft().ml.description)"><i class="ti ti-rotate"></i> volver a heredar</span>
+      }
+    </div>
+
+    <div class="field no-mb">
+      <span class="lbl">Imágenes <span class="tag tag-own"><i class="ti ti-pencil"></i> propias de ML</span></span>
+      <div class="thumbs">
+        @for (img of draft().ml.images; track $index) {
+          <div class="thumb">
+            <i class="ti ti-photo"></i>
+            <button type="button" class="thumb-x" (click)="removeImage('ml', $index)" aria-label="Quitar"><i class="ti ti-x"></i></button>
+          </div>
+        }
+        <button type="button" class="thumb add" (click)="addImage('ml')" aria-label="Agregar imagen"><i class="ti ti-plus"></i></button>
+      </div>
+      <span class="hint">hasta ~10 · la primera es la principal</span>
+    </div>
+  </section>
+
+  <!-- ===== Tienda Nube ===== -->
+  <section class="zc-card block channel-tn">
+    <div class="block-head">
+      <i class="ti ti-shopping-bag ico-tn"></i>
+      <span class="block-title">Tienda Nube</span>
+      <span class="mode-badge tn">{{ tnProjection() }}</span>
+    </div>
+
+    <div class="field mode-row">
+      <span class="lbl">¿Cómo se publica este grupo en TN?</span>
+      <div class="mode-toggle">
+        <button
+          type="button"
+          class="mode-opt"
+          [class.on]="draft().tn.mappingMode === 'single_with_variants'"
+          (click)="setMode('tn', 'single_with_variants')"
+        >
+          <i class="ti ti-layers-subtract"></i> 1 producto con variantes
+        </button>
+        <button
+          type="button"
+          class="mode-opt"
+          [class.on]="draft().tn.mappingMode === 'one_per_variant'"
+          (click)="setMode('tn', 'one_per_variant')"
+        >
+          <i class="ti ti-layout-grid"></i> 1 producto por variante
+        </button>
+      </div>
+    </div>
+
+    <div class="grid-2 field">
+      <div>
+        <span class="lbl">
+          Nombre (es) <span class="req">*</span>
+          <ng-container [ngTemplateOutlet]="ovTag" [ngTemplateOutletContext]="{ f: draft().tn.nameEs }"></ng-container>
+        </span>
+        @if (draft().tn.nameEs.inherited) {
+          <div class="inherited" (click)="makeOwn(draft().tn.nameEs, draft().common.baseName)">
+            <span>{{ draft().common.baseName }}</span>
+            <i class="ti ti-pencil"></i>
+          </div>
+        } @else {
+          <input class="zc-input is-own" [(ngModel)]="draft().tn.nameEs.value" />
+          <span class="hint revert" (click)="revert(draft().tn.nameEs)"><i class="ti ti-rotate"></i> común: {{ draft().common.baseName }}</span>
+        }
+      </div>
+      <label>
+        <span class="lbl">Nombre (pt)</span>
+        <input class="zc-input" [(ngModel)]="draft().tn.namePt" />
+        <span class="hint"><i class="ti ti-language"></i> TN admite varios idiomas</span>
+      </label>
+    </div>
+
+    <div class="grid-2 field">
+      <label>
+        <span class="lbl">Handle / URL</span>
+        <input class="zc-input" [(ngModel)]="draft().tn.handle" />
+      </label>
+      <label>
+        <span class="lbl">Categorías TN</span>
+        <input class="zc-input" [(ngModel)]="draft().tn.categories" />
+      </label>
+    </div>
+
+    <div class="grid-2 field">
+      <label>
+        <span class="lbl">SEO — título</span>
+        <input class="zc-input" [(ngModel)]="draft().tn.seoTitle" />
+      </label>
+      <label>
+        <span class="lbl">SEO — descripción</span>
+        <input class="zc-input" [(ngModel)]="draft().tn.seoDescription" />
+      </label>
+    </div>
+
+    <div class="grid-3 field">
+      <label>
+        <span class="lbl">Tags</span>
+        <input class="zc-input" [(ngModel)]="draft().tn.tags" />
+      </label>
+      <label>
+        <span class="lbl">Video (URL)</span>
+        <input class="zc-input" [(ngModel)]="draft().tn.videoUrl" placeholder="https://youtu.be/…" />
+      </label>
+      <div>
+        <span class="lbl">Opciones</span>
+        <label class="check pad"><input type="checkbox" [(ngModel)]="draft().tn.freeShipping" /> Envío gratis</label>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="lbl">
+        Descripción (HTML)
+        <ng-container [ngTemplateOutlet]="ovTag" [ngTemplateOutletContext]="{ f: draft().tn.description }"></ng-container>
+      </span>
+      @if (draft().tn.description.inherited) {
+        <div class="inherited" (click)="makeOwn(draft().tn.description, '')">
+          <span class="muted">Sin descripción común — clic para escribir una propia</span>
+          <i class="ti ti-pencil"></i>
+        </div>
+      } @else {
+        <textarea class="zc-textarea is-own" rows="2" [(ngModel)]="draft().tn.description.value"></textarea>
+        <span class="hint revert" (click)="revert(draft().tn.description)"><i class="ti ti-rotate"></i> volver a heredar</span>
+      }
+    </div>
+
+    <div class="field no-mb">
+      <span class="lbl">Imágenes <span class="tag tag-own"><i class="ti ti-pencil"></i> propias de TN</span></span>
+      <div class="thumbs">
+        @for (img of draft().tn.images; track $index) {
+          <div class="thumb">
+            <i class="ti ti-photo"></i>
+            <button type="button" class="thumb-x" (click)="removeImage('tn', $index)" aria-label="Quitar"><i class="ti ti-x"></i></button>
+          </div>
+        }
+        <button type="button" class="thumb add" (click)="addImage('tn')" aria-label="Agregar imagen"><i class="ti ti-plus"></i></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Variantes ===== -->
+  <section class="zc-card block">
+    <div class="block-head">
+      <i class="ti ti-layout-grid"></i>
+      <span class="block-title">Variantes</span>
+      <span class="block-note">— cada combinación lleva su SKU, precio y stock por canal</span>
+    </div>
+
+    @if (!hasVariants()) {
+      <div class="empty-variants">
+        <p>Producto simple (sin variantes). Agregá un eje (tamaño, color…) para crear una matriz.</p>
+        <button type="button" class="zc-btn small" (click)="addAxis()"><i class="ti ti-plus"></i> Agregar eje de variante</button>
+      </div>
+    } @else {
+      <div class="axes field">
+        @for (axis of draft().axes; track $index) {
+          <div class="axis-chip">
+            <input class="zc-input axis-input" [(ngModel)]="axis.name" placeholder="Eje (ej. Color)" />
+            <button type="button" class="icon-btn" (click)="removeAxis($index)" aria-label="Quitar eje"><i class="ti ti-x"></i></button>
+          </div>
+        }
+        @if (draft().axes.length < 3) {
+          <button type="button" class="zc-btn small" (click)="addAxis()"><i class="ti ti-plus"></i> Eje</button>
+        }
+      </div>
+
+      <div class="variant-table-wrap">
+        <table class="variant-table">
+          <thead>
+            <tr>
+              @for (axis of draft().axes; track $index) {
+                <th>{{ axis.name || 'Eje ' + ($index + 1) }}</th>
+              }
+              <th>SKU</th>
+              <th><span class="dot dot-ml"></span> Precio</th>
+              <th><span class="dot dot-ml"></span> Stock</th>
+              <th class="th-tn">◆ Precio</th>
+              <th class="th-tn">◆ Stock</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (v of draft().variants; track v.id) {
+              <tr>
+                @for (axis of draft().axes; track $index) {
+                  <td><input class="zc-input cell" [(ngModel)]="v.values[$index]" /></td>
+                }
+                <td><input class="zc-input cell mono" [(ngModel)]="v.sku" /></td>
+                <td><input class="zc-input cell" type="number" [(ngModel)]="v.ml.price" /></td>
+                <td><input class="zc-input cell" type="number" [(ngModel)]="v.ml.stock" /></td>
+                <td><input class="zc-input cell" type="number" [(ngModel)]="v.tn.price" /></td>
+                <td><input class="zc-input cell" type="number" [(ngModel)]="v.tn.stock" /></td>
+                <td><button type="button" class="icon-btn" (click)="removeVariant(v.id)" aria-label="Quitar variante"><i class="ti ti-trash"></i></button></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <button type="button" class="zc-btn small" (click)="addVariant()"><i class="ti ti-plus"></i> Agregar variante</button>
+    }
+  </section>
+
+  <!-- ===== Resultado de publicar ===== -->
+  @if (publishResults(); as results) {
+    <section class="zc-card block results">
+      <div class="results-head">
+        <i class="ti" [class.ti-circle-check]="results.length && (results[0].status === 'ok' && results[1].status === 'ok')"
+           [class.ti-alert-circle]="!(results[0].status === 'ok' && results[1].status === 'ok')"></i>
+        <span class="block-title">Resultado de la publicación</span>
+        <button type="button" class="icon-btn" (click)="dismissResults()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      @for (r of results; track r.channel) {
+        <div class="result-row" [class.ok]="r.status === 'ok'" [class.err]="r.status === 'error'">
+          @if (r.channel === 'ml') { <span class="dot dot-ml"></span><span class="ch">Mercado Libre</span> }
+          @else { <i class="ti ti-shopping-bag ico-tn"></i><span class="ch">Tienda Nube</span> }
+          <span class="result-detail">{{ r.detail }}</span>
+          @if (r.status === 'ok') {
+            <span class="zc-badge ok"><i class="ti ti-check"></i> publicado</span>
+          } @else {
+            <button type="button" class="zc-btn small" (click)="retry(r.channel)"><i class="ti ti-refresh"></i> Reintentar</button>
+          }
+        </div>
+      }
+    </section>
+  }
+
+  <!-- ===== Acciones ===== -->
+  <div class="actions">
+    <button type="button" class="zc-btn">Guardar borrador</button>
+    <button type="button" class="zc-btn primary" (click)="publish()" [disabled]="publishing()">
+      <i class="ti ti-rocket"></i> {{ publishing() ? 'Publicando…' : 'Publicar en ambos' }}
+    </button>
+  </div>
+</div>
+
+<!-- chip de override reutilizable -->
+<ng-template #ovTag let-f="f">
+  @if (f.inherited) {
+    <span class="tag tag-com"><i class="ti ti-link"></i> del común</span>
+  } @else {
+    <span class="tag tag-own"><i class="ti ti-pencil"></i> propio</span>
+  }
+</ng-template>

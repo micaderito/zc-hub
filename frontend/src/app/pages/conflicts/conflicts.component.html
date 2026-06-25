@@ -26,14 +26,14 @@
       <p class="alert">La sesión de Mercado Libre venció. Reconectá desde <a routerLink="/">Inicio</a> para ver ítems de ML.</p>
     }
     <div class="summary">
-      <div class="card info"><span class="num">{{ analysis.summary.totalML ?? '—' }}</span> Ítems ML</div>
-      <div class="card info"><span class="num">{{ analysis.summary.totalTN ?? '—' }}</span> Variantes TN</div>
-      <div class="card"><span class="num">{{ analysis.summary.matched }}</span> Coinciden por SKU</div>
-      <div class="card"><span class="num">{{ analysis.summary.resolved }}</span> Vinculados (mismo SKU)</div>
-      <div class="card warn"><span class="num">{{ analysis.summary.onlyML }}</span> Solo en ML</div>
-      <div class="card warn"><span class="num">{{ analysis.summary.onlyTN }}</span> Solo en TN</div>
-      <div class="card warn"><span class="num">{{ analysis.summary.noSkuML + analysis.summary.noSkuTN }}</span> Sin SKU</div>
-      <div class="card warn"><span class="num">{{ analysis.summary.duplicateSkuML + analysis.summary.duplicateSkuTN }}</span> SKU duplicados</div>
+      <div class="zc-card info"><span class="num">{{ analysis.summary.totalML ?? '—' }}</span> Ítems ML</div>
+      <div class="zc-card info"><span class="num">{{ analysis.summary.totalTN ?? '—' }}</span> Variantes TN</div>
+      <div class="zc-card"><span class="num">{{ analysis.summary.matched }}</span> Coinciden por SKU</div>
+      <div class="zc-card"><span class="num">{{ analysis.summary.resolved }}</span> Vinculados (mismo SKU)</div>
+      <div class="zc-card warn"><span class="num">{{ analysis.summary.onlyML }}</span> Solo en ML</div>
+      <div class="zc-card warn"><span class="num">{{ analysis.summary.onlyTN }}</span> Solo en TN</div>
+      <div class="zc-card warn"><span class="num">{{ analysis.summary.noSkuML + analysis.summary.noSkuTN }}</span> Sin SKU</div>
+      <div class="zc-card warn"><span class="num">{{ analysis.summary.duplicateSkuML + analysis.summary.duplicateSkuTN }}</span> SKU duplicados</div>
     </div>
 
     <div class="list-area">
