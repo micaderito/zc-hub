@@ -171,11 +171,13 @@ export class ConflictsComponent implements OnInit {
       next: (res) => {
         this.savingLink = false;
         const p = res?.persisted;
+        // ML ahora se encola (p.ml === true = encolado OK; false = no se pudo encolar, típicamente sin DB).
+        // TN es directo (p.tn === false = la escritura realmente falló).
         if (p && (p.ml === false || p.tn === false)) {
           const parts = [];
-          if (p.ml === false) parts.push('Mercado Libre');
-          if (p.tn === false) parts.push('Tienda Nube');
-          this.linkError = `No se pudo actualizar el SKU en: ${parts.join(' y ')}. Revisá que la publicación esté activa.`;
+          if (p.ml === false) parts.push('no se pudo encolar la actualización en Mercado Libre (¿base de datos configurada?)');
+          if (p.tn === false) parts.push('no se pudo actualizar el SKU en Tienda Nube (revisá que la variante exista)');
+          this.linkError = `Atención: ${parts.join('; ')}.`;
           this.error = this.linkError;
           return;
         }

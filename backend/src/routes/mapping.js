@@ -68,12 +68,12 @@ mappingRoutes.get('/sources/mercadolibre', async (_, res) => {
     );
     if (!r.ok) throw new Error(await r.text());
     const { results } = await r.json();
-    const items = await Promise.all(
-      (results || []).slice(0, 50).map(id =>
-        fetch(`https://api.mercadolibre.com/items/${id}`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        }).then(r => r.json())
-      )
+    // Multiget: en vez de 50 GET sueltos (un estallido que dispara 429), pedimos
+    // los ítems en tandas de 20. Trae solo los campos que usamos abajo.
+    const items = await ml.getItems(
+      accessToken,
+      (results || []).slice(0, 50),
+      'id,title,seller_sku,catalog_listing,variations'
     );
     const originalsOnly = items.filter(it => it && it.catalog_listing !== true);
     const withSku = originalsOnly.map(it => ({

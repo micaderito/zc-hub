@@ -95,6 +95,31 @@ export async function initDb() {
         value JSONB NOT NULL
       );
     `);
+
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS ml_pending_tasks (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(32) NOT NULL,
+        item_id VARCHAR(128),
+        variation_id VARCHAR(128),
+        target_qty INTEGER,
+        target_sku VARCHAR(128),
+        context_json TEXT,
+        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        locked_at TIMESTAMPTZ,
+        idempotency_key VARCHAR(256) UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`
+      CREATE INDEX IF NOT EXISTS idx_ml_pending_tasks_runnable
+      ON ml_pending_tasks(status, next_run_at)
+      WHERE status IN ('pending', 'failed');
+    `);
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -460,6 +485,21 @@ export async function hasPendingReturnForClaimItem(claimId, itemId, variationId)
   }
 }
 
+/** Devuelve true si existe alguna devolución pendiente para la orden (por order_id). */
+export async function hasPendingReturnForOrder(orderId) {
+  const p = getPool();
+  if (!p || !orderId) return false;
+  try {
+    const r = await p.query(
+      `SELECT 1 FROM sync_pending_returns WHERE order_id = $1 AND status = 'pending' LIMIT 1`,
+      [String(orderId)]
+    );
+    return r.rows.length > 0;
+  } catch (e) {
+    return false;
+  }
+}
+
 /**
  * Obtiene una devolución por id.
  */
@@ -494,6 +534,140 @@ export async function setReturnApproved(id) {
     return true;
   } catch (e) {
     console.error('setReturnApproved:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Encola una tarea de actualización de ML (stock o SKU).
+ * Con idempotency_key, si ya existe una tarea igual pendiente la pisa (coalescing: la más nueva gana).
+ * context_json: datos de auditoría opcionales (orderId, sku, channelSale, etc.) que el worker usa al completar.
+ */
+export async function enqueueMlTask({ kind, itemId, variationId = null, targetQty = null, targetSku = null, contextJson = null, idempotencyKey = null }) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `INSERT INTO ml_pending_tasks (kind, item_id, variation_id, target_qty, target_sku, context_json, idempotency_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (idempotency_key) DO UPDATE
+         SET status = 'pending', target_qty = EXCLUDED.target_qty, target_sku = EXCLUDED.target_sku,
+             context_json = EXCLUDED.context_json, next_run_at = NOW(), attempts = 0, last_error = NULL, updated_at = NOW()
+       RETURNING id`,
+      [kind, itemId, variationId, targetQty, targetSku, contextJson, idempotencyKey]
+    );
+    return r.rows[0]?.id ?? null;
+  } catch (e) {
+    console.error('enqueueMlTask:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Reclama la próxima tarea lista para procesar.
+ * Usa FOR UPDATE SKIP LOCKED para que múltiples workers no agarren la misma.
+ */
+export async function claimNextMlTask() {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      `SELECT id, kind, item_id AS "itemId", variation_id AS "variationId",
+              target_qty AS "targetQty", target_sku AS "targetSku", context_json AS "contextJson", attempts
+       FROM ml_pending_tasks
+       WHERE (status = 'pending' OR (status = 'failed' AND attempts < 5))
+         AND next_run_at <= NOW()
+       ORDER BY created_at ASC
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED`,
+    );
+    const task = r.rows[0];
+    if (!task) { await client.query('COMMIT'); return null; }
+    await client.query(
+      `UPDATE ml_pending_tasks SET status = 'processing', locked_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [task.id]
+    );
+    await client.query('COMMIT');
+    return task;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('claimNextMlTask:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Marca una tarea como done o failed, actualiza intentos y backoff. */
+export async function updateMlTaskStatus(taskId, status, errorMsg = null) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    let nextRunAt = new Date();
+    if (status === 'failed') {
+      // Backoff exponencial: 10s, 40s, 90s, 160s, 250s
+      const r = await p.query('SELECT attempts FROM ml_pending_tasks WHERE id = $1', [taskId]);
+      const attempts = (r.rows[0]?.attempts ?? 0) + 1;
+      nextRunAt = new Date(Date.now() + Math.pow(attempts, 2) * 10_000);
+    }
+    await p.query(
+      `UPDATE ml_pending_tasks
+       SET status = $1, last_error = $2, attempts = attempts + 1,
+           next_run_at = $3, locked_at = NULL, updated_at = NOW()
+       WHERE id = $4`,
+      [status, errorMsg, nextRunAt, taskId]
+    );
+    return true;
+  } catch (e) {
+    console.error('updateMlTaskStatus:', e.message);
+    return false;
+  }
+}
+
+/** Lista tareas activas (pending/processing/failed) para la UI. */
+export async function getPendingMlTasks(limit = 100) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT id, kind, item_id AS "itemId", variation_id AS "variationId",
+              target_qty AS "targetQty", target_sku AS "targetSku",
+              status, attempts, last_error AS "lastError",
+              created_at AS "createdAt", updated_at AS "updatedAt", next_run_at AS "nextRunAt"
+       FROM ml_pending_tasks
+       WHERE status IN ('pending', 'processing', 'failed')
+       ORDER BY updated_at DESC
+       LIMIT $1`,
+      [Math.min(limit, 500)]
+    );
+    return r.rows.map(row => ({
+      ...row,
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+      nextRunAt: row.nextRunAt ? new Date(row.nextRunAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getPendingMlTasks:', e.message);
+    return [];
+  }
+}
+
+/** Reinicia una tarea failed para que el worker la reintente. */
+export async function retryMlTask(taskId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE ml_pending_tasks
+       SET status = 'pending', attempts = 0, last_error = NULL, next_run_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND status = 'failed'`,
+      [taskId]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('retryMlTask:', e.message);
     return false;
   }
 }

@@ -3,7 +3,7 @@ import { tokens, getResolvedSkus, getMlToken, setMlTokenKnownInvalid } from '../
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { getAnalysis } from '../services/conflictsService.js';
-import { tryClaimOrderProcessing, hasOrderProcessingClaimed, releaseOrderProcessingClaim, hasDatabase } from '../db.js';
+import { tryClaimOrderProcessing, hasOrderProcessingClaimed, releaseOrderProcessingClaim, hasDatabase, hasPendingReturnForOrder } from '../db.js';
 import {
   onMercadoLibreOrderPaid,
   onMercadoLibreOrderCancelled,
@@ -62,6 +62,35 @@ async function processMlOrderPayload(order, orderId) {
   const effectiveOrderId = String(order.id ?? orderId);
 
   if (status === 'cancelled' || status === 'canceled') {
+    // Verificar si hay una devolución pendiente en DB (caso normal: claims webhook llegó primero)
+    if (await hasPendingReturnForOrder(effectiveOrderId)) {
+      console.log('[Webhook ML] Orden %s cancelada por devolución (pending return en DB). Se omite restauración automática de stock.', effectiveOrderId);
+      return;
+    }
+    // Edge case: orders webhook llegó antes que claims. Consultar ML para detectar return claims activos.
+    try {
+      const accessToken = await getMlToken();
+      if (accessToken) {
+        const claimsRes = await ml.getClaimsSearch(accessToken, { resource_id: effectiveOrderId, type: 'return' });
+        const activeClaims = (claimsRes?.data ?? []).filter(c => {
+          const s = (c.status || '').toLowerCase();
+          return s !== 'closed' && s !== 'expired' && s !== 'cancelled' && s !== 'canceled';
+        });
+        if (activeClaims.length > 0) {
+          console.log('[Webhook ML] Orden %s tiene return claim activo en ML (claim %s). Se omite restauración automática de stock.', effectiveOrderId, activeClaims[0].id);
+          // Procesar el claim para que quede en pendientes si aún no está
+          for (const c of activeClaims) {
+            try {
+              const claim = await ml.getClaim(accessToken, String(c.id));
+              if (claim) await processClaimToPendingReturns(accessToken, claim);
+            } catch (_) {}
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('[Webhook ML] Error consultando claims para orden %s:', effectiveOrderId, e?.message);
+    }
     const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'restore');
     if (!claimed) {
       console.log('[Webhook ML] Orden %s ya se restauró stock (idempotencia).', effectiveOrderId);
@@ -240,7 +269,7 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
     if (event != null) console.log('[Webhook TN] Evento sin id, se ignora.');
     return;
   }
-  if (!['order/paid', 'order/cancelled'].includes(event)) {
+  if (!['order/created', 'order/paid', 'order/cancelled'].includes(event)) {
     return;
   }
   if (!tokens.tiendanube?.access_token) {
@@ -259,6 +288,11 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
     // order.number = número secuencial que ve el dueño/cliente (ej. 306); order.id = id interno.
     const orderNumber = String(order.number ?? order.id ?? id);
     if (event === 'order/cancelled') {
+      const wasDeducted = await hasOrderProcessingClaimed('tiendanube', String(id), 'deduct');
+      if (!wasDeducted) {
+        console.log('[Webhook TN] Orden %s cancelada pero nunca se descontó stock en ML, no se restaura.', id);
+        return;
+      }
       const claimed = await tryClaimOrderProcessing('tiendanube', String(id), 'restore');
       if (!claimed) {
         console.log('[Webhook TN] Orden %s ya se restauró stock (idempotencia), no se vuelve a restaurar.', id);

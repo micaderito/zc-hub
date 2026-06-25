@@ -4,9 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { QueryClient, injectQuery, injectMutation } from '@tanstack/angular-query-experimental';
-import { SyncService, SyncConfig, SyncAuditRow, PendingReturnRow } from '../../core/services/sync.service';
+import { SyncService, SyncConfig, SyncAuditRow, PendingReturnRow, PendingMlTask, PendingMlTasksResponse } from '../../core/services/sync.service';
 
 const SYNC_RETURNS_QUERY_KEY = ['sync', 'returns'] as const;
+const SYNC_PENDING_TASKS_QUERY_KEY = ['sync', 'pendingTasks'] as const;
 
 @Component({
   selector: 'app-sync',
@@ -41,6 +42,10 @@ export class SyncComponent implements OnInit {
   /** Habilita la query de devoluciones cuando hay DB (se setea al cargar config). */
   hasDatabaseForReturns = false;
 
+  /** ID de la tarea que se está reintentando manualmente (para deshabilitar solo ese botón). */
+  retryingTaskId: number | null = null;
+  pendingTasksError: string | null = null;
+
   returnOrderId = '';
   addingReturn = false;
   fetchResult: string | null = null;
@@ -63,6 +68,24 @@ export class SyncComponent implements OnInit {
     mutationFn: () => firstValueFrom(this.sync.fetchReturnsFromMl()),
     onSuccess: () => {
       this.queryClient.invalidateQueries({ queryKey: SYNC_RETURNS_QUERY_KEY });
+    }
+  }));
+
+  /**
+   * Tareas pendientes de ML (stock/SKU encolados). Hace polling cada 4s mientras haya
+   * tareas activas (pending/processing) para que la UI refleje el progreso en vivo;
+   * si solo quedan fallidas o no hay ninguna, baja a 20s para no golpear el backend.
+   */
+  readonly pendingTasksQuery = injectQuery<PendingMlTasksResponse>(() => ({
+    queryKey: SYNC_PENDING_TASKS_QUERY_KEY,
+    queryFn: () => firstValueFrom(this.sync.getPendingTasks()),
+    enabled: this.hasDatabaseForReturns,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const tasks: PendingMlTask[] = query.state.data?.tasks ?? [];
+      const hasActive = tasks.some((t) => t.status === 'pending' || t.status === 'processing');
+      return hasActive ? 4000 : 20000;
     }
   }));
 
@@ -294,5 +317,95 @@ export class SyncComponent implements OnInit {
         this.approvingId = null;
       }
     });
+  }
+
+  // ───────────────── Tareas pendientes de ML ─────────────────
+
+  get pendingTasks(): PendingMlTask[] {
+    return this.pendingTasksQuery.data()?.tasks ?? [];
+  }
+
+  get pendingTasksLoading(): boolean {
+    return this.pendingTasksQuery.isLoading();
+  }
+
+  get pendingTasksFetching(): boolean {
+    return this.pendingTasksQuery.isFetching();
+  }
+
+  get pendingTasksQueryError(): string | null {
+    if (!this.pendingTasksQuery.isError() || !this.pendingTasksQuery.error()) return null;
+    const err = this.pendingTasksQuery.error() as { error?: { error?: string }; message?: string };
+    return err?.error?.error ?? err?.message ?? 'Error al cargar tareas.';
+  }
+
+  /** Cantidad de tareas activas (pending + processing) para mostrar en el encabezado. */
+  get activeTasksCount(): number {
+    return this.pendingTasks.filter((t) => t.status === 'pending' || t.status === 'processing').length;
+  }
+
+  get failedTasksCount(): number {
+    return this.pendingTasks.filter((t) => t.status === 'failed').length;
+  }
+
+  refreshPendingTasks(): void {
+    this.pendingTasksError = null;
+    this.queryClient.invalidateQueries({ queryKey: SYNC_PENDING_TASKS_QUERY_KEY });
+  }
+
+  retryTask(task: PendingMlTask): void {
+    if (task.status !== 'failed') return;
+    this.pendingTasksError = null;
+    this.retryingTaskId = task.id;
+    this.sync.retryTask(task.id).subscribe({
+      next: () => {
+        this.retryingTaskId = null;
+        this.queryClient.invalidateQueries({ queryKey: SYNC_PENDING_TASKS_QUERY_KEY });
+      },
+      error: (e) => {
+        this.retryingTaskId = null;
+        this.pendingTasksError = e.error?.error || e.message || 'No se pudo reintentar la tarea.';
+      }
+    });
+  }
+
+  /** Etiqueta legible del tipo de tarea. */
+  taskKindLabel(kind: PendingMlTask['kind']): string {
+    switch (kind) {
+      case 'stock_ml': return 'Stock ML';
+      case 'sku_ml': return 'SKU ML';
+      case 'sku_tn': return 'SKU TN';
+      default: return kind;
+    }
+  }
+
+  /** Texto del estado en español. */
+  taskStatusLabel(status: PendingMlTask['status']): string {
+    switch (status) {
+      case 'pending': return 'Pendiente';
+      case 'processing': return 'En proceso';
+      case 'failed': return 'Falló';
+      default: return status;
+    }
+  }
+
+  /** Clase CSS del chip de estado de tarea. */
+  taskStatusChipClass(status: PendingMlTask['status']): string {
+    switch (status) {
+      case 'pending': return 'task-chip pending';
+      case 'processing': return 'task-chip processing';
+      case 'failed': return 'task-chip failed';
+      default: return 'task-chip';
+    }
+  }
+
+  /** Descripción del cambio: para stock muestra el delta con signo; para SKU el nuevo valor. */
+  taskChangeLabel(task: PendingMlTask): string {
+    if (task.kind === 'stock_ml') {
+      if (task.targetQty == null) return '—';
+      const sign = task.targetQty > 0 ? '+' : '';
+      return `${sign}${task.targetQty} u.`;
+    }
+    return task.targetSku ? `SKU → ${task.targetSku}` : '—';
   }
 }

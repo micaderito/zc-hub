@@ -1,58 +1,96 @@
 <div class="dashboard">
-  <h1>Sincronización ML ↔ Tienda Nube</h1>
-  <p class="subtitle">Stock y precios por SKU. Precio distinto para cada canal.</p>
+  <h1>Inicio</h1>
+  <p class="subtitle">Estado de la conexión con Mercado Libre y Tienda Nube.</p>
 
   @if (error) {
-    <div class="alert error">{{ error }}</div>
+    <div class="alert-box err">{{ error }}</div>
   }
 
   @if (loading) {
-    <p>Cargando estado…</p>
+    <p class="loading-msg">Cargando estado…</p>
   } @else if (status) {
     <section class="connections">
       <h2>Conexiones</h2>
-      <div class="cards">
-        <div class="card">
-          <span class="badge" [class.connected]="status.mercadolibre" [class.expired]="status.mercadolibreExpired">Mercado Libre</span>
-          @if (status.mercadolibre) {
-            <p>Conectado</p>
-            <button type="button" class="btn-disconnect" (click)="disconnectML()" [disabled]="disconnectingML">Desconectar</button>
-          } @else if (status.mercadolibreExpired) {
-            <p class="expired-msg">Sesión vencida</p>
-            <button type="button" (click)="reconnectML()">Reconectar</button>
-          } @else {
-            <button type="button" (click)="connectML()">Conectar Mercado Libre</button>
-          }
+      <div class="connections-grid">
+        <div class="zc-card channel-card ml">
+          <div class="channel-header">
+            <span class="channel-dot ml" aria-hidden="true"></span>
+            <span class="channel-name">Mercado Libre</span>
+            @if (status.mercadolibre) {
+              <span class="zc-badge ok" style="margin-left:auto">Conectado</span>
+            } @else if (status.mercadolibreExpired) {
+              <span class="zc-badge warn" style="margin-left:auto">Sesión vencida</span>
+            } @else {
+              <span class="zc-badge err" style="margin-left:auto">Desconectado</span>
+            }
+          </div>
+          <div class="btn-row">
+            @if (status.mercadolibre) {
+              <button type="button" class="zc-btn small" (click)="disconnectML()" [disabled]="disconnectingML">
+                {{ disconnectingML ? 'Desconectando…' : 'Desconectar' }}
+              </button>
+            } @else if (status.mercadolibreExpired) {
+              <button type="button" class="zc-btn primary small" (click)="reconnectML()">
+                <i class="ti ti-refresh" aria-hidden="true"></i> Reconectar
+              </button>
+            } @else {
+              <button type="button" class="zc-btn primary small" (click)="connectML()">
+                <i class="ti ti-plug" aria-hidden="true"></i> Conectar
+              </button>
+            }
+          </div>
         </div>
-        <div class="card">
-          <span class="badge" [class.connected]="status.tiendanube" [class.expired]="status.tiendanubeExpired">Tienda Nube</span>
-          @if (status.tiendanube) {
-            <p>Conectado</p>
-            <button type="button" class="btn-disconnect" (click)="disconnectTN()" [disabled]="disconnectingTN">Desconectar</button>
-          } @else if (status.tiendanubeExpired) {
-            <p class="expired-msg">Sesión vencida</p>
-            <button type="button" (click)="reconnectTN()">Reconectar</button>
-          } @else {
-            <button type="button" (click)="connectTN()">Conectar Tienda Nube</button>
-          }
+
+        <div class="zc-card channel-card tn">
+          <div class="channel-header">
+            <span class="channel-dot tn" aria-hidden="true"></span>
+            <span class="channel-name">Tienda Nube</span>
+            @if (status.tiendanube) {
+              <span class="zc-badge ok" style="margin-left:auto">Conectado</span>
+            } @else if (status.tiendanubeExpired) {
+              <span class="zc-badge warn" style="margin-left:auto">Sesión vencida</span>
+            } @else {
+              <span class="zc-badge err" style="margin-left:auto">Desconectado</span>
+            }
+          </div>
+          <div class="btn-row">
+            @if (status.tiendanube) {
+              <button type="button" class="zc-btn small" (click)="disconnectTN()" [disabled]="disconnectingTN">
+                {{ disconnectingTN ? 'Desconectando…' : 'Desconectar' }}
+              </button>
+            } @else if (status.tiendanubeExpired) {
+              <button type="button" class="zc-btn primary small" (click)="reconnectTN()">
+                <i class="ti ti-refresh" aria-hidden="true"></i> Reconectar
+              </button>
+            } @else {
+              <button type="button" class="zc-btn primary small" (click)="connectTN()">
+                <i class="ti ti-plug" aria-hidden="true"></i> Conectar
+              </button>
+            }
+          </div>
         </div>
       </div>
     </section>
 
     @if (status.mercadolibre && status.tiendanube) {
-      <section class="sync">
+      <section class="sync-section">
         <h2>Sincronizar precios</h2>
-        <p>Envía los precios configurados en Precio y stock a cada canal (ML y TN).</p>
-        <button type="button" (click)="syncAllPrices()" [disabled]="syncing">
+        <p class="help-msg">Envía los precios configurados en Precio y stock a cada canal (ML y TN).</p>
+        <button type="button" class="zc-btn primary" (click)="syncAllPrices()" [disabled]="syncing">
+          <i class="ti ti-refresh" aria-hidden="true"></i>
           {{ syncing ? 'Sincronizando…' : 'Sincronizar todos los precios' }}
         </button>
         @if (syncResult && !syncing) {
           <div class="sync-result">
             @for (entry of syncResult | keyvalue; track entry.key) {
-              <div class="row">
-                <strong>{{ entry.key }}</strong>
-                <span>ML: {{ entry.value.ml ? '✓' : '—' }}</span>
-                <span>TN: {{ entry.value.tn ? '✓' : '—' }}</span>
+              <div class="sync-row">
+                <code>{{ entry.key }}</code>
+                <span class="zc-badge" [class.ok]="entry.value.ml" [class.err]="!entry.value.ml">
+                  ML {{ entry.value.ml ? '✓' : '—' }}
+                </span>
+                <span class="zc-badge" [class.ok]="entry.value.tn" [class.err]="!entry.value.tn">
+                  TN {{ entry.value.tn ? '✓' : '—' }}
+                </span>
               </div>
             }
           </div>
@@ -60,12 +98,21 @@
       </section>
     }
 
-    <section class="info">
+    <section class="info-section">
       <h2>Cómo funciona</h2>
-      <ul>
-        <li><strong>Precio y stock:</strong> Ahí definís el SKU y qué publicación de ML y qué variante de TN corresponden. Podés tener un producto con variantes en ML y varios productos en TN: el matcheo es por SKU.</li>
-        <li><strong>Precios:</strong> Definís precio para Mercado Libre y otro para Tienda Nube. Al sincronizar, cada canal recibe su precio.</li>
-        <li><strong>Stock en tiempo real:</strong> Cuando hay una venta en ML o TN, el backend recibe un webhook y descuenta el stock en el otro canal. Necesitás una URL pública (ej. con ngrok) para que ML y TN puedan llamar a tu backend.</li>
+      <ul class="info-list">
+        <li>
+          <strong>Precio y stock:</strong> definís el SKU y qué publicación de ML y qué variante de TN corresponden.
+          El matcheo es por SKU.
+        </li>
+        <li>
+          <strong>Precios:</strong> definís precio para Mercado Libre y otro para Tienda Nube.
+          Al sincronizar, cada canal recibe su precio.
+        </li>
+        <li>
+          <strong>Stock en tiempo real:</strong> cuando hay una venta en ML o TN, el backend recibe un webhook
+          y descuenta el stock en el otro canal. Necesitás una URL pública (ej. ngrok) para que los webhooks lleguen.
+        </li>
       </ul>
     </section>
   }

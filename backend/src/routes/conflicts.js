@@ -118,9 +118,14 @@ conflictsRoutes.post('/link', async (req, res) => {
   try {
     // Solo igualamos el SKU en ML y TN; la vinculación es tener el mismo SKU (no guardamos mapeo aparte)
     const persisted = await persistSkuToChannels(entry);
+    // persisted.ml === true significa que la actualización del SKU en ML quedó ENCOLADA (se procesa
+    // en segundo plano y aparece en «Actualizaciones en cola»). Solo es false si no se pudo encolar
+    // (típicamente porque no hay base de datos configurada).
     if (entry.mercadolibre?.itemId && persisted.ml === false) {
-      const msg = persisted.mlError || 'No se pudo actualizar el SKU en la publicación de Mercado Libre. Si está en revisión o pausada, activala y editá el SKU desde ML (Mis ventas → Publicaciones).';
-      return res.status(502).json({ error: msg, persisted });
+      return res.status(502).json({
+        error: 'No se pudo encolar la actualización del SKU en Mercado Libre. Verificá que la base de datos (DATABASE_URL) esté configurada en el backend.',
+        persisted
+      });
     }
     addResolution(entry);
     return res.json({ ok: true, sku: skuTrim, persisted });
@@ -148,7 +153,6 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
     if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
 
-    let mlPriceOk = false;
     let tnPriceOk = false;
     let mlStockOk = false;
     let tnStockOk = false;
@@ -157,8 +161,9 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     const stockMLNum = typeof stockML !== 'undefined' && stockML !== null ? Number(stockML) : undefined;
     const stockTNNum = typeof stockTN !== 'undefined' && stockTN !== null ? Number(stockTN) : undefined;
 
+    // updateItemOrVariationPrice lanza si ML rechaza (propaga el mensaje real de la API)
     if (priceMLNum > 0) {
-      mlPriceOk = await ml.updateItemPrice(accessToken, itemId, priceMLNum);
+      await ml.updateItemOrVariationPrice(accessToken, itemId, variationId ?? null, priceMLNum);
     }
     if (priceTNNum > 0) {
       tnPriceOk = await tn.updateVariantPrice(
@@ -187,15 +192,8 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       );
     }
 
-    const mlOk = mlPriceOk || mlStockOk;
-    const tnOk = tnPriceOk || tnStockOk;
-    const triedMl = priceMLNum > 0 || (stockMLNum !== undefined && stockMLNum >= 0);
     const triedTn = priceTNNum > 0 || (stockTNNum !== undefined && stockTNNum >= 0);
-    if (triedMl && !mlOk) {
-      return res.status(502).json({
-        error: 'Mercado Libre no pudo actualizar (puede ser límite de solicitudes). Esperá unos segundos y probá de nuevo.'
-      });
-    }
+    const tnOk = tnPriceOk || tnStockOk;
     if (triedTn && !tnOk) {
       return res.status(502).json({
         error: 'Tienda Nube no pudo actualizar. Probá de nuevo.'
@@ -203,7 +201,10 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     }
 
     await invalidateAnalysisCache();
-    return res.json({ ok: true, ml: mlOk, tn: tnOk });
+    return res.json({ ok: true, ml: true, tn: tnOk });
+  } catch (e) {
+    const status = e?.mlStatus >= 400 && e?.mlStatus < 500 ? 422 : 502;
+    return res.status(status).json({ error: e.message || 'Error al actualizar' });
   } finally {
     release();
   }

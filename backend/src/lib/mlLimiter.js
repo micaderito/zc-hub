@@ -1,0 +1,101 @@
+/**
+ * Limitador global para TODAS las llamadas HTTP a la API de Mercado Libre.
+ *
+ * Por qué: ML limita los requests por minuto. Antes cada ruta llamaba a la API
+ * por su cuenta (incluso 50 GET en paralelo con Promise.all en mapping.js), así
+ * que varios caminos podían "estallar" a la vez y disparar 429. Este módulo hace
+ * que toda llamada pase por un único caño con:
+ *   - tope de concurrencia (MAX_CONCURRENT en vuelo a la vez),
+ *   - espaciado mínimo entre arranques (MIN_SPACING_MS) para no superar el límite
+ *     por minuto,
+ *   - una pausa global (cooldown) cuando ML responde 429, para que un solo 429
+ *     frene a TODAS las llamadas pendientes en vez de dejar que cada una choque.
+ *
+ * Es a propósito chico y sin dependencias. El estado es por proceso: con una sola
+ * instancia del backend alcanza; si algún día se escala a varias réplicas, cada
+ * una tendría su propio presupuesto (ver nota en la propuesta).
+ */
+
+/** Máximo de requests a ML en vuelo a la vez. */
+const MAX_CONCURRENT = Number(process.env.ML_MAX_CONCURRENT) || 4;
+/** Espaciado mínimo entre arranques de request (ms). ~350ms => ~170 req/min. */
+const MIN_SPACING_MS = Number(process.env.ML_MIN_SPACING_MS) || 350;
+
+let active = 0;
+let lastStart = 0;
+/** Hasta cuándo está pausado el caño por un 429 (timestamp ms). */
+let pauseUntil = 0;
+/** Único timer de "despertar" pendiente, para no acumular timers redundantes. */
+let timer = null;
+/** @type {{ run: () => Promise<any>, resolve: (v:any)=>void, reject:(e:any)=>void }[]} */
+const queue = [];
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Cuánto hay que esperar antes de poder arrancar otro request (espaciado + cooldown 429). */
+function waitMs() {
+  const now = Date.now();
+  return Math.max(0, lastStart + MIN_SPACING_MS - now, pauseUntil - now);
+}
+
+/**
+ * Arranca como mucho un job ahora (si hay cupo de concurrencia, pasó el espaciado y
+ * no hay cooldown vigente) y programa el próximo despertar. Mantiene a lo sumo un
+ * timer pendiente; el espaciado y el cooldown se revalidan dentro del callback por
+ * si cambiaron (p.ej. un 429 que extendió la pausa después de programar el timer).
+ */
+function schedule() {
+  if (timer || active >= MAX_CONCURRENT || queue.length === 0) return;
+  timer = setTimeout(() => {
+    timer = null;
+    if (active >= MAX_CONCURRENT || queue.length === 0) return;
+    if (waitMs() > 0) {
+      // Cambiaron las condiciones mientras esperábamos: reprogramar.
+      schedule();
+      return;
+    }
+    const job = queue.shift();
+    active++;
+    lastStart = Date.now();
+    job
+      .run()
+      .then(job.resolve, job.reject)
+      .finally(() => {
+        active--;
+        schedule();
+      });
+    // Programar el próximo arranque (quedará espaciado por MIN_SPACING_MS).
+    schedule();
+  }, waitMs());
+}
+
+/**
+ * Encola una función que hace una request a ML y la corre respetando el límite.
+ * @template T
+ * @param {() => Promise<T>} run función que ejecuta el fetch y devuelve su resultado.
+ * @returns {Promise<T>}
+ */
+export function mlSchedule(run) {
+  return new Promise((resolve, reject) => {
+    queue.push({ run, resolve, reject });
+    schedule();
+  });
+}
+
+/**
+ * Pausar todo el caño durante `seconds` (lo llama el manejo de 429). Si ya había
+ * una pausa más larga vigente, se mantiene la más larga.
+ */
+export function pauseMlFor(seconds) {
+  const until = Date.now() + Math.max(0, seconds) * 1000;
+  if (until > pauseUntil) pauseUntil = until;
+}
+
+/** Para tests/diagnóstico: estado actual del limitador. */
+export function mlLimiterStats() {
+  return { active, queued: queue.length, pausedForMs: Math.max(0, pauseUntil - Date.now()) };
+}
+
+export { sleep };

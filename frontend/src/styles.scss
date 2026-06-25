@@ -1,4 +1,215 @@
-/* You can add global styles to this file, and also import other style files */
+/* ===== Zona Cuaderno Hub — design tokens & base ===== */
+
+:root,
+:root[data-theme='light'] {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f3;
+  --border: rgba(20, 22, 40, 0.12);
+  --border-strong: rgba(20, 22, 40, 0.22);
+  --text: #1a1c2e;
+  --text-2: #5d6373;
+  --text-3: #9aa0ad;
+
+  --brand: #5b54e6;
+  --brand-bg: #ecebfd;
+  --brand-contrast: #ffffff;
+
+  --ml: #ffe600;
+  --ml-bg: #fff7bf;
+  --ml-text: #5c5400;
+
+  --tn: #2b8aef;
+  --tn-bg: #e3eefc;
+  --tn-text: #114e8e;
+
+  --ok: #1d9e75;
+  --ok-bg: #e1f5ee;
+  --warn: #ba7517;
+  --warn-bg: #faeeda;
+  --err: #d04444;
+  --err-bg: #fcebeb;
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --shadow-pop: 0 8px 28px rgba(20, 22, 40, 0.12);
+}
+
+:root[data-theme='dark'] {
+  --bg: #0e1017;
+  --surface: #171a22;
+  --surface-2: #1f232d;
+  --border: rgba(255, 255, 255, 0.11);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --text: #e8eaf0;
+  --text-2: #a2a8b5;
+  --text-3: #6a7180;
+
+  --brand: #8b85ff;
+  --brand-bg: #26233f;
+  --brand-contrast: #ffffff;
+
+  --ml: #ffe600;
+  --ml-bg: #3a3600;
+  --ml-text: #ffe600;
+
+  --tn: #67abf5;
+  --tn-bg: #13314f;
+  --tn-text: #9cc7f7;
+
+  --ok: #5dcaa5;
+  --ok-bg: #0f3a30;
+  --warn: #efa83a;
+  --warn-bg: #3a2a0e;
+  --err: #e07a7a;
+  --err-bg: #3a1414;
+
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
   margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--text);
+  font-weight: 600;
+  margin: 0;
+}
+
+a {
+  color: var(--brand);
+}
+
+/* ===== Shared UI primitives (light/dark aware) ===== */
+
+.zc-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+button,
+.zc-btn {
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: background 0.15s ease, opacity 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  &.primary {
+    background: var(--brand);
+    color: var(--brand-contrast);
+    border-color: transparent;
+    &:hover:not(:disabled) {
+      opacity: 0.9;
+      background: var(--brand);
+    }
+  }
+  &.small {
+    font-size: 0.72rem;
+    padding: 0.35rem 0.65rem;
+  }
+}
+
+.zc-input,
+.zc-select,
+.zc-textarea {
+  font-family: inherit;
+  font-size: 0.8rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+  }
+  &.is-own {
+    border-color: var(--brand);
+  }
+}
+
+.zc-textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.zc-badge {
+  font-size: 0.66rem;
+  font-weight: 500;
+  padding: 0.1rem 0.5rem;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+
+  &.ml {
+    background: var(--ml-bg);
+    color: var(--ml-text);
+  }
+  &.tn {
+    background: var(--tn-bg);
+    color: var(--tn-text);
+  }
+  &.ok {
+    background: var(--ok-bg);
+    color: var(--ok);
+  }
+  &.warn {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+  &.err {
+    background: var(--err-bg);
+    color: var(--err);
+  }
 }

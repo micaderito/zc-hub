@@ -3,7 +3,7 @@ import { syncPricesForSku, approvePendingReturn, revertSyncAudit } from '../serv
 import { getResolvedSkus, getSkuByMlItem, getMlToken, tokens } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, setSyncEnabled, getAuditLog, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, releaseOrderProcessingClaim } from '../db.js';
+import { getSyncEnabled, setSyncEnabled, getAuditLog, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, releaseOrderProcessingClaim, getPendingMlTasks, retryMlTask } from '../db.js';
 import { onMercadoLibreOrderPaid } from '../services/syncService.js';
 
 export const syncRoutes = Router();
@@ -405,6 +405,31 @@ syncRoutes.post('/returns/:id/approve', async (req, res) => {
       return res.status(400).json({ error: result.error || 'No se pudo aprobar', mlRestored: result.mlRestored, tnRestored: result.tnRestored });
     }
     res.json({ ok: true, mlRestored: result.mlRestored, tnRestored: result.tnRestored });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Listar tareas de ML pendientes/en proceso/fallidas para la UI. */
+syncRoutes.get('/pending-tasks', async (_, res) => {
+  if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada' });
+  try {
+    const tasks = await getPendingMlTasks(100);
+    res.json({ tasks });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Reintentar manualmente una tarea fallida. */
+syncRoutes.post('/pending-tasks/:id/retry', async (req, res) => {
+  const taskId = Number(req.params.id);
+  if (!taskId) return res.status(400).json({ error: 'id inválido' });
+  if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada' });
+  try {
+    const ok = await retryMlTask(taskId);
+    if (!ok) return res.status(404).json({ error: 'Tarea no encontrada o no está en estado failed' });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

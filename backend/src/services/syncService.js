@@ -7,7 +7,7 @@ import { tokens, getMlToken } from '../store.js';
 import { getSkuByMlItem, getSkuByTnVariant, getMlItemBySku, getTnVariantBySku } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved } from '../db.js';
+import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask } from '../db.js';
 
 /** Arma "descripción | variante" desde el ítem de una orden ML (item.title + variation_attributes). */
 function mlOrderItemDisplay(oi) {
@@ -27,26 +27,30 @@ function tnOrderItemDisplay(item) {
 }
 
 /**
- * Escribe el SKU en Mercado Libre y Tienda Nube para un mapeo.
- * Devuelve { ml: boolean, tn: boolean, mlError?: string } según si se pudo actualizar cada uno.
- * Si ML falla, se captura el mensaje en mlError y se intenta igual actualizar TN.
+ * Enqueue SKU update en ML y escribe SKU en TN directo.
+ * ML va a la cola para garantizar durabilidad (no se pierde si el proceso cae).
+ * TN queda directo porque no tiene problema de 429.
+ * Devuelve { ml: boolean, tn: boolean, mlTaskId? } — ml=true significa "encolado", no "completado".
  */
 export async function persistSkuToChannels(entry) {
   const sku = (entry.sku || '').trim();
   if (!sku) return { ml: false, tn: false };
-  let mlOk = false;
+
+  let mlTaskId = null;
   let tnOk = false;
-  let mlError = null;
-  const accessToken = await getMlToken();
-  if (entry.mercadolibre?.itemId && accessToken) {
-    try {
-      mlOk = entry.mercadolibre.variationId
-        ? await ml.updateVariationSku(accessToken, entry.mercadolibre.itemId, entry.mercadolibre.variationId, sku)
-        : await ml.updateItemSku(accessToken, entry.mercadolibre.itemId, sku);
-    } catch (e) {
-      mlError = e?.message || 'Error al actualizar SKU en Mercado Libre';
-    }
+
+  if (entry.mercadolibre?.itemId) {
+    const { itemId, variationId } = entry.mercadolibre;
+    const idKey = `sku_ml:${itemId}:${variationId || 'item'}`;
+    mlTaskId = await enqueueMlTask({
+      kind: 'sku_ml',
+      itemId,
+      variationId: variationId || null,
+      targetSku: sku,
+      idempotencyKey: idKey,
+    });
   }
+
   if (entry.tiendanube?.productId != null && entry.tiendanube?.variantId != null && tokens.tiendanube?.access_token) {
     tnOk = await tn.updateVariantSku(
       tokens.tiendanube.access_token,
@@ -56,7 +60,8 @@ export async function persistSkuToChannels(entry) {
       sku
     );
   }
-  return { ml: mlOk, tn: tnOk, mlError: mlError || undefined };
+
+  return { ml: !!mlTaskId, tn: tnOk, mlTaskId: mlTaskId ?? undefined };
 }
 
 /** Descontar stock en Tienda Nube para el SKU dado. Devuelve { ok, stockBefore, stockAfter }. */
@@ -88,25 +93,28 @@ export async function deductStockTiendaNube(sku, quantity) {
   return { ok, stockBefore, stockAfter: newStock };
 }
 
-/** Descontar stock en Mercado Libre para el SKU dado. Devuelve { ok, stockBefore, stockAfter }. */
-export async function deductStockMercadoLibre(sku, quantity) {
+/**
+ * Descuenta stock en ML encolando la tarea en Postgres.
+ * target_qty es negativo (delta relativo). El worker hace GET → computa → PUT.
+ * auditCtx: datos para insertAuditLog que el worker ejecuta al completar.
+ * Devuelve { ok, queued: true, taskId } — ok=true significa "encolado con éxito".
+ */
+export async function deductStockMercadoLibre(sku, quantity, auditCtx = null) {
   const mlItem = getMlItemBySku(sku);
   if (!mlItem?.itemId) return { ok: false };
-  const accessToken = await getMlToken();
-  if (!accessToken) return { ok: false };
-  const item = await ml.getItem(accessToken, mlItem.itemId);
-  if (!item) return { ok: false };
-  const variationId = mlItem.variationId != null && mlItem.variationId !== '' ? mlItem.variationId : undefined;
-  let stockBefore;
-  if (variationId && item.variations?.length) {
-    const variation = item.variations.find((v) => String(v.id ?? v.id_plain) === String(variationId));
-    stockBefore = variation?.available_quantity ?? 0;
-  } else {
-    stockBefore = item.available_quantity ?? 0;
-  }
-  const newQty = Math.max(0, stockBefore - quantity);
-  const ok = await ml.updateItemOrVariationStock(accessToken, mlItem.itemId, variationId, newQty);
-  return { ok, stockBefore, stockAfter: newQty };
+  const { itemId, variationId: rawVid } = mlItem;
+  const variationId = rawVid != null && rawVid !== '' ? String(rawVid) : null;
+  const delta = -Math.max(0, Math.floor(quantity));
+  const taskId = await enqueueMlTask({
+    kind: 'stock_ml',
+    itemId,
+    variationId,
+    targetQty: delta,
+    contextJson: auditCtx ? JSON.stringify({ audit: auditCtx }) : null,
+    idempotencyKey: null, // sin idempotency — cada deducción es un evento único
+  });
+  if (!taskId) return { ok: false };
+  return { ok: true, queued: true, taskId };
 }
 
 /** Restaurar stock en Tienda Nube (sumar cantidad). Devuelve { ok, stockBefore, stockAfter }. */
@@ -138,26 +146,27 @@ export async function restoreStockTiendaNube(sku, quantity) {
   return { ok, stockBefore, stockAfter: newStock };
 }
 
-/** Restaurar stock en Mercado Libre (sumar cantidad). Devuelve { ok, stockBefore, stockAfter }. */
-export async function restoreStockMercadoLibre(sku, quantity) {
+/**
+ * Restaura stock en ML encolando la tarea en Postgres.
+ * target_qty es positivo (delta relativo). El worker hace GET → computa → PUT.
+ * Devuelve { ok, queued: true, taskId }.
+ */
+export async function restoreStockMercadoLibre(sku, quantity, auditCtx = null) {
   const mlItem = getMlItemBySku(sku);
   if (!mlItem?.itemId) return { ok: false };
-  const accessToken = await getMlToken();
-  if (!accessToken) return { ok: false };
-  const item = await ml.getItem(accessToken, mlItem.itemId);
-  if (!item) return { ok: false };
-  const variationId = mlItem.variationId != null && mlItem.variationId !== '' ? mlItem.variationId : undefined;
-  let stockBefore;
-  if (variationId && item.variations?.length) {
-    const variation = item.variations.find((v) => String(v.id ?? v.id_plain) === String(variationId));
-    stockBefore = variation?.available_quantity ?? 0;
-  } else {
-    stockBefore = item.available_quantity ?? 0;
-  }
-  const addQty = Math.max(0, Math.floor(quantity));
-  const newQty = stockBefore + addQty;
-  const ok = await ml.updateItemOrVariationStock(accessToken, mlItem.itemId, variationId, newQty);
-  return { ok, stockBefore, stockAfter: newQty };
+  const { itemId, variationId: rawVid } = mlItem;
+  const variationId = rawVid != null && rawVid !== '' ? String(rawVid) : null;
+  const delta = Math.max(0, Math.floor(quantity));
+  const taskId = await enqueueMlTask({
+    kind: 'stock_ml',
+    itemId,
+    variationId,
+    targetQty: delta,
+    contextJson: auditCtx ? JSON.stringify({ audit: auditCtx }) : null,
+    idempotencyKey: null,
+  });
+  if (!taskId) return { ok: false };
+  return { ok: true, queued: true, taskId };
 }
 
 /**
@@ -260,27 +269,25 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '', orderPaylo
       console.warn('[Sync] TN orden %s: SKU %s no tiene ítem de ML en el mapeo.', orderId, sku);
       continue;
     }
-    const out = await deductStockMercadoLibre(sku, quantity);
+    const productId = item.product_id ?? item.productId;
+    const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
+    const auditCtx = {
+      channelSale: 'tiendanube',
+      orderId: String(orderId),
+      saleItemId,
+      sku,
+      productLabel: 'Venta TN',
+      productDisplay: tnOrderItemDisplay(item),
+      quantity,
+      updatedChannel: 'mercadolibre',
+      notificationPayload: orderPayload,
+    };
+    const out = await deductStockMercadoLibre(sku, quantity, auditCtx);
     results.push({ variantId, sku, quantity, ...out });
-    if (out.ok && out.stockBefore !== undefined) {
-      const productId = item.product_id ?? item.productId;
-      const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
-      await insertAuditLog({
-        channelSale: 'tiendanube',
-        orderId: String(orderId),
-        saleItemId,
-        sku,
-        productLabel: 'Venta TN',
-        productDisplay: tnOrderItemDisplay(item),
-        quantity,
-        updatedChannel: 'mercadolibre',
-        stockBefore: out.stockBefore,
-        stockAfter: out.stockAfter ?? out.stockBefore - quantity,
-        notificationPayload: orderPayload
-      });
-      console.log('[Sync] TN orden %s: descontado stock ML SKU %s, cantidad %s (antes %s, después %s)', orderId, sku, quantity, out.stockBefore, out.stockAfter);
+    if (out.ok) {
+      console.log('[Sync] TN orden %s: SKU %s encolado en ML (taskId %s)', orderId, sku, out.taskId);
     } else {
-      console.error('[Sync] TN orden %s: no se pudo descontar stock en ML para SKU %s', orderId, sku);
+      console.error('[Sync] TN orden %s: no se pudo encolar stock en ML para SKU %s', orderId, sku);
     }
   }
   return results;
@@ -346,24 +353,23 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
     const sku = getSkuByTnVariant(variantId) || (item.sku ? String(item.sku).trim() : null);
     if (!sku) continue;
     if (!getMlItemBySku(sku)) continue;
-    const out = await restoreStockMercadoLibre(sku, quantity);
+    const productId = item.product_id ?? item.productId;
+    const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
+    const auditCtx = {
+      channelSale: 'tiendanube',
+      orderId: String(orderId),
+      saleItemId,
+      sku,
+      productLabel: 'Cancelación TN',
+      productDisplay: tnOrderItemDisplay(item),
+      quantity,
+      updatedChannel: 'mercadolibre',
+      notificationPayload: orderPayload,
+    };
+    const out = await restoreStockMercadoLibre(sku, quantity, auditCtx);
     results.push({ variantId, sku, quantity, ...out });
-    if (out.ok && out.stockBefore !== undefined) {
-      const productId = item.product_id ?? item.productId;
-      const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
-      await insertAuditLog({
-        channelSale: 'tiendanube',
-        orderId: String(orderId),
-        saleItemId,
-        sku,
-        productLabel: 'Cancelación TN',
-        productDisplay: tnOrderItemDisplay(item),
-        quantity,
-        updatedChannel: 'mercadolibre',
-        stockBefore: out.stockBefore,
-        stockAfter: out.stockAfter ?? out.stockBefore + quantity,
-        notificationPayload: orderPayload
-      });
+    if (out.ok) {
+      console.log('[Sync] TN cancelación %s: SKU %s encolado en ML (taskId %s)', orderId, sku, out.taskId);
     }
   }
   return results;
@@ -419,23 +425,19 @@ export async function approvePendingReturn(returnId) {
   let tnRestored = false;
 
   try {
-    const outMl = await restoreStockMercadoLibre(sku, quantity);
+    const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
+    const auditCtx = {
+      channelSale: 'mercadolibre',
+      orderId: String(row.orderId),
+      saleItemId,
+      sku,
+      productLabel: 'Devolución aprobada',
+      productDisplay: row.productLabel ?? null,
+      quantity,
+      updatedChannel: 'mercadolibre',
+    };
+    const outMl = await restoreStockMercadoLibre(sku, quantity, auditCtx);
     mlRestored = outMl.ok;
-    if (outMl.ok && outMl.stockBefore !== undefined) {
-      const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
-      await insertAuditLog({
-        channelSale: 'mercadolibre',
-        orderId: String(row.orderId),
-        saleItemId,
-        sku,
-        productLabel: 'Devolución aprobada',
-        productDisplay: row.productLabel ?? null,
-        quantity,
-        updatedChannel: 'mercadolibre',
-        stockBefore: outMl.stockBefore,
-        stockAfter: outMl.stockAfter ?? outMl.stockBefore + quantity
-      });
-    }
   } catch (e) {
     console.error('approvePendingReturn ML:', e);
   }
@@ -455,7 +457,7 @@ export async function approvePendingReturn(returnId) {
         quantity,
         updatedChannel: 'tiendanube',
         stockBefore: outTn.stockBefore,
-        stockAfter: outTn.stockAfter ?? outTn.stockBefore + quantity
+        stockAfter: outTn.stockAfter ?? outTn.stockBefore + quantity,
       });
     }
   } catch (e) {
