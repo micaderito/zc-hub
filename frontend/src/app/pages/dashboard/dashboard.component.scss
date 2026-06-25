@@ -1,4 +1,19 @@
 .dashboard {
+  @media (max-width: 640px) {
+    h1 { font-size: 1.2rem; }
+
+    .channel-card {
+      min-width: 0;
+      flex: 1 1 100%;
+    }
+
+    .btn-row {
+      flex-direction: column;
+
+      button { width: 100%; justify-content: center; }
+    }
+  }
+
   h1 {
     font-size: 1.4rem;
     font-weight: 600;
