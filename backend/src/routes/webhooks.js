@@ -240,7 +240,7 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
     if (event != null) console.log('[Webhook TN] Evento sin id, se ignora.');
     return;
   }
-  if (!['order/paid', 'order/cancelled'].includes(event)) {
+  if (!['order/created', 'order/paid', 'order/cancelled'].includes(event)) {
     return;
   }
   if (!tokens.tiendanube?.access_token) {
@@ -259,6 +259,11 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
     // order.number = número secuencial que ve el dueño/cliente (ej. 306); order.id = id interno.
     const orderNumber = String(order.number ?? order.id ?? id);
     if (event === 'order/cancelled') {
+      const wasDeducted = await hasOrderProcessingClaimed('tiendanube', String(id), 'deduct');
+      if (!wasDeducted) {
+        console.log('[Webhook TN] Orden %s cancelada pero nunca se descontó stock en ML, no se restaura.', id);
+        return;
+      }
       const claimed = await tryClaimOrderProcessing('tiendanube', String(id), 'restore');
       if (!claimed) {
         console.log('[Webhook TN] Orden %s ya se restauró stock (idempotencia), no se vuelve a restaurar.', id);
