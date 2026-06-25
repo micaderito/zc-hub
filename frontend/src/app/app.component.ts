@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { GlobalErrorService } from './core/services/global-error.service';
 import { ThemeService } from './core/services/theme.service';
@@ -21,6 +21,11 @@ export class AppComponent {
   title = 'Zona Cuaderno Hub';
   readonly globalError = inject(GlobalErrorService);
   readonly theme = inject(ThemeService);
+  readonly collapsed = signal(false);
+
+  toggleSidebar() {
+    this.collapsed.update(v => !v);
+  }
 
   readonly nav: NavItem[] = [
     { path: '/', label: 'Inicio', icon: 'ti-layout-dashboard', exact: true },

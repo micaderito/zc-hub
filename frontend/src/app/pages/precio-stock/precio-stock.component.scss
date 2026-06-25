@@ -20,6 +20,11 @@
       min-width: 0;
       flex: 1;
     }
+
+    .btn-refresh {
+      flex-shrink: 0;
+      min-width: 8rem;
+    }
   }
 
   .subtitle {
@@ -327,54 +332,23 @@
   }
 
   button {
-    font-family: inherit;
     font-size: 0.72rem;
-    font-weight: 500;
     padding: 0.3rem 0.55rem;
     border-radius: var(--radius-sm);
-    cursor: pointer;
     white-space: nowrap;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    transition: opacity 0.15s ease;
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
 
     &.btn-sync-stock {
       background: var(--tn-bg);
-      border: 0.5px solid var(--tn);
+      border-color: var(--tn);
       color: var(--tn-text);
+      &:hover:not(:disabled) { background: var(--tn-bg); opacity: 0.85; }
     }
 
     &.btn-update-prices {
       background: var(--ok-bg);
-      border: 0.5px solid var(--ok);
+      border-color: var(--ok);
       color: var(--ok);
-    }
-
-    &.btn-refresh {
-      flex-shrink: 0;
-      min-width: 8rem;
-      white-space: nowrap;
-      background: var(--surface);
-      border: 0.5px solid var(--border);
-      color: var(--text);
-      border-radius: var(--radius-md);
-      padding: 0.4rem 0.75rem;
-      font-size: 0.8rem;
-
-      &:hover:not(:disabled) {
-        background: var(--surface-2);
-      }
-
-      &:disabled {
-        opacity: 0.5;
-        cursor: default;
-      }
+      &:hover:not(:disabled) { background: var(--ok-bg); opacity: 0.85; }
     }
   }
 

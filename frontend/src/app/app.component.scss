@@ -1,5 +1,8 @@
 :host {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .global-error {
@@ -27,16 +30,18 @@
     cursor: pointer;
     padding: 0 0.25rem;
     opacity: 0.8;
-    &:hover {
-      opacity: 1;
-    }
+    &:hover { opacity: 1; }
   }
 }
 
 .shell {
   display: flex;
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
+
+// ── Sidebar ──────────────────────────────────────────────────────────────────
 
 .sidebar {
   width: 220px;
@@ -47,47 +52,75 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  height: 100%;
+  overflow: hidden;
+  transition: width 0.22s ease;
 }
+
+.sidebar-collapsed .sidebar {
+  width: 60px;
+  padding: 1rem 0.5rem;
+
+  .brand {
+    padding: 0.4rem 0 1rem;
+    justify-content: center;
+  }
+
+  .nav-item {
+    justify-content: center;
+    padding: 0.6rem;
+  }
+
+  .user-chip {
+    justify-content: center;
+    padding: 0.6rem 0;
+  }
+
+  .collapse-toggle {
+    justify-content: center;
+    padding: 0.6rem;
+  }
+}
+
+// ── Brand / Logo ─────────────────────────────────────────────────────────────
 
 .brand {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.4rem 0.65rem 1rem;
+  padding: 0.4rem 0.5rem 1rem;
   text-decoration: none;
   color: var(--text);
+  flex-shrink: 0;
 
-  .brand-mark {
-    width: 34px;
-    height: 34px;
-    border-radius: var(--radius-md);
-    background: var(--brand);
-    color: var(--brand-contrast);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .brand-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: contain;
     flex-shrink: 0;
-    i {
-      font-size: 1.25rem;
-    }
   }
+
   .brand-text {
     display: flex;
     flex-direction: column;
     line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
   }
+
   .brand-name {
     font-size: 0.9rem;
     font-weight: 600;
   }
+
   .brand-sub {
     font-size: 0.7rem;
     color: var(--text-3);
   }
 }
+
+// ── Nav ───────────────────────────────────────────────────────────────────────
 
 .nav {
   display: flex;
@@ -111,19 +144,20 @@
   cursor: pointer;
   font-family: inherit;
   transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
 
-  i {
-    font-size: 1.1rem;
-  }
-  &:hover {
-    background: var(--surface-2);
-  }
+  i { font-size: 1.1rem; flex-shrink: 0; }
+
+  &:hover { background: var(--surface-2); }
+
   &.active {
     background: var(--brand-bg);
     color: var(--brand);
     font-weight: 500;
   }
 }
+
+// ── Footer ────────────────────────────────────────────────────────────────────
 
 .sidebar-foot {
   margin-top: auto;
@@ -151,18 +185,29 @@
     justify-content: center;
     font-size: 0.7rem;
     font-weight: 500;
+    flex-shrink: 0;
   }
+
   .user-name {
     font-size: 0.8rem;
     color: var(--text-2);
+    white-space: nowrap;
   }
 }
+
+.collapse-toggle {
+  color: var(--text-3);
+  &:hover { color: var(--text-2); }
+}
+
+// ── Content ───────────────────────────────────────────────────────────────────
 
 .content {
   flex: 1;
   min-width: 0;
   padding: 1.75rem 2rem;
   max-width: 1180px;
+  overflow-y: auto;
 }
 
 @media (max-width: 1023px) {
@@ -171,14 +216,25 @@
   }
 }
 
+// ── Mobile ────────────────────────────────────────────────────────────────────
+
 @media (max-width: 760px) {
+  /* En mobile el scroll es del documento, no del contenedor */
+  :host {
+    height: auto;
+    overflow: visible;
+  }
+
   .shell {
     flex-direction: column;
+    overflow: visible;
+    min-height: auto;
   }
 
   .sidebar {
-    width: 100%;
+    width: 100% !important;
     height: auto;
+    overflow: visible;
     position: sticky;
     top: 0;
     z-index: 20;
@@ -247,6 +303,7 @@
   }
 
   .content {
+    overflow-y: visible;
     padding: 1rem 0.9rem;
   }
 }
