@@ -103,6 +103,79 @@
     </section>
     }
 
+    @if (config.hasDatabase) {
+    <section class="tasks-section">
+      <div class="tasks-section-header">
+        <h2>Actualizaciones en cola (Mercado Libre)</h2>
+        <button type="button" class="btn-refresh-returns" (click)="refreshPendingTasks()" [disabled]="pendingTasksFetching" title="Actualizar lista de tareas">
+          {{ pendingTasksFetching ? 'Actualizando…' : 'Actualizar' }}
+        </button>
+      </div>
+      <p class="help">Las actualizaciones de stock y SKU en Mercado Libre se procesan en una cola para no superar el límite de la API. Acá ves cuáles están pendientes, en proceso o fallaron. Las completadas desaparecen de esta lista.</p>
+
+      @if (activeTasksCount > 0 || failedTasksCount > 0) {
+        <div class="tasks-summary">
+          @if (activeTasksCount > 0) {
+            <span class="task-chip processing">{{ activeTasksCount }} activa(s)</span>
+          }
+          @if (failedTasksCount > 0) {
+            <span class="task-chip failed">{{ failedTasksCount }} con error</span>
+          }
+        </div>
+      }
+
+      @if (pendingTasksError) {
+        <div class="alert error">{{ pendingTasksError }}</div>
+      }
+      @if (pendingTasksQueryError) {
+        <div class="alert error">{{ pendingTasksQueryError }}</div>
+      }
+
+      @if (pendingTasksLoading) {
+        <p>Cargando tareas…</p>
+      } @else if (pendingTasks.length === 0) {
+        <p class="empty">No hay actualizaciones en cola. Cuando edites un SKU o haya una venta que descuente stock en ML, las verás acá hasta que se completen.</p>
+      } @else {
+        <table class="audit-table tasks-table">
+          <thead>
+            <tr>
+              <th>Estado</th>
+              <th>Tipo</th>
+              <th>Ítem ML</th>
+              <th>Variación</th>
+              <th>Cambio</th>
+              <th>Intentos</th>
+              <th>Último error</th>
+              <th>Actualizado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (task of pendingTasks; track task.id) {
+              <tr [class.task-row-failed]="task.status === 'failed'">
+                <td><span [class]="taskStatusChipClass(task.status)">{{ taskStatusLabel(task.status) }}</span></td>
+                <td>{{ taskKindLabel(task.kind) }}</td>
+                <td><code>{{ task.itemId || '—' }}</code></td>
+                <td><code>{{ task.variationId || '—' }}</code></td>
+                <td>{{ taskChangeLabel(task) }}</td>
+                <td>{{ task.attempts }}</td>
+                <td class="task-error-cell">{{ task.lastError || '—' }}</td>
+                <td>{{ formatDate(task.updatedAt) }}</td>
+                <td>
+                  @if (task.status === 'failed') {
+                    <button type="button" class="btn-approve" (click)="retryTask(task)" [disabled]="retryingTaskId === task.id">
+                      {{ retryingTaskId === task.id ? '…' : 'Reintentar' }}
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+    </section>
+    }
+
     <section class="audit-section">
       <div class="audit-section-header">
         <h2>Historial de sincronización</h2>

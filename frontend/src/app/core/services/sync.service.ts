@@ -46,6 +46,29 @@ export interface SyncReturnsResponse {
   rows: PendingReturnRow[];
 }
 
+export type MlTaskKind = 'stock_ml' | 'sku_ml' | 'sku_tn';
+export type MlTaskStatus = 'pending' | 'processing' | 'failed';
+
+export interface PendingMlTask {
+  id: number;
+  kind: MlTaskKind;
+  itemId: string | null;
+  variationId: string | null;
+  /** Para stock: delta relativo (negativo = descuento, positivo = restauración). */
+  targetQty: number | null;
+  targetSku: string | null;
+  status: MlTaskStatus;
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+}
+
+export interface PendingMlTasksResponse {
+  tasks: PendingMlTask[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class SyncService {
   constructor(
@@ -123,6 +146,16 @@ export class SyncService {
       `${this.api.baseUrl}/sync/returns/${id}/approve`,
       {}
     );
+  }
+
+  /** Listar tareas de actualización de ML pendientes / en proceso / fallidas. */
+  getPendingTasks() {
+    return this.http.get<PendingMlTasksResponse>(`${this.api.baseUrl}/sync/pending-tasks`);
+  }
+
+  /** Reintentar manualmente una tarea fallida. */
+  retryTask(id: number) {
+    return this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/sync/pending-tasks/${id}/retry`, {});
   }
 
   /** Registrar webhooks de Tienda Nube (order/paid, order/cancelled, etc.). Útil cuando cambia la URL de ngrok. */

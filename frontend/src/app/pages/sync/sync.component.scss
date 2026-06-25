@@ -471,4 +471,44 @@
       padding: 0.3rem 0.6rem !important;
     }
   }
+
+  .tasks-section {
+    margin-top: 2rem;
+
+    .tasks-summary {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin: 0.5rem 0 0.75rem;
+    }
+
+    .task-chip {
+      display: inline-block;
+      padding: 0.15rem 0.6rem;
+      font-size: 0.7rem;
+      font-weight: 500;
+      border-radius: 20px;
+      white-space: nowrap;
+      background: var(--surface-2);
+      color: var(--text-2);
+      border: 0.5px solid var(--border);
+
+      &.pending { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+      &.processing { background: var(--brand-bg); color: var(--brand); border-color: var(--brand); }
+      &.failed { background: var(--err-bg); color: var(--err); border-color: var(--err); }
+    }
+
+    .tasks-table {
+      .task-error-cell {
+        max-width: 260px;
+        word-break: break-word;
+        color: var(--err);
+        font-size: 0.72rem;
+      }
+
+      tr.task-row-failed {
+        background: var(--err-bg);
+      }
+    }
+  }
 }

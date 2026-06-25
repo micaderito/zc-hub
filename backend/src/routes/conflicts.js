@@ -118,9 +118,14 @@ conflictsRoutes.post('/link', async (req, res) => {
   try {
     // Solo igualamos el SKU en ML y TN; la vinculación es tener el mismo SKU (no guardamos mapeo aparte)
     const persisted = await persistSkuToChannels(entry);
+    // persisted.ml === true significa que la actualización del SKU en ML quedó ENCOLADA (se procesa
+    // en segundo plano y aparece en «Actualizaciones en cola»). Solo es false si no se pudo encolar
+    // (típicamente porque no hay base de datos configurada).
     if (entry.mercadolibre?.itemId && persisted.ml === false) {
-      const msg = persisted.mlError || 'No se pudo actualizar el SKU en la publicación de Mercado Libre. Si está en revisión o pausada, activala y editá el SKU desde ML (Mis ventas → Publicaciones).';
-      return res.status(502).json({ error: msg, persisted });
+      return res.status(502).json({
+        error: 'No se pudo encolar la actualización del SKU en Mercado Libre. Verificá que la base de datos (DATABASE_URL) esté configurada en el backend.',
+        persisted
+      });
     }
     addResolution(entry);
     return res.json({ ok: true, sku: skuTrim, persisted });
