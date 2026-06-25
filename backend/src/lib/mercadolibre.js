@@ -336,7 +336,7 @@ export async function updateItemOrVariationStock(accessToken, itemId, variationI
   return updateItemStock(accessToken, itemId, qty);
 }
 
-/** Actualizar precio de un ítem. */
+/** Actualizar precio de un ítem simple. Lanza error con el mensaje de ML si falla. */
 export async function updateItemPrice(accessToken, itemId, price) {
   const res = await fetchWith429Retry(
     `${BASE}/items/${itemId}`,
@@ -350,7 +350,38 @@ export async function updateItemPrice(accessToken, itemId, price) {
     },
     'updateItemPrice'
   );
-  return res.ok;
+  if (!res.ok) {
+    const errBody = await errorMessage(res);
+    console.error('[ML] updateItemPrice %s → HTTP %s: %s', itemId, res.status, errBody);
+    throw Object.assign(new Error(errBody || `HTTP ${res.status}`), { mlStatus: res.status });
+  }
+  return true;
+}
+
+/**
+ * Actualizar precio de un ítem: si tiene variationId usa el endpoint de la variación
+ * (PUT /items/{id}/variations/{varId}) para no disparar validaciones cruzadas entre variantes;
+ * si no, actualiza el ítem simple.
+ */
+export async function updateItemOrVariationPrice(accessToken, itemId, variationId, price) {
+  if (variationId != null && variationId !== '') {
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    };
+    const res = await fetchWith429Retry(
+      `${BASE}/items/${itemId}/variations/${variationId}`,
+      { method: 'PUT', headers, body: JSON.stringify({ price }) },
+      'updateVariationPrice'
+    );
+    if (!res.ok) {
+      const errBody = await errorMessage(res);
+      console.error('[ML] updateVariationPrice %s/%s → HTTP %s: %s', itemId, variationId, res.status, errBody);
+      throw Object.assign(new Error(errBody || `HTTP ${res.status}`), { mlStatus: res.status });
+    }
+    return true;
+  }
+  return updateItemPrice(accessToken, itemId, price);
 }
 
 /** Obtener SKU de un item (campo seller_sku en la respuesta). Para variantes, puede estar en variations. */
