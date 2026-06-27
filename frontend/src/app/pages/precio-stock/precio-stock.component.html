@@ -80,6 +80,7 @@
                   [displayStockTN]="getDisplayStock(pair, 'tn')"
                   [isPending]="isPairPending(pair)"
                   [isCollapsed]="isPairCollapsed(pair)"
+                  [syncError]="getPairError(pair)"
                   (toggleCollapse)="togglePair(pair)"
                   (updatePrices)="updatePrices(pair)"
                   (syncStock)="syncStock(pair)"

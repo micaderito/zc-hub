@@ -86,6 +86,14 @@
       </div>
     </div>
 
+    <!-- Error de sincronización ML -->
+    @if (syncError()) {
+      <div class="pair-sync-error">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        {{ syncError() }}
+      </div>
+    }
+
     <!-- Acciones -->
     <div class="pair-footer">
       <div class="sync-group">

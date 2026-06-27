@@ -217,7 +217,7 @@ export class ConflictsService {
     stockML?: number;
     stockTN?: number;
   }) {
-    return this.http.post<{ ok: boolean; ml: boolean; tn: boolean }>(
+    return this.http.post<{ ok: boolean; mlTaskId?: number; ml: boolean; tn: boolean }>(
       `${this.api.baseUrl}/conflicts/update-prices`,
       {
         itemId: params.itemId,
@@ -229,6 +229,13 @@ export class ConflictsService {
         stockML: params.stockML,
         stockTN: params.stockTN
       }
+    );
+  }
+
+  /** Estado puntual de una tarea ML (para polling). */
+  getTaskStatus(taskId: number) {
+    return this.http.get<{ id: number; status: string; lastError?: string | null }>(
+      `${this.api.baseUrl}/conflicts/task/${taskId}`
     );
   }
 }

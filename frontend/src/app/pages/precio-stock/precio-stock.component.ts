@@ -1,7 +1,8 @@
-import { Component, inject, effect, signal, computed, untracked } from '@angular/core';
+import { Component, inject, effect, signal, computed, untracked, DestroyRef } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { toSignal, toObservable } from '@angular/core/rxjs-interop';
-import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged, switchMap, takeUntil } from 'rxjs/operators';
+import { timer, Subject } from 'rxjs';
 import {
   ConflictsService,
   ConflictAnalysis,
@@ -27,6 +28,7 @@ const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
 })
 export class PrecioStockComponent {
   private readonly conflicts = inject(ConflictsService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly currentPage = signal(1);
   readonly stockFilter = signal<StockFilter>('all');
@@ -101,12 +103,27 @@ export class PrecioStockComponent {
   pairPrices: Map<string, PairPrices> = new Map();
   localOverrides = signal<Map<string, { stock?: number; priceML?: number; priceTN?: number }>>(new Map());
   savingPairIds = signal<Set<string>>(new Set());
+  pairErrors = signal<Map<string, string>>(new Map());
   saveError: string | null = null;
+
+  private readonly pollStop = new Map<string, Subject<void>>();
 
   pendingUpdatesCount = computed(() => this.savingPairIds().size);
 
   isPairPending(pair: { ml: MlRow; tn: TnRow }): boolean {
     return this.savingPairIds().has(getPairId(pair));
+  }
+
+  getPairError(pair: { ml: MlRow; tn: TnRow }): string | null {
+    return this.pairErrors().get(getPairId(pair)) ?? null;
+  }
+
+  private setPairError(pairId: string, msg: string): void {
+    this.pairErrors.update(m => { const n = new Map(m); n.set(pairId, msg); return n; });
+  }
+
+  clearPairError(pairId: string): void {
+    this.pairErrors.update(m => { const n = new Map(m); n.delete(pairId); return n; });
   }
 
   constructor() {
@@ -186,6 +203,7 @@ export class PrecioStockComponent {
       return;
     }
     this.saveError = null;
+    this.clearPairError(id);
     this.addPendingPair(id);
     this.conflicts.updatePricesAndStock({
       itemId: pair.ml.itemId,
@@ -195,16 +213,57 @@ export class PrecioStockComponent {
       priceML: p.priceML,
       priceTN: p.priceTN,
     }).subscribe({
-      next: () => {
-        this.removePendingPair(id);
-        this.setLocalOverride(id, { priceML: p.priceML, priceTN: p.priceTN });
-        const cur = this.pairPrices.get(id);
-        if (cur) { cur.priceML = p.priceML; cur.priceTN = p.priceTN; }
-        this.conflicts.updatePairInCache(id, { priceML: p.priceML, priceTN: p.priceTN }, this.currentQueryKey);
+      next: (res) => {
+        if (res.mlTaskId) {
+          // Precio ML encolado: mantener pending y hacer polling hasta que el worker confirme
+          this.pollMlTask(id, res.mlTaskId, { priceML: p.priceML, priceTN: p.priceTN });
+        } else {
+          this.removePendingPair(id);
+          this.setLocalOverride(id, { priceML: p.priceML, priceTN: p.priceTN });
+          const cur = this.pairPrices.get(id);
+          if (cur) { cur.priceML = p.priceML; cur.priceTN = p.priceTN; }
+          this.conflicts.updatePairInCache(id, { priceML: p.priceML, priceTN: p.priceTN }, this.currentQueryKey);
+        }
       },
       error: (e) => {
         this.removePendingPair(id);
-        this.saveError = e.error?.error || e.message || 'No se pudieron actualizar los precios.';
+        this.setPairError(id, e.error?.error || e.message || 'No se pudieron actualizar los precios.');
+      },
+    });
+  }
+
+  private pollMlTask(pairId: string, taskId: number, intendedPrices: { priceML: number; priceTN: number }): void {
+    this.pollStop.get(pairId)?.next();
+    const stop$ = new Subject<void>();
+    this.pollStop.set(pairId, stop$);
+    const queryKey = this.currentQueryKey;
+
+    timer(1500, 2000).pipe(
+      switchMap(() => this.conflicts.getTaskStatus(taskId)),
+      takeUntil(stop$),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (task) => {
+        if (task.status === 'done') {
+          stop$.next();
+          this.pollStop.delete(pairId);
+          this.removePendingPair(pairId);
+          this.setLocalOverride(pairId, intendedPrices);
+          const cur = this.pairPrices.get(pairId);
+          if (cur) { cur.priceML = intendedPrices.priceML; cur.priceTN = intendedPrices.priceTN; }
+          this.conflicts.updatePairInCache(pairId, intendedPrices, queryKey);
+        } else if (task.status === 'failed') {
+          stop$.next();
+          this.pollStop.delete(pairId);
+          this.removePendingPair(pairId);
+          this.setPairError(pairId, task.lastError || 'Error al actualizar el precio en Mercado Libre.');
+        }
+      },
+      error: () => {
+        stop$.next();
+        this.pollStop.delete(pairId);
+        this.removePendingPair(pairId);
+        this.setPairError(pairId, 'No se pudo verificar el estado de la actualización en ML.');
       },
     });
   }

@@ -23,6 +23,7 @@ export class PairCardComponent {
   readonly displayStockTN = input.required<number>();
   readonly isPending = input(false);
   readonly isCollapsed = input(false);
+  readonly syncError = input<string | null>(null);
 
   readonly toggleCollapse = output<void>();
   readonly updatePrices = output<void>();
