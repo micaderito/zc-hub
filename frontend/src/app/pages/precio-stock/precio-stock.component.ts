@@ -1,19 +1,22 @@
-import { Component, inject, effect, signal, computed } from '@angular/core';
+import { Component, inject, effect, signal, computed, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { CurrencyInputDirective } from '../../directives/currency-input.directive';
 import {
   ConflictsService,
-  CONFLICTS_ANALYSIS_QUERY_KEY,
   ConflictAnalysis,
   MlRow,
   TnRow,
   mlLabel,
   tnLabel,
-  matchSearchByTokens
 } from '../../core/services/conflicts.service';
 import { injectQuery } from '@tanstack/angular-query-experimental';
+
+const PAGE_SIZE = 25;
+const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
 
 @Component({
   selector: 'app-precio-stock',
@@ -25,17 +28,37 @@ import { injectQuery } from '@tanstack/angular-query-experimental';
 export class PrecioStockComponent {
   private readonly conflicts = inject(ConflictsService);
 
+  readonly PAGE_SIZE = PAGE_SIZE;
+
+  readonly currentPage = signal(1);
+  readonly stockFilter = signal<'all' | 'mismatch' | 'synced' | 'no-stock' | 'with-stock'>('all');
+  readonly searchQuery = signal('');
+
+  /** Búsqueda con debounce de 350 ms para no disparar un request por cada tecla. */
+  readonly debouncedSearch = toSignal(
+    toObservable(this.searchQuery).pipe(debounceTime(350), distinctUntilChanged()),
+    { initialValue: '' }
+  );
+
+  /** Query key de la página actual; usado para actualizar la caché después de guardar. */
+  private get currentQueryKey() {
+    return [...ANALYSIS_BASE_KEY, this.currentPage(), this.stockFilter(), this.debouncedSearch()] as const;
+  }
+
   readonly analysisQuery = injectQuery(() => ({
-    queryKey: CONFLICTS_ANALYSIS_QUERY_KEY,
-    queryFn: () => this.conflicts.getAnalysisPromise(),
+    queryKey: [...ANALYSIS_BASE_KEY, this.currentPage(), this.stockFilter(), this.debouncedSearch()],
+    queryFn: () => this.conflicts.getAnalysisPromise({
+      page: this.currentPage(),
+      limit: PAGE_SIZE,
+      filter: this.stockFilter(),
+      search: this.debouncedSearch() || undefined,
+    }),
     refetchOnWindowFocus: false,
-    /** No refetch al entrar si los datos son recientes. Tras 1 h se consideran viejos y puede refetchear al volver. */
-    staleTime: 60 * 60 * 1000
+    staleTime: 60 * 60 * 1000,
   }));
 
   analysis = computed<ConflictAnalysis | null>(() => this.analysisQuery.data() ?? null);
   loading = computed(() => this.analysisQuery.isLoading());
-  /** true cuando hay refetch en segundo plano (ej. tras actualizar precios/stock) */
   fetching = computed(() => this.analysisQuery.isFetching());
   error = computed<string | null>(() => {
     if (!this.analysisQuery.isError() || !this.analysisQuery.error()) return null;
@@ -43,78 +66,75 @@ export class PrecioStockComponent {
     return err?.error?.error ?? err?.message ?? 'Error al cargar.';
   });
 
+  /** Pares de la página actual (filtrados y paginados por el backend). */
+  protected currentPagePairs = computed(() => this.analysis()?.matched ?? []);
+
+  /** Metadata de paginación. */
+  protected paging = computed(() =>
+    this.analysis()?.paging ?? { page: 1, limit: PAGE_SIZE, total: 0, pages: 1 }
+  );
+
+  /** Resumen de stock para los tabs (total completo, independiente del filtro activo). */
+  protected stockSummary = computed(() => this.analysis()?.stockSummary);
+
+  /** IDs de cards colapsadas. */
+  collapsedPairs = signal<Set<string>>(new Set());
+
+  isPairCollapsed(pair: { ml: MlRow; tn: TnRow }): boolean {
+    return this.collapsedPairs().has(this.getPairId(pair));
+  }
+
+  togglePair(pair: { ml: MlRow; tn: TnRow }): void {
+    const id = this.getPairId(pair);
+    this.collapsedPairs.update(s => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  /** true si todas las cards de la página están colapsadas. */
+  allCollapsed = computed(() => {
+    const pairs = this.currentPagePairs();
+    if (!pairs.length) return false;
+    const collapsed = this.collapsedPairs();
+    return pairs.every(p => collapsed.has(this.getPairId(p)));
+  });
+
+  toggleAll(): void {
+    if (this.allCollapsed()) {
+      this.collapsedPairs.set(new Set());
+    } else {
+      this.collapsedPairs.set(new Set(this.currentPagePairs().map(p => this.getPairId(p))));
+    }
+  }
+
   /** Por par: valores editables para precios y para el input de sincronizar stock */
   pairPrices: Map<string, { priceML: number; priceTN: number; syncStock: number }> = new Map();
   /** Valores guardados recientemente: se muestran sin hacer refetch a ML (evita 429). Se limpia al hacer "Actualizar lista". */
   localOverrides = signal<Map<string, { stock?: number; priceML?: number; priceTN?: number }>>(new Map());
-  /** IDs de pares con actualización en cola o en proceso (Sincronizar / Actualizar precios). */
+  /** IDs de pares con actualización en cola o en proceso. */
   savingPairIds = signal<Set<string>>(new Set());
   saveError: string | null = null;
 
-  /** Cantidad de actualizaciones pendientes (en cola o guardando). */
   pendingUpdatesCount = computed(() => this.savingPairIds().size);
 
   isPairPending(pair: { ml: MlRow; tn: TnRow }): boolean {
     return this.savingPairIds().has(this.getPairId(pair));
   }
 
-  /** 'all' | 'mismatch' | 'synced' | 'no-stock' | 'with-stock' */
-  stockFilter = signal<'all' | 'mismatch' | 'synced' | 'no-stock' | 'with-stock'>('all');
-
-  /** Búsqueda por título, SKU o nombre de variante (ML o TN). */
-  searchQuery = signal('');
-
   protected mlLabel = mlLabel;
   protected tnLabel = tnLabel;
 
-  private pairMatchesSearch(pair: { ml: MlRow; tn: TnRow }, q: string): boolean {
-    const searchable =
-      [pair.ml.title, pair.tn.productName, pair.ml.sku ?? pair.tn.sku, pair.ml.variationName, pair.tn.variantName]
-        .filter(Boolean)
-        .join(' ');
-    return matchSearchByTokens(q, searchable);
-  }
-
-  /** Lista de pares según filtro de stock y búsqueda. */
-  protected filteredMatched = computed(() => {
-    const a = this.analysis();
-    const matched = a?.matched ?? [];
-    const filter = this.stockFilter();
-    let list = matched;
-    if (filter === 'mismatch') list = matched.filter((pair) => !this.isStockSynced(pair));
-    else if (filter === 'synced') list = matched.filter((pair) => this.isStockSynced(pair));
-    else if (filter === 'no-stock') list = matched.filter((pair) => this.hasNoStock(pair));
-    else if (filter === 'with-stock') list = matched.filter((pair) => this.hasStock(pair));
-    const q = this.searchQuery().trim().toLowerCase();
-    if (q) list = list.filter((pair) => this.pairMatchesSearch(pair, q));
-    return list;
-  });
-
-  /** Cantidad de pares con stock distinto entre ML y TN. */
-  protected mismatchCount = computed(() => {
-    const matched = this.analysis()?.matched ?? [];
-    return matched.filter((pair) => !this.isStockSynced(pair)).length;
-  });
-
-  /** Cantidad de pares con mismo stock en ML y TN. */
-  protected syncedCount = computed(() => {
-    const matched = this.analysis()?.matched ?? [];
-    return matched.filter((pair) => this.isStockSynced(pair)).length;
-  });
-
-  /** Cantidad de pares con stock 0 en al menos un canal. */
-  protected noStockCount = computed(() => {
-    const matched = this.analysis()?.matched ?? [];
-    return matched.filter((pair) => this.hasNoStock(pair)).length;
-  });
-
-  /** Cantidad de pares con stock en ambos canales. */
-  protected withStockCount = computed(() => {
-    const matched = this.analysis()?.matched ?? [];
-    return matched.filter((pair) => this.hasStock(pair)).length;
-  });
-
   constructor() {
+    // Resetear a página 1 cuando cambia el filtro o la búsqueda debounced.
+    effect(() => {
+      this.stockFilter();
+      this.debouncedSearch();
+      untracked(() => this.currentPage.set(1));
+    });
+
+    // Inicializar precios/stock editables cuando llegan nuevos datos.
     effect(() => {
       if (this.analysis()) this.initPairPrices();
     });
@@ -124,6 +144,13 @@ export class PrecioStockComponent {
     this.localOverrides.set(new Map());
     this.conflicts.invalidateAnalysis();
   }
+
+  goToPage(page: number): void {
+    const { pages } = this.paging();
+    if (page >= 1 && page <= pages) this.currentPage.set(page);
+  }
+  prevPage(): void { this.goToPage(this.currentPage() - 1); }
+  nextPage(): void { this.goToPage(this.currentPage() + 1); }
 
   /** Stock a mostrar para ML o TN; usa override si acabamos de sincronizar (sin refetch). */
   getDisplayStock(pair: { ml: MlRow; tn: TnRow }, channel: 'ml' | 'tn'): number {
@@ -142,19 +169,11 @@ export class PrecioStockComponent {
   }
 
   private addPendingPair(pairId: string): void {
-    this.savingPairIds.update((s) => {
-      const n = new Set(s);
-      n.add(pairId);
-      return n;
-    });
+    this.savingPairIds.update((s) => { const n = new Set(s); n.add(pairId); return n; });
   }
 
   private removePendingPair(pairId: string): void {
-    this.savingPairIds.update((s) => {
-      const n = new Set(s);
-      n.delete(pairId);
-      return n;
-    });
+    this.savingPairIds.update((s) => { const n = new Set(s); n.delete(pairId); return n; });
   }
 
   getPairId(pair: { ml: MlRow; tn: TnRow }): string {
@@ -162,17 +181,17 @@ export class PrecioStockComponent {
   }
 
   private initPairPrices(): void {
-    this.pairPrices = new Map();
     const matched = this.analysis()?.matched;
     if (!matched) return;
     for (const pair of matched) {
       const id = this.getPairId(pair);
+      if (this.pairPrices.has(id)) continue;
       const mlStock = pair.ml.stock ?? 0;
       const tnStock = pair.tn.stock ?? 0;
       this.pairPrices.set(id, {
         priceML: pair.ml.price ?? 0,
         priceTN: pair.tn.price ?? 0,
-        syncStock: Math.min(mlStock, tnStock)
+        syncStock: Math.min(mlStock, tnStock),
       });
     }
   }
@@ -190,23 +209,11 @@ export class PrecioStockComponent {
   }
 
   isStockSynced(pair: { ml: MlRow; tn: TnRow }): boolean {
-    const ml = this.getDisplayStock(pair, 'ml');
-    const tn = this.getDisplayStock(pair, 'tn');
-    return ml === tn;
+    return this.getDisplayStock(pair, 'ml') === this.getDisplayStock(pair, 'tn');
   }
 
-  /** true si al menos un canal tiene stock 0. */
   hasNoStock(pair: { ml: MlRow; tn: TnRow }): boolean {
-    const ml = this.getDisplayStock(pair, 'ml');
-    const tn = this.getDisplayStock(pair, 'tn');
-    return ml === 0 || tn === 0;
-  }
-
-  /** true si ambos canales tienen stock > 0. */
-  hasStock(pair: { ml: MlRow; tn: TnRow }): boolean {
-    const ml = this.getDisplayStock(pair, 'ml');
-    const tn = this.getDisplayStock(pair, 'tn');
-    return ml > 0 && tn > 0;
+    return this.getDisplayStock(pair, 'ml') === 0 || this.getDisplayStock(pair, 'tn') === 0;
   }
 
   updatePrices(pair: { ml: MlRow; tn: TnRow }): void {
@@ -224,22 +231,19 @@ export class PrecioStockComponent {
       productId: pair.tn.productId,
       variantId: pair.tn.variantId,
       priceML: p.priceML,
-      priceTN: p.priceTN
+      priceTN: p.priceTN,
     }).subscribe({
       next: () => {
         this.removePendingPair(id);
         this.setLocalOverride(id, { priceML: p.priceML, priceTN: p.priceTN });
         const cur = this.pairPrices.get(id);
-        if (cur) {
-          cur.priceML = p.priceML;
-          cur.priceTN = p.priceTN;
-        }
-        this.conflicts.updatePairInCache(id, { priceML: p.priceML, priceTN: p.priceTN });
+        if (cur) { cur.priceML = p.priceML; cur.priceTN = p.priceTN; }
+        this.conflicts.updatePairInCache(id, { priceML: p.priceML, priceTN: p.priceTN }, this.currentQueryKey);
       },
       error: (e) => {
         this.removePendingPair(id);
         this.saveError = e.error?.error || e.message || 'No se pudieron actualizar los precios.';
-      }
+      },
     });
   }
 
@@ -257,19 +261,19 @@ export class PrecioStockComponent {
       priceML: 0,
       priceTN: 0,
       stockML: stock,
-      stockTN: stock
+      stockTN: stock,
     }).subscribe({
       next: () => {
         this.removePendingPair(id);
         this.setLocalOverride(id, { stock });
         const cur = this.pairPrices.get(id);
         if (cur) cur.syncStock = stock;
-        this.conflicts.updatePairInCache(id, { stock });
+        this.conflicts.updatePairInCache(id, { stock }, this.currentQueryKey);
       },
       error: (e) => {
         this.removePendingPair(id);
         this.saveError = e.error?.error || e.message || 'No se pudo sincronizar el stock.';
-      }
+      },
     });
   }
 }
