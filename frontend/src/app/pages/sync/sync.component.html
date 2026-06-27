@@ -197,12 +197,13 @@
         <p class="alert error">{{ auditError }}</p>
       } @else {
         <div class="audit-search-bar">
-          <label for="audit-order-search">Buscar por nro de venta (pack) o nro de orden</label>
-          <input id="audit-order-search" type="text" [(ngModel)]="auditOrderIdSearch" placeholder="Ej. 1234567890 o MLA123" class="audit-search-input" (keyup.enter)="searchAuditByOrderId()" />
-          <button type="button" class="btn-audit-search" (click)="searchAuditByOrderId()">Buscar</button>
-          @if (auditOrderIdSearch.trim()) {
-            <button type="button" class="btn-clear-search" (click)="clearAuditSearch()" title="Ver listado completo">Limpiar filtro</button>
-          }
+          <label class="audit-search-label">Buscar por nro de venta (pack) o nro de orden</label>
+          <zc-search-bar
+            [value]="auditSearchQuery()"
+            (valueChange)="auditSearchQuery.set($event); onAuditSearchChange()"
+            placeholder="Ej. 1234567890 o MLA123"
+            ariaLabel="Buscar en historial de sincronización"
+          />
         </div>
         <div class="audit-reprocess-row">
           <span class="audit-reprocess-label">Venta ML que no se registró (reintentar):</span>
@@ -219,8 +220,8 @@
         }
         @if (auditRows.length === 0) {
           <p class="empty">
-            @if (auditOrderIdSearch.trim()) {
-              No hay registros que coincidan con la búsqueda. Probá otro término o usá «Limpiar filtro» para ver todo el historial.
+            @if (auditSearchQuery().trim()) {
+              No hay registros que coincidan con la búsqueda. Probá otro término o borrá la búsqueda para ver todo el historial.
             } @else {
               Aún no hay registros. Cuando la sincronización esté activada y ocurra una venta, acá aparecerá cada descuento de stock.
             }
@@ -278,9 +279,13 @@
           </tbody>
         </table>
         </div>
-        @if (auditTotal > auditRows.length) {
-          <p class="muted">Mostrando {{ auditRows.length }} de {{ auditTotal }}.</p>
-        }
+        <zc-pagination
+          [currentPage]="auditCurrentPage()"
+          [totalPages]="auditTotalPages()"
+          [total]="auditTotal"
+          (prev)="goToAuditPage(auditCurrentPage() - 1)"
+          (next)="goToAuditPage(auditCurrentPage() + 1)"
+        />
         }
       }
     </section>

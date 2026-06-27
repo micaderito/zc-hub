@@ -53,9 +53,12 @@
     </div>
 
     @if (tab !== 'resumen') {
-      <div class="search-bar">
-        <input type="text" [(ngModel)]="searchQuery" placeholder="Buscar por título o SKU…" class="search-input" />
-      </div>
+      <zc-search-bar
+        [value]="searchQuery"
+        (valueChange)="searchQuery = $event"
+        placeholder="Buscar por título o SKU…"
+        ariaLabel="Buscar producto"
+      />
     }
 
     @if (tab === 'resumen') {
