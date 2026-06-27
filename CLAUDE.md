@@ -32,14 +32,16 @@ La cuenta del vendedor tiene el tag `user_product_seller` (verificable vía `GET
 En este modelo cada variación tiene su propio `user_product_id` (ej. `MLAU2908014071`), que
 funciona como un ítem independiente en la API.
 
-**Actualizar precio de una variación:** usar `PUT /items/{user_product_id}` con `{ price }`.
+**Actualizar precio de una variación:** usar `PUT /user-products/{user_product_id}` con `{ price }`.
+El `user_product_id` (formato `MLAU…`) **no** es un item ID estándar — usar `/items/{user_product_id}`
+devuelve `item.id.invalid`. El endpoint correcto es `/user-products/{id}`.
 NO usar `PUT /items/{itemId}/variations/{varId}` con `{ price }` — ML reconcilia el precio a
 nivel ítem, detecta divergencia entre variaciones y rechaza con:
 > "Found different prices in variations; Item price was dropped by the highest-price variation"
 
 La función `updateItemOrVariationPrice` en `backend/src/lib/mercadolibre.js` ya maneja esto:
-obtiene el `user_product_id` de la variación vía `getItem` y hace el PUT sobre él. Si la cuenta
-no tuviera `user_product_id` (legacy), aplica el mismo precio a todas las variaciones.
+obtiene el `user_product_id` de la variación vía `getItem` y hace el PUT sobre `/user-products/{id}`.
+Si la cuenta no tuviera `user_product_id` (legacy), aplica el mismo precio a todas las variaciones.
 
 **Actualizar stock de una variación:** se hace vía `PUT /items/{itemId}` con el array completo
 de `variations` (el modelo de stock no cambió con PxV). Ver `updateItemOrVariationStock`.

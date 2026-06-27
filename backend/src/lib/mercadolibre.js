@@ -379,9 +379,10 @@ export async function updateItemOrVariationPrice(accessToken, itemId, variationI
     const userProductId = targetVariation?.user_product_id;
 
     if (userProductId) {
-      // PxV: cada variación es su propio User Product — PUT directo sobre él
+      // PxV: user_product_id (MLAU…) es un User Product, no un item estándar.
+      // El endpoint correcto es /user-products/{id}, no /items/{id}.
       const res = await fetchWith429Retry(
-        `${BASE}/items/${userProductId}`,
+        `${BASE}/user-products/${userProductId}`,
         {
           method: 'PUT',
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
