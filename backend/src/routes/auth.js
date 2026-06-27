@@ -90,3 +90,14 @@ authRoutes.get('/status', async (_, res) => {
     tiendanubeExpired: hasStoredTn && tnKnownInvalid
   });
 });
+
+authRoutes.get('/ml-user', async (_, res) => {
+  const accessToken = await getMlToken();
+  if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
+  const r = await fetch('https://api.mercadolibre.com/users/me', {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!r.ok) return res.status(r.status).json({ error: `ML respondió ${r.status}` });
+  const data = await r.json();
+  res.json({ id: data.id, nickname: data.nickname, tags: data.tags ?? [] });
+});

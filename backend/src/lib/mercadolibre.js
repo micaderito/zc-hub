@@ -359,19 +359,35 @@ export async function updateItemPrice(accessToken, itemId, price) {
 }
 
 /**
- * Actualizar precio de un ítem: si tiene variationId usa el endpoint de la variación
- * (PUT /items/{id}/variations/{varId}) para no disparar validaciones cruzadas entre variantes;
- * si no, actualiza el ítem simple.
+ * Actualizar precio de un ítem: si tiene variationId, manda TODO el array `variations` vía
+ * PUT /items/{id} con el precio nuevo en la variación objetivo y los precios actuales en las
+ * demás. No usamos PUT /items/{id}/variations/{varId} con `{ price }` porque ML reconcilia el
+ * precio a nivel ítem, detecta precios distintos entre variaciones y rechaza con
+ * "Found different prices in variations; Item price was dropped by the highest-price variation".
+ * Si no hay variationId, actualiza el ítem simple.
  */
 export async function updateItemOrVariationPrice(accessToken, itemId, variationId, price) {
   if (variationId != null && variationId !== '') {
-    const headers = {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    };
+    const item = await getItem(accessToken, itemId);
+    if (!item?.variations?.length) {
+      throw new Error(`El ítem ${itemId} no tiene variaciones (no se puede actualizar la variación ${variationId})`);
+    }
+    const newPrice = Number(price);
+    const variations = item.variations.map((v) => {
+      const id = v.id ?? v.id_plain;
+      const vp = String(id) === String(variationId) ? newPrice : Number(v.price);
+      return { id: Number(id), price: vp };
+    });
     const res = await fetchWith429Retry(
-      `${BASE}/items/${itemId}/variations/${variationId}`,
-      { method: 'PUT', headers, body: JSON.stringify({ price }) },
+      `${BASE}/items/${itemId}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ variations })
+      },
       'updateVariationPrice'
     );
     if (!res.ok) {
