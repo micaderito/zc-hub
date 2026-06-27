@@ -46,7 +46,7 @@ export interface SyncReturnsResponse {
   rows: PendingReturnRow[];
 }
 
-export type MlTaskKind = 'stock_ml' | 'sku_ml' | 'sku_tn';
+export type MlTaskKind = 'stock_ml' | 'sku_ml' | 'sku_tn' | 'price_ml';
 export type MlTaskStatus = 'pending' | 'processing' | 'failed';
 
 export interface PendingMlTask {
@@ -57,6 +57,7 @@ export interface PendingMlTask {
   /** Para stock: delta relativo (negativo = descuento, positivo = restauración). */
   targetQty: number | null;
   targetSku: string | null;
+  targetPrice: number | null;
   status: MlTaskStatus;
   attempts: number;
   lastError: string | null;

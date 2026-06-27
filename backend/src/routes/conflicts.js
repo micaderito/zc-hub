@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { tokens, getMlToken, addResolution } from '../store.js';
 import { getAnalysis } from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { invalidateAnalysisCache } from '../db.js';
+import { invalidateAnalysisCache, enqueueMlTask } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -11,7 +11,7 @@ export const conflictsRoutes = Router();
 /** TN: solo GET /products paginado (variants/images vienen embebidos). Timeout por ML y red. */
 const ANALYSIS_TIMEOUT_MS = 120000;
 
-/** Serializar updates a ML: cada POST update-prices espera al anterior + esta pausa (evita 429 por muchos clics seguidos). */
+/** Serializar updates sincrónicos a TN/stock: cada POST update-prices espera al anterior + esta pausa. */
 const UPDATE_ML_DELAY_MS = 450;
 let updatePricesTail = Promise.resolve();
 
@@ -153,6 +153,7 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
     if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
 
+    let mlPriceQueued = false;
     let tnPriceOk = false;
     let mlStockOk = false;
     let tnStockOk = false;
@@ -161,9 +162,23 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     const stockMLNum = typeof stockML !== 'undefined' && stockML !== null ? Number(stockML) : undefined;
     const stockTNNum = typeof stockTN !== 'undefined' && stockTN !== null ? Number(stockTN) : undefined;
 
-    // updateItemOrVariationPrice lanza si ML rechaza (propaga el mensaje real de la API)
+    // El precio en ML se encola (igual que el SKU): el worker lo aplica con reintentos ante 429,
+    // así muchos cambios seguidos no saturan la API. Aparece en «Actualizaciones en cola».
     if (priceMLNum > 0) {
-      await ml.updateItemOrVariationPrice(accessToken, itemId, variationId ?? null, priceMLNum);
+      const vid = variationId != null && variationId !== '' ? String(variationId) : null;
+      const priceTaskId = await enqueueMlTask({
+        kind: 'price_ml',
+        itemId,
+        variationId: vid,
+        targetPrice: priceMLNum,
+        idempotencyKey: `price_ml:${itemId}:${vid || 'item'}`, // coalescing: el último precio gana
+      });
+      if (!priceTaskId) {
+        return res.status(502).json({
+          error: 'No se pudo encolar la actualización del precio en Mercado Libre. Verificá que la base de datos (DATABASE_URL) esté configurada en el backend.'
+        });
+      }
+      mlPriceQueued = true;
     }
     if (priceTNNum > 0) {
       tnPriceOk = await tn.updateVariantPrice(
@@ -200,8 +215,9 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       });
     }
 
-    await invalidateAnalysisCache();
-    return res.json({ ok: true, ml: true, tn: tnOk });
+    // Invalidar caché por los cambios sincrónicos (TN/stock ML). El precio ML lo invalida el worker al completar.
+    if (triedTn || mlStockOk) await invalidateAnalysisCache();
+    return res.json({ ok: true, mlPriceQueued, ml: mlPriceQueued || mlStockOk, tn: tnOk });
   } catch (e) {
     const status = e?.mlStatus >= 400 && e?.mlStatus < 500 ? 422 : 502;
     return res.status(status).json({ error: e.message || 'Error al actualizar' });
