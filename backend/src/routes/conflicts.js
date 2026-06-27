@@ -15,16 +15,60 @@ const ANALYSIS_TIMEOUT_MS = 120000;
 const UPDATE_ML_DELAY_MS = 450;
 let updatePricesTail = Promise.resolve();
 
-/** GET análisis: coincidencias, solo ML, solo TN, sin SKU, duplicados. */
-conflictsRoutes.get('/', async (_, res) => {
+/** GET análisis: coincidencias, solo ML, solo TN, sin SKU, duplicados.
+ *  Soporta paginación: ?page=1&limit=25&filter=all|mismatch|synced|no-stock|with-stock&search=texto
+ */
+conflictsRoutes.get('/', async (req, res) => {
   try {
     const timeout = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('timeout')), ANALYSIS_TIMEOUT_MS)
     );
     const analysis = await Promise.race([getAnalysis(), timeout]);
+
+    const allMatched = analysis.matched || [];
+
+    // Resumen de stock para los tabs de filtro (siempre del total completo, independiente del filtro/búsqueda activos).
+    const stockSummary = {
+      total: allMatched.length,
+      mismatch: allMatched.filter(p => (p.ml?.stock ?? 0) !== (p.tn?.stock ?? 0)).length,
+      synced: allMatched.filter(p => (p.ml?.stock ?? 0) === (p.tn?.stock ?? 0)).length,
+      noStock: allMatched.filter(p => (p.ml?.stock ?? 0) === 0 || (p.tn?.stock ?? 0) === 0).length,
+      withStock: allMatched.filter(p => (p.ml?.stock ?? 0) > 0 && (p.tn?.stock ?? 0) > 0).length,
+    };
+
+    // Filtro por estado de stock
+    const filterParam = req.query.filter || 'all';
+    let filtered = allMatched;
+    if (filterParam === 'mismatch')   filtered = allMatched.filter(p => (p.ml?.stock ?? 0) !== (p.tn?.stock ?? 0));
+    else if (filterParam === 'synced')    filtered = allMatched.filter(p => (p.ml?.stock ?? 0) === (p.tn?.stock ?? 0));
+    else if (filterParam === 'no-stock')  filtered = allMatched.filter(p => (p.ml?.stock ?? 0) === 0 || (p.tn?.stock ?? 0) === 0);
+    else if (filterParam === 'with-stock') filtered = allMatched.filter(p => (p.ml?.stock ?? 0) > 0 && (p.tn?.stock ?? 0) > 0);
+
+    // Búsqueda por tokens (todos los tokens deben aparecer en el texto)
+    const searchRaw = (req.query.search || '').trim().toLowerCase();
+    if (searchRaw) {
+      const tokens = searchRaw.split(/\s+/).filter(Boolean);
+      filtered = filtered.filter(p => {
+        const text = [p.ml?.title, p.tn?.productName, p.sku, p.ml?.sku, p.tn?.sku, p.ml?.variationName, p.tn?.variantName]
+          .filter(Boolean).join(' ').toLowerCase();
+        return tokens.every(t => text.includes(t));
+      });
+    }
+
+    // Paginación
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(5, parseInt(req.query.limit) || 25));
+    const total = filtered.length;
+    const offset = (page - 1) * limit;
+
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
-    res.json(analysis);
+    res.json({
+      ...analysis,
+      matched: filtered.slice(offset, offset + limit),
+      paging: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+      stockSummary,
+    });
   } catch (e) {
     if (e.message === 'timeout') {
       return res.status(504).json({ error: 'El análisis tardó demasiado. Volvé a intentar en un momento.' });
