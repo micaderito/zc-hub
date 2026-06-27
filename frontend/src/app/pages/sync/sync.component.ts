@@ -1,18 +1,23 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { QueryClient, injectQuery, injectMutation } from '@tanstack/angular-query-experimental';
 import { SyncService, SyncConfig, SyncAuditRow, PendingReturnRow, PendingMlTask, PendingMlTasksResponse } from '../../core/services/sync.service';
+import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
+import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 
 const SYNC_RETURNS_QUERY_KEY = ['sync', 'returns'] as const;
 const SYNC_PENDING_TASKS_QUERY_KEY = ['sync', 'pendingTasks'] as const;
+const AUDIT_PAGE_SIZE = 25;
 
 @Component({
   selector: 'app-sync',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, SearchBarComponent, PaginationComponent],
   templateUrl: './sync.component.html',
   styleUrl: './sync.component.scss'
 })
@@ -29,11 +34,21 @@ export class SyncComponent implements OnInit {
   auditTotal = 0;
   auditLoading = true;
   auditError: string | null = null;
-  /** Filtro por nº de venta (order_id). */
-  auditOrderIdSearch = '';
   /** ID del registro que se está revirtiendo (para deshabilitar solo ese botón). */
   revertingAuditId: number | null = null;
   revertError: string | null = null;
+
+  readonly auditSearchQuery = signal('');
+  readonly auditCurrentPage = signal(1);
+
+  readonly debouncedAuditSearch = toSignal(
+    toObservable(this.auditSearchQuery).pipe(debounceTime(350), distinctUntilChanged()),
+    { initialValue: '' }
+  );
+
+  readonly auditTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.auditTotal / AUDIT_PAGE_SIZE))
+  );
 
   reprocessOrderId = '';
   reprocessingOrder = false;
@@ -121,12 +136,14 @@ export class SyncComponent implements OnInit {
     });
   }
 
-  loadAudit(): void {
+  loadAudit(page = this.auditCurrentPage()): void {
     this.auditLoading = true;
     this.auditError = null;
     this.revertError = null;
-    const orderId = this.auditOrderIdSearch.trim() || undefined;
-    this.sync.getAudit(100, 0, orderId).subscribe({
+    const offset = (page - 1) * AUDIT_PAGE_SIZE;
+    const search = this.debouncedAuditSearch() || this.auditSearchQuery();
+    const orderId = search.trim() || undefined;
+    this.sync.getAudit(AUDIT_PAGE_SIZE, offset, orderId).subscribe({
       next: (r) => {
         this.auditRows = r.rows;
         this.auditTotal = r.total;
@@ -141,18 +158,20 @@ export class SyncComponent implements OnInit {
 
   /** Actualizar la lista del historial de sincronización. */
   refreshAudit(): void {
-    this.loadAudit();
+    this.auditCurrentPage.set(1);
+    this.loadAudit(1);
   }
 
-  /** Buscar en el historial por nº de venta (vuelve a cargar con el filtro). */
-  searchAuditByOrderId(): void {
-    this.loadAudit();
+  goToAuditPage(page: number): void {
+    const total = this.auditTotalPages();
+    if (page < 1 || page > total) return;
+    this.auditCurrentPage.set(page);
+    this.loadAudit(page);
   }
 
-  /** Limpiar el filtro de búsqueda y cargar el listado completo. */
-  clearAuditSearch(): void {
-    this.auditOrderIdSearch = '';
-    this.loadAudit();
+  onAuditSearchChange(): void {
+    this.auditCurrentPage.set(1);
+    this.loadAudit(1);
   }
 
   /** Reintentar sincronización de una venta ML que no se registró (sync estaba off o ítem sin SKU). */

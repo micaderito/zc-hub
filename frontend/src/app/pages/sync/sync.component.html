@@ -197,12 +197,13 @@
         <p class="alert error">{{ auditError }}</p>
       } @else {
         <div class="audit-search-bar">
-          <label for="audit-order-search">Buscar por nro de venta (pack) o nro de orden</label>
-          <input id="audit-order-search" type="text" [(ngModel)]="auditOrderIdSearch" placeholder="Ej. 1234567890 o MLA123" class="audit-search-input" (keyup.enter)="searchAuditByOrderId()" />
-          <button type="button" class="btn-audit-search" (click)="searchAuditByOrderId()">Buscar</button>
-          @if (auditOrderIdSearch.trim()) {
-            <button type="button" class="btn-clear-search" (click)="clearAuditSearch()" title="Ver listado completo">Limpiar filtro</button>
-          }
+          <label class="audit-search-label">Buscar por nro de venta (pack) o nro de orden</label>
+          <zc-search-bar
+            [value]="auditSearchQuery()"
+            (valueChange)="auditSearchQuery.set($event); onAuditSearchChange()"
+            placeholder="Ej. 1234567890 o MLA123"
+            ariaLabel="Buscar en historial de sincronización"
+          />
         </div>
         <div class="audit-reprocess-row">
           <span class="audit-reprocess-label">Venta ML que no se registró (reintentar):</span>
@@ -219,68 +220,57 @@
         }
         @if (auditRows.length === 0) {
           <p class="empty">
-            @if (auditOrderIdSearch.trim()) {
-              No hay registros que coincidan con la búsqueda. Probá otro término o usá «Limpiar filtro» para ver todo el historial.
+            @if (auditSearchQuery().trim()) {
+              No hay registros que coincidan con la búsqueda. Probá otro término o borrá la búsqueda para ver todo el historial.
             } @else {
               Aún no hay registros. Cuando la sincronización esté activada y ocurra una venta, acá aparecerá cada descuento de stock.
             }
           </p>
         } @else {
-        <div class="table-scroll">
-        <table class="audit-table">
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Canal de la venta</th>
-              <th>Nº venta (pack)</th>
-              <th>Nº orden</th>
-              <th>SKU</th>
-              <th>Estado</th>
-              <th>Descripción / variante</th>
-              <th>Cantidad</th>
-              <th>Actualizado en</th>
-              <th>Stock antes</th>
-              <th>Stock después</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (row of auditRows; track row.id) {
-              <tr [class.audit-row-reverted]="row.revertedAt">
-                <td>{{ formatDate(row.createdAt) }}</td>
-                <td>{{ channelLabel(row.channelSale) }}</td>
-                <td><code>{{ row.orderId || '—' }}</code></td>
-                <td><code>{{ row.saleItemId || '—' }}</code></td>
-                <td><code>{{ row.sku }}</code></td>
-                <td>
-                  @if (row.productLabel) {
-                    <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
-                  } @else {
-                    —
+        <div class="audit-list">
+          @for (row of auditRows; track row.id) {
+            <div class="audit-row" [class.audit-row-ml]="row.channelSale === 'mercadolibre'" [class.audit-row-tn]="row.channelSale === 'tiendanube'" [class.audit-row-reverted]="row.revertedAt">
+              <div class="audit-row-main">
+                <div class="audit-row-title">{{ row.productDisplay || row.sku }}</div>
+                <div class="audit-row-meta">
+                  <code>{{ row.sku }}</code>
+                  @if (row.orderId) {
+                    <span>Pack <code>{{ row.orderId }}</code></span>
                   }
-                </td>
-                <td class="product-display-cell">{{ row.productDisplay || '—' }}</td>
-                <td>{{ row.quantity }}</td>
-                <td>{{ channelLabel(row.updatedChannel) }}</td>
-                <td>{{ row.stockBefore }}</td>
-                <td>{{ row.stockAfter }}</td>
-                <td class="audit-actions">
-                  @if (row.revertedAt) {
-                    <span class="reverted-badge">Revertido</span>
-                  } @else {
-                    <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + (row.updatedChannel === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube')">
-                      {{ revertingAuditId === row.id ? '…' : 'Revertir' }}
-                    </button>
+                  @if (row.saleItemId) {
+                    <span>Orden <code>{{ row.saleItemId }}</code></span>
                   }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+                  <span class="audit-row-date">{{ formatDate(row.createdAt) }}</span>
+                </div>
+              </div>
+              <div class="audit-row-right">
+                @if (row.productLabel) {
+                  <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
+                }
+                <div class="audit-stock-diff">
+                  <span class="stock-before">{{ row.stockBefore }}</span>
+                  <i class="ti ti-arrow-right" aria-hidden="true"></i>
+                  <span class="stock-after" [class.stock-down]="row.stockAfter < row.stockBefore" [class.stock-up]="row.stockAfter > row.stockBefore">{{ row.stockAfter }}</span>
+                  <span class="stock-delta">{{ row.stockAfter - row.stockBefore > 0 ? '+' : '' }}{{ row.stockAfter - row.stockBefore }} u.</span>
+                </div>
+                @if (row.revertedAt) {
+                  <span class="reverted-badge">Revertido</span>
+                } @else {
+                  <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + channelLabel(row.updatedChannel)">
+                    {{ revertingAuditId === row.id ? '…' : 'Revertir' }}
+                  </button>
+                }
+              </div>
+            </div>
+          }
         </div>
-        @if (auditTotal > auditRows.length) {
-          <p class="muted">Mostrando {{ auditRows.length }} de {{ auditTotal }}.</p>
-        }
+        <zc-pagination
+          [currentPage]="auditCurrentPage()"
+          [totalPages]="auditTotalPages()"
+          [total]="auditTotal"
+          (prev)="goToAuditPage(auditCurrentPage() - 1)"
+          (next)="goToAuditPage(auditCurrentPage() + 1)"
+        />
         }
       }
     </section>

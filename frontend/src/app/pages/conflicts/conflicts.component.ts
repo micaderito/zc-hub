@@ -22,6 +22,7 @@ import {
   DuplicadosTabComponent
 } from './tabs';
 import { CurrencyInputDirective } from '../../directives/currency-input.directive';
+import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { from, timer, concatMap } from 'rxjs';
 
 export type Tab = 'resumen' | 'coincidencias' | 'solo-ml' | 'solo-tn' | 'sin-sku' | 'duplicados';
@@ -34,6 +35,7 @@ export type Tab = 'resumen' | 'coincidencias' | 'solo-ml' | 'solo-tn' | 'sin-sku
     FormsModule,
     RouterLink,
     CurrencyInputDirective,
+    SearchBarComponent,
     ResumenTabComponent,
     CoincidenciasTabComponent,
     SoloMlTabComponent,
