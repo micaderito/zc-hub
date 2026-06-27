@@ -359,12 +359,14 @@ export async function updateItemPrice(accessToken, itemId, price) {
 }
 
 /**
- * Actualizar precio de un ítem: si tiene variationId, manda TODO el array `variations` vía
- * PUT /items/{id} con el precio nuevo en la variación objetivo y los precios actuales en las
- * demás. No usamos PUT /items/{id}/variations/{varId} con `{ price }` porque ML reconcilia el
- * precio a nivel ítem, detecta precios distintos entre variaciones y rechaza con
- * "Found different prices in variations; Item price was dropped by the highest-price variation".
- * Si no hay variationId, actualiza el ítem simple.
+ * Actualizar precio de un ítem o variación.
+ *
+ * - Con variationId: obtiene el ítem para encontrar el user_product_id de la variación.
+ *   Si existe (cuentas PxV / user_product_seller), hace PUT /items/{user_product_id} — cada
+ *   variación es un ítem independiente y ML no compara precios entre variaciones.
+ *   Si no hay user_product_id (legacy), manda el array completo de variations con todos los
+ *   precios iguales al nuevo (única operación legal en cuentas no migradas).
+ * - Sin variationId: actualiza el ítem simple directamente.
  */
 export async function updateItemOrVariationPrice(accessToken, itemId, variationId, price) {
   if (variationId != null && variationId !== '') {
@@ -373,19 +375,35 @@ export async function updateItemOrVariationPrice(accessToken, itemId, variationI
       throw new Error(`El ítem ${itemId} no tiene variaciones (no se puede actualizar la variación ${variationId})`);
     }
     const newPrice = Number(price);
-    const variations = item.variations.map((v) => {
-      const id = v.id ?? v.id_plain;
-      const vp = String(id) === String(variationId) ? newPrice : Number(v.price);
-      return { id: Number(id), price: vp };
-    });
+    const targetVariation = item.variations.find(v => String(v.id ?? v.id_plain) === String(variationId));
+    const userProductId = targetVariation?.user_product_id;
+
+    if (userProductId) {
+      // PxV: cada variación es su propio User Product — PUT directo sobre él
+      const res = await fetchWith429Retry(
+        `${BASE}/items/${userProductId}`,
+        {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ price: newPrice })
+        },
+        'updateUserProductPrice'
+      );
+      if (!res.ok) {
+        const errBody = await errorMessage(res);
+        console.error('[ML] updateUserProductPrice %s (%s/%s) → HTTP %s: %s', userProductId, itemId, variationId, res.status, errBody);
+        throw Object.assign(new Error(errBody || `HTTP ${res.status}`), { mlStatus: res.status });
+      }
+      return true;
+    }
+
+    // Legacy: todas las variaciones deben tener el mismo precio
+    const variations = item.variations.map(v => ({ id: Number(v.id ?? v.id_plain), price: newPrice }));
     const res = await fetchWith429Retry(
       `${BASE}/items/${itemId}`,
       {
         method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ variations })
       },
       'updateVariationPrice'
