@@ -46,49 +46,20 @@
       @if ((stockSummary()?.total ?? 0) === 0) {
         <p class="empty">No hay productos que coincidan por SKU. Vinculá pares desde <a routerLink="/conflictos">Conflictos</a>.</p>
       } @else {
-        <!-- Tabs de filtro -->
-        <div class="tabs" role="tablist" aria-label="Filtrar por estado de stock">
-          <button type="button" role="tab" [class.active]="stockFilter() === 'all'"
-            (click)="stockFilter.set('all')">
-            Todos <span class="tab-count">{{ stockSummary()?.total ?? 0 }}</span>
-          </button>
-          <button type="button" role="tab" [class.active]="stockFilter() === 'mismatch'"
-            (click)="stockFilter.set('mismatch')">
-            Stock distinto <span class="tab-count warn">{{ stockSummary()?.mismatch ?? 0 }}</span>
-          </button>
-          <button type="button" role="tab" [class.active]="stockFilter() === 'synced'"
-            (click)="stockFilter.set('synced')">
-            Mismo stock <span class="tab-count ok">{{ stockSummary()?.synced ?? 0 }}</span>
-          </button>
-          <button type="button" role="tab" [class.active]="stockFilter() === 'no-stock'"
-            (click)="stockFilter.set('no-stock')">
-            Sin stock <span class="tab-count">{{ stockSummary()?.noStock ?? 0 }}</span>
-          </button>
-          <button type="button" role="tab" [class.active]="stockFilter() === 'with-stock'"
-            (click)="stockFilter.set('with-stock')">
-            Con stock <span class="tab-count ok">{{ stockSummary()?.withStock ?? 0 }}</span>
-          </button>
-        </div>
+        <zc-stock-filter-tabs
+          [filter]="stockFilter()"
+          [summary]="stockSummary()"
+          (filterChange)="stockFilter.set($event)"
+        />
 
-        <!-- Búsqueda -->
-        <div class="search-bar">
-          <i class="ti ti-search search-icon" aria-hidden="true"></i>
-          <input
-            type="text"
-            [ngModel]="searchQuery()"
-            (ngModelChange)="searchQuery.set($event)"
-            placeholder="Buscar por título, SKU o variante…"
-            class="search-input"
-            aria-label="Buscar productos"
-          />
-          @if (searchQuery()) {
-            <button type="button" class="search-clear" (click)="searchQuery.set('')" aria-label="Limpiar búsqueda">
-              <i class="ti ti-x" aria-hidden="true"></i>
-            </button>
-          }
-        </div>
+        <zc-search-bar
+          [value]="searchQuery()"
+          (valueChange)="searchQuery.set($event)"
+          placeholder="Buscar por título, SKU o variante…"
+          ariaLabel="Buscar productos"
+          class="search-bar-wrap"
+        />
 
-        <!-- Lista de pares como cards -->
         <section aria-label="Productos">
           @if (currentPagePairs().length === 0) {
             <p class="empty">No hay resultados para el filtro o búsqueda activos.</p>
@@ -99,155 +70,30 @@
                 {{ allCollapsed() ? 'Expandir todo' : 'Colapsar todo' }}
               </button>
             </div>
+
             <div class="pairs-list">
               @for (pair of currentPagePairs(); track getPairId(pair)) {
-                <div class="pair-card" [class.pair-pending]="isPairPending(pair)" [class.pair-collapsed]="isPairCollapsed(pair)">
-                  <!-- Cabecera: SKU + badge de estado + toggle -->
-                  <div class="pair-header" (click)="togglePair(pair)" role="button" [attr.aria-expanded]="!isPairCollapsed(pair)" style="cursor:pointer">
-                    <div class="pair-sku">
-                      <span class="label-sm">SKU</span>
-                      <code>{{ pair.sku || pair.ml.sku || pair.tn.sku || '—' }}</code>
-                    </div>
-                    <div class="pair-header-right">
-                      <span class="zc-badge" [class.ok]="isStockSynced(pair)" [class.warn]="!isStockSynced(pair)">
-                        <i class="ti" [class.ti-check]="isStockSynced(pair)" [class.ti-alert-triangle]="!isStockSynced(pair)" aria-hidden="true"></i>
-                        {{ isStockSynced(pair) ? 'Mismo stock' : 'Stock distinto' }}
-                      </span>
-                      <i class="ti collapse-icon" [class.ti-chevron-up]="!isPairCollapsed(pair)" [class.ti-chevron-down]="isPairCollapsed(pair)" aria-hidden="true"></i>
-                    </div>
-                  </div>
-
-                  @if (!isPairCollapsed(pair)) {
-                  <!-- Canales (mini-cards apiladas por canal) -->
-                  <div class="channels">
-                    <!-- Mercado Libre -->
-                    <div class="ch-card ml-card">
-                      <div class="ch-header ml-hd">
-                        <span class="channel-badge ml-badge" aria-label="Mercado Libre">
-                          <span class="dot" aria-hidden="true"></span>ML
-                        </span>
-                        <span class="ch-name">Mercado Libre</span>
-                      </div>
-                      <div class="ch-body">
-                        <div class="product-info">
-                          @if (pair.ml.thumbnail) {
-                            <img [src]="pair.ml.thumbnail" alt="" class="thumb" />
-                          } @else {
-                            <span class="no-thumb" aria-hidden="true"><i class="ti ti-photo-off"></i></span>
-                          }
-                          <span class="product-label">{{ mlLabel(pair.ml) }}</span>
-                        </div>
-                        <div class="channel-fields">
-                          <div class="field-group">
-                            <label class="field-label">Precio</label>
-                            <span class="input-currency">
-                              <input type="text" appCurrencyInput [(ngModel)]="getPairPrices(pair).priceML" placeholder="0,00" class="input-price" aria-label="Precio Mercado Libre" />
-                            </span>
-                          </div>
-                          <div class="field-group">
-                            <label class="field-label">Stock</label>
-                            <span class="stock-chip" [class.stock-ok]="isStockSynced(pair)" [class.stock-warn]="!isStockSynced(pair)">
-                              {{ getDisplayStock(pair, 'ml') }}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Tienda Nube -->
-                    <div class="ch-card tn-card">
-                      <div class="ch-header tn-hd">
-                        <span class="channel-badge tn-badge" aria-label="Tienda Nube">
-                          <i class="ti ti-shopping-bag" aria-hidden="true"></i>TN
-                        </span>
-                        <span class="ch-name">Tienda Nube</span>
-                      </div>
-                      <div class="ch-body">
-                        <div class="product-info">
-                          @if (pair.tn.thumbnail) {
-                            <img [src]="pair.tn.thumbnail" alt="" class="thumb" />
-                          } @else {
-                            <span class="no-thumb" aria-hidden="true"><i class="ti ti-photo-off"></i></span>
-                          }
-                          <span class="product-label">{{ tnLabel(pair.tn) }}</span>
-                        </div>
-                        <div class="channel-fields">
-                          <div class="field-group">
-                            <label class="field-label">Precio</label>
-                            <span class="input-currency">
-                              <input type="text" appCurrencyInput [(ngModel)]="getPairPrices(pair).priceTN" placeholder="0,00" class="input-price" aria-label="Precio Tienda Nube" />
-                            </span>
-                          </div>
-                          <div class="field-group">
-                            <label class="field-label">Stock</label>
-                            <span class="stock-chip" [class.stock-ok]="isStockSynced(pair)" [class.stock-warn]="!isStockSynced(pair)">
-                              {{ getDisplayStock(pair, 'tn') }}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Acciones -->
-                  <div class="pair-footer">
-                    <div class="sync-group">
-                      <label class="field-label">Sincronizar stock en ambos</label>
-                      <div class="sync-row">
-                        <input
-                          type="number" min="0" step="1"
-                          [(ngModel)]="getPairPrices(pair).syncStock"
-                          placeholder="Nuevo stock"
-                          class="input-stock"
-                          aria-label="Nuevo stock para sincronizar"
-                        />
-                        <button type="button" class="btn-action btn-sync" (click)="syncStock(pair)" [disabled]="isPairPending(pair)">
-                          <i class="ti ti-refresh" aria-hidden="true"></i>
-                          {{ isPairPending(pair) ? '…' : 'Sincronizar' }}
-                        </button>
-                      </div>
-                    </div>
-                    <button type="button" class="btn-action btn-prices" (click)="updatePrices(pair)" [disabled]="isPairPending(pair)">
-                      <i class="ti ti-currency-dollar" aria-hidden="true"></i>
-                      {{ isPairPending(pair) ? 'Actualizando…' : 'Actualizar precios' }}
-                    </button>
-                  </div>
-                  } <!-- /if !collapsed -->
-                </div>
+                <zc-pair-card
+                  [pair]="pair"
+                  [prices]="getPairPrices(pair)"
+                  [displayStockML]="getDisplayStock(pair, 'ml')"
+                  [displayStockTN]="getDisplayStock(pair, 'tn')"
+                  [isPending]="isPairPending(pair)"
+                  [isCollapsed]="isPairCollapsed(pair)"
+                  (toggleCollapse)="togglePair(pair)"
+                  (updatePrices)="updatePrices(pair)"
+                  (syncStock)="syncStock(pair)"
+                />
               }
             </div>
 
-            <!-- Paginación -->
-            @if (paging().pages > 1) {
-              <nav class="pagination" aria-label="Paginación">
-                <button
-                  type="button"
-                  class="page-btn zc-btn"
-                  (click)="prevPage()"
-                  [disabled]="currentPage() === 1"
-                  aria-label="Página anterior"
-                >
-                  <i class="ti ti-chevron-left" aria-hidden="true"></i>
-                </button>
-
-                <div class="page-info">
-                  <span class="page-current">{{ currentPage() }}</span>
-                  <span class="page-sep">de</span>
-                  <span class="page-total">{{ paging().pages }}</span>
-                  <span class="page-results">({{ paging().total }} resultado{{ paging().total !== 1 ? 's' : '' }})</span>
-                </div>
-
-                <button
-                  type="button"
-                  class="page-btn zc-btn"
-                  (click)="nextPage()"
-                  [disabled]="currentPage() === paging().pages"
-                  aria-label="Página siguiente"
-                >
-                  <i class="ti ti-chevron-right" aria-hidden="true"></i>
-                </button>
-              </nav>
-            }
+            <zc-pagination
+              [currentPage]="currentPage()"
+              [totalPages]="paging().pages"
+              [total]="paging().total"
+              (prev)="goToPage(currentPage() - 1)"
+              (next)="goToPage(currentPage() + 1)"
+            />
           }
         </section>
       }

@@ -1,0 +1,113 @@
+<div class="pair-card" [class.pair-pending]="isPending()" [class.pair-collapsed]="isCollapsed()">
+  <!-- Cabecera: SKU + badge de estado + toggle -->
+  <div class="pair-header" (click)="toggleCollapse.emit()" role="button" [attr.aria-expanded]="!isCollapsed()" style="cursor:pointer">
+    <div class="pair-sku">
+      <span class="label-sm">SKU</span>
+      <code>{{ pair().sku || pair().ml.sku || pair().tn.sku || '—' }}</code>
+    </div>
+    <div class="pair-header-right">
+      <span class="zc-badge" [class.ok]="isStockSynced" [class.warn]="!isStockSynced">
+        <i class="ti" [class.ti-check]="isStockSynced" [class.ti-alert-triangle]="!isStockSynced" aria-hidden="true"></i>
+        {{ isStockSynced ? 'Mismo stock' : 'Stock distinto' }}
+      </span>
+      <i class="ti collapse-icon" [class.ti-chevron-up]="!isCollapsed()" [class.ti-chevron-down]="isCollapsed()" aria-hidden="true"></i>
+    </div>
+  </div>
+
+  @if (!isCollapsed()) {
+    <!-- Canales -->
+    <div class="channels">
+      <!-- Mercado Libre -->
+      <div class="ch-card ml-card">
+        <div class="ch-header ml-hd">
+          <span class="channel-badge ml-badge" aria-label="Mercado Libre">
+            <span class="dot" aria-hidden="true"></span>ML
+          </span>
+          <span class="ch-name">Mercado Libre</span>
+        </div>
+        <div class="ch-body">
+          <div class="product-info">
+            @if (pair().ml.thumbnail) {
+              <img [src]="pair().ml.thumbnail" alt="" class="thumb" />
+            } @else {
+              <span class="no-thumb" aria-hidden="true"><i class="ti ti-photo-off"></i></span>
+            }
+            <span class="product-label">{{ mlLabel(pair().ml) }}</span>
+          </div>
+          <div class="channel-fields">
+            <div class="field-group">
+              <label class="field-label">Precio</label>
+              <span class="input-currency">
+                <input type="text" appCurrencyInput [(ngModel)]="prices().priceML" placeholder="0,00" class="input-price" aria-label="Precio Mercado Libre" />
+              </span>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Stock</label>
+              <span class="stock-chip" [class.stock-ok]="isStockSynced" [class.stock-warn]="!isStockSynced">
+                {{ displayStockML() }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tienda Nube -->
+      <div class="ch-card tn-card">
+        <div class="ch-header tn-hd">
+          <span class="channel-badge tn-badge" aria-label="Tienda Nube">
+            <i class="ti ti-shopping-bag" aria-hidden="true"></i>TN
+          </span>
+          <span class="ch-name">Tienda Nube</span>
+        </div>
+        <div class="ch-body">
+          <div class="product-info">
+            @if (pair().tn.thumbnail) {
+              <img [src]="pair().tn.thumbnail" alt="" class="thumb" />
+            } @else {
+              <span class="no-thumb" aria-hidden="true"><i class="ti ti-photo-off"></i></span>
+            }
+            <span class="product-label">{{ tnLabel(pair().tn) }}</span>
+          </div>
+          <div class="channel-fields">
+            <div class="field-group">
+              <label class="field-label">Precio</label>
+              <span class="input-currency">
+                <input type="text" appCurrencyInput [(ngModel)]="prices().priceTN" placeholder="0,00" class="input-price" aria-label="Precio Tienda Nube" />
+              </span>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Stock</label>
+              <span class="stock-chip" [class.stock-ok]="isStockSynced" [class.stock-warn]="!isStockSynced">
+                {{ displayStockTN() }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Acciones -->
+    <div class="pair-footer">
+      <div class="sync-group">
+        <label class="field-label">Sincronizar stock en ambos</label>
+        <div class="sync-row">
+          <input
+            type="number" min="0" step="1"
+            [(ngModel)]="prices().syncStock"
+            placeholder="Nuevo stock"
+            class="input-stock"
+            aria-label="Nuevo stock para sincronizar"
+          />
+          <button type="button" class="btn-action btn-sync" (click)="syncStock.emit()" [disabled]="isPending()">
+            <i class="ti ti-refresh" aria-hidden="true"></i>
+            {{ isPending() ? '…' : 'Sincronizar' }}
+          </button>
+        </div>
+      </div>
+      <button type="button" class="btn-action btn-prices" (click)="updatePrices.emit()" [disabled]="isPending()">
+        <i class="ti ti-currency-dollar" aria-hidden="true"></i>
+        {{ isPending() ? 'Actualizando…' : 'Actualizar precios' }}
+      </button>
+    </div>
+  }
+</div>
