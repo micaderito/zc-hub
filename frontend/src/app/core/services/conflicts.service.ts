@@ -74,6 +74,10 @@ export interface ConflictAnalysis {
   duplicateSkuML: { sku: string; items: MlRow[] }[];
   duplicateSkuTN: { sku: string; items: TnRow[] }[];
   mappings: unknown[];
+  /** Metadata de paginación del backend */
+  paging?: { page: number; limit: number; total: number; pages: number };
+  /** Totales por filtro de stock (del full dataset, no de la página actual) */
+  stockSummary?: { total: number; mismatch: number; synced: number; noStock: number; withStock: number };
 }
 
 /** Etiqueta legible para una fila ML (título + nombre de variante). */
@@ -130,12 +134,15 @@ export class ConflictsService {
    * Actualiza en caché solo el par recién guardado. No hace refetch: así evitamos
    * disparar ~14 requests a ML por cada "Sincronizar"/"Actualizar" (doc ML: distribuir requisiciones).
    * La UI muestra el cambio al instante vía overrides locales en el componente.
+   * @param queryKey - Query key exacto de la página actual; si no se provee, se intenta con el key base.
    */
   updatePairInCache(
     pairId: string,
-    updates: { stock?: number; priceML?: number; priceTN?: number }
+    updates: { stock?: number; priceML?: number; priceTN?: number },
+    queryKey?: readonly unknown[]
   ): void {
-    const prev = this.queryClient.getQueryData<ConflictAnalysis>(CONFLICTS_ANALYSIS_QUERY_KEY);
+    const key = queryKey ?? CONFLICTS_ANALYSIS_QUERY_KEY;
+    const prev = this.queryClient.getQueryData<ConflictAnalysis>(key as unknown[]);
     if (!prev?.matched) return;
     const matched = prev.matched.map((pair) => {
       if (getPairId(pair) !== pairId) return pair;
@@ -145,10 +152,7 @@ export class ConflictsService {
       const tn2 = updates.priceTN !== undefined ? { ...tn, price: updates.priceTN } : tn;
       return { ...pair, ml: ml2, tn: tn2 };
     });
-    this.queryClient.setQueryData<ConflictAnalysis>(CONFLICTS_ANALYSIS_QUERY_KEY, {
-      ...prev,
-      matched
-    });
+    this.queryClient.setQueryData<ConflictAnalysis>(key as unknown[], { ...prev, matched });
     this.analysisInvalidated.next();
   }
 
@@ -160,9 +164,14 @@ export class ConflictsService {
 
   /**
    * Obtiene el análisis de conflictos (Observable). Para caché con TanStack Query usar getAnalysisPromise().
+   * Soporta paginación y filtros opcionales; sin params devuelve página 1 con 25 resultados.
    */
-  getAnalysis(_forceRefresh = false): Observable<ConflictAnalysis> {
-    const params = new HttpParams().set('_t', String(Date.now()));
+  getAnalysis(opts?: { page?: number; limit?: number; filter?: string; search?: string }): Observable<ConflictAnalysis> {
+    let params = new HttpParams().set('_t', String(Date.now()));
+    if (opts?.page != null)   params = params.set('page', String(opts.page));
+    if (opts?.limit != null)  params = params.set('limit', String(opts.limit));
+    if (opts?.filter)         params = params.set('filter', opts.filter);
+    if (opts?.search)         params = params.set('search', opts.search);
     return this.http.get<ConflictAnalysis>(`${this.api.baseUrl}/conflicts`, {
       params,
       headers: ConflictsService.NO_CACHE_HEADERS
@@ -170,8 +179,8 @@ export class ConflictsService {
   }
 
   /** Promesa del análisis; usar en queryFn de TanStack Query (misma queryKey = caché compartida). */
-  getAnalysisPromise(): Promise<ConflictAnalysis> {
-    return lastValueFrom(this.getAnalysis());
+  getAnalysisPromise(opts?: { page?: number; limit?: number; filter?: string; search?: string }): Promise<ConflictAnalysis> {
+    return lastValueFrom(this.getAnalysis(opts));
   }
 
   updateSku(channel: 'mercadolibre' | 'tiendanube', sku: string, payload: {

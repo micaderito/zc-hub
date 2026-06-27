@@ -104,6 +104,7 @@ export async function initDb() {
         variation_id VARCHAR(128),
         target_qty INTEGER,
         target_sku VARCHAR(128),
+        target_price NUMERIC(15,2),
         context_json TEXT,
         status VARCHAR(32) NOT NULL DEFAULT 'pending',
         attempts INTEGER NOT NULL DEFAULT 0,
@@ -120,6 +121,8 @@ export async function initDb() {
       ON ml_pending_tasks(status, next_run_at)
       WHERE status IN ('pending', 'failed');
     `);
+    // Migración: agrega target_price a tablas ya creadas (price_ml).
+    await p.query(`ALTER TABLE ml_pending_tasks ADD COLUMN IF NOT EXISTS target_price NUMERIC(15,2);`);
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -543,18 +546,19 @@ export async function setReturnApproved(id) {
  * Con idempotency_key, si ya existe una tarea igual pendiente la pisa (coalescing: la más nueva gana).
  * context_json: datos de auditoría opcionales (orderId, sku, channelSale, etc.) que el worker usa al completar.
  */
-export async function enqueueMlTask({ kind, itemId, variationId = null, targetQty = null, targetSku = null, contextJson = null, idempotencyKey = null }) {
+export async function enqueueMlTask({ kind, itemId, variationId = null, targetQty = null, targetSku = null, targetPrice = null, contextJson = null, idempotencyKey = null }) {
   const p = getPool();
   if (!p) return null;
   try {
     const r = await p.query(
-      `INSERT INTO ml_pending_tasks (kind, item_id, variation_id, target_qty, target_sku, context_json, idempotency_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO ml_pending_tasks (kind, item_id, variation_id, target_qty, target_sku, target_price, context_json, idempotency_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (idempotency_key) DO UPDATE
          SET status = 'pending', target_qty = EXCLUDED.target_qty, target_sku = EXCLUDED.target_sku,
+             target_price = EXCLUDED.target_price,
              context_json = EXCLUDED.context_json, next_run_at = NOW(), attempts = 0, last_error = NULL, updated_at = NOW()
        RETURNING id`,
-      [kind, itemId, variationId, targetQty, targetSku, contextJson, idempotencyKey]
+      [kind, itemId, variationId, targetQty, targetSku, targetPrice, contextJson, idempotencyKey]
     );
     return r.rows[0]?.id ?? null;
   } catch (e) {
@@ -575,7 +579,7 @@ export async function claimNextMlTask() {
     await client.query('BEGIN');
     const r = await client.query(
       `SELECT id, kind, item_id AS "itemId", variation_id AS "variationId",
-              target_qty AS "targetQty", target_sku AS "targetSku", context_json AS "contextJson", attempts
+              target_qty AS "targetQty", target_sku AS "targetSku", target_price AS "targetPrice", context_json AS "contextJson", attempts
        FROM ml_pending_tasks
        WHERE (status = 'pending' OR (status = 'failed' AND attempts < 5))
          AND next_run_at <= NOW()
@@ -633,7 +637,7 @@ export async function getPendingMlTasks(limit = 100) {
   try {
     const r = await p.query(
       `SELECT id, kind, item_id AS "itemId", variation_id AS "variationId",
-              target_qty AS "targetQty", target_sku AS "targetSku",
+              target_qty AS "targetQty", target_sku AS "targetSku", target_price AS "targetPrice",
               status, attempts, last_error AS "lastError",
               created_at AS "createdAt", updated_at AS "updatedAt", next_run_at AS "nextRunAt"
        FROM ml_pending_tasks
@@ -644,6 +648,7 @@ export async function getPendingMlTasks(limit = 100) {
     );
     return r.rows.map(row => ({
       ...row,
+      targetPrice: row.targetPrice != null ? Number(row.targetPrice) : null,
       createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       nextRunAt: row.nextRunAt ? new Date(row.nextRunAt).toISOString() : null,

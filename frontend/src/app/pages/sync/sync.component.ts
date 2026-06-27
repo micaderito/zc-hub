@@ -375,6 +375,7 @@ export class SyncComponent implements OnInit {
       case 'stock_ml': return 'Stock ML';
       case 'sku_ml': return 'SKU ML';
       case 'sku_tn': return 'SKU TN';
+      case 'price_ml': return 'Precio ML';
       default: return kind;
     }
   }
@@ -399,12 +400,15 @@ export class SyncComponent implements OnInit {
     }
   }
 
-  /** Descripción del cambio: para stock muestra el delta con signo; para SKU el nuevo valor. */
+  /** Descripción del cambio: para stock muestra el delta con signo; para precio el nuevo valor; para SKU el nuevo valor. */
   taskChangeLabel(task: PendingMlTask): string {
     if (task.kind === 'stock_ml') {
       if (task.targetQty == null) return '—';
       const sign = task.targetQty > 0 ? '+' : '';
       return `${sign}${task.targetQty} u.`;
+    }
+    if (task.kind === 'price_ml') {
+      return task.targetPrice != null ? `$${task.targetPrice.toLocaleString('es-AR')}` : '—';
     }
     return task.targetSku ? `SKU → ${task.targetSku}` : '—';
   }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { tokens, getMlToken, addResolution } from '../store.js';
 import { getAnalysis } from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { invalidateAnalysisCache } from '../db.js';
+import { invalidateAnalysisCache, enqueueMlTask } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -11,20 +11,64 @@ export const conflictsRoutes = Router();
 /** TN: solo GET /products paginado (variants/images vienen embebidos). Timeout por ML y red. */
 const ANALYSIS_TIMEOUT_MS = 120000;
 
-/** Serializar updates a ML: cada POST update-prices espera al anterior + esta pausa (evita 429 por muchos clics seguidos). */
+/** Serializar updates sincrónicos a TN/stock: cada POST update-prices espera al anterior + esta pausa. */
 const UPDATE_ML_DELAY_MS = 450;
 let updatePricesTail = Promise.resolve();
 
-/** GET análisis: coincidencias, solo ML, solo TN, sin SKU, duplicados. */
-conflictsRoutes.get('/', async (_, res) => {
+/** GET análisis: coincidencias, solo ML, solo TN, sin SKU, duplicados.
+ *  Soporta paginación: ?page=1&limit=25&filter=all|mismatch|synced|no-stock|with-stock&search=texto
+ */
+conflictsRoutes.get('/', async (req, res) => {
   try {
     const timeout = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('timeout')), ANALYSIS_TIMEOUT_MS)
     );
     const analysis = await Promise.race([getAnalysis(), timeout]);
+
+    const allMatched = analysis.matched || [];
+
+    // Resumen de stock para los tabs de filtro (siempre del total completo, independiente del filtro/búsqueda activos).
+    const stockSummary = {
+      total: allMatched.length,
+      mismatch: allMatched.filter(p => (p.ml?.stock ?? 0) !== (p.tn?.stock ?? 0)).length,
+      synced: allMatched.filter(p => (p.ml?.stock ?? 0) === (p.tn?.stock ?? 0)).length,
+      noStock: allMatched.filter(p => (p.ml?.stock ?? 0) === 0 || (p.tn?.stock ?? 0) === 0).length,
+      withStock: allMatched.filter(p => (p.ml?.stock ?? 0) > 0 && (p.tn?.stock ?? 0) > 0).length,
+    };
+
+    // Filtro por estado de stock
+    const filterParam = req.query.filter || 'all';
+    let filtered = allMatched;
+    if (filterParam === 'mismatch')   filtered = allMatched.filter(p => (p.ml?.stock ?? 0) !== (p.tn?.stock ?? 0));
+    else if (filterParam === 'synced')    filtered = allMatched.filter(p => (p.ml?.stock ?? 0) === (p.tn?.stock ?? 0));
+    else if (filterParam === 'no-stock')  filtered = allMatched.filter(p => (p.ml?.stock ?? 0) === 0 || (p.tn?.stock ?? 0) === 0);
+    else if (filterParam === 'with-stock') filtered = allMatched.filter(p => (p.ml?.stock ?? 0) > 0 && (p.tn?.stock ?? 0) > 0);
+
+    // Búsqueda por tokens (todos los tokens deben aparecer en el texto)
+    const searchRaw = (req.query.search || '').trim().toLowerCase();
+    if (searchRaw) {
+      const tokens = searchRaw.split(/\s+/).filter(Boolean);
+      filtered = filtered.filter(p => {
+        const text = [p.ml?.title, p.tn?.productName, p.sku, p.ml?.sku, p.tn?.sku, p.ml?.variationName, p.tn?.variantName]
+          .filter(Boolean).join(' ').toLowerCase();
+        return tokens.every(t => text.includes(t));
+      });
+    }
+
+    // Paginación
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(5, parseInt(req.query.limit) || 25));
+    const total = filtered.length;
+    const offset = (page - 1) * limit;
+
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
-    res.json(analysis);
+    res.json({
+      ...analysis,
+      matched: filtered.slice(offset, offset + limit),
+      paging: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+      stockSummary,
+    });
   } catch (e) {
     if (e.message === 'timeout') {
       return res.status(504).json({ error: 'El análisis tardó demasiado. Volvé a intentar en un momento.' });
@@ -153,6 +197,7 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
     if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
 
+    let mlPriceQueued = false;
     let tnPriceOk = false;
     let mlStockOk = false;
     let tnStockOk = false;
@@ -161,9 +206,23 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     const stockMLNum = typeof stockML !== 'undefined' && stockML !== null ? Number(stockML) : undefined;
     const stockTNNum = typeof stockTN !== 'undefined' && stockTN !== null ? Number(stockTN) : undefined;
 
-    // updateItemOrVariationPrice lanza si ML rechaza (propaga el mensaje real de la API)
+    // El precio en ML se encola (igual que el SKU): el worker lo aplica con reintentos ante 429,
+    // así muchos cambios seguidos no saturan la API. Aparece en «Actualizaciones en cola».
     if (priceMLNum > 0) {
-      await ml.updateItemOrVariationPrice(accessToken, itemId, variationId ?? null, priceMLNum);
+      const vid = variationId != null && variationId !== '' ? String(variationId) : null;
+      const priceTaskId = await enqueueMlTask({
+        kind: 'price_ml',
+        itemId,
+        variationId: vid,
+        targetPrice: priceMLNum,
+        idempotencyKey: `price_ml:${itemId}:${vid || 'item'}`, // coalescing: el último precio gana
+      });
+      if (!priceTaskId) {
+        return res.status(502).json({
+          error: 'No se pudo encolar la actualización del precio en Mercado Libre. Verificá que la base de datos (DATABASE_URL) esté configurada en el backend.'
+        });
+      }
+      mlPriceQueued = true;
     }
     if (priceTNNum > 0) {
       tnPriceOk = await tn.updateVariantPrice(
@@ -200,8 +259,9 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       });
     }
 
-    await invalidateAnalysisCache();
-    return res.json({ ok: true, ml: true, tn: tnOk });
+    // Invalidar caché por los cambios sincrónicos (TN/stock ML). El precio ML lo invalida el worker al completar.
+    if (triedTn || mlStockOk) await invalidateAnalysisCache();
+    return res.json({ ok: true, mlPriceQueued, ml: mlPriceQueued || mlStockOk, tn: tnOk });
   } catch (e) {
     const status = e?.mlStatus >= 400 && e?.mlStatus < 500 ? 422 : 502;
     return res.status(status).json({ error: e.message || 'Error al actualizar' });

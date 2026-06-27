@@ -7,10 +7,11 @@
  *               El worker hace GET + computa nueva qty + PUT para evitar races con delta relativo.
  *   sku_ml    — actualiza seller_sku de un ítem/variación en ML.
  *   sku_tn    — actualiza seller_sku de una variante en Tienda Nube.
+ *   price_ml  — actualiza el precio (target_price) de un ítem/variación en ML.
  */
 
 import { claimNextMlTask, updateMlTaskStatus, hasDatabase } from '../db.js';
-import { insertAuditLog } from '../db.js';
+import { insertAuditLog, invalidateAnalysisCache } from '../db.js';
 import { getMlToken, tokens } from '../store.js';
 import * as ml from './mercadolibre.js';
 import * as tn from './tiendanube.js';
@@ -19,7 +20,7 @@ const POLL_INTERVAL_MS = 500;
 let workerTimer = null;
 
 async function processTask(task) {
-  const { id, kind, itemId, variationId, targetQty, targetSku, attempts } = task;
+  const { id, kind, itemId, variationId, targetQty, targetSku, targetPrice, attempts } = task;
   const ctx = task.contextJson ? JSON.parse(task.contextJson) : null;
 
   try {
@@ -66,6 +67,18 @@ async function processTask(task) {
       if (!ok) throw new Error('updateSku ML devolvió false');
       await updateMlTaskStatus(id, 'done');
       console.log(`[MLQueue] Tarea ${id} sku_ml: ${itemId} → ${targetSku}`);
+
+    } else if (kind === 'price_ml') {
+      const accessToken = await getMlToken();
+      if (!accessToken) throw new Error('Sin token ML');
+      const price = Number(targetPrice);
+      if (!(price > 0)) throw new Error(`price_ml con precio inválido: ${targetPrice}`);
+      // updateItemOrVariationPrice lanza si ML rechaza (propaga el mensaje real de la API)
+      await ml.updateItemOrVariationPrice(accessToken, itemId, variationId || null, price);
+      await updateMlTaskStatus(id, 'done');
+      // El precio ya quedó aplicado en ML: invalidamos la caché para que el análisis traiga datos frescos.
+      await invalidateAnalysisCache().catch(e => console.error('[MLQueue] invalidateAnalysisCache:', e.message));
+      console.log(`[MLQueue] Tarea ${id} price_ml: ${itemId}${variationId ? '/' + variationId : ''} → $${price}`);
 
     } else if (kind === 'sku_tn') {
       const { access_token, store_id } = tokens.tiendanube || {};
