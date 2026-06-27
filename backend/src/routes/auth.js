@@ -101,3 +101,23 @@ authRoutes.get('/ml-user', async (_, res) => {
   const data = await r.json();
   res.json({ id: data.id, nickname: data.nickname, tags: data.tags ?? [] });
 });
+
+/** Temporal: inspeccionar las variaciones crudas de un ítem ML. Borrar tras diagnóstico. */
+authRoutes.get('/ml-item/:itemId', async (req, res) => {
+  const accessToken = await getMlToken();
+  if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
+  const item = await ml.getItem(accessToken, req.params.itemId);
+  if (!item) return res.status(404).json({ error: 'Ítem no encontrado' });
+  res.json({
+    id: item.id,
+    title: item.title,
+    price: item.price,
+    variations: (item.variations || []).map(v => ({
+      id: v.id,
+      item_id: v.item_id,
+      price: v.price,
+      seller_sku: v.seller_sku,
+      attribute_combinations: v.attribute_combinations,
+    }))
+  });
+});
