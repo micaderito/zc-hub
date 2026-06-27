@@ -227,57 +227,42 @@
             }
           </p>
         } @else {
-        <div class="table-scroll">
-        <table class="audit-table">
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Canal de la venta</th>
-              <th>Nº venta (pack)</th>
-              <th>Nº orden</th>
-              <th>SKU</th>
-              <th>Estado</th>
-              <th>Descripción / variante</th>
-              <th>Cantidad</th>
-              <th>Actualizado en</th>
-              <th>Stock antes</th>
-              <th>Stock después</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (row of auditRows; track row.id) {
-              <tr [class.audit-row-reverted]="row.revertedAt">
-                <td>{{ formatDate(row.createdAt) }}</td>
-                <td>{{ channelLabel(row.channelSale) }}</td>
-                <td><code>{{ row.orderId || '—' }}</code></td>
-                <td><code>{{ row.saleItemId || '—' }}</code></td>
-                <td><code>{{ row.sku }}</code></td>
-                <td>
-                  @if (row.productLabel) {
-                    <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
-                  } @else {
-                    —
+        <div class="audit-list">
+          @for (row of auditRows; track row.id) {
+            <div class="audit-row" [class.audit-row-ml]="row.channelSale === 'mercadolibre'" [class.audit-row-tn]="row.channelSale === 'tiendanube'" [class.audit-row-reverted]="row.revertedAt">
+              <div class="audit-row-main">
+                <div class="audit-row-title">{{ row.productDisplay || row.sku }}</div>
+                <div class="audit-row-meta">
+                  <code>{{ row.sku }}</code>
+                  @if (row.orderId) {
+                    <span>Pack <code>{{ row.orderId }}</code></span>
                   }
-                </td>
-                <td class="product-display-cell">{{ row.productDisplay || '—' }}</td>
-                <td>{{ row.quantity }}</td>
-                <td>{{ channelLabel(row.updatedChannel) }}</td>
-                <td>{{ row.stockBefore }}</td>
-                <td>{{ row.stockAfter }}</td>
-                <td class="audit-actions">
-                  @if (row.revertedAt) {
-                    <span class="reverted-badge">Revertido</span>
-                  } @else {
-                    <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + (row.updatedChannel === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube')">
-                      {{ revertingAuditId === row.id ? '…' : 'Revertir' }}
-                    </button>
+                  @if (row.saleItemId) {
+                    <span>Orden <code>{{ row.saleItemId }}</code></span>
                   }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+                  <span class="audit-row-date">{{ formatDate(row.createdAt) }}</span>
+                </div>
+              </div>
+              <div class="audit-row-right">
+                @if (row.productLabel) {
+                  <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
+                }
+                <div class="audit-stock-diff">
+                  <span class="stock-before">{{ row.stockBefore }}</span>
+                  <i class="ti ti-arrow-right" aria-hidden="true"></i>
+                  <span class="stock-after" [class.stock-down]="row.stockAfter < row.stockBefore" [class.stock-up]="row.stockAfter > row.stockBefore">{{ row.stockAfter }}</span>
+                  <span class="stock-delta">{{ row.stockAfter - row.stockBefore > 0 ? '+' : '' }}{{ row.stockAfter - row.stockBefore }} u.</span>
+                </div>
+                @if (row.revertedAt) {
+                  <span class="reverted-badge">Revertido</span>
+                } @else {
+                  <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + channelLabel(row.updatedChannel)">
+                    {{ revertingAuditId === row.id ? '…' : 'Revertir' }}
+                  </button>
+                }
+              </div>
+            </div>
+          }
         </div>
         <zc-pagination
           [currentPage]="auditCurrentPage()"

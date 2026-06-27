@@ -168,7 +168,129 @@
     &.error { color: var(--err); }
   }
 
-  /* Audit + returns tables */
+  /* Audit list (tarjetas de fila) */
+  .audit-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 0.5rem;
+  }
+
+  .audit-row {
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px 20px;
+    align-items: center;
+    transition: border-color 0.15s;
+
+    &:hover { border-color: var(--border-strong); }
+
+    &.audit-row-ml { border-top: 3px solid var(--ml); }
+    &.audit-row-tn { border-top: 3px solid var(--tn); }
+
+    &.audit-row-reverted {
+      opacity: 0.6;
+      background: var(--surface-2);
+      border-top-color: var(--border-strong);
+    }
+  }
+
+  .audit-row-main { min-width: 0; }
+
+  .audit-row-title {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .audit-row-meta {
+    font-size: 0.7rem;
+    color: var(--text-2);
+    margin-top: 3px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+
+    code {
+      background: var(--surface-2);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      color: var(--text);
+    }
+  }
+
+  .audit-row-date { color: var(--text-3); }
+
+  .audit-row-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  .state-chip {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.66rem;
+    font-weight: 500;
+    border-radius: 20px;
+    white-space: nowrap;
+
+    &.vml { background: var(--ok-bg);    color: var(--ok);      border: 0.5px solid var(--ok);    }
+    &.vtn { background: var(--tn-bg);    color: var(--tn-text); border: 0.5px solid var(--tn);    }
+    &.can { background: var(--warn-bg);  color: var(--warn);    border: 0.5px solid var(--warn);  }
+    &.dev { background: var(--brand-bg); color: var(--brand);   border: 0.5px solid var(--brand); }
+    &.n   { background: var(--surface-2); color: var(--text-2); border: 0.5px solid var(--border); }
+  }
+
+  .audit-stock-diff {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.72rem;
+
+    .ti { font-size: 0.65rem; color: var(--text-3); }
+
+    .stock-before { color: var(--text-3); text-decoration: line-through; }
+    .stock-after  { font-weight: 600; color: var(--text-2); }
+    .stock-after.stock-down { color: var(--err); }
+    .stock-after.stock-up   { color: var(--ok); }
+    .stock-delta  { font-size: 0.66rem; color: var(--text-3); }
+  }
+
+  .btn-revert {
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 0.25rem 0.6rem;
+    border: 0.5px solid var(--err);
+    background: var(--err-bg);
+    color: var(--err);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+
+    &:hover:not(:disabled) { opacity: 0.8; }
+    &:disabled { opacity: 0.5; cursor: default; }
+  }
+
+  .reverted-badge {
+    font-size: 0.7rem;
+    color: var(--text-3);
+    font-style: italic;
+  }
+
+  /* Returns table (se mantiene como tabla) */
   .audit-table {
     width: 100%;
     border-collapse: collapse;
@@ -204,57 +326,6 @@
       font-size: 0.72rem;
       color: var(--text-3);
       margin-top: 0.15rem;
-    }
-
-    .product-display-cell {
-      max-width: 280px;
-      word-break: break-word;
-      color: var(--text-2);
-    }
-
-    .state-chip {
-      display: inline-block;
-      padding: 0.15rem 0.55rem;
-      font-size: 0.66rem;
-      font-weight: 500;
-      border-radius: 20px;
-      white-space: nowrap;
-
-      &.vml { background: var(--ok-bg); color: var(--ok); border: 0.5px solid var(--ok); }
-      &.vtn { background: var(--tn-bg); color: var(--tn-text); border: 0.5px solid var(--tn); }
-      &.can { background: var(--warn-bg); color: var(--warn); border: 0.5px solid var(--warn); }
-      &.dev { background: var(--brand-bg); color: var(--brand); border: 0.5px solid var(--brand); }
-      &.n   { background: var(--surface-2); color: var(--text-2); border: 0.5px solid var(--border); }
-    }
-
-    .audit-actions { white-space: nowrap; }
-
-    .btn-revert {
-      font-family: inherit;
-      font-size: 0.72rem;
-      font-weight: 500;
-      padding: 0.25rem 0.55rem;
-      border: 0.5px solid var(--err);
-      background: var(--err-bg);
-      color: var(--err);
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: opacity 0.15s ease;
-
-      &:hover:not(:disabled) { opacity: 0.8; }
-      &:disabled { opacity: 0.5; cursor: default; }
-    }
-
-    .reverted-badge {
-      font-size: 0.72rem;
-      color: var(--text-3);
-      font-style: italic;
-    }
-
-    tr.audit-row-reverted {
-      background: var(--surface-2);
-
-      td { color: var(--text-3); }
     }
   }
 
