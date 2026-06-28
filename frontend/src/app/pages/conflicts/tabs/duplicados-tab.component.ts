@@ -1,11 +1,12 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../core/services/conflicts.service';
+import { ProductThumbComponent } from '../../../shared/components/product-thumb/product-thumb.component';
 
 @Component({
   selector: 'app-conflicts-duplicados-tab',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, ProductThumbComponent],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
     <p class="tab-hint">El mismo SKU está usado por varios ítems. Asigná un SKU único a cada uno para que el mapeo funcione.</p>
@@ -13,8 +14,8 @@ import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../co
     @for (group of filteredDuplicateSkuML; track group.sku) {
       <div class="dup-group ml-group">
         <div class="dup-group-header">
-          <span class="channel-badge ml">ML</span>
-          <span class="dup-sku">{{ group.sku }}</span>
+          <span class="zc-badge ml">ML</span>
+          <code class="sku-code">{{ group.sku }}</code>
           <span class="dup-count">{{ group.items.length }} ítems</span>
           <button type="button" class="btn-action" (click)="editBulkSku.emit({ channel: 'mercadolibre', sku: group.sku, items: group.items })">
             <i class="ti ti-pencil" aria-hidden="true"></i> Editar en lote
@@ -22,8 +23,7 @@ import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../co
         </div>
         @for (row of group.items; track row.itemId + (row.variationId || '')) {
           <div class="dup-item">
-            @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
-            @else { <span class="no-thumb"></span> }
+            <zc-product-thumb [src]="row.thumbnail" style="--thumb-size: 30px" />
             <span class="dup-name">{{ mlLabel(row) }}</span>
             <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button>
           </div>
@@ -34,8 +34,8 @@ import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../co
     @for (group of filteredDuplicateSkuTN; track group.sku) {
       <div class="dup-group tn-group">
         <div class="dup-group-header">
-          <span class="channel-badge tn">TN</span>
-          <span class="dup-sku">{{ group.sku }}</span>
+          <span class="zc-badge tn">TN</span>
+          <code class="sku-code">{{ group.sku }}</code>
           <span class="dup-count">{{ group.items.length }} variantes</span>
           <button type="button" class="btn-action" (click)="editBulkSku.emit({ channel: 'tiendanube', sku: group.sku, items: group.items })">
             <i class="ti ti-pencil" aria-hidden="true"></i> Editar en lote
@@ -43,8 +43,7 @@ import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../co
         </div>
         @for (row of group.items; track row.productId + row.variantId) {
           <div class="dup-item">
-            @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
-            @else { <span class="no-thumb"></span> }
+            <zc-product-thumb [src]="row.thumbnail" style="--thumb-size: 30px" />
             <span class="dup-name">{{ tnLabel(row) }}</span>
             <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Editar SKU</button>
           </div>

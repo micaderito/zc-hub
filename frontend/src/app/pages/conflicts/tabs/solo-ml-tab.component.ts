@@ -1,34 +1,21 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MlRow, mlLabel, matchSearchByTokens } from '../../../core/services/conflicts.service';
+import { ConflictRowComponent } from '../components/conflict-row/conflict-row.component';
 
 @Component({
   selector: 'app-conflicts-solo-ml-tab',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, ConflictRowComponent],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
     <p class="tab-hint">{{ filteredRows.length }} publicación{{ filteredRows.length !== 1 ? 'es' : '' }} de ML sin par en TN. Vinculá o asigná un SKU para emparejarlas.</p>
 
     @for (row of filteredRows; track row.itemId + (row.variationId || '')) {
-      <div class="row-card ml-card">
-        <div class="row-body">
-          @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
-          @else { <span class="no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span> }
-          <div class="row-info">
-            <div class="row-name">{{ mlLabel(row) }}</div>
-            <div class="row-meta">
-              <span class="channel-badge ml">ML</span>
-              @if (row.sku) { <span class="sku-code">{{ row.sku }}</span> }
-              @else { <span class="sku-code" style="color:var(--warn)">sin SKU</span> }
-            </div>
-          </div>
-          <div class="row-actions">
-            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button>
-            <button type="button" class="btn-action link-btn" (click)="linkFromMl.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
-          </div>
-        </div>
-      </div>
+      <zc-conflict-row channel="mercadolibre" [name]="mlLabel(row)" [thumbnail]="row.thumbnail" [sku]="row.sku">
+        <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button>
+        <button type="button" class="btn-action link-btn" (click)="linkFromMl.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
+      </zc-conflict-row>
     }
 
     @if (filteredRows.length === 0) {

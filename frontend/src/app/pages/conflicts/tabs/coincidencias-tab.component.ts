@@ -1,11 +1,12 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ConflictAnalysis, MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../core/services/conflicts.service';
+import { ProductThumbComponent } from '../../../shared/components/product-thumb/product-thumb.component';
 
 @Component({
   selector: 'app-conflicts-coincidencias-tab',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, ProductThumbComponent],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
     <p class="tab-hint">{{ filteredMatched.length }} par{{ filteredMatched.length !== 1 ? 'es' : '' }} con el mismo SKU en ML y TN. Editá el SKU si necesitás corregirlo.</p>
@@ -15,24 +16,22 @@ import { ConflictAnalysis, MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens }
         <div class="pair-top-border"></div>
         <div class="pair-body">
           <div class="pair-half">
-            @if (pair.ml.thumbnail) { <img [src]="pair.ml.thumbnail" alt="" /> }
-            @else { <span class="no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span> }
+            <zc-product-thumb [src]="pair.ml.thumbnail" />
             <div class="half-info">
-              <span class="channel-badge ml">ML</span>
+              <span class="zc-badge ml">ML</span>
               <div class="half-name">{{ mlLabel(pair.ml) }}</div>
             </div>
           </div>
           <div class="pair-half">
-            @if (pair.tn.thumbnail) { <img [src]="pair.tn.thumbnail" alt="" /> }
-            @else { <span class="no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span> }
+            <zc-product-thumb [src]="pair.tn.thumbnail" />
             <div class="half-info">
-              <span class="channel-badge tn">TN</span>
+              <span class="zc-badge tn">TN</span>
               <div class="half-name">{{ tnLabel(pair.tn) }}</div>
             </div>
           </div>
         </div>
         <div class="pair-footer">
-          <span class="sku-code">{{ pair.sku || pair.ml.sku || pair.tn.sku || '—' }}</span>
+          <code class="sku-code">{{ pair.sku || pair.ml.sku || pair.tn.sku || '—' }}</code>
           <div class="pair-actions">
             <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row: pair.ml })">SKU ML</button>
             <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row: pair.tn })">SKU TN</button>
