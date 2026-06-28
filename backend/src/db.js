@@ -676,3 +676,20 @@ export async function retryMlTask(taskId) {
     return false;
   }
 }
+
+/** Estado puntual de una tarea (cualquier status, incluido done). */
+export async function getMlTaskStatus(taskId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `SELECT id, kind, status, last_error AS "lastError", attempts, updated_at AS "updatedAt"
+       FROM ml_pending_tasks WHERE id = $1`,
+      [taskId]
+    );
+    return r.rows[0] ?? null;
+  } catch (e) {
+    console.error('getMlTaskStatus:', e.message);
+    return null;
+  }
+}

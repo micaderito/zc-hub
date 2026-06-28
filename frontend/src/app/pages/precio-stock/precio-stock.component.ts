@@ -1,7 +1,9 @@
-import { Component, inject, effect, signal, computed, untracked } from '@angular/core';
+import { Component, inject, effect, signal, computed, untracked, DestroyRef } from '@angular/core';
+import { CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { toSignal, toObservable } from '@angular/core/rxjs-interop';
-import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged, switchMap, takeUntil } from 'rxjs/operators';
+import { timer, Subject } from 'rxjs';
 import {
   ConflictsService,
   ConflictAnalysis,
@@ -21,12 +23,13 @@ const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
-  imports: [RouterLink, SearchBarComponent, PaginationComponent, StockFilterTabsComponent, PairCardComponent],
+  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, StockFilterTabsComponent, PairCardComponent],
   templateUrl: './precio-stock.component.html',
   styleUrl: './precio-stock.component.scss'
 })
 export class PrecioStockComponent {
   private readonly conflicts = inject(ConflictsService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly currentPage = signal(1);
   readonly stockFilter = signal<StockFilter>('all');
@@ -101,12 +104,27 @@ export class PrecioStockComponent {
   pairPrices: Map<string, PairPrices> = new Map();
   localOverrides = signal<Map<string, { stock?: number; priceML?: number; priceTN?: number }>>(new Map());
   savingPairIds = signal<Set<string>>(new Set());
+  pairErrors = signal<Map<string, string>>(new Map());
   saveError: string | null = null;
+
+  private readonly pollStop = new Map<string, Subject<void>>();
 
   pendingUpdatesCount = computed(() => this.savingPairIds().size);
 
   isPairPending(pair: { ml: MlRow; tn: TnRow }): boolean {
     return this.savingPairIds().has(getPairId(pair));
+  }
+
+  getPairError(pair: { ml: MlRow; tn: TnRow }): string | null {
+    return this.pairErrors().get(getPairId(pair)) ?? null;
+  }
+
+  private setPairError(pairId: string, msg: string): void {
+    this.pairErrors.update(m => { const n = new Map(m); n.set(pairId, msg); return n; });
+  }
+
+  clearPairError(pairId: string): void {
+    this.pairErrors.update(m => { const n = new Map(m); n.delete(pairId); return n; });
   }
 
   constructor() {
@@ -152,6 +170,25 @@ export class PrecioStockComponent {
     this.savingPairIds.update(s => { const n = new Set(s); n.delete(pairId); return n; });
   }
 
+  /**
+   * Pares afectados por un update de precio. En variaciones (legacy) el precio se aplica a
+   * todas las variaciones del ítem, así que se bloquean todas las filas del mismo itemId.
+   */
+  private pairIdsForPriceUpdate(pair: { ml: MlRow; tn: TnRow }): string[] {
+    if (!pair.ml.variationId) return [getPairId(pair)];
+    return this.currentPagePairs()
+      .filter(p => p.ml.itemId === pair.ml.itemId)
+      .map(p => getPairId(p));
+  }
+
+  private addPricePending(pair: { ml: MlRow; tn: TnRow }): void {
+    for (const id of this.pairIdsForPriceUpdate(pair)) this.addPendingPair(id);
+  }
+
+  private removePricePending(pair: { ml: MlRow; tn: TnRow }): void {
+    for (const id of this.pairIdsForPriceUpdate(pair)) this.removePendingPair(id);
+  }
+
   private initPairPrices(): void {
     for (const pair of this.analysis()?.matched ?? []) {
       const id = getPairId(pair);
@@ -179,32 +216,119 @@ export class PrecioStockComponent {
   }
 
   updatePrices(pair: { ml: MlRow; tn: TnRow }): void {
-    const id = getPairId(pair);
     const p = this.getPairPrices(pair);
     if (p.priceML <= 0 && p.priceTN <= 0) {
       this.saveError = 'Ingresá al menos un precio mayor a 0.';
       return;
     }
+    // ML no permite precio distinto por variación en ítems con variaciones (legacy):
+    // aplicar el precio ML afecta a TODAS las variaciones. Si el precio ML cambió y es una
+    // variación, pedir confirmación antes de encolar.
+    const priceMLChanged = p.priceML > 0 && Number(p.priceML) !== Number(pair.ml.price ?? 0);
+    if (priceMLChanged && pair.ml.variationId) {
+      this.confirmPriceAll.set({ pair, priceML: p.priceML, priceTN: p.priceTN });
+      return;
+    }
+    this.doUpdatePrices(pair, p.priceML, p.priceTN);
+  }
+
+  /** Confirmación pendiente de aplicar el precio ML a todas las variaciones de un ítem. */
+  confirmPriceAll = signal<{ pair: { ml: MlRow; tn: TnRow }; priceML: number; priceTN: number } | null>(null);
+
+  confirmApplyPriceToAll(): void {
+    const c = this.confirmPriceAll();
+    if (!c) return;
+    this.confirmPriceAll.set(null);
+    this.doUpdatePrices(c.pair, c.priceML, c.priceTN);
+  }
+
+  cancelApplyPriceToAll(): void {
+    this.confirmPriceAll.set(null);
+  }
+
+  private doUpdatePrices(pair: { ml: MlRow; tn: TnRow }, priceML: number, priceTN: number): void {
+    const id = getPairId(pair);
     this.saveError = null;
-    this.addPendingPair(id);
+    this.clearPairError(id);
+    this.addPricePending(pair);
     this.conflicts.updatePricesAndStock({
       itemId: pair.ml.itemId,
       variationId: pair.ml.variationId,
       productId: pair.tn.productId,
       variantId: pair.tn.variantId,
-      priceML: p.priceML,
-      priceTN: p.priceTN,
+      priceML,
+      priceTN,
     }).subscribe({
-      next: () => {
-        this.removePendingPair(id);
-        this.setLocalOverride(id, { priceML: p.priceML, priceTN: p.priceTN });
-        const cur = this.pairPrices.get(id);
-        if (cur) { cur.priceML = p.priceML; cur.priceTN = p.priceTN; }
-        this.conflicts.updatePairInCache(id, { priceML: p.priceML, priceTN: p.priceTN }, this.currentQueryKey);
+      next: (res) => {
+        if (res.mlTaskId) {
+          // Precio ML encolado: mantener pending y hacer polling hasta que el worker confirme
+          this.pollMlTask(pair, res.mlTaskId, { priceML, priceTN });
+        } else {
+          this.removePricePending(pair);
+          this.applyPricesLocally(pair, { priceML, priceTN });
+        }
       },
       error: (e) => {
-        this.removePendingPair(id);
-        this.saveError = e.error?.error || e.message || 'No se pudieron actualizar los precios.';
+        this.removePricePending(pair);
+        this.setPairError(id, e.error?.error || e.message || 'No se pudieron actualizar los precios.');
+      },
+    });
+  }
+
+  /**
+   * Refleja en la UI el resultado de un update de precio. Si el par es una variación,
+   * ML aplicó el precio a TODAS las variaciones del ítem (legacy), así que propagamos el
+   * nuevo precio ML a todas las filas del mismo itemId; si no, solo al par editado.
+   */
+  private applyPricesLocally(pair: { ml: MlRow; tn: TnRow }, prices: { priceML: number; priceTN: number }): void {
+    const id = getPairId(pair);
+    this.setLocalOverride(id, prices);
+    const cur = this.pairPrices.get(id);
+    if (cur) { cur.priceML = prices.priceML; cur.priceTN = prices.priceTN; }
+    this.conflicts.updatePairInCache(id, prices, this.currentQueryKey);
+
+    if (pair.ml.variationId) {
+      // Precio aplicado a todas las variaciones del ítem: actualizar las demás filas.
+      this.conflicts.updateItemVariationsPriceInCache(pair.ml.itemId, prices.priceML, this.currentQueryKey);
+      for (const other of this.currentPagePairs()) {
+        if (other.ml.itemId !== pair.ml.itemId) continue;
+        const oid = getPairId(other);
+        this.setLocalOverride(oid, { priceML: prices.priceML });
+        const oc = this.pairPrices.get(oid);
+        if (oc) oc.priceML = prices.priceML;
+      }
+    }
+  }
+
+  private pollMlTask(pair: { ml: MlRow; tn: TnRow }, taskId: number, intendedPrices: { priceML: number; priceTN: number }): void {
+    const pairId = getPairId(pair);
+    this.pollStop.get(pairId)?.next();
+    const stop$ = new Subject<void>();
+    this.pollStop.set(pairId, stop$);
+
+    timer(1500, 2000).pipe(
+      switchMap(() => this.conflicts.getTaskStatus(taskId)),
+      takeUntil(stop$),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (task) => {
+        if (task.status === 'done') {
+          stop$.next();
+          this.pollStop.delete(pairId);
+          this.removePricePending(pair);
+          this.applyPricesLocally(pair, intendedPrices);
+        } else if (task.status === 'failed') {
+          stop$.next();
+          this.pollStop.delete(pairId);
+          this.removePricePending(pair);
+          this.setPairError(pairId, task.lastError || 'Error al actualizar el precio en Mercado Libre.');
+        }
+      },
+      error: () => {
+        stop$.next();
+        this.pollStop.delete(pairId);
+        this.removePricePending(pair);
+        this.setPairError(pairId, 'No se pudo verificar el estado de la actualización en ML.');
       },
     });
   }

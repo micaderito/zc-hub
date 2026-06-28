@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { tokens, getMlToken, addResolution } from '../store.js';
 import { getAnalysis } from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { invalidateAnalysisCache, enqueueMlTask } from '../db.js';
+import { invalidateAnalysisCache, enqueueMlTask, getMlTaskStatus } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -197,7 +197,7 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
     if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
 
-    let mlPriceQueued = false;
+    let mlPriceTaskId = null;
     let tnPriceOk = false;
     let mlStockOk = false;
     let tnStockOk = false;
@@ -210,19 +210,18 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     // así muchos cambios seguidos no saturan la API. Aparece en «Actualizaciones en cola».
     if (priceMLNum > 0) {
       const vid = variationId != null && variationId !== '' ? String(variationId) : null;
-      const priceTaskId = await enqueueMlTask({
+      mlPriceTaskId = await enqueueMlTask({
         kind: 'price_ml',
         itemId,
         variationId: vid,
         targetPrice: priceMLNum,
         idempotencyKey: `price_ml:${itemId}:${vid || 'item'}`, // coalescing: el último precio gana
       });
-      if (!priceTaskId) {
+      if (!mlPriceTaskId) {
         return res.status(502).json({
           error: 'No se pudo encolar la actualización del precio en Mercado Libre. Verificá que la base de datos (DATABASE_URL) esté configurada en el backend.'
         });
       }
-      mlPriceQueued = true;
     }
     if (priceTNNum > 0) {
       tnPriceOk = await tn.updateVariantPrice(
@@ -261,11 +260,20 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
 
     // Invalidar caché por los cambios sincrónicos (TN/stock ML). El precio ML lo invalida el worker al completar.
     if (triedTn || mlStockOk) await invalidateAnalysisCache();
-    return res.json({ ok: true, mlPriceQueued, ml: mlPriceQueued || mlStockOk, tn: tnOk });
+    return res.json({ ok: true, mlTaskId: mlPriceTaskId ?? undefined, ml: !!(mlPriceTaskId || mlStockOk), tn: tnOk });
   } catch (e) {
     const status = e?.mlStatus >= 400 && e?.mlStatus < 500 ? 422 : 502;
     return res.status(status).json({ error: e.message || 'Error al actualizar' });
   } finally {
     release();
   }
+});
+
+/** GET estado de una tarea de ML (para polling desde el front). */
+conflictsRoutes.get('/task/:taskId', async (req, res) => {
+  const taskId = parseInt(req.params.taskId, 10);
+  if (!taskId || isNaN(taskId)) return res.status(400).json({ error: 'taskId inválido' });
+  const task = await getMlTaskStatus(taskId);
+  if (!task) return res.status(404).json({ error: 'Tarea no encontrada' });
+  return res.json(task);
 });

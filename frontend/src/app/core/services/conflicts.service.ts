@@ -156,6 +156,22 @@ export class ConflictsService {
     this.analysisInvalidated.next();
   }
 
+  /**
+   * Actualiza en caché el precio ML de TODAS las variaciones de un mismo ítem.
+   * Se usa cuando ML aplica el precio a todas las variaciones (ítems legacy con variaciones),
+   * así las otras filas del mismo ítem reflejan el nuevo precio sin refetch.
+   */
+  updateItemVariationsPriceInCache(itemId: string, priceML: number, queryKey?: readonly unknown[]): void {
+    const key = queryKey ?? CONFLICTS_ANALYSIS_QUERY_KEY;
+    const prev = this.queryClient.getQueryData<ConflictAnalysis>(key as unknown[]);
+    if (!prev?.matched) return;
+    const matched = prev.matched.map((pair) =>
+      pair.ml.itemId === itemId ? { ...pair, ml: { ...pair.ml, price: priceML } } : pair
+    );
+    this.queryClient.setQueryData<ConflictAnalysis>(key as unknown[], { ...prev, matched });
+    this.analysisInvalidated.next();
+  }
+
   /** Cabeceras para que el navegador no use caché en este GET. */
   private static readonly NO_CACHE_HEADERS = new HttpHeaders({
     'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -217,7 +233,7 @@ export class ConflictsService {
     stockML?: number;
     stockTN?: number;
   }) {
-    return this.http.post<{ ok: boolean; ml: boolean; tn: boolean }>(
+    return this.http.post<{ ok: boolean; mlTaskId?: number; ml: boolean; tn: boolean }>(
       `${this.api.baseUrl}/conflicts/update-prices`,
       {
         itemId: params.itemId,
@@ -229,6 +245,13 @@ export class ConflictsService {
         stockML: params.stockML,
         stockTN: params.stockTN
       }
+    );
+  }
+
+  /** Estado puntual de una tarea ML (para polling). */
+  getTaskStatus(taskId: number) {
+    return this.http.get<{ id: number; status: string; lastError?: string | null }>(
+      `${this.api.baseUrl}/conflicts/task/${taskId}`
     );
   }
 }

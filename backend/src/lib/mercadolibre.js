@@ -361,43 +361,26 @@ export async function updateItemPrice(accessToken, itemId, price) {
 /**
  * Actualizar precio de un ítem o variación.
  *
- * - Con variationId: obtiene el ítem para encontrar el user_product_id de la variación.
- *   Si existe (cuentas PxV / user_product_seller), hace PUT /items/{user_product_id} — cada
- *   variación es un ítem independiente y ML no compara precios entre variaciones.
- *   Si no hay user_product_id (legacy), manda el array completo de variations con todos los
- *   precios iguales al nuevo (única operación legal en cuentas no migradas).
- * - Sin variationId: actualiza el ítem simple directamente.
+ * IMPORTANTE: en ítems con array `variations` (formato legacy, anterior a User Products),
+ * la API de ML EXIGE el mismo precio en todas las variaciones. Si se mandan precios distintos
+ * rechaza con "Found different prices in variations". El precio por variación solo existe en
+ * ítems creados bajo el modelo User Products (sin array `variations`; cada variación es un ítem
+ * `MLA` propio que se edita con `PUT /items/{itemId}` sin variationId).
+ * Ref: https://developers.mercadolibre.com.ar/en_us/price-per-variation
+ *
+ * - Con variationId (ítem legacy con variaciones): aplica el nuevo precio a TODAS las
+ *   variaciones del ítem (única operación que ML acepta). El front confirma con el usuario.
+ * - Sin variationId: actualiza el ítem simple / User Product directamente.
  */
 export async function updateItemOrVariationPrice(accessToken, itemId, variationId, price) {
   if (variationId != null && variationId !== '') {
     const item = await getItem(accessToken, itemId);
     if (!item?.variations?.length) {
-      throw new Error(`El ítem ${itemId} no tiene variaciones (no se puede actualizar la variación ${variationId})`);
+      // Sin array variations: es un ítem simple (o User Product) — precio directo.
+      return updateItemPrice(accessToken, itemId, price);
     }
     const newPrice = Number(price);
-    const targetVariation = item.variations.find(v => String(v.id ?? v.id_plain) === String(variationId));
-    const userProductId = targetVariation?.user_product_id;
-
-    if (userProductId) {
-      // PxV: cada variación es su propio User Product — PUT directo sobre él
-      const res = await fetchWith429Retry(
-        `${BASE}/items/${userProductId}`,
-        {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ price: newPrice })
-        },
-        'updateUserProductPrice'
-      );
-      if (!res.ok) {
-        const errBody = await errorMessage(res);
-        console.error('[ML] updateUserProductPrice %s (%s/%s) → HTTP %s: %s', userProductId, itemId, variationId, res.status, errBody);
-        throw Object.assign(new Error(errBody || `HTTP ${res.status}`), { mlStatus: res.status });
-      }
-      return true;
-    }
-
-    // Legacy: todas las variaciones deben tener el mismo precio
+    // ML legacy: mismo precio en todas las variaciones (ver nota arriba).
     const variations = item.variations.map(v => ({ id: Number(v.id ?? v.id_plain), price: newPrice }));
     const res = await fetchWith429Retry(
       `${BASE}/items/${itemId}`,

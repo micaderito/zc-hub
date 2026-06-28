@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "ML_MIN_SPACING_MS=0 node --experimental-test-module-mocks --test test/*.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
