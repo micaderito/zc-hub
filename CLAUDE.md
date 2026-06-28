@@ -26,28 +26,42 @@ sincroniza stock por webhooks y permite crear productos en ambos canales de una 
 
 ## Particularidades de la API de Mercado Libre
 
-### Cuenta PxV (Price per Variation / User Products)
+### Precio por variación: qué permite ML y qué no
 
-La cuenta del vendedor tiene el tag `user_product_seller` (verificable vía `GET /users/me`).
-En este modelo cada variación tiene su propio `user_product_id` (ej. `MLAU2908014071`), que
-funciona como un ítem independiente en la API.
+La cuenta tiene el tag `user_product_seller` (verificable vía `GET /users/me`), y las
+variaciones traen un `user_product_id` (ej. `MLAU2908014071`). **Eso NO alcanza para tener
+precios distintos por variación.** Lo que manda es el FORMATO del ítem:
 
-**Actualizar precio de una variación:** usar `PUT /user-products/{user_product_id}` con `{ price }`.
-El `user_product_id` (formato `MLAU…`) **no** es un item ID estándar — usar `/items/{user_product_id}`
-devuelve `item.id.invalid`. El endpoint correcto es `/user-products/{id}`.
-NO usar `PUT /items/{itemId}/variations/{varId}` con `{ price }` — ML reconcilia el precio a
-nivel ítem, detecta divergencia entre variaciones y rechaza con:
-> "Found different prices in variations; Item price was dropped by the highest-price variation"
-
-La función `updateItemOrVariationPrice` en `backend/src/lib/mercadolibre.js` ya maneja esto:
-obtiene el `user_product_id` de la variación vía `getItem` y hace el PUT sobre `/user-products/{id}`.
-Si la cuenta no tuviera `user_product_id` (legacy), aplica el mismo precio a todas las variaciones.
-
-**Actualizar stock de una variación:** se hace vía `PUT /items/{itemId}` con el array completo
-de `variations` (el modelo de stock no cambió con PxV). Ver `updateItemOrVariationStock`.
-
-### Modelos de cuenta (para referencia)
-| Modelo | Identificación | Precio por variación |
+| Formato de ítem | Cómo se ve en `GET /items/{id}` | Precio por variación |
 |---|---|---|
-| Legacy | Sin `user_product_seller` en tags | Todas las variaciones al mismo precio |
-| PxV / User Products | `user_product_seller` en tags | Cada variación tiene `user_product_id` propio |
+| **Legacy** | tiene array `variations[]` (cada una con su `user_product_id`) | ❌ **NO** — ML exige el mismo precio en todas |
+| **User Products (PxV)** | SIN array `variations`; cada variación es un ítem `MLA` propio | ✅ Sí, editando cada ítem por separado |
+
+Los ítems existentes de esta cuenta son **legacy** (tienen `variations[]`), así que **no
+admiten precio distinto por variación**. La única operación que ML acepta para ellos es
+aplicar el mismo precio a TODAS las variaciones. La app pide confirmación al usuario antes
+de hacerlo ("se aplicará a todas las variaciones").
+Ref: https://developers.mercadolibre.com.ar/en_us/price-per-variation
+
+**Actualizar precio de una variación (ítem legacy):** `PUT /items/{itemId}` con el array
+completo de `variations`, todas con el MISMO precio nuevo. Ver `updateItemOrVariationPrice`.
+
+**Endpoints que NO funcionan** (probados y descartados):
+- `PUT /items/{itemId}/variations/{varId}` con `{ price }` → ML reconcilia a nivel ítem y
+  rechaza: *"Found different prices in variations; Item price was dropped by the highest-price variation"*.
+- `PUT /items/{user_product_id}` (ej. `PUT /items/MLAU…`) → HTTP 400 `item.id.invalid`
+  (el `MLAU…` no es un item id editable).
+- `PUT /user-products/{user_product_id}` → 404 (no existe escritura; el `GET` sí existe pero
+  devuelve metadata sin `price`).
+- `GET /users/{seller}/items/search?user_product_id=MLAU…` devuelve el **mismo ítem padre**,
+  no un item id por variación → confirma que en estos ítems no hay item separado por variante.
+
+**Actualizar stock de una variación:** sí es por variación — `PUT /items/{itemId}` con el
+array `variations` mandando la variación objetivo con su `available_quantity` y el resto solo
+con `{ id }` (ML conserva su stock). Ver `updateItemOrVariationStock`. El stock por variación
+nunca tuvo el problema del precio.
+
+### Tests
+`backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
+`updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
+ML). Correr con `npm test` en `backend/`.
