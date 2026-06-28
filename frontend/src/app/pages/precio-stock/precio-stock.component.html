@@ -100,4 +100,25 @@
       }
     </div>
   }
+
+  <!-- Confirmación: ML no permite precio por variación en ítems legacy -->
+  @if (confirmPriceAll(); as c) {
+    <div class="modal-backdrop" (click)="cancelApplyPriceToAll()">
+      <div class="modal-card" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+          <h2>Precio por variación no disponible</h2>
+        </div>
+        <p>
+          Mercado Libre no permite precios distintos por variación en este producto.
+          El precio <strong>{{ c.priceML | currency:'ARS':'symbol':'1.0-2' }}</strong> se aplicará
+          a <strong>todas las variaciones</strong> de la publicación.
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="zc-btn" (click)="cancelApplyPriceToAll()">Cancelar</button>
+          <button type="button" class="zc-btn primary" (click)="confirmApplyPriceToAll()">Aplicar a todas</button>
+        </div>
+      </div>
+    </div>
+  }
 </div>
