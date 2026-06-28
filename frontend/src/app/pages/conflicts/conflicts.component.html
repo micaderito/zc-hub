@@ -1,112 +1,159 @@
 <div class="conflicts">
   <div class="page-header">
     <div>
-      <h1>Sincronizar y resolver conflictos</h1>
-      <p class="subtitle">Ya tenés productos en ambas cuentas. Acá podés ver coincidencias por SKU, ítems sin par, sin SKU o con SKU duplicado, y resolverlos manualmente.</p>
+      <h1><i class="ti ti-arrows-exchange-2" aria-hidden="true"></i> Conflictos de stock</h1>
+      <p class="subtitle">Productos sin par entre ML y TN. Vinculá por SKU o resolvé manualmente.</p>
     </div>
     @if (analysis && !loading) {
       <button type="button" class="btn-refresh" (click)="refreshAnalysis()" [disabled]="fetching" [title]="fetching ? 'Actualizando…' : 'Actualizar lista'">
+        <i class="ti ti-refresh" aria-hidden="true"></i>
         {{ fetching ? 'Actualizando…' : 'Actualizar' }}
       </button>
     }
   </div>
 
   @if (error) {
-    <div class="alert error">{{ error }}</div>
+    <div class="alert error"><i class="ti ti-alert-circle" aria-hidden="true"></i> {{ error }}</div>
   }
 
   @if (loading) {
-    <p>Cargando análisis…</p>
+    <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando análisis…</p>
   } @else if (analysis && !analysis.mlConnected) {
-    <p class="alert">Conectá Mercado Libre en <a routerLink="/">Inicio</a>.</p>
+    <div class="alert warn">
+      <i class="ti ti-brand-mercadopago" aria-hidden="true"></i>
+      Conectá Mercado Libre desde <a routerLink="/">Inicio</a> para ver tus ítems.
+    </div>
   } @else if (analysis && !analysis.tnConnected) {
-    <p class="alert">Conectá Tienda Nube en <a routerLink="/">Inicio</a>.</p>
+    <div class="alert warn">
+      <i class="ti ti-shopping-cart" aria-hidden="true"></i>
+      Conectá Tienda Nube desde <a routerLink="/">Inicio</a> para ver tus productos.
+    </div>
   } @else if (analysis) {
     @if (analysis.mlAuthError) {
-      <p class="alert">La sesión de Mercado Libre venció. Reconectá desde <a routerLink="/">Inicio</a> para ver ítems de ML.</p>
+      <div class="alert warn">
+        <i class="ti ti-lock-open" aria-hidden="true"></i>
+        La sesión de Mercado Libre venció. <a routerLink="/">Reconectá desde Inicio</a> para ver los ítems.
+      </div>
     }
+
     <div class="summary">
-      <div class="zc-card info"><span class="num">{{ analysis.summary.totalML ?? '—' }}</span> Ítems ML</div>
-      <div class="zc-card info"><span class="num">{{ analysis.summary.totalTN ?? '—' }}</span> Variantes TN</div>
-      <div class="zc-card"><span class="num">{{ analysis.summary.matched }}</span> Coinciden por SKU</div>
-      <div class="zc-card"><span class="num">{{ analysis.summary.resolved }}</span> Vinculados (mismo SKU)</div>
-      <div class="zc-card warn"><span class="num">{{ analysis.summary.onlyML }}</span> Solo en ML</div>
-      <div class="zc-card warn"><span class="num">{{ analysis.summary.onlyTN }}</span> Solo en TN</div>
-      <div class="zc-card warn"><span class="num">{{ analysis.summary.noSkuML + analysis.summary.noSkuTN }}</span> Sin SKU</div>
-      <div class="zc-card warn"><span class="num">{{ analysis.summary.duplicateSkuML + analysis.summary.duplicateSkuTN }}</span> SKU duplicados</div>
+      <div class="summary-channel ml-channel">
+        <div class="channel-label"><i class="ti ti-shopping-bag" aria-hidden="true"></i> Mercado Libre</div>
+        <div class="channel-num">{{ analysis.summary.totalML ?? '—' }}</div>
+        <div class="channel-sub">ítems activos</div>
+      </div>
+      <div class="summary-channel tn-channel">
+        <div class="channel-label"><i class="ti ti-shopping-cart" aria-hidden="true"></i> Tienda Nube</div>
+        <div class="channel-num">{{ analysis.summary.totalTN ?? '—' }}</div>
+        <div class="channel-sub">variantes activas</div>
+      </div>
+      <div class="summary-metrics">
+        <div class="metric ok">
+          <div class="metric-num">{{ analysis.summary.matched }}</div>
+          <div class="metric-label"><i class="ti ti-link" aria-hidden="true"></i> Coinciden</div>
+        </div>
+        <div class="metric ok">
+          <div class="metric-num">{{ analysis.summary.resolved }}</div>
+          <div class="metric-label"><i class="ti ti-circle-check" aria-hidden="true"></i> Vinculados</div>
+        </div>
+        <div class="metric warn">
+          <div class="metric-num">{{ analysis.summary.onlyML + analysis.summary.onlyTN }}</div>
+          <div class="metric-label"><i class="ti ti-arrows-diff" aria-hidden="true"></i> Solo un canal</div>
+        </div>
+        <div class="metric warn">
+          <div class="metric-num">{{ analysis.summary.noSkuML + analysis.summary.noSkuTN + analysis.summary.duplicateSkuML + analysis.summary.duplicateSkuTN }}</div>
+          <div class="metric-label"><i class="ti ti-alert-triangle" aria-hidden="true"></i> Sin SKU / dup.</div>
+        </div>
+      </div>
     </div>
 
     <div class="list-area">
-    @if (fetching) {
-      <div class="refetch-overlay" aria-live="polite">
-        <span class="refetch-spinner" aria-hidden="true"></span>
-        <span>Actualizando lista…</span>
+      @if (fetching) {
+        <div class="refetch-overlay" aria-live="polite">
+          <span class="refetch-spinner" aria-hidden="true"></span>
+          <span>Actualizando…</span>
+        </div>
+      }
+
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" [class.active]="tab === 'resumen'" (click)="tab = 'resumen'">Resumen</button>
+        <button type="button" role="tab" [class.active]="tab === 'coincidencias'" (click)="tab = 'coincidencias'">
+          Coincidencias
+          @if (analysis.matched.length) { <span class="tab-count">{{ analysis.matched.length }}</span> }
+        </button>
+        <button type="button" role="tab" [class.active]="tab === 'solo-ml'" (click)="tab = 'solo-ml'">
+          Solo en ML
+          @if (analysis.onlyML.length) { <span class="tab-count warn">{{ analysis.onlyML.length }}</span> }
+        </button>
+        <button type="button" role="tab" [class.active]="tab === 'solo-tn'" (click)="tab = 'solo-tn'">
+          Solo en TN
+          @if (analysis.onlyTN.length) { <span class="tab-count warn">{{ analysis.onlyTN.length }}</span> }
+        </button>
+        <button type="button" role="tab" [class.active]="tab === 'sin-sku'" (click)="tab = 'sin-sku'">
+          Sin SKU
+          @if (analysis.noSkuML.length + analysis.noSkuTN.length) { <span class="tab-count warn">{{ analysis.noSkuML.length + analysis.noSkuTN.length }}</span> }
+        </button>
+        <button type="button" role="tab" [class.active]="tab === 'duplicados'" (click)="tab = 'duplicados'">
+          Duplicados
+          @if (analysis.duplicateSkuML.length + analysis.duplicateSkuTN.length) { <span class="tab-count warn">{{ analysis.duplicateSkuML.length + analysis.duplicateSkuTN.length }}</span> }
+        </button>
       </div>
-    }
-    <div class="tabs">
-      <button type="button" [class.active]="tab === 'resumen'" (click)="tab = 'resumen'">Resumen</button>
-      <button type="button" [class.active]="tab === 'coincidencias'" (click)="tab = 'coincidencias'">Coincidencias ({{ analysis.matched.length }})</button>
-      <button type="button" [class.active]="tab === 'solo-ml'" (click)="tab = 'solo-ml'">Solo en ML ({{ analysis.onlyML.length }})</button>
-      <button type="button" [class.active]="tab === 'solo-tn'" (click)="tab = 'solo-tn'">Solo en TN ({{ analysis.onlyTN.length }})</button>
-      <button type="button" [class.active]="tab === 'sin-sku'" (click)="tab = 'sin-sku'">Sin SKU ({{ analysis.noSkuML.length + analysis.noSkuTN.length }})</button>
-      <button type="button" [class.active]="tab === 'duplicados'" (click)="tab = 'duplicados'">Duplicados ({{ analysis.duplicateSkuML.length + analysis.duplicateSkuTN.length }})</button>
-    </div>
 
-    @if (tab !== 'resumen') {
-      <zc-search-bar
-        [value]="searchQuery"
-        (valueChange)="searchQuery = $event"
-        placeholder="Buscar por título o SKU…"
-        ariaLabel="Buscar producto"
-      />
-    }
+      @if (tab !== 'resumen') {
+        <zc-search-bar
+          [value]="searchQuery"
+          (valueChange)="searchQuery = $event"
+          placeholder="Buscar por título o SKU…"
+          ariaLabel="Buscar producto"
+        />
+      }
 
-    @if (tab === 'resumen') {
-      <app-conflicts-resumen-tab [analysis]="analysis" />
-    }
-    @if (tab === 'coincidencias') {
-      <app-conflicts-coincidencias-tab
-        [analysis]="analysis"
-        [searchQuery]="searchQuery"
-        (editSku)="onEditSku($event)"
-        (editBothSku)="openEditBothSkuModal($event)"
-      />
-    }
-    @if (tab === 'solo-ml') {
-      <app-conflicts-solo-ml-tab
-        [rows]="analysis.onlyML"
-        [searchQuery]="searchQuery"
-        (editSku)="onEditSku($event)"
-        (linkFromMl)="openLinkFromMl($event)"
-      />
-    }
-    @if (tab === 'solo-tn') {
-      <app-conflicts-solo-tn-tab
-        [rows]="analysis.onlyTN"
-        [searchQuery]="searchQuery"
-        (editSku)="onEditSku($event)"
-        (linkFromTn)="openLinkFromTn($event)"
-      />
-    }
-    @if (tab === 'sin-sku') {
-      <app-conflicts-sin-sku-tab
-        [noSkuML]="analysis.noSkuML"
-        [noSkuTN]="analysis.noSkuTN"
-        [searchQuery]="searchQuery"
-        (editSku)="onEditSku($event)"
-        (linkFromMl)="openLinkFromMl($event)"
-        (linkFromTn)="openLinkFromTn($event)"
-      />
-    }
-    @if (tab === 'duplicados') {
-      <app-conflicts-duplicados-tab
-        [duplicateSkuML]="analysis.duplicateSkuML"
-        [duplicateSkuTN]="analysis.duplicateSkuTN"
-        [searchQuery]="searchQuery"
-        (editSku)="onEditSku($event)"
-        (editBulkSku)="onBulkEditSku($event)"
-      />
-    }
+      @if (tab === 'resumen') {
+        <app-conflicts-resumen-tab [analysis]="analysis" />
+      }
+      @if (tab === 'coincidencias') {
+        <app-conflicts-coincidencias-tab
+          [analysis]="analysis"
+          [searchQuery]="searchQuery"
+          (editSku)="onEditSku($event)"
+          (editBothSku)="openEditBothSkuModal($event)"
+        />
+      }
+      @if (tab === 'solo-ml') {
+        <app-conflicts-solo-ml-tab
+          [rows]="analysis.onlyML"
+          [searchQuery]="searchQuery"
+          (editSku)="onEditSku($event)"
+          (linkFromMl)="openLinkFromMl($event)"
+        />
+      }
+      @if (tab === 'solo-tn') {
+        <app-conflicts-solo-tn-tab
+          [rows]="analysis.onlyTN"
+          [searchQuery]="searchQuery"
+          (editSku)="onEditSku($event)"
+          (linkFromTn)="openLinkFromTn($event)"
+        />
+      }
+      @if (tab === 'sin-sku') {
+        <app-conflicts-sin-sku-tab
+          [noSkuML]="analysis.noSkuML"
+          [noSkuTN]="analysis.noSkuTN"
+          [searchQuery]="searchQuery"
+          (editSku)="onEditSku($event)"
+          (linkFromMl)="openLinkFromMl($event)"
+          (linkFromTn)="openLinkFromTn($event)"
+        />
+      }
+      @if (tab === 'duplicados') {
+        <app-conflicts-duplicados-tab
+          [duplicateSkuML]="analysis.duplicateSkuML"
+          [duplicateSkuTN]="analysis.duplicateSkuTN"
+          [searchQuery]="searchQuery"
+          (editSku)="onEditSku($event)"
+          (editBulkSku)="onBulkEditSku($event)"
+        />
+      }
     </div>
 
     <!-- Modal: Vincular manualmente -->
@@ -116,7 +163,7 @@
           <h2>Vincular publicación ML con variante TN</h2>
           <p>Indicá qué publicación de Mercado Libre corresponde a qué variante de Tienda Nube y con qué SKU (único). Opcionalmente actualizamos el SKU en ambas plataformas.</p>
           @if (linkError) {
-            <div class="alert error">{{ linkError }}</div>
+            <div class="alert error"><i class="ti ti-alert-circle" aria-hidden="true"></i> {{ linkError }}</div>
           }
           <div class="link-pair">
             @if (linkMl) {
@@ -191,7 +238,7 @@
       </div>
     }
 
-    <!-- Modal: Editar ambos SKU (coincidencias) -->
+    <!-- Modal: Editar ambos SKU -->
     @if (showEditBothSkuModal && editBothPair) {
       <div class="modal">
         <div class="modal-content">
@@ -236,14 +283,14 @@
       </div>
     }
 
-    <!-- Modal: Edición masiva de SKU (duplicados) -->
+    <!-- Modal: Edición masiva de SKU -->
     @if (showBulkEditSkuModal && bulkEditChannel) {
       <div class="modal">
         <div class="modal-content modal-content--wide">
           <h2>Editar SKU en lote</h2>
           <p>SKU duplicado «<strong>{{ bulkEditSku }}</strong>» en {{ bulkEditChannel === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube' }}. Asigná un SKU único a cada ítem (los que dejes vacíos o igual al actual no se actualizan).</p>
           @if (bulkEditError) {
-            <div class="alert error">{{ bulkEditError }}</div>
+            <div class="alert error"><i class="ti ti-alert-circle" aria-hidden="true"></i> {{ bulkEditError }}</div>
           }
           <div class="bulk-edit-list">
             @for (row of bulkEditItems; track getBulkEditRowTrackId(row); let i = $index) {

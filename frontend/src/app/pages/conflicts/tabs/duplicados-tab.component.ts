@@ -8,43 +8,53 @@ import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../co
   imports: [CommonModule],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
-    <section>
-      <p>El mismo SKU está usado por varios ítems. Corregí el SKU en cada uno para que sea único.</p>
-      <div class="grid-scroll">
-      @for (group of filteredDuplicateSkuML; track group.sku) {
-        <div class="dup-group">
-          <div class="dup-group-header">
-            <strong>SKU «{{ group.sku }}» en ML ({{ group.items.length }} ítems)</strong>
-            <button type="button" class="btn-bulk" (click)="editBulkSku.emit({ channel: 'mercadolibre', sku: group.sku, items: group.items })">Editar en lote</button>
-          </div>
-          <ul>
-            @for (row of group.items; track row.itemId + (row.variationId || '')) {
-              <li>
-                @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" class="dup-thumb" /> }
-                {{ mlLabel(row) }} <button type="button" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button>
-              </li>
-            }
-          </ul>
+    <p class="tab-hint">El mismo SKU está usado por varios ítems. Asigná un SKU único a cada uno para que el mapeo funcione.</p>
+
+    @for (group of filteredDuplicateSkuML; track group.sku) {
+      <div class="dup-group ml-group">
+        <div class="dup-group-header">
+          <span class="channel-badge ml">ML</span>
+          <span class="dup-sku">{{ group.sku }}</span>
+          <span class="dup-count">{{ group.items.length }} ítems</span>
+          <button type="button" class="btn-action" (click)="editBulkSku.emit({ channel: 'mercadolibre', sku: group.sku, items: group.items })">
+            <i class="ti ti-pencil" aria-hidden="true"></i> Editar en lote
+          </button>
         </div>
-      }
-      @for (group of filteredDuplicateSkuTN; track group.sku) {
-        <div class="dup-group">
-          <div class="dup-group-header">
-            <strong>SKU «{{ group.sku }}» en TN ({{ group.items.length }} variantes)</strong>
-            <button type="button" class="btn-bulk" (click)="editBulkSku.emit({ channel: 'tiendanube', sku: group.sku, items: group.items })">Editar en lote</button>
+        @for (row of group.items; track row.itemId + (row.variationId || '')) {
+          <div class="dup-item">
+            @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
+            @else { <span class="no-thumb"></span> }
+            <span class="dup-name">{{ mlLabel(row) }}</span>
+            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button>
           </div>
-          <ul>
-            @for (row of group.items; track row.productId + row.variantId) {
-              <li>
-                @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" class="dup-thumb" /> }
-                {{ tnLabel(row) }} <button type="button" (click)="editSku.emit({ channel: 'tiendanube', row })">Editar SKU</button>
-              </li>
-            }
-          </ul>
-        </div>
-      }
+        }
       </div>
-    </section>
+    }
+
+    @for (group of filteredDuplicateSkuTN; track group.sku) {
+      <div class="dup-group tn-group">
+        <div class="dup-group-header">
+          <span class="channel-badge tn">TN</span>
+          <span class="dup-sku">{{ group.sku }}</span>
+          <span class="dup-count">{{ group.items.length }} variantes</span>
+          <button type="button" class="btn-action" (click)="editBulkSku.emit({ channel: 'tiendanube', sku: group.sku, items: group.items })">
+            <i class="ti ti-pencil" aria-hidden="true"></i> Editar en lote
+          </button>
+        </div>
+        @for (row of group.items; track row.productId + row.variantId) {
+          <div class="dup-item">
+            @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
+            @else { <span class="no-thumb"></span> }
+            <span class="dup-name">{{ tnLabel(row) }}</span>
+            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Editar SKU</button>
+          </div>
+        }
+      </div>
+    }
+
+    @if (filteredDuplicateSkuML.length === 0 && filteredDuplicateSkuTN.length === 0) {
+      <p class="tab-hint">Sin resultados para la búsqueda.</p>
+    }
   `
 })
 export class DuplicadosTabComponent {
@@ -61,13 +71,7 @@ export class DuplicadosTabComponent {
     const q = this.searchQuery.trim();
     if (!q) return this.duplicateSkuML;
     return this.duplicateSkuML
-      .map((g) => ({
-        sku: g.sku,
-        items: g.items.filter((r) => {
-          const searchable = [r.title, r.sku, r.variationName].filter(Boolean).join(' ');
-          return matchSearchByTokens(q, searchable);
-        })
-      }))
+      .map((g) => ({ sku: g.sku, items: g.items.filter((r) => matchSearchByTokens(q, [r.title, r.sku, r.variationName].filter(Boolean).join(' '))) }))
       .filter((g) => g.items.length > 0);
   }
 
@@ -75,13 +79,7 @@ export class DuplicadosTabComponent {
     const q = this.searchQuery.trim();
     if (!q) return this.duplicateSkuTN;
     return this.duplicateSkuTN
-      .map((g) => ({
-        sku: g.sku,
-        items: g.items.filter((r) => {
-          const searchable = [r.productName, r.sku, r.variantName].filter(Boolean).join(' ');
-          return matchSearchByTokens(q, searchable);
-        })
-      }))
+      .map((g) => ({ sku: g.sku, items: g.items.filter((r) => matchSearchByTokens(q, [r.productName, r.sku, r.variantName].filter(Boolean).join(' '))) }))
       .filter((g) => g.items.length > 0);
   }
 }

@@ -8,27 +8,32 @@ import { TnRow, tnLabel, matchSearchByTokens } from '../../../core/services/conf
   imports: [CommonModule],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
-    <section>
-      <p>Variantes en Tienda Nube cuyo SKU no existe en Mercado Libre. Vincular manualmente con una publicación de ML.</p>
-      <div class="grid-scroll">
-        <table class="table table-with-thumb">
-          <thead><tr><th></th><th>TN (producto / variante)</th><th>SKU actual</th><th></th></tr></thead>
-          <tbody>
-            @for (row of filteredRows; track row.productId + row.variantId) {
-              <tr>
-                <td class="thumb">@if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }</td>
-                <td>{{ tnLabel(row) }}</td>
-                <td><code>{{ row.sku || '—' }}</code></td>
-                <td>
-                  <button type="button" (click)="editSku.emit({ channel: 'tiendanube', row })">Editar SKU</button>
-                  <button type="button" (click)="linkFromTn.emit(row)">Vincular con ML</button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+    <p class="tab-hint">{{ filteredRows.length }} variante{{ filteredRows.length !== 1 ? 's' : '' }} de TN sin par en ML. Vinculá o asigná un SKU para emparejarlas.</p>
+
+    @for (row of filteredRows; track row.productId + row.variantId) {
+      <div class="row-card tn-card">
+        <div class="row-body">
+          @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
+          @else { <span class="no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span> }
+          <div class="row-info">
+            <div class="row-name">{{ tnLabel(row) }}</div>
+            <div class="row-meta">
+              <span class="channel-badge tn">TN</span>
+              @if (row.sku) { <span class="sku-code">{{ row.sku }}</span> }
+              @else { <span class="sku-code" style="color:var(--warn)">sin SKU</span> }
+            </div>
+          </div>
+          <div class="row-actions">
+            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Editar SKU</button>
+            <button type="button" class="btn-action link-btn" (click)="linkFromTn.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
+          </div>
+        </div>
       </div>
-    </section>
+    }
+
+    @if (filteredRows.length === 0) {
+      <p class="tab-hint">Sin resultados para la búsqueda.</p>
+    }
   `
 })
 export class SoloTnTabComponent {

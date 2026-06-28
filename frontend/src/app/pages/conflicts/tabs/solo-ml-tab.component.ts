@@ -8,27 +8,32 @@ import { MlRow, mlLabel, matchSearchByTokens } from '../../../core/services/conf
   imports: [CommonModule],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
-    <section>
-      <p>Publicaciones en Mercado Libre cuyo SKU no existe en Tienda Nube. Vincular manualmente con una variante de TN.</p>
-      <div class="grid-scroll">
-        <table class="table table-with-thumb">
-          <thead><tr><th></th><th>ML (ítem / variante)</th><th>SKU actual</th><th></th></tr></thead>
-          <tbody>
-            @for (row of filteredRows; track row.itemId + (row.variationId || '')) {
-              <tr>
-                <td class="thumb">@if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }</td>
-                <td>{{ mlLabel(row) }}</td>
-                <td><code>{{ row.sku || '—' }}</code></td>
-                <td>
-                  <button type="button" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button>
-                  <button type="button" (click)="linkFromMl.emit(row)">Vincular con TN</button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+    <p class="tab-hint">{{ filteredRows.length }} publicación{{ filteredRows.length !== 1 ? 'es' : '' }} de ML sin par en TN. Vinculá o asigná un SKU para emparejarlas.</p>
+
+    @for (row of filteredRows; track row.itemId + (row.variationId || '')) {
+      <div class="row-card ml-card">
+        <div class="row-body">
+          @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
+          @else { <span class="no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span> }
+          <div class="row-info">
+            <div class="row-name">{{ mlLabel(row) }}</div>
+            <div class="row-meta">
+              <span class="channel-badge ml">ML</span>
+              @if (row.sku) { <span class="sku-code">{{ row.sku }}</span> }
+              @else { <span class="sku-code" style="color:var(--warn)">sin SKU</span> }
+            </div>
+          </div>
+          <div class="row-actions">
+            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button>
+            <button type="button" class="btn-action link-btn" (click)="linkFromMl.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
+          </div>
+        </div>
       </div>
-    </section>
+    }
+
+    @if (filteredRows.length === 0) {
+      <p class="tab-hint">Sin resultados para la búsqueda.</p>
+    }
   `
 })
 export class SoloMlTabComponent {

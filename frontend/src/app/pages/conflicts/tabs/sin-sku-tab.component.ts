@@ -8,45 +8,61 @@ import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../co
   imports: [CommonModule],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
-    <section>
-      <p>Productos sin SKU en ML o TN. Asigná un SKU (se actualiza en la plataforma) y luego vinculá si corresponde.</p>
-      <h3>Sin SKU en Mercado Libre</h3>
-      <div class="grid-scroll">
-        <table class="table table-with-thumb">
-          <thead><tr><th></th><th>ML</th><th></th></tr></thead>
-          <tbody>
-            @for (row of filteredNoSkuML; track row.itemId + (row.variationId || '')) {
-              <tr>
-                <td class="thumb">@if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }</td>
-                <td>{{ mlLabel(row) }}</td>
-                <td>
-                  <button type="button" (click)="editSku.emit({ channel: 'mercadolibre', row })">Asignar SKU</button>
-                  <button type="button" class="link" (click)="linkFromMl.emit(row)">Vincular con TN</button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-      <h3>Sin SKU en Tienda Nube</h3>
-      <div class="grid-scroll">
-        <table class="table table-with-thumb">
-          <thead><tr><th></th><th>TN</th><th></th></tr></thead>
-          <tbody>
-            @for (row of filteredNoSkuTN; track row.productId + row.variantId) {
-              <tr>
-                <td class="thumb">@if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }</td>
-                <td>{{ tnLabel(row) }}</td>
-                <td>
-                  <button type="button" (click)="editSku.emit({ channel: 'tiendanube', row })">Asignar SKU</button>
-                  <button type="button" class="link" (click)="linkFromTn.emit(row)">Vincular con ML</button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <p class="tab-hint">Productos sin SKU en ML o TN. Asigná un SKU para poder emparejarlos.</p>
+
+    @if (filteredNoSkuML.length > 0) {
+      <p class="tab-hint" style="font-weight:600;color:var(--text);margin-top:0.5rem">
+        <span class="channel-badge ml">ML</span> Sin SKU en Mercado Libre ({{ filteredNoSkuML.length }})
+      </p>
+      @for (row of filteredNoSkuML; track row.itemId + (row.variationId || '')) {
+        <div class="row-card ml-card">
+          <div class="row-body">
+            @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
+            @else { <span class="no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span> }
+            <div class="row-info">
+              <div class="row-name">{{ mlLabel(row) }}</div>
+              <div class="row-meta">
+                <span class="channel-badge ml">ML</span>
+                <span class="sku-code" style="color:var(--warn)">sin SKU</span>
+              </div>
+            </div>
+            <div class="row-actions">
+              <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Asignar SKU</button>
+              <button type="button" class="btn-action link-btn" (click)="linkFromMl.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
+            </div>
+          </div>
+        </div>
+      }
+    }
+
+    @if (filteredNoSkuTN.length > 0) {
+      <p class="tab-hint" style="font-weight:600;color:var(--text);margin-top:0.75rem">
+        <span class="channel-badge tn">TN</span> Sin SKU en Tienda Nube ({{ filteredNoSkuTN.length }})
+      </p>
+      @for (row of filteredNoSkuTN; track row.productId + row.variantId) {
+        <div class="row-card tn-card">
+          <div class="row-body">
+            @if (row.thumbnail) { <img [src]="row.thumbnail" alt="" /> }
+            @else { <span class="no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span> }
+            <div class="row-info">
+              <div class="row-name">{{ tnLabel(row) }}</div>
+              <div class="row-meta">
+                <span class="channel-badge tn">TN</span>
+                <span class="sku-code" style="color:var(--warn)">sin SKU</span>
+              </div>
+            </div>
+            <div class="row-actions">
+              <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Asignar SKU</button>
+              <button type="button" class="btn-action link-btn" (click)="linkFromTn.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
+            </div>
+          </div>
+        </div>
+      }
+    }
+
+    @if (filteredNoSkuML.length === 0 && filteredNoSkuTN.length === 0) {
+      <p class="tab-hint">Sin resultados para la búsqueda.</p>
+    }
   `
 })
 export class SinSkuTabComponent {
