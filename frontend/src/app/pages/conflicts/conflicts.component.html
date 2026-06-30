@@ -75,29 +75,7 @@
         </div>
       }
 
-      <div class="tabs" role="tablist">
-        <button type="button" role="tab" [class.active]="tab === 'resumen'" (click)="tab = 'resumen'">Resumen</button>
-        <button type="button" role="tab" [class.active]="tab === 'coincidencias'" (click)="tab = 'coincidencias'">
-          Coincidencias
-          @if (analysis.matched.length) { <span class="tab-count">{{ analysis.matched.length }}</span> }
-        </button>
-        <button type="button" role="tab" [class.active]="tab === 'solo-ml'" (click)="tab = 'solo-ml'">
-          Solo en ML
-          @if (analysis.onlyML.length) { <span class="tab-count warn">{{ analysis.onlyML.length }}</span> }
-        </button>
-        <button type="button" role="tab" [class.active]="tab === 'solo-tn'" (click)="tab = 'solo-tn'">
-          Solo en TN
-          @if (analysis.onlyTN.length) { <span class="tab-count warn">{{ analysis.onlyTN.length }}</span> }
-        </button>
-        <button type="button" role="tab" [class.active]="tab === 'sin-sku'" (click)="tab = 'sin-sku'">
-          Sin SKU
-          @if (analysis.noSkuML.length + analysis.noSkuTN.length) { <span class="tab-count warn">{{ analysis.noSkuML.length + analysis.noSkuTN.length }}</span> }
-        </button>
-        <button type="button" role="tab" [class.active]="tab === 'duplicados'" (click)="tab = 'duplicados'">
-          Duplicados
-          @if (analysis.duplicateSkuML.length + analysis.duplicateSkuTN.length) { <span class="tab-count warn">{{ analysis.duplicateSkuML.length + analysis.duplicateSkuTN.length }}</span> }
-        </button>
-      </div>
+      <zc-tabs [tabs]="conflictTabs(analysis)" [activeKey]="tab" (tabChange)="tab = $any($event)" />
 
       @if (tab !== 'resumen') {
         <zc-search-bar

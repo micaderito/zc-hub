@@ -204,64 +204,6 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ---- Tabs segmentadas ---- */
-  .tabs {
-    display: flex;
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    margin-bottom: 1rem;
-    background: var(--bg);
-
-    button {
-      flex: 1;
-      font-family: inherit;
-      font-size: 0.75rem;
-      font-weight: 500;
-      padding: 0.45rem 0.5rem;
-      border: none;
-      border-right: 0.5px solid var(--border);
-      background: transparent;
-      color: var(--text-2);
-      cursor: pointer;
-      transition: background 0.12s ease, color 0.12s ease;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.35rem;
-      white-space: nowrap;
-
-      &:last-child { border-right: none; }
-
-      &:hover:not(.active) {
-        background: var(--surface-2);
-        color: var(--text);
-      }
-
-      &.active {
-        background: var(--surface);
-        color: var(--brand);
-        font-weight: 600;
-        box-shadow: inset 0 -2px 0 var(--brand);
-      }
-    }
-
-    .tab-count {
-      font-size: 0.66rem;
-      font-weight: 600;
-      padding: 0.05rem 0.4rem;
-      border-radius: 20px;
-      background: var(--surface-2);
-      color: var(--text-2);
-      border: 0.5px solid var(--border);
-
-      &.warn {
-        background: var(--warn-bg);
-        color: var(--warn);
-        border-color: var(--warn);
-      }
-    }
-  }
 
   /* ---- Modal ---- */
   .modal {

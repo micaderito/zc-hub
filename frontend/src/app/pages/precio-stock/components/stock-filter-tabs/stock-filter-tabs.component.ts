@@ -1,4 +1,5 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input, output, computed } from '@angular/core';
+import { TabsComponent, TabDef } from '../../../../shared/components/tabs/tabs.component';
 
 export type StockFilter = 'all' | 'mismatch' | 'synced' | 'no-stock' | 'with-stock';
 
@@ -13,34 +14,28 @@ export interface StockSummary {
 @Component({
   selector: 'zc-stock-filter-tabs',
   standalone: true,
-  styleUrl: './stock-filter-tabs.component.scss',
+  imports: [TabsComponent],
   template: `
-    <div class="tabs" role="tablist" aria-label="Filtrar por estado de stock">
-      <button type="button" role="tab" [class.active]="filter() === 'all'"
-        (click)="filterChange.emit('all')">
-        Todos <span class="tab-count">{{ summary()?.total ?? 0 }}</span>
-      </button>
-      <button type="button" role="tab" [class.active]="filter() === 'mismatch'"
-        (click)="filterChange.emit('mismatch')">
-        Stock distinto <span class="tab-count warn">{{ summary()?.mismatch ?? 0 }}</span>
-      </button>
-      <button type="button" role="tab" [class.active]="filter() === 'synced'"
-        (click)="filterChange.emit('synced')">
-        Mismo stock <span class="tab-count ok">{{ summary()?.synced ?? 0 }}</span>
-      </button>
-      <button type="button" role="tab" [class.active]="filter() === 'no-stock'"
-        (click)="filterChange.emit('no-stock')">
-        Sin stock <span class="tab-count">{{ summary()?.noStock ?? 0 }}</span>
-      </button>
-      <button type="button" role="tab" [class.active]="filter() === 'with-stock'"
-        (click)="filterChange.emit('with-stock')">
-        Con stock <span class="tab-count ok">{{ summary()?.withStock ?? 0 }}</span>
-      </button>
-    </div>
+    <zc-tabs [tabs]="tabDefs()" [activeKey]="filter()" (tabChange)="onTabChange($event)" />
   `,
 })
 export class StockFilterTabsComponent {
   readonly filter = input.required<StockFilter>();
   readonly summary = input<StockSummary | undefined>();
   readonly filterChange = output<StockFilter>();
+
+  onTabChange(key: string) {
+    this.filterChange.emit(key as StockFilter);
+  }
+
+  readonly tabDefs = computed<TabDef[]>(() => {
+    const s = this.summary();
+    return [
+      { key: 'all',        label: 'Todos',          count: s?.total      ?? 0 },
+      { key: 'mismatch',   label: 'Stock distinto',  count: s?.mismatch   ?? 0, countVariant: 'warn' as const },
+      { key: 'synced',     label: 'Mismo stock',     count: s?.synced     ?? 0, countVariant: 'ok'   as const },
+      { key: 'no-stock',   label: 'Sin stock',       count: s?.noStock    ?? 0 },
+      { key: 'with-stock', label: 'Con stock',       count: s?.withStock  ?? 0, countVariant: 'ok'   as const },
+    ];
+  });
 }
