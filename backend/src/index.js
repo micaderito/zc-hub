@@ -21,7 +21,10 @@ import { conflictsRoutes } from './routes/conflicts.js';
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200', credentials: true }));
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN
+  : (origin, cb) => cb(null, !origin || /^http:\/\/localhost(:\d+)?$/.test(origin));
+app.use(cors({ origin: corsOrigin, credentials: true }));
 
 // Tienda Nube firma el body raw; si parseamos con express.json() y luego stringify, el orden de claves cambia y el HMAC falla.
 // Para POST /api/webhooks/tiendanube guardamos el body crudo en req.rawBody y parseamos nosotros.

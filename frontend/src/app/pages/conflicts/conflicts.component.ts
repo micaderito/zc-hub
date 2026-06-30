@@ -23,6 +23,7 @@ import {
 } from './tabs';
 import { CurrencyInputDirective } from '../../directives/currency-input.directive';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
+import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { from, timer, concatMap } from 'rxjs';
 
 export type Tab = 'resumen' | 'coincidencias' | 'solo-ml' | 'solo-tn' | 'sin-sku' | 'duplicados';
@@ -36,6 +37,7 @@ export type Tab = 'resumen' | 'coincidencias' | 'solo-ml' | 'solo-tn' | 'sin-sku
     RouterLink,
     CurrencyInputDirective,
     SearchBarComponent,
+    TabsComponent,
     ResumenTabComponent,
     CoincidenciasTabComponent,
     SoloMlTabComponent,
@@ -54,6 +56,19 @@ export class ConflictsComponent implements OnInit {
   error: string | null = null;
   tab: Tab = 'resumen';
   searchQuery = '';
+
+  conflictTabs(a: ConflictAnalysis): TabDef[] {
+    const sinSku = a.noSkuML.length + a.noSkuTN.length;
+    const dups = a.duplicateSkuML.length + a.duplicateSkuTN.length;
+    return [
+      { key: 'resumen',       label: 'Resumen' },
+      { key: 'coincidencias', label: 'Coincidencias', count: a.matched.length },
+      { key: 'solo-ml',       label: 'Solo en ML',    count: a.onlyML.length,  countVariant: a.onlyML.length  ? 'warn' : undefined },
+      { key: 'solo-tn',       label: 'Solo en TN',    count: a.onlyTN.length,  countVariant: a.onlyTN.length  ? 'warn' : undefined },
+      { key: 'sin-sku',       label: 'Sin SKU',       count: sinSku,           countVariant: sinSku           ? 'warn' : undefined },
+      { key: 'duplicados',    label: 'Duplicados',    count: dups,             countVariant: dups             ? 'warn' : undefined },
+    ];
+  }
 
   showLinkModal = false;
   linkMl: MlRow | null = null;

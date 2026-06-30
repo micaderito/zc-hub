@@ -8,12 +8,28 @@ import { ConflictAnalysis } from '../../../core/services/conflicts.service';
   imports: [CommonModule],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
-    <section>
-      <p>Coincidencias (mismo SKU en ML y TN): {{ analysis.matched.length }}. Ver la pestaña <strong>Coincidencias</strong> para listarlos y editarlos. Los que además están en Precio y stock ya están listos para sincronizar.</p>
-      <p>Solo en ML / Solo en TN: son SKUs que existen en una plataforma pero no en la otra. Resolvelos <strong>vinculando manualmente</strong> (elegís esta publicación de ML = esta variante de TN y asignás un SKU).</p>
-      <p>Sin SKU: productos que no tienen SKU en ML o TN. Podés <strong>editar el SKU</strong> en la plataforma y después vincular, o vincular y marcar "Actualizar SKU en ambas plataformas".</p>
-      <p>Duplicados: el mismo SKU está usado por varios ítems en una plataforma. <strong>Editá el SKU</strong> en cada uno para que sean únicos por producto/variante.</p>
-    </section>
+    <div class="resumen-grid">
+      <div class="resumen-item item-ok">
+        <div class="resumen-icon"><i class="ti ti-link" aria-hidden="true"></i></div>
+        <div class="resumen-title">Coincidencias ({{ analysis.matched.length }})</div>
+        <div class="resumen-desc">SKU idéntico en ML y TN. Estos pares ya están listos para sincronizar precios y stock.</div>
+      </div>
+      <div class="resumen-item item-warn">
+        <div class="resumen-icon"><i class="ti ti-arrows-diff" aria-hidden="true"></i></div>
+        <div class="resumen-title">Solo en un canal ({{ analysis.onlyML.length + analysis.onlyTN.length }})</div>
+        <div class="resumen-desc">El SKU existe en ML o en TN pero no en el otro. Vinculá manualmente eligiendo el par correspondiente.</div>
+      </div>
+      <div class="resumen-item item-warn">
+        <div class="resumen-icon"><i class="ti ti-tag-off" aria-hidden="true"></i></div>
+        <div class="resumen-title">Sin SKU ({{ analysis.noSkuML.length + analysis.noSkuTN.length }})</div>
+        <div class="resumen-desc">Sin SKU no podemos emparejar. Asigná un SKU desde la pestaña o vinculá directamente.</div>
+      </div>
+      <div class="resumen-item item-warn">
+        <div class="resumen-icon"><i class="ti ti-copy" aria-hidden="true"></i></div>
+        <div class="resumen-title">SKU duplicados ({{ analysis.duplicateSkuML.length + analysis.duplicateSkuTN.length }})</div>
+        <div class="resumen-desc">Varios ítems comparten el mismo SKU. Asigná un SKU único a cada uno para que el mapeo funcione.</div>
+      </div>
+    </div>
   `
 })
 export class ResumenTabComponent {
