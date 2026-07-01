@@ -199,6 +199,9 @@ export async function processClaimToPendingReturns(accessToken, claim) {
   if (!claimId) return { created: 0, skipped: 0 };
   if (!hasDatabase()) return { created: 0, skipped: 0 };
 
+  const claimReason = claim.reason ?? claim.reason_id ?? null;
+  const claimDate = claim.date_created ?? null;
+
   const returnsData = await ml.getClaimReturns(accessToken, claimId);
   const singleReturn = returnsData && typeof returnsData === 'object' && !Array.isArray(returnsData) && (returnsData.id != null || returnsData.claim_id != null || returnsData.status != null);
   const returnsList = Array.isArray(returnsData) ? returnsData : singleReturn ? [returnsData] : [];
@@ -218,6 +221,7 @@ export async function processClaimToPendingReturns(accessToken, claim) {
   if (!order?.order_items?.length) return { created: 0, skipped: 0 };
 
   const displayOrderId = String(order.payments?.[0]?.order_id ?? order.id ?? orderId);
+  const buyerNickname = order.buyer?.nickname ?? order.buyer?.first_name ?? null;
 
   let created = 0;
   let skipped = 0;
@@ -251,7 +255,10 @@ export async function processClaimToPendingReturns(accessToken, claim) {
       variationId: variationId ?? undefined,
       sku: sku || null,
       quantity,
-      productLabel
+      productLabel,
+      reason: claimReason,
+      buyerNickname,
+      claimDate
     });
     if (row) created++;
   }

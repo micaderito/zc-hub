@@ -43,5 +43,6 @@
 
     &.ok   { background: var(--ok-bg);   color: var(--ok); }
     &.warn { background: var(--warn-bg); color: var(--warn); }
+    &.err  { background: var(--err-bg);  color: var(--err); }
   }
 }

@@ -38,6 +38,9 @@ export interface PendingReturnRow {
   sku: string | null;
   quantity: number;
   productLabel: string | null;
+  reason: string | null;
+  buyerNickname: string | null;
+  claimDate: string | null;
   status: string;
   createdAt: string;
 }

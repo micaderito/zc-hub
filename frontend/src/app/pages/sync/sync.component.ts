@@ -1,7 +1,6 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
@@ -9,6 +8,7 @@ import { QueryClient, injectQuery, injectMutation } from '@tanstack/angular-quer
 import { SyncService, SyncConfig, SyncAuditRow, PendingReturnRow, PendingMlTask, PendingMlTasksResponse } from '../../core/services/sync.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
+import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 
 const SYNC_RETURNS_QUERY_KEY = ['sync', 'returns'] as const;
 const SYNC_PENDING_TASKS_QUERY_KEY = ['sync', 'pendingTasks'] as const;
@@ -17,13 +17,15 @@ const AUDIT_PAGE_SIZE = 25;
 @Component({
   selector: 'app-sync',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, SearchBarComponent, PaginationComponent],
+  imports: [CommonModule, FormsModule, SearchBarComponent, PaginationComponent, TabsComponent],
   templateUrl: './sync.component.html',
   styleUrl: './sync.component.scss'
 })
 export class SyncComponent implements OnInit {
   private readonly sync = inject(SyncService);
   private readonly queryClient = inject(QueryClient);
+
+  readonly activeTab = signal<string>('estado');
 
   config: SyncConfig | null = null;
   loading = true;
@@ -34,7 +36,6 @@ export class SyncComponent implements OnInit {
   auditTotal = 0;
   auditLoading = true;
   auditError: string | null = null;
-  /** ID del registro que se está revirtiendo (para deshabilitar solo ese botón). */
   revertingAuditId: number | null = null;
   revertError: string | null = null;
 
@@ -54,10 +55,8 @@ export class SyncComponent implements OnInit {
   reprocessingOrder = false;
   reprocessResult: string | null = null;
 
-  /** Habilita la query de devoluciones cuando hay DB (se setea al cargar config). */
   hasDatabaseForReturns = false;
 
-  /** ID de la tarea que se está reintentando manualmente (para deshabilitar solo ese botón). */
   retryingTaskId: number | null = null;
   pendingTasksError: string | null = null;
 
@@ -86,11 +85,6 @@ export class SyncComponent implements OnInit {
     }
   }));
 
-  /**
-   * Tareas pendientes de ML (stock/SKU encolados). Hace polling cada 4s mientras haya
-   * tareas activas (pending/processing) para que la UI refleje el progreso en vivo;
-   * si solo quedan fallidas o no hay ninguna, baja a 20s para no golpear el backend.
-   */
   readonly pendingTasksQuery = injectQuery<PendingMlTasksResponse>(() => ({
     queryKey: SYNC_PENDING_TASKS_QUERY_KEY,
     queryFn: () => firstValueFrom(this.sync.getPendingTasks()),
@@ -103,6 +97,27 @@ export class SyncComponent implements OnInit {
       return hasActive ? 4000 : 20000;
     }
   }));
+
+  readonly tabs = computed<TabDef[]>(() => {
+    const returns = this.returnsRows.length;
+    const failed = this.failedTasksCount;
+    const active = this.activeTasksCount;
+    const taskCount = active + failed;
+    return [
+      { key: 'estado', label: 'Estado' },
+      {
+        key: 'devoluciones',
+        label: 'Devoluciones',
+        ...(returns > 0 ? { count: returns, countVariant: 'err' as const } : {})
+      },
+      {
+        key: 'cola',
+        label: 'Cola ML',
+        ...(taskCount > 0 ? { count: taskCount, countVariant: (failed > 0 ? 'err' : 'warn') as 'err' | 'warn' } : {})
+      },
+      { key: 'historial', label: 'Historial' }
+    ];
+  });
 
   constructor() {}
 
@@ -156,7 +171,6 @@ export class SyncComponent implements OnInit {
     });
   }
 
-  /** Actualizar la lista del historial de sincronización. */
   refreshAudit(): void {
     this.auditCurrentPage.set(1);
     this.loadAudit(1);
@@ -174,7 +188,6 @@ export class SyncComponent implements OnInit {
     this.loadAudit(1);
   }
 
-  /** Reintentar sincronización de una venta ML que no se registró (sync estaba off o ítem sin SKU). */
   reprocessOrder(): void {
     const id = this.reprocessOrderId.trim();
     if (!id) return;
@@ -232,7 +245,6 @@ export class SyncComponent implements OnInit {
     return ch === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube';
   }
 
-  /** Clase CSS del chip de estado (colores por tipo de acción). */
   stateChipClass(label: string | null | undefined): string {
     if (!label) return 'state-chip n';
     const n = label.toLowerCase().replace(/\s+/g, '-');
@@ -243,13 +255,10 @@ export class SyncComponent implements OnInit {
     return 'state-chip n';
   }
 
-  formatDate(iso: string): string {
+  formatDate(iso: string | null | undefined): string {
     if (!iso) return '—';
     const d = new Date(iso);
-    return d.toLocaleString('es-AR', {
-      dateStyle: 'short',
-      timeStyle: 'short'
-    });
+    return d.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
   }
 
   get returnsRows(): PendingReturnRow[] {
@@ -270,7 +279,6 @@ export class SyncComponent implements OnInit {
     return this.fetchReturnsMutation.isPending();
   }
 
-  /** Actualizar: traer de nuevo desde ML y refrescar la lista. */
   refreshReturns(): void {
     this.fetchResult = null;
     this.fetchReturnsMutation.mutate(undefined, {
@@ -313,7 +321,7 @@ export class SyncComponent implements OnInit {
       next: (r) => {
         this.registeringWebhooks = false;
         this.webhooksResult = r.registered > 0
-          ? `Webhooks registrados: ${r.registered} (order/paid, order/created, order/fulfilled, order/cancelled).`
+          ? `Webhooks registrados: ${r.registered}.`
           : 'Ya estaban registrados con la URL actual.';
       },
       error: (e) => {
@@ -338,8 +346,6 @@ export class SyncComponent implements OnInit {
     });
   }
 
-  // ───────────────── Tareas pendientes de ML ─────────────────
-
   get pendingTasks(): PendingMlTask[] {
     return this.pendingTasksQuery.data()?.tasks ?? [];
   }
@@ -358,7 +364,6 @@ export class SyncComponent implements OnInit {
     return err?.error?.error ?? err?.message ?? 'Error al cargar tareas.';
   }
 
-  /** Cantidad de tareas activas (pending + processing) para mostrar en el encabezado. */
   get activeTasksCount(): number {
     return this.pendingTasks.filter((t) => t.status === 'pending' || t.status === 'processing').length;
   }
@@ -388,7 +393,6 @@ export class SyncComponent implements OnInit {
     });
   }
 
-  /** Etiqueta legible del tipo de tarea. */
   taskKindLabel(kind: PendingMlTask['kind']): string {
     switch (kind) {
       case 'stock_ml': return 'Stock ML';
@@ -399,7 +403,6 @@ export class SyncComponent implements OnInit {
     }
   }
 
-  /** Texto del estado en español. */
   taskStatusLabel(status: PendingMlTask['status']): string {
     switch (status) {
       case 'pending': return 'Pendiente';
@@ -409,7 +412,6 @@ export class SyncComponent implements OnInit {
     }
   }
 
-  /** Clase CSS del chip de estado de tarea. */
   taskStatusChipClass(status: PendingMlTask['status']): string {
     switch (status) {
       case 'pending': return 'task-chip pending';
@@ -419,7 +421,6 @@ export class SyncComponent implements OnInit {
     }
   }
 
-  /** Descripción del cambio: para stock muestra el delta con signo; para precio el nuevo valor; para SKU el nuevo valor. */
   taskChangeLabel(task: PendingMlTask): string {
     if (task.kind === 'stock_ml') {
       if (task.targetQty == null) return '—';
