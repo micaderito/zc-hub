@@ -13,6 +13,8 @@ import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.compone
 const SYNC_RETURNS_QUERY_KEY = ['sync', 'returns'] as const;
 const SYNC_PENDING_TASKS_QUERY_KEY = ['sync', 'pendingTasks'] as const;
 const AUDIT_PAGE_SIZE = 25;
+const RETURNS_PAGE_SIZE = 20;
+const TASKS_PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-sync',
@@ -55,7 +57,7 @@ export class SyncComponent implements OnInit {
   reprocessingOrder = false;
   reprocessResult: string | null = null;
 
-  hasDatabaseForReturns = false;
+  readonly hasDatabaseForReturns = signal(false);
 
   retryingTaskId: number | null = null;
   pendingTasksError: string | null = null;
@@ -68,10 +70,18 @@ export class SyncComponent implements OnInit {
   registeringWebhooks = false;
   webhooksResult: string | null = null;
 
+  readonly returnsCurrentPage = signal(1);
+  readonly returnsTotal = computed(() => this.returnsQuery.data()?.total ?? 0);
+  readonly returnsTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.returnsTotal() / RETURNS_PAGE_SIZE))
+  );
+
   readonly returnsQuery = injectQuery(() => ({
-    queryKey: SYNC_RETURNS_QUERY_KEY,
-    queryFn: () => firstValueFrom(this.sync.getReturns()),
-    enabled: this.hasDatabaseForReturns,
+    queryKey: [...SYNC_RETURNS_QUERY_KEY, this.returnsCurrentPage()],
+    queryFn: () => firstValueFrom(
+      this.sync.getReturns(RETURNS_PAGE_SIZE, (this.returnsCurrentPage() - 1) * RETURNS_PAGE_SIZE)
+    ),
+    enabled: this.hasDatabaseForReturns(),
     refetchOnWindowFocus: false,
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000
@@ -85,21 +95,28 @@ export class SyncComponent implements OnInit {
     }
   }));
 
+  readonly tasksCurrentPage = signal(1);
+  readonly tasksTotal = computed(() => this.pendingTasksQuery.data()?.total ?? 0);
+  readonly tasksTotalPages = computed(() =>
+    Math.max(1, Math.ceil(this.tasksTotal() / TASKS_PAGE_SIZE))
+  );
+
   readonly pendingTasksQuery = injectQuery<PendingMlTasksResponse>(() => ({
-    queryKey: SYNC_PENDING_TASKS_QUERY_KEY,
-    queryFn: () => firstValueFrom(this.sync.getPendingTasks()),
-    enabled: this.hasDatabaseForReturns,
+    queryKey: [...SYNC_PENDING_TASKS_QUERY_KEY, this.tasksCurrentPage()],
+    queryFn: () => firstValueFrom(
+      this.sync.getPendingTasks(TASKS_PAGE_SIZE, (this.tasksCurrentPage() - 1) * TASKS_PAGE_SIZE)
+    ),
+    enabled: this.hasDatabaseForReturns(),
     refetchOnWindowFocus: true,
     staleTime: 0,
     refetchInterval: (query) => {
-      const tasks: PendingMlTask[] = query.state.data?.tasks ?? [];
-      const hasActive = tasks.some((t) => t.status === 'pending' || t.status === 'processing');
+      const hasActive = (query.state.data?.activeCount ?? 0) > 0;
       return hasActive ? 4000 : 20000;
     }
   }));
 
   readonly tabs = computed<TabDef[]>(() => {
-    const returns = this.returnsRows.length;
+    const returns = this.returnsTotal();
     const failed = this.failedTasksCount;
     const active = this.activeTasksCount;
     const taskCount = active + failed;
@@ -134,7 +151,7 @@ export class SyncComponent implements OnInit {
         this.config = c;
         this.loading = false;
         if (c?.hasDatabase) {
-          this.hasDatabaseForReturns = true;
+          this.hasDatabaseForReturns.set(true);
           this.fetchReturnsMutation.mutate(undefined, {
             onSettled: () => {
               const r = this.fetchReturnsMutation.data();
@@ -181,6 +198,18 @@ export class SyncComponent implements OnInit {
     if (page < 1 || page > total) return;
     this.auditCurrentPage.set(page);
     this.loadAudit(page);
+  }
+
+  goToReturnsPage(page: number): void {
+    const total = this.returnsTotalPages();
+    if (page < 1 || page > total) return;
+    this.returnsCurrentPage.set(page);
+  }
+
+  goToTasksPage(page: number): void {
+    const total = this.tasksTotalPages();
+    if (page < 1 || page > total) return;
+    this.tasksCurrentPage.set(page);
   }
 
   onAuditSearchChange(): void {
@@ -281,6 +310,7 @@ export class SyncComponent implements OnInit {
 
   refreshReturns(): void {
     this.fetchResult = null;
+    this.returnsCurrentPage.set(1);
     this.fetchReturnsMutation.mutate(undefined, {
       onSuccess: (r) => {
         this.fetchResult = r.created > 0 || r.skipped > 0
@@ -304,6 +334,7 @@ export class SyncComponent implements OnInit {
       next: (r) => {
         this.returnOrderId = '';
         this.addingReturn = false;
+        this.returnsCurrentPage.set(1);
         this.queryClient.invalidateQueries({ queryKey: SYNC_RETURNS_QUERY_KEY });
         this.fetchResult = r.created > 0 ? `Se agregaron ${r.created} ítems de la orden.` : null;
       },
@@ -365,11 +396,11 @@ export class SyncComponent implements OnInit {
   }
 
   get activeTasksCount(): number {
-    return this.pendingTasks.filter((t) => t.status === 'pending' || t.status === 'processing').length;
+    return this.pendingTasksQuery.data()?.activeCount ?? 0;
   }
 
   get failedTasksCount(): number {
-    return this.pendingTasks.filter((t) => t.status === 'failed').length;
+    return this.pendingTasksQuery.data()?.failedCount ?? 0;
   }
 
   refreshPendingTasks(): void {

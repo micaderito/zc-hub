@@ -419,28 +419,37 @@ export async function setOAuthTokens(value) {
 }
 
 /**
- * Devuelve pendientes de devolución (solo status = 'pending').
+ * Devuelve pendientes de devolución (solo status = 'pending'), paginadas.
  */
-export async function getPendingReturns() {
+export async function getPendingReturns(limit = 20, offset = 0) {
   const p = getPool();
-  if (!p) return [];
+  if (!p) return { rows: [], total: 0 };
   try {
+    const countResult = await p.query(
+      `SELECT COUNT(*)::int AS total FROM sync_pending_returns WHERE status = 'pending'`
+    );
+    const total = countResult.rows[0]?.total ?? 0;
     const r = await p.query(
       `SELECT id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
               sku, quantity, product_label AS "productLabel", reason, buyer_nickname AS "buyerNickname",
               claim_date AS "claimDate", status, created_at AS "createdAt"
        FROM sync_pending_returns
        WHERE status = 'pending'
-       ORDER BY created_at DESC`
+       ORDER BY created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [Math.min(limit, 100), offset]
     );
-    return r.rows.map(row => ({
-      ...row,
-      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-      claimDate: row.claimDate ? new Date(row.claimDate).toISOString() : null
-    }));
+    return {
+      rows: r.rows.map(row => ({
+        ...row,
+        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+        claimDate: row.claimDate ? new Date(row.claimDate).toISOString() : null
+      })),
+      total
+    };
   } catch (e) {
     console.error('getPendingReturns:', e.message);
-    return [];
+    return { rows: [], total: 0 };
   }
 }
 
@@ -640,11 +649,20 @@ export async function updateMlTaskStatus(taskId, status, errorMsg = null) {
   }
 }
 
-/** Lista tareas activas (pending/processing/failed) para la UI. */
-export async function getPendingMlTasks(limit = 100) {
+/** Lista tareas activas (pending/processing/failed) para la UI, paginadas. */
+export async function getPendingMlTasks(limit = 20, offset = 0) {
   const p = getPool();
-  if (!p) return [];
+  if (!p) return { tasks: [], total: 0, activeCount: 0, failedCount: 0 };
   try {
+    const countResult = await p.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE status IN ('pending', 'processing'))::int AS "activeCount",
+         COUNT(*) FILTER (WHERE status = 'failed')::int AS "failedCount"
+       FROM ml_pending_tasks
+       WHERE status IN ('pending', 'processing', 'failed')`
+    );
+    const { total, activeCount, failedCount } = countResult.rows[0] ?? { total: 0, activeCount: 0, failedCount: 0 };
     const r = await p.query(
       `SELECT id, kind, item_id AS "itemId", variation_id AS "variationId",
               target_qty AS "targetQty", target_sku AS "targetSku", target_price AS "targetPrice",
@@ -653,19 +671,24 @@ export async function getPendingMlTasks(limit = 100) {
        FROM ml_pending_tasks
        WHERE status IN ('pending', 'processing', 'failed')
        ORDER BY updated_at DESC
-       LIMIT $1`,
-      [Math.min(limit, 500)]
+       LIMIT $1 OFFSET $2`,
+      [Math.min(limit, 100), offset]
     );
-    return r.rows.map(row => ({
-      ...row,
-      targetPrice: row.targetPrice != null ? Number(row.targetPrice) : null,
-      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
-      nextRunAt: row.nextRunAt ? new Date(row.nextRunAt).toISOString() : null,
-    }));
+    return {
+      tasks: r.rows.map(row => ({
+        ...row,
+        targetPrice: row.targetPrice != null ? Number(row.targetPrice) : null,
+        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+        updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+        nextRunAt: row.nextRunAt ? new Date(row.nextRunAt).toISOString() : null,
+      })),
+      total,
+      activeCount,
+      failedCount
+    };
   } catch (e) {
     console.error('getPendingMlTasks:', e.message);
-    return [];
+    return { tasks: [], total: 0, activeCount: 0, failedCount: 0 };
   }
 }
 

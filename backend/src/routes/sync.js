@@ -171,11 +171,13 @@ syncRoutes.post('/prices', async (req, res) => {
   res.json(results);
 });
 
-/** Listar devoluciones pendientes (ML) para aprobar y restaurar stock. */
-syncRoutes.get('/returns', async (_, res) => {
+/** Devoluciones pendientes (ML) para aprobar y restaurar stock. Query: limit, offset (paginado). */
+syncRoutes.get('/returns', async (req, res) => {
   try {
-    const rows = await getPendingReturns();
-    res.json({ rows });
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const offset = Number(req.query.offset) || 0;
+    const { rows, total } = await getPendingReturns(limit, offset);
+    res.json({ rows, total });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -417,12 +419,14 @@ syncRoutes.post('/returns/:id/approve', async (req, res) => {
   }
 });
 
-/** Listar tareas de ML pendientes/en proceso/fallidas para la UI. */
-syncRoutes.get('/pending-tasks', async (_, res) => {
+/** Tareas de actualización de ML pendientes/en proceso/fallidas para la UI. Query: limit, offset (paginado). */
+syncRoutes.get('/pending-tasks', async (req, res) => {
   if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada' });
   try {
-    const tasks = await getPendingMlTasks(100);
-    res.json({ tasks });
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const offset = Number(req.query.offset) || 0;
+    const { tasks, total, activeCount, failedCount } = await getPendingMlTasks(limit, offset);
+    res.json({ tasks, total, activeCount, failedCount });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
