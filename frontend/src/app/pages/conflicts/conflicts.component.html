@@ -92,7 +92,7 @@
       @if (activeTab() === 'coincidencias') {
         <app-conflicts-coincidencias-tab
           [pairs]="analysis.matched"
-          [paging]="analysis.paging ?? { page: 1, limit: 25, total: 0, pages: 1 }"
+          [paging]="analysis.paging"
           (editSku)="onEditSku($event)"
           (editBothSku)="openEditBothSkuModal($event)"
           (pageChange)="currentPage.set($event)"
@@ -101,7 +101,7 @@
       @if (activeTab() === 'solo-ml') {
         <app-conflicts-solo-ml-tab
           [rows]="analysis.onlyML"
-          [paging]="analysis.paging ?? { page: 1, limit: 25, total: 0, pages: 1 }"
+          [paging]="analysis.paging"
           (editSku)="onEditSku($event)"
           (linkFromMl)="openLinkFromMl($event)"
           (pageChange)="currentPage.set($event)"
@@ -110,7 +110,7 @@
       @if (activeTab() === 'solo-tn') {
         <app-conflicts-solo-tn-tab
           [rows]="analysis.onlyTN"
-          [paging]="analysis.paging ?? { page: 1, limit: 25, total: 0, pages: 1 }"
+          [paging]="analysis.paging"
           (editSku)="onEditSku($event)"
           (linkFromTn)="openLinkFromTn($event)"
           (pageChange)="currentPage.set($event)"
