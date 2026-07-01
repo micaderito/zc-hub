@@ -78,6 +78,9 @@ export async function initDb() {
     await p.query(`
       ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS claim_id VARCHAR(64);
     `);
+    await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS reason VARCHAR(256);`);
+    await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS buyer_nickname VARCHAR(256);`);
+    await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS claim_date TIMESTAMPTZ;`);
 
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_processed_orders (
@@ -424,14 +427,16 @@ export async function getPendingReturns() {
   try {
     const r = await p.query(
       `SELECT id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
-              sku, quantity, product_label AS "productLabel", status, created_at AS "createdAt"
+              sku, quantity, product_label AS "productLabel", reason, buyer_nickname AS "buyerNickname",
+              claim_date AS "claimDate", status, created_at AS "createdAt"
        FROM sync_pending_returns
        WHERE status = 'pending'
        ORDER BY created_at DESC`
     );
     return r.rows.map(row => ({
       ...row,
-      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+      claimDate: row.claimDate ? new Date(row.claimDate).toISOString() : null
     }));
   } catch (e) {
     console.error('getPendingReturns:', e.message);
@@ -447,10 +452,11 @@ export async function insertPendingReturn(row) {
   if (!p) return null;
   try {
     const r = await p.query(
-      `INSERT INTO sync_pending_returns (claim_id, order_id, item_id, variation_id, sku, quantity, product_label, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+      `INSERT INTO sync_pending_returns (claim_id, order_id, item_id, variation_id, sku, quantity, product_label, reason, buyer_nickname, claim_date, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
        RETURNING id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
-                 sku, quantity, product_label AS "productLabel", status, created_at AS "createdAt"`,
+                 sku, quantity, product_label AS "productLabel", reason, buyer_nickname AS "buyerNickname",
+                 claim_date AS "claimDate", status, created_at AS "createdAt"`,
       [
         row.claimId ?? null,
         row.orderId || '',
@@ -458,11 +464,15 @@ export async function insertPendingReturn(row) {
         row.variationId ?? null,
         row.sku ?? null,
         row.quantity ?? 1,
-        row.productLabel ?? null
+        row.productLabel ?? null,
+        row.reason ?? null,
+        row.buyerNickname ?? null,
+        row.claimDate ?? null
       ]
     );
     const out = r.rows[0];
     if (out?.createdAt) out.createdAt = new Date(out.createdAt).toISOString();
+    if (out?.claimDate) out.claimDate = new Date(out.claimDate).toISOString();
     return out;
   } catch (e) {
     console.error('insertPendingReturn:', e.message);

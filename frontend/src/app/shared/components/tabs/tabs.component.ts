@@ -5,7 +5,7 @@ export interface TabDef {
   key: string;
   label: string;
   count?: number;
-  countVariant?: 'ok' | 'warn';
+  countVariant?: 'ok' | 'warn' | 'err';
 }
 
 @Component({
@@ -25,7 +25,7 @@ export interface TabDef {
         >
           {{ tab.label }}
           @if (tab.count !== undefined) {
-            <span class="tab-count" [class.ok]="tab.countVariant === 'ok'" [class.warn]="tab.countVariant === 'warn'">
+            <span class="tab-count" [class.ok]="tab.countVariant === 'ok'" [class.warn]="tab.countVariant === 'warn'" [class.err]="tab.countVariant === 'err'">
               {{ tab.count }}
             </span>
           }

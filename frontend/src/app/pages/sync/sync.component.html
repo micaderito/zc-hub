@@ -1,278 +1,339 @@
 <div class="sync-page">
-  <h1>Sincronización de stock</h1>
-  <p class="subtitle">Cuando hay una venta en Mercado Libre o Tienda Nube, podés descontar el stock automáticamente en la otra plataforma. Acá activás o desactivás esa sincronización y ves el historial de cambios.</p>
+
+  <div class="page-header">
+    <div class="page-header-main">
+      <h1>Sincronización de stock</h1>
+      <p class="page-desc">Cada venta en ML o TN descuenta el stock en la otra plataforma según el SKU vinculado.</p>
+    </div>
+    @if (config && !loading) {
+      @if (config.hasDatabase) {
+        <span class="sync-status-badge" [class.active]="config.enabled" [class.inactive]="!config.enabled">
+          <span class="status-dot"></span>
+          {{ config.enabled ? 'Sync activa' : 'Sync inactiva' }}
+        </span>
+      }
+    }
+  </div>
 
   @if (error) {
     <div class="alert error">{{ error }}</div>
   }
 
   @if (loading) {
-    <p>Cargando…</p>
+    <p class="loading-text">Cargando…</p>
   } @else if (config) {
-    <section class="config-section">
-      <h2>Estado</h2>
-      @if (!config.hasDatabase) {
-        <div class="alert warn">
-          <strong>Base de datos no configurada.</strong> Para activar la sincronización y guardar el historial, configurá DATABASE_URL en el backend (recomendado: Supabase). Ver instrucciones más abajo.
-        </div>
-      } @else {
-        <div class="toggle-row">
-          <span class="toggle-label">Sincronización de stock</span>
-          <label class="switch">
-            <input type="checkbox" [checked]="config.enabled" (change)="toggleSync($any($event.target).checked)" [disabled]="savingToggle" />
-            <span class="slider"></span>
-          </label>
-          <span class="toggle-status">{{ config.enabled ? 'Activada' : 'Desactivada' }}</span>
-        </div>
-        <p class="help">Si está activada, cada venta en ML o TN descontará el stock en la otra plataforma (según el SKU vinculado). Por defecto viene desactivada.</p>
-        <div class="webhooks-row">
-          <button type="button" class="btn-register-webhooks" (click)="registerWebhooks()" [disabled]="registeringWebhooks" title="Registrar en Tienda Nube la URL que recibe órdenes (pagadas, canceladas, etc.). Útil si cambiaste la URL de ngrok.">
-            {{ registeringWebhooks ? 'Registrando…' : 'Registrar webhooks Tienda Nube' }}
-          </button>
-          @if (webhooksResult) {
-            <span class="webhooks-result" [class.error]="webhooksResult.startsWith('Error')">{{ webhooksResult }}</span>
-          }
-        </div>
-        <p class="help muted">Tienda Nube debe tener configurada la URL pública (WEBHOOK_BASE_URL en el backend). Si cambiás de ngrok, actualizá esa variable y usá este botón.</p>
-      }
-    </section>
 
-    @if (config.hasDatabase) {
-    <section class="returns-section">
-      <div class="returns-section-header">
-        <h2>Devoluciones de Mercado Libre</h2>
-        <button type="button" class="btn-refresh-returns" (click)="refreshReturns()" [disabled]="fetchingReturns" title="Traer devoluciones desde ML y refrescar la lista">
-          {{ fetchingReturns ? 'Actualizando…' : 'Actualizar' }}
-        </button>
+    @if (!config.hasDatabase) {
+      <div class="alert warn">
+        <strong>Base de datos no configurada.</strong> Para activar la sincronización y guardar el historial, configurá DATABASE_URL en el backend (recomendado: Supabase).
       </div>
-      <p class="help">Al entrar a esta página se buscan las devoluciones en ML. Cuando hayas verificado cada una, usá «Restaurar stock (ML y TN)» y restauramos en ambas plataformas.</p>
-
-      <div class="returns-actions">
-        <span class="returns-add-label">Agregar por nro de venta (pack id):</span>
-        <input type="text" [(ngModel)]="returnOrderId" placeholder="Nro de venta (pack id) ej. 2000011838697695" class="input-order-id" />
-        <button type="button" (click)="addReturnsByOrder()" [disabled]="!returnOrderId.trim() || addingReturn">
-          {{ addingReturn ? 'Cargando…' : 'Agregar ítems' }}
-        </button>
-      </div>
-      <p class="help muted">Nro de venta = pack id que ves en la app de ML (cada pack tiene varias órdenes/productos).</p>
-      @if (fetchResult) {
-        <p class="fetch-result">{{ fetchResult }}</p>
-      }
-
-      @if (returnsError) {
-        <div class="alert error">{{ returnsError }}</div>
-      }
-
-      @if (returnsLoading) {
-        <p>Cargando devoluciones…</p>
-      } @else if (returnsRows.length === 0) {
-        <p class="empty">No hay devoluciones pendientes. Usá «Actualizar» para buscar de nuevo en ML o agregá una orden por número.</p>
-      } @else {
-        <div class="table-scroll">
-        <table class="audit-table returns-table">
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Orden ML</th>
-              <th>SKU / Producto</th>
-              <th>Cantidad</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (row of returnsRows; track row.id) {
-              <tr>
-                <td>{{ formatDate(row.createdAt) }}</td>
-                <td><code>{{ row.orderId }}</code></td>
-                <td>
-                  <code>{{ row.sku || '—' }}</code>
-                  @if (row.productLabel) {
-                    <span class="product-label">{{ row.productLabel }}</span>
-                  }
-                </td>
-                <td>{{ row.quantity }}</td>
-                <td>
-                  <button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId === row.id">
-                    {{ approvingId === row.id ? 'Restaurando…' : 'Restaurar stock (ML y TN)' }}
-                  </button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-        </div>
-      }
-    </section>
     }
 
-    @if (config.hasDatabase) {
-    <section class="tasks-section">
-      <div class="tasks-section-header">
-        <h2>Actualizaciones en cola (Mercado Libre)</h2>
-        <button type="button" class="btn-refresh-returns" (click)="refreshPendingTasks()" [disabled]="pendingTasksFetching" title="Actualizar lista de tareas">
-          {{ pendingTasksFetching ? 'Actualizando…' : 'Actualizar' }}
-        </button>
-      </div>
-      <p class="help">Las actualizaciones de stock y SKU en Mercado Libre se procesan en una cola para no superar el límite de la API. Acá ves cuáles están pendientes, en proceso o fallaron. Las completadas desaparecen de esta lista.</p>
+    <zc-tabs
+      [tabs]="tabs()"
+      [activeKey]="activeTab()"
+      (tabChange)="activeTab.set($event)"
+    />
 
-      @if (activeTasksCount > 0 || failedTasksCount > 0) {
-        <div class="tasks-summary">
-          @if (activeTasksCount > 0) {
-            <span class="task-chip processing">{{ activeTasksCount }} activa(s)</span>
-          }
-          @if (failedTasksCount > 0) {
-            <span class="task-chip failed">{{ failedTasksCount }} con error</span>
-          }
-        </div>
-      }
+    @if (activeTab() === 'estado') {
+      <div class="tab-panel">
 
-      @if (pendingTasksError) {
-        <div class="alert error">{{ pendingTasksError }}</div>
-      }
-      @if (pendingTasksQueryError) {
-        <div class="alert error">{{ pendingTasksQueryError }}</div>
-      }
-
-      @if (pendingTasksLoading) {
-        <p>Cargando tareas…</p>
-      } @else if (pendingTasks.length === 0) {
-        <p class="empty">No hay actualizaciones en cola. Cuando edites un SKU o haya una venta que descuente stock en ML, las verás acá hasta que se completen.</p>
-      } @else {
-        <div class="table-scroll">
-        <table class="audit-table tasks-table">
-          <thead>
-            <tr>
-              <th>Estado</th>
-              <th>Tipo</th>
-              <th>Ítem ML</th>
-              <th>Variación</th>
-              <th>Cambio</th>
-              <th>Intentos</th>
-              <th>Último error</th>
-              <th>Actualizado</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (task of pendingTasks; track task.id) {
-              <tr [class.task-row-failed]="task.status === 'failed'">
-                <td><span [class]="taskStatusChipClass(task.status)">{{ taskStatusLabel(task.status) }}</span></td>
-                <td>{{ taskKindLabel(task.kind) }}</td>
-                <td><code>{{ task.itemId || '—' }}</code></td>
-                <td><code>{{ task.variationId || '—' }}</code></td>
-                <td>{{ taskChangeLabel(task) }}</td>
-                <td>{{ task.attempts }}</td>
-                <td class="task-error-cell">{{ task.lastError || '—' }}</td>
-                <td>{{ formatDate(task.updatedAt) }}</td>
-                <td>
-                  @if (task.status === 'failed') {
-                    <button type="button" class="btn-approve" (click)="retryTask(task)" [disabled]="retryingTaskId === task.id">
-                      {{ retryingTaskId === task.id ? '…' : 'Reintentar' }}
-                    </button>
-                  }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-        </div>
-      }
-    </section>
-    }
-
-    <section class="audit-section">
-      <div class="audit-section-header">
-        <h2>Historial de sincronización</h2>
-        @if (config.hasDatabase) {
-          <button type="button" class="btn-refresh-audit" (click)="refreshAudit()" [disabled]="auditLoading" title="Actualizar lista">
-            {{ auditLoading ? 'Actualizando…' : 'Actualizar' }}
-          </button>
-        }
-      </div>
-      @if (!config.hasDatabase) {
-        <p class="muted">El historial se guarda cuando hay una base de datos configurada.</p>
-      } @else if (auditLoading) {
-        <p>Cargando historial…</p>
-      } @else if (auditError) {
-        <p class="alert error">{{ auditError }}</p>
-      } @else {
-        <div class="audit-search-bar">
-          <label class="audit-search-label">Buscar por nro de venta (pack) o nro de orden</label>
-          <zc-search-bar
-            [value]="auditSearchQuery()"
-            (valueChange)="auditSearchQuery.set($event); onAuditSearchChange()"
-            placeholder="Ej. 1234567890 o MLA123"
-            ariaLabel="Buscar en historial de sincronización"
-          />
-        </div>
-        <div class="audit-reprocess-row">
-          <span class="audit-reprocess-label">Venta ML que no se registró (reintentar):</span>
-          <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta (pack id) ej. 2000011838697695" class="audit-search-input" (keyup.enter)="reprocessOrder()" />
-          <button type="button" class="btn-audit-search" (click)="reprocessOrder()" [disabled]="!reprocessOrderId.trim() || reprocessingOrder">
-            {{ reprocessingOrder ? '…' : 'Reintentar' }}
-          </button>
-          @if (reprocessResult) {
-            <span class="reprocess-result" [class.error]="reprocessResult.startsWith('Error')">{{ reprocessResult }}</span>
-          }
-        </div>
-        @if (revertError) {
-          <p class="alert error">{{ revertError }}</p>
-        }
-        @if (auditRows.length === 0) {
-          <p class="empty">
-            @if (auditSearchQuery().trim()) {
-              No hay registros que coincidan con la búsqueda. Probá otro término o borrá la búsqueda para ver todo el historial.
-            } @else {
-              Aún no hay registros. Cuando la sincronización esté activada y ocurra una venta, acá aparecerá cada descuento de stock.
-            }
-          </p>
-        } @else {
-        <div class="audit-list">
-          @for (row of auditRows; track row.id) {
-            <div class="audit-row" [class.audit-row-ml]="row.channelSale === 'mercadolibre'" [class.audit-row-tn]="row.channelSale === 'tiendanube'" [class.audit-row-reverted]="row.revertedAt">
-              <div class="audit-row-main">
-                <div class="audit-row-title">{{ row.productDisplay || row.sku }}</div>
-                <div class="audit-row-meta">
-                  <code>{{ row.sku }}</code>
-                  @if (row.orderId) {
-                    <span>Pack <code>{{ row.orderId }}</code></span>
-                  }
-                  @if (row.saleItemId) {
-                    <span>Orden <code>{{ row.saleItemId }}</code></span>
-                  }
-                  <span class="audit-row-date">{{ formatDate(row.createdAt) }}</span>
-                </div>
-              </div>
-              <div class="audit-row-right">
-                @if (row.productLabel) {
-                  <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
-                }
-                <div class="audit-stock-diff">
-                  <span class="stock-before">{{ row.stockBefore }}</span>
-                  <i class="ti ti-arrow-right" aria-hidden="true"></i>
-                  <span class="stock-after" [class.stock-down]="row.stockAfter < row.stockBefore" [class.stock-up]="row.stockAfter > row.stockBefore">{{ row.stockAfter }}</span>
-                  <span class="stock-delta">{{ row.stockAfter - row.stockBefore > 0 ? '+' : '' }}{{ row.stockAfter - row.stockBefore }} u.</span>
-                </div>
-                @if (row.revertedAt) {
-                  <span class="reverted-badge">Revertido</span>
-                } @else {
-                  <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + channelLabel(row.updatedChannel)">
-                    {{ revertingAuditId === row.id ? '…' : 'Revertir' }}
-                  </button>
-                }
+        <div class="card">
+          <div class="card-section-label">Sincronización automática</div>
+          @if (!config.hasDatabase) {
+            <p class="hint">Configurá la base de datos para activar la sincronización.</p>
+          } @else {
+            <div class="toggle-row">
+              <label class="switch">
+                <input type="checkbox" [checked]="config.enabled" (change)="toggleSync($any($event.target).checked)" [disabled]="savingToggle" />
+                <span class="slider"></span>
+              </label>
+              <div>
+                <span class="toggle-label">Sincronización de stock</span>
+                <p class="hint">{{ config.enabled ? 'Las ventas descuentan stock en el otro canal automáticamente.' : 'La sincronización está desactivada.' }}</p>
               </div>
             </div>
           }
         </div>
-        <zc-pagination
-          [currentPage]="auditCurrentPage()"
-          [totalPages]="auditTotalPages()"
-          [total]="auditTotal"
-          (prev)="goToAuditPage(auditCurrentPage() - 1)"
-          (next)="goToAuditPage(auditCurrentPage() + 1)"
-        />
+
+        <div class="card card-secondary">
+          <div class="card-row">
+            <div>
+              <span class="card-row-label">Webhooks de Tienda Nube</span>
+              <p class="hint">Re-registrá si cambiaste la URL del servidor (ngrok u otro).</p>
+            </div>
+            <div class="card-row-actions">
+              <button type="button" class="btn-secondary" (click)="registerWebhooks()" [disabled]="registeringWebhooks">
+                <i class="ti ti-webhook" aria-hidden="true"></i>
+                {{ registeringWebhooks ? 'Registrando…' : 'Registrar webhooks' }}
+              </button>
+              @if (webhooksResult) {
+                <span class="inline-result" [class.err]="webhooksResult.startsWith('Error')">{{ webhooksResult }}</span>
+              }
+            </div>
+          </div>
+        </div>
+
+      </div>
+    }
+
+    @if (activeTab() === 'devoluciones') {
+      <div class="tab-panel">
+
+        @if (!config.hasDatabase) {
+          <p class="muted">Configurá la base de datos para gestionar devoluciones.</p>
+        } @else {
+
+          <div class="section-toolbar">
+            @if (fetchResult) {
+              <span class="fetch-result">{{ fetchResult }}</span>
+            }
+            <button type="button" class="btn-secondary" (click)="refreshReturns()" [disabled]="fetchingReturns">
+              <i class="ti ti-refresh" aria-hidden="true"></i>
+              {{ fetchingReturns ? 'Actualizando…' : 'Actualizar' }}
+            </button>
+          </div>
+
+          @if (returnsError) {
+            <div class="alert error">{{ returnsError }}</div>
+          }
+
+          @if (returnsLoading) {
+            <p class="loading-text">Cargando devoluciones…</p>
+          } @else if (returnsRows.length === 0) {
+            <div class="empty-state">
+              <i class="ti ti-check-circle" aria-hidden="true"></i>
+              <p>No hay devoluciones pendientes.</p>
+              <p class="hint">Usá «Actualizar» para revisar de nuevo en ML o agregá una orden por número.</p>
+            </div>
+          } @else {
+            <div class="returns-list">
+              @for (row of returnsRows; track row.id) {
+                <div class="return-card">
+                  <div class="return-card-main">
+                    <div class="return-product">{{ row.productLabel || '—' }}</div>
+                    <div class="return-meta">
+                      @if (row.sku) {
+                        <code>{{ row.sku }}</code>
+                      }
+                      <span>Orden <code>{{ row.orderId }}</code></span>
+                      @if (row.buyerNickname) {
+                        <span class="meta-buyer"><i class="ti ti-user" aria-hidden="true"></i>{{ row.buyerNickname }}</span>
+                      }
+                      @if (row.reason) {
+                        <span class="meta-reason"><i class="ti ti-message-circle" aria-hidden="true"></i>{{ row.reason }}</span>
+                      }
+                      <span class="meta-date">{{ formatDate(row.claimDate || row.createdAt) }}</span>
+                    </div>
+                  </div>
+                  <div class="return-card-right">
+                    <span class="qty-badge">× {{ row.quantity }} u.</span>
+                    <button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId === row.id">
+                      <i class="ti ti-check" aria-hidden="true"></i>
+                      {{ approvingId === row.id ? 'Restaurando…' : 'Restaurar stock' }}
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
+          <div class="add-return-row">
+            <span class="add-return-label"><i class="ti ti-plus" aria-hidden="true"></i>Agregar por nro de venta:</span>
+            <input type="text" [(ngModel)]="returnOrderId" placeholder="Ej. 2000011838697695" class="zc-input" />
+            <button type="button" class="btn-secondary" (click)="addReturnsByOrder()" [disabled]="!returnOrderId.trim() || addingReturn">
+              {{ addingReturn ? 'Cargando…' : 'Agregar' }}
+            </button>
+          </div>
+
         }
-      }
-    </section>
+      </div>
+    }
+
+    @if (activeTab() === 'cola') {
+      <div class="tab-panel">
+
+        @if (!config.hasDatabase) {
+          <p class="muted">Configurá la base de datos para ver la cola de actualizaciones.</p>
+        } @else {
+
+          <div class="section-toolbar">
+            @if (activeTasksCount > 0 || failedTasksCount > 0) {
+              <div class="tasks-summary">
+                @if (activeTasksCount > 0) {
+                  <span class="task-chip processing">{{ activeTasksCount }} activa(s)</span>
+                }
+                @if (failedTasksCount > 0) {
+                  <span class="task-chip failed">{{ failedTasksCount }} con error</span>
+                }
+              </div>
+            }
+            <button type="button" class="btn-secondary" (click)="refreshPendingTasks()" [disabled]="pendingTasksFetching">
+              <i class="ti ti-refresh" aria-hidden="true"></i>
+              {{ pendingTasksFetching ? 'Actualizando…' : 'Actualizar' }}
+            </button>
+          </div>
+
+          @if (pendingTasksError) {
+            <div class="alert error">{{ pendingTasksError }}</div>
+          }
+          @if (pendingTasksQueryError) {
+            <div class="alert error">{{ pendingTasksQueryError }}</div>
+          }
+
+          @if (pendingTasksLoading) {
+            <p class="loading-text">Cargando tareas…</p>
+          } @else if (pendingTasks.length === 0) {
+            <div class="empty-state">
+              <i class="ti ti-check-circle" aria-hidden="true"></i>
+              <p>No hay actualizaciones en cola.</p>
+              <p class="hint">Cuando editás un SKU o hay una venta que descuenta stock en ML, las verás acá hasta que se completen.</p>
+            </div>
+          } @else {
+            <div class="table-scroll">
+              <table class="zc-table">
+                <thead>
+                  <tr>
+                    <th>Estado</th>
+                    <th>Tipo</th>
+                    <th>Ítem ML</th>
+                    <th>Variación</th>
+                    <th>Cambio</th>
+                    <th>Intentos</th>
+                    <th>Error</th>
+                    <th>Actualizado</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (task of pendingTasks; track task.id) {
+                    <tr [class.row-failed]="task.status === 'failed'">
+                      <td><span [class]="taskStatusChipClass(task.status)">{{ taskStatusLabel(task.status) }}</span></td>
+                      <td>{{ taskKindLabel(task.kind) }}</td>
+                      <td><code>{{ task.itemId || '—' }}</code></td>
+                      <td><code>{{ task.variationId || '—' }}</code></td>
+                      <td>{{ taskChangeLabel(task) }}</td>
+                      <td>{{ task.attempts }}</td>
+                      <td class="cell-error">{{ task.lastError || '—' }}</td>
+                      <td>{{ formatDate(task.updatedAt) }}</td>
+                      <td>
+                        @if (task.status === 'failed') {
+                          <button type="button" class="btn-secondary btn-sm" (click)="retryTask(task)" [disabled]="retryingTaskId === task.id">
+                            {{ retryingTaskId === task.id ? '…' : 'Reintentar' }}
+                          </button>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        }
+      </div>
+    }
+
+    @if (activeTab() === 'historial') {
+      <div class="tab-panel">
+
+        @if (!config.hasDatabase) {
+          <p class="muted">El historial se guarda cuando hay una base de datos configurada.</p>
+        } @else if (auditLoading) {
+          <p class="loading-text">Cargando historial…</p>
+        } @else if (auditError) {
+          <div class="alert error">{{ auditError }}</div>
+        } @else {
+
+          <div class="section-toolbar section-toolbar--wrap">
+            <zc-search-bar
+              [value]="auditSearchQuery()"
+              (valueChange)="auditSearchQuery.set($event); onAuditSearchChange()"
+              placeholder="Buscar por nro de venta u orden…"
+              ariaLabel="Buscar en historial de sincronización"
+            />
+            <div class="toolbar-right">
+              <div class="reprocess-row">
+                <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta (reintentar)" class="zc-input reprocess-input" (keyup.enter)="reprocessOrder()" />
+                <button type="button" class="btn-secondary" (click)="reprocessOrder()" [disabled]="!reprocessOrderId.trim() || reprocessingOrder">
+                  {{ reprocessingOrder ? '…' : 'Reintentar venta' }}
+                </button>
+                @if (reprocessResult) {
+                  <span class="inline-result" [class.err]="reprocessResult.startsWith('Error')">{{ reprocessResult }}</span>
+                }
+              </div>
+              <button type="button" class="btn-secondary" (click)="refreshAudit()" [disabled]="auditLoading">
+                <i class="ti ti-refresh" aria-hidden="true"></i>
+                Actualizar
+              </button>
+            </div>
+          </div>
+
+          @if (revertError) {
+            <div class="alert error">{{ revertError }}</div>
+          }
+
+          @if (auditRows.length === 0) {
+            <div class="empty-state">
+              @if (auditSearchQuery().trim()) {
+                <i class="ti ti-search" aria-hidden="true"></i>
+                <p>Sin resultados para la búsqueda.</p>
+                <p class="hint">Probá otro término o borrá la búsqueda para ver todo el historial.</p>
+              } @else {
+                <i class="ti ti-history" aria-hidden="true"></i>
+                <p>Aún no hay registros.</p>
+                <p class="hint">Cuando la sincronización esté activa y ocurra una venta, cada descuento de stock aparecerá acá.</p>
+              }
+            </div>
+          } @else {
+            <div class="audit-list">
+              @for (row of auditRows; track row.id) {
+                <div class="audit-row" [class.audit-ml]="row.channelSale === 'mercadolibre'" [class.audit-tn]="row.channelSale === 'tiendanube'" [class.audit-reverted]="row.revertedAt">
+                  <div class="audit-main">
+                    <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
+                    <div class="audit-meta">
+                      <code>{{ row.sku }}</code>
+                      @if (row.orderId) {
+                        <span>Pack <code>{{ row.orderId }}</code></span>
+                      }
+                      @if (row.saleItemId) {
+                        <span>Orden <code>{{ row.saleItemId }}</code></span>
+                      }
+                      <span class="meta-date">{{ formatDate(row.createdAt) }}</span>
+                    </div>
+                  </div>
+                  <div class="audit-right">
+                    @if (row.productLabel) {
+                      <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
+                    }
+                    <div class="stock-diff">
+                      <span class="stock-before">{{ row.stockBefore }}</span>
+                      <i class="ti ti-arrow-right" aria-hidden="true"></i>
+                      <span class="stock-after" [class.down]="row.stockAfter < row.stockBefore" [class.up]="row.stockAfter > row.stockBefore">{{ row.stockAfter }}</span>
+                      <span class="stock-delta">{{ row.stockAfter - row.stockBefore > 0 ? '+' : '' }}{{ row.stockAfter - row.stockBefore }} u.</span>
+                    </div>
+                    @if (row.revertedAt) {
+                      <span class="reverted-badge">Revertido</span>
+                    } @else {
+                      <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + channelLabel(row.updatedChannel)">
+                        {{ revertingAuditId === row.id ? '…' : 'Revertir' }}
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+            <zc-pagination
+              [currentPage]="auditCurrentPage()"
+              [totalPages]="auditTotalPages()"
+              [total]="auditTotal"
+              (prev)="goToAuditPage(auditCurrentPage() - 1)"
+              (next)="goToAuditPage(auditCurrentPage() + 1)"
+            />
+          }
+
+        }
+      </div>
+    }
+
   }
 </div>
