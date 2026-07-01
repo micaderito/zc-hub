@@ -75,59 +75,62 @@
         </div>
       }
 
-      <zc-tabs [tabs]="conflictTabs(analysis)" [activeKey]="tab" (tabChange)="tab = $any($event)" />
+      <zc-tabs [tabs]="conflictTabs(analysis)" [activeKey]="activeTab()" (tabChange)="onTabChange($any($event))" />
 
-      @if (tab !== 'resumen') {
+      @if (activeTab() !== 'resumen') {
         <zc-search-bar
-          [value]="searchQuery"
-          (valueChange)="searchQuery = $event"
+          [value]="searchQuery()"
+          (valueChange)="onSearchChange($event)"
           placeholder="Buscar por título o SKU…"
           ariaLabel="Buscar producto"
         />
       }
 
-      @if (tab === 'resumen') {
+      @if (activeTab() === 'resumen') {
         <app-conflicts-resumen-tab [analysis]="analysis" />
       }
-      @if (tab === 'coincidencias') {
+      @if (activeTab() === 'coincidencias') {
         <app-conflicts-coincidencias-tab
-          [analysis]="analysis"
-          [searchQuery]="searchQuery"
+          [pairs]="analysis.matched"
+          [paging]="analysis.paging"
           (editSku)="onEditSku($event)"
           (editBothSku)="openEditBothSkuModal($event)"
+          (pageChange)="currentPage.set($event)"
         />
       }
-      @if (tab === 'solo-ml') {
+      @if (activeTab() === 'solo-ml') {
         <app-conflicts-solo-ml-tab
           [rows]="analysis.onlyML"
-          [searchQuery]="searchQuery"
+          [paging]="analysis.paging"
           (editSku)="onEditSku($event)"
           (linkFromMl)="openLinkFromMl($event)"
+          (pageChange)="currentPage.set($event)"
         />
       }
-      @if (tab === 'solo-tn') {
+      @if (activeTab() === 'solo-tn') {
         <app-conflicts-solo-tn-tab
           [rows]="analysis.onlyTN"
-          [searchQuery]="searchQuery"
+          [paging]="analysis.paging"
           (editSku)="onEditSku($event)"
           (linkFromTn)="openLinkFromTn($event)"
+          (pageChange)="currentPage.set($event)"
         />
       }
-      @if (tab === 'sin-sku') {
+      @if (activeTab() === 'sin-sku') {
         <app-conflicts-sin-sku-tab
           [noSkuML]="analysis.noSkuML"
           [noSkuTN]="analysis.noSkuTN"
-          [searchQuery]="searchQuery"
+          [searchQuery]="searchQuery()"
           (editSku)="onEditSku($event)"
           (linkFromMl)="openLinkFromMl($event)"
           (linkFromTn)="openLinkFromTn($event)"
         />
       }
-      @if (tab === 'duplicados') {
+      @if (activeTab() === 'duplicados') {
         <app-conflicts-duplicados-tab
           [duplicateSkuML]="analysis.duplicateSkuML"
           [duplicateSkuTN]="analysis.duplicateSkuTN"
-          [searchQuery]="searchQuery"
+          [searchQuery]="searchQuery()"
           (editSku)="onEditSku($event)"
           (editBulkSku)="onBulkEditSku($event)"
         />
