@@ -47,6 +47,7 @@ export interface PendingReturnRow {
 
 export interface SyncReturnsResponse {
   rows: PendingReturnRow[];
+  total: number;
 }
 
 export type MlTaskKind = 'stock_ml' | 'sku_ml' | 'sku_tn' | 'price_ml';
@@ -71,6 +72,9 @@ export interface PendingMlTask {
 
 export interface PendingMlTasksResponse {
   tasks: PendingMlTask[];
+  total: number;
+  activeCount: number;
+  failedCount: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -123,9 +127,10 @@ export class SyncService {
     );
   }
 
-  /** Listar devoluciones pendientes (ML). */
-  getReturns() {
-    return this.http.get<SyncReturnsResponse>(`${this.api.baseUrl}/sync/returns`);
+  /** Listar devoluciones pendientes (ML), paginadas. */
+  getReturns(limit = 20, offset = 0) {
+    const params = { limit: String(limit), offset: String(offset) };
+    return this.http.get<SyncReturnsResponse>(`${this.api.baseUrl}/sync/returns`, { params });
   }
 
   /** Traer devoluciones desde ML (reclamos con devolución). No tenés que ingresar el nº de orden. */
@@ -152,9 +157,10 @@ export class SyncService {
     );
   }
 
-  /** Listar tareas de actualización de ML pendientes / en proceso / fallidas. */
-  getPendingTasks() {
-    return this.http.get<PendingMlTasksResponse>(`${this.api.baseUrl}/sync/pending-tasks`);
+  /** Listar tareas de actualización de ML pendientes / en proceso / fallidas, paginadas. */
+  getPendingTasks(limit = 20, offset = 0) {
+    const params = { limit: String(limit), offset: String(offset) };
+    return this.http.get<PendingMlTasksResponse>(`${this.api.baseUrl}/sync/pending-tasks`, { params });
   }
 
   /** Reintentar manualmente una tarea fallida. */

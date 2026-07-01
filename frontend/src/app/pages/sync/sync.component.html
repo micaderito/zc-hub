@@ -136,6 +136,13 @@
                 </div>
               }
             </div>
+            <zc-pagination
+              [currentPage]="returnsCurrentPage()"
+              [totalPages]="returnsTotalPages()"
+              [total]="returnsTotal()"
+              (prev)="goToReturnsPage(returnsCurrentPage() - 1)"
+              (next)="goToReturnsPage(returnsCurrentPage() + 1)"
+            />
           }
 
           <div class="add-return-row">
@@ -228,6 +235,13 @@
                 </tbody>
               </table>
             </div>
+            <zc-pagination
+              [currentPage]="tasksCurrentPage()"
+              [totalPages]="tasksTotalPages()"
+              [total]="tasksTotal()"
+              (prev)="goToTasksPage(tasksCurrentPage() - 1)"
+              (next)="goToTasksPage(tasksCurrentPage() + 1)"
+            />
           }
         }
       </div>

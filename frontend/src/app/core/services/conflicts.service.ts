@@ -74,8 +74,8 @@ export interface ConflictAnalysis {
   duplicateSkuML: { sku: string; items: MlRow[] }[];
   duplicateSkuTN: { sku: string; items: TnRow[] }[];
   mappings: unknown[];
-  /** Metadata de paginación del backend */
-  paging?: { page: number; limit: number; total: number; pages: number };
+  /** Metadata de paginación del backend (el backend siempre la incluye, incluso para tabs sin paginado real) */
+  paging: { page: number; limit: number; total: number; pages: number };
   /** Totales por filtro de stock (del full dataset, no de la página actual) */
   stockSummary?: { total: number; mismatch: number; synced: number; noStock: number; withStock: number };
 }
