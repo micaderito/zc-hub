@@ -23,7 +23,7 @@ function getPool() {
 
 const SYNC_ENABLED_KEY = 'stock_sync_enabled';
 const ANALYSIS_CACHE_KEY = 'conflicts_analysis_cache';
-const ANALYSIS_CACHE_TTL_MS = 90 * 1000;
+const ANALYSIS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /** Crea las tablas si no existen. */
 export async function initDb() {
