@@ -224,67 +224,78 @@ async function getAnalysisImpl() {
       const userId = tokens.mercadolibre.user_id;
       const runSearch = async () => {
         const ids = [];
-        let offset = 0;
-        const delayMs = 180;
-        for (let page = 0; page < maxPages; page++) {
-          if (page > 0) await new Promise((r) => setTimeout(r, delayMs));
-          const url = `https://api.mercadolibre.com/users/${userId}/items/search?limit=${limit}&offset=${offset}`;
-          const r = await ml.fetchWith429Retry(
-            url,
-            { headers: { Authorization: `Bearer ${token}` } },
-            'search'
-          );
-          if (!r.ok) {
-            if (r.status === 401) authFailed = true;
-            const errText = await r.text();
-            console.error('[ML] search failed:', r.status, url, errText.slice(0, 400));
-            return ids;
-          }
-          const data = await r.json();
-          const results = data.results || [];
-          const pageIds = results.map(x => (typeof x === 'string' ? x : (x && x.id) || null)).filter(Boolean);
-          ids.push(...pageIds);
-          const total = data.paging?.total ?? 0;
-          if (page === 0) {
-            console.log('[ML] search ok:', results.length, 'en esta página, paging.total:', total);
-            if (results.length === 0 && total === 0) {
-              console.log('[ML] respuesta search (keys):', Object.keys(data));
-            }
-          }
-          if (results.length < limit || offset + limit >= total) break;
-          offset += limit;
+        const authHeaders = { Authorization: `Bearer ${token}` };
+
+        // Página 0 para conocer el total
+        const firstUrl = `https://api.mercadolibre.com/users/${userId}/items/search?limit=${limit}&offset=0`;
+        const firstRes = await ml.fetchWith429Retry(firstUrl, { headers: authHeaders }, 'search');
+        if (!firstRes.ok) {
+          if (firstRes.status === 401) authFailed = true;
+          console.error('[ML] search failed:', firstRes.status, firstUrl, (await firstRes.text()).slice(0, 400));
+          return ids;
         }
+        const firstData = await firstRes.json();
+        const firstResults = firstData.results || [];
+        ids.push(...firstResults.map(x => (typeof x === 'string' ? x : (x && x.id) || null)).filter(Boolean));
+        const total = firstData.paging?.total ?? 0;
+        console.log('[ML] search ok:', firstResults.length, 'en esta página, paging.total:', total);
+        if (firstResults.length === 0 && total === 0) {
+          console.log('[ML] respuesta search (keys):', Object.keys(firstData));
+        }
+
+        // Páginas restantes en paralelo (el mlLimiter controla concurrencia y espaciado)
+        if (total > limit) {
+          const offsets = [];
+          for (let off = limit; off < Math.min(total, limit * maxPages); off += limit) offsets.push(off);
+          const pageResults = await Promise.all(
+            offsets.map(offset => {
+              const url = `https://api.mercadolibre.com/users/${userId}/items/search?limit=${limit}&offset=${offset}`;
+              return ml.fetchWith429Retry(url, { headers: authHeaders }, 'search').then(async r => {
+                if (!r.ok) {
+                  if (r.status === 401) authFailed = true;
+                  console.error('[ML] search page failed:', r.status, url);
+                  return [];
+                }
+                const d = await r.json();
+                return (d.results || []).map(x => (typeof x === 'string' ? x : (x && x.id) || null)).filter(Boolean);
+              });
+            })
+          );
+          for (const page of pageResults) ids.push(...page);
+        }
+
         return ids;
       };
       const allIds = await runSearch();
       if (authFailed) return { mlRows: rows, authFailed: true };
       console.log('[ML] total ids obtenidos:', allIds.length);
+
       // Doc ML: multiget GET /items?ids=ID1,ID2,... máx 20 por request; respuesta [{ code, body }]
+      // El mlLimiter controla concurrencia y espaciado — no hace falta delay manual.
       const batchSize = 20;
-      const delayMs = 180;
-      for (let i = 0; i < allIds.length; i += batchSize) {
-        if (i > 0) await new Promise((r) => setTimeout(r, delayMs));
-        const batch = allIds.slice(i, i + batchSize);
-        const idsQuery = batch.join(',');
-        const url = `https://api.mercadolibre.com/items?ids=${idsQuery}&include_attributes=all`;
-        const res = await ml.fetchWith429Retry(
-          url,
-          { headers: { Authorization: `Bearer ${token}` } },
-          'multiget'
-        );
-        if (!res.ok) {
-          console.error('[ML] multiget failed:', res.status);
-          break;
-        }
-        const multiget = await res.json();
-        const items = Array.isArray(multiget)
-          ? multiget.map(x => (x && x.code === 200 ? x.body : null)).filter(Boolean)
-          : [];
-        const valid = items.filter(it => it && it.id && !it.error);
-        const originalsOnly = valid.filter(it => it.catalog_listing !== true);
-        const toFlatten = originalsOnly.length ? originalsOnly : valid;
-        rows.push(...flattenMlItems(toFlatten));
-      }
+      const headers = { Authorization: `Bearer ${token}` };
+      const batches = [];
+      for (let i = 0; i < allIds.length; i += batchSize) batches.push(allIds.slice(i, i + batchSize));
+
+      const batchResults = await Promise.all(
+        batches.map(batch => {
+          const url = `https://api.mercadolibre.com/items?ids=${batch.join(',')}&include_attributes=all`;
+          return ml.fetchWith429Retry(url, { headers }, 'multiget').then(async res => {
+            if (!res.ok) {
+              console.error('[ML] multiget failed:', res.status);
+              return [];
+            }
+            const multiget = await res.json();
+            const items = Array.isArray(multiget)
+              ? multiget.map(x => (x && x.code === 200 ? x.body : null)).filter(Boolean)
+              : [];
+            const valid = items.filter(it => it && it.id && !it.error);
+            const originalsOnly = valid.filter(it => it.catalog_listing !== true);
+            return originalsOnly.length ? originalsOnly : valid;
+          });
+        })
+      );
+      for (const batchItems of batchResults) rows.push(...flattenMlItems(batchItems));
       console.log('[ML] mlRows final:', rows.length);
       return { mlRows: rows, authFailed: false };
     };
