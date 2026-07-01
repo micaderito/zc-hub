@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef, inject, effect } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef, inject, effect, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -25,6 +25,8 @@ import { CurrencyInputDirective } from '../../directives/currency-input.directiv
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { from, timer, concatMap } from 'rxjs';
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 export type Tab = 'resumen' | 'coincidencias' | 'solo-ml' | 'solo-tn' | 'sin-sku' | 'duplicados';
 
@@ -54,19 +56,24 @@ export class ConflictsComponent implements OnInit {
   /** true cuando hay refetch en segundo plano (ej. tras editar SKU) */
   fetching = false;
   error: string | null = null;
-  tab: Tab = 'resumen';
-  searchQuery = '';
+  readonly activeTab = signal<Tab>('resumen');
+  readonly currentPage = signal(1);
+  readonly searchQuery = signal('');
+  readonly debouncedSearch = toSignal(
+    toObservable(this.searchQuery).pipe(debounceTime(350), distinctUntilChanged()),
+    { initialValue: '' }
+  );
 
   conflictTabs(a: ConflictAnalysis): TabDef[] {
-    const sinSku = a.noSkuML.length + a.noSkuTN.length;
-    const dups = a.duplicateSkuML.length + a.duplicateSkuTN.length;
+    const sinSku = a.summary.noSkuML + a.summary.noSkuTN;
+    const dups = a.summary.duplicateSkuML + a.summary.duplicateSkuTN;
     return [
       { key: 'resumen',       label: 'Resumen' },
-      { key: 'coincidencias', label: 'Coincidencias', count: a.matched.length },
-      { key: 'solo-ml',       label: 'Solo en ML',    count: a.onlyML.length,  countVariant: a.onlyML.length  ? 'warn' : undefined },
-      { key: 'solo-tn',       label: 'Solo en TN',    count: a.onlyTN.length,  countVariant: a.onlyTN.length  ? 'warn' : undefined },
-      { key: 'sin-sku',       label: 'Sin SKU',       count: sinSku,           countVariant: sinSku           ? 'warn' : undefined },
-      { key: 'duplicados',    label: 'Duplicados',    count: dups,             countVariant: dups             ? 'warn' : undefined },
+      { key: 'coincidencias', label: 'Coincidencias', count: a.summary.matched },
+      { key: 'solo-ml',       label: 'Solo en ML',    count: a.summary.onlyML,  countVariant: a.summary.onlyML  ? 'warn' : undefined },
+      { key: 'solo-tn',       label: 'Solo en TN',    count: a.summary.onlyTN,  countVariant: a.summary.onlyTN  ? 'warn' : undefined },
+      { key: 'sin-sku',       label: 'Sin SKU',       count: sinSku,            countVariant: sinSku            ? 'warn' : undefined },
+      { key: 'duplicados',    label: 'Duplicados',    count: dups,              countVariant: dups              ? 'warn' : undefined },
     ];
   }
 
@@ -107,8 +114,13 @@ export class ConflictsComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
 
   readonly analysisQuery = injectQuery(() => ({
-    queryKey: CONFLICTS_ANALYSIS_QUERY_KEY,
-    queryFn: () => this.conflicts.getAnalysisPromise(),
+    queryKey: [...CONFLICTS_ANALYSIS_QUERY_KEY, this.activeTab(), this.currentPage(), this.debouncedSearch()],
+    queryFn: () => this.conflicts.getAnalysisPromise({
+      tab: this.activeTab(),
+      page: this.currentPage(),
+      limit: 25,
+      search: this.debouncedSearch() || undefined,
+    }),
     refetchOnWindowFocus: false,
     /** No refetch al entrar si los datos son recientes. Tras 1 h se consideran viejos y puede refetchear al volver. */
     staleTime: 60 * 60 * 1000
@@ -125,6 +137,16 @@ export class ConflictsComponent implements OnInit {
         : null;
       this.cdr.markForCheck();
     });
+  }
+
+  onTabChange(tab: Tab): void {
+    this.activeTab.set(tab);
+    this.currentPage.set(1);
+  }
+
+  onSearchChange(q: string): void {
+    this.searchQuery.set(q);
+    this.currentPage.set(1);
   }
 
   ngOnInit() {}

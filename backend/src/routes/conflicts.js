@@ -36,37 +36,70 @@ conflictsRoutes.get('/', async (req, res) => {
       withStock: allMatched.filter(p => (p.ml?.stock ?? 0) > 0 && (p.tn?.stock ?? 0) > 0).length,
     };
 
-    // Filtro por estado de stock
-    const filterParam = req.query.filter || 'all';
-    let filtered = allMatched;
-    if (filterParam === 'mismatch')   filtered = allMatched.filter(p => (p.ml?.stock ?? 0) !== (p.tn?.stock ?? 0));
-    else if (filterParam === 'synced')    filtered = allMatched.filter(p => (p.ml?.stock ?? 0) === (p.tn?.stock ?? 0));
-    else if (filterParam === 'no-stock')  filtered = allMatched.filter(p => (p.ml?.stock ?? 0) === 0 || (p.tn?.stock ?? 0) === 0);
-    else if (filterParam === 'with-stock') filtered = allMatched.filter(p => (p.ml?.stock ?? 0) > 0 && (p.tn?.stock ?? 0) > 0);
-
-    // Búsqueda por tokens (todos los tokens deben aparecer en el texto)
+    const tab = req.query.tab || 'coincidencias';
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(5, parseInt(req.query.limit) || 25));
     const searchRaw = (req.query.search || '').trim().toLowerCase();
-    if (searchRaw) {
-      const tokens = searchRaw.split(/\s+/).filter(Boolean);
-      filtered = filtered.filter(p => {
-        const text = [p.ml?.title, p.tn?.productName, p.sku, p.ml?.sku, p.tn?.sku, p.ml?.variationName, p.tn?.variantName]
+    const searchTokens = searchRaw ? searchRaw.split(/\s+/).filter(Boolean) : [];
+    const filterParam = req.query.filter || 'all';
+
+    function searchRows(rows, toks) {
+      if (!toks.length) return rows;
+      return rows.filter(r => {
+        const text = [r.title, r.productName, r.sku, r.variationName, r.variantName]
           .filter(Boolean).join(' ').toLowerCase();
-        return tokens.every(t => text.includes(t));
+        return toks.every(t => text.includes(t));
       });
     }
 
-    // Paginación
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(5, parseInt(req.query.limit) || 25));
-    const total = filtered.length;
-    const offset = (page - 1) * limit;
+    let responseOverride = {};
+    let total = 0;
+    let paging;
+
+    if (tab === 'coincidencias') {
+      // Filtro por estado de stock
+      let filtered = allMatched;
+      if (filterParam === 'mismatch')    filtered = allMatched.filter(p => (p.ml?.stock ?? 0) !== (p.tn?.stock ?? 0));
+      else if (filterParam === 'synced')      filtered = allMatched.filter(p => (p.ml?.stock ?? 0) === (p.tn?.stock ?? 0));
+      else if (filterParam === 'no-stock')    filtered = allMatched.filter(p => (p.ml?.stock ?? 0) === 0 || (p.tn?.stock ?? 0) === 0);
+      else if (filterParam === 'with-stock')  filtered = allMatched.filter(p => (p.ml?.stock ?? 0) > 0 && (p.tn?.stock ?? 0) > 0);
+
+      // Búsqueda por tokens
+      if (searchTokens.length) {
+        filtered = filtered.filter(p => {
+          const text = [p.ml?.title, p.tn?.productName, p.sku, p.ml?.sku, p.tn?.sku, p.ml?.variationName, p.tn?.variantName]
+            .filter(Boolean).join(' ').toLowerCase();
+          return searchTokens.every(t => text.includes(t));
+        });
+      }
+
+      total = filtered.length;
+      const offset = (page - 1) * limit;
+      responseOverride = { matched: filtered.slice(offset, offset + limit) };
+      paging = { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) };
+    } else if (tab === 'solo-ml') {
+      const filtered = searchRows(analysis.onlyML || [], searchTokens);
+      total = filtered.length;
+      const offset = (page - 1) * limit;
+      responseOverride = { onlyML: filtered.slice(offset, offset + limit) };
+      paging = { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) };
+    } else if (tab === 'solo-tn') {
+      const filtered = searchRows(analysis.onlyTN || [], searchTokens);
+      total = filtered.length;
+      const offset = (page - 1) * limit;
+      responseOverride = { onlyTN: filtered.slice(offset, offset + limit) };
+      paging = { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) };
+    } else {
+      // sin-sku, duplicados, resumen: no override, no pagination
+      paging = { page: 1, limit, total: 0, pages: 1 };
+    }
 
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
     res.json({
       ...analysis,
-      matched: filtered.slice(offset, offset + limit),
-      paging: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+      ...responseOverride,
+      paging,
       stockSummary,
     });
   } catch (e) {
