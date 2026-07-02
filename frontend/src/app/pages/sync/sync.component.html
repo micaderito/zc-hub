@@ -303,16 +303,14 @@
               @for (row of auditRows; track row.id) {
                 <div class="audit-row" [class.audit-ml]="row.channelSale === 'mercadolibre'" [class.audit-tn]="row.channelSale === 'tiendanube'" [class.audit-reverted]="row.revertedAt">
                   <div class="audit-main">
-                    <div class="audit-title">
-                      <span class="audit-title-name">{{ row.productDisplay || row.sku }}</span>
-                      @if (row.orderId) {
-                        <span class="product-id-tag">Product ID: {{ row.orderId }}</span>
-                      }
-                    </div>
+                    <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
                     <div class="audit-meta">
                       <code>{{ row.sku }}</code>
                       @if (row.packId || row.orderId) {
                         <span>Pack <code>{{ row.packId || row.orderId }}</code></span>
+                      }
+                      @if (row.orderId) {
+                        <span>Product ID <code>{{ row.orderId }}</code></span>
                       }
                       @if (row.saleItemId) {
                         <span>Ítem <code>{{ row.saleItemId }}</code></span>
