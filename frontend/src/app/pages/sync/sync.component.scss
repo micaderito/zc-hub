@@ -494,12 +494,27 @@
   }
 
   .audit-title {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
     font-size: 0.8rem;
     font-weight: 500;
     color: var(--text);
+  }
+
+  .audit-title-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
+  }
+
+  .product-id-tag {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    font-weight: 400;
+    color: var(--text-2);
   }
 
   .audit-meta {

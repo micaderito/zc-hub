@@ -9,6 +9,16 @@ import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask } from '../db.js';
 
+/** ID real de la orden ML (order.id); si no vino el payload completo, usa el fallback recibido. */
+function resolveMlOrderId(orderPayload, fallback) {
+  return String(orderPayload?.id ?? fallback ?? '');
+}
+
+/** Nro de venta real (pack_id) de una orden ML; si la orden no forma parte de un pack, ML no trae pack_id y se usa el fallback (el propio order id). */
+function resolveMlPackId(orderPayload, fallback) {
+  return String(orderPayload?.pack_id ?? fallback ?? '');
+}
+
 /** Arma "descripción | variante" desde el ítem de una orden ML (item.title + variation_attributes). */
 function mlOrderItemDisplay(oi) {
   const title = oi?.item?.title ?? '';
@@ -197,6 +207,8 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
     console.warn('[Sync] ML orden %s: sincronización desactivada, no se descuenta.', orderId);
     return [];
   }
+  const realOrderId = resolveMlOrderId(orderPayload, saleOrderId ?? orderId);
+  const packId = resolveMlPackId(orderPayload, orderId);
   const results = [];
   for (const oi of orderItems) {
     const itemId = oi?.item?.id;
@@ -229,7 +241,8 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
       const saleItemId = saleOrderId != null ? String(saleOrderId) : (orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null);
       await insertAuditLog({
         channelSale: 'mercadolibre',
-        orderId: String(orderId),
+        orderId: realOrderId,
+        packId,
         saleItemId,
         sku,
         productLabel: 'Venta ML',
@@ -297,6 +310,8 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '', orderPaylo
 export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', orderPayload = null) {
   const enabled = await getSyncEnabled();
   if (!enabled) return [];
+  const realOrderId = resolveMlOrderId(orderPayload, orderId);
+  const packId = resolveMlPackId(orderPayload, orderId);
   const results = [];
   for (const oi of orderItems) {
     const itemId = oi?.item?.id;
@@ -324,7 +339,8 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
           : null;
         await insertAuditLog({
           channelSale: 'mercadolibre',
-          orderId: String(orderId),
+          orderId: realOrderId,
+          packId,
           saleItemId,
           sku,
           productLabel: 'Cancelación ML',

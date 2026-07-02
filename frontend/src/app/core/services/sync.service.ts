@@ -10,7 +10,10 @@ export interface SyncConfig {
 export interface SyncAuditRow {
   id: number;
   channelSale: 'mercadolibre' | 'tiendanube';
+  /** Id. de la orden individual (ML: order.id; TN: order id). */
   orderId: string;
+  /** Nro de venta real (ML: pack_id, agrupa varias órdenes de un mismo carrito). */
+  packId?: string | null;
   /** Id. del ítem en esa venta (ML: item_id o item_id:variation_id; TN: variant_id o product_id:variant_id). */
   saleItemId?: string | null;
   sku: string;
