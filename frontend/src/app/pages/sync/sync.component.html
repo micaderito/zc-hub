@@ -252,16 +252,12 @@
 
         @if (!config.hasDatabase) {
           <p class="muted">El historial se guarda cuando hay una base de datos configurada.</p>
-        } @else if (auditLoading) {
-          <p class="loading-text">Cargando historial…</p>
-        } @else if (auditError) {
-          <div class="alert error">{{ auditError }}</div>
         } @else {
 
           <div class="section-toolbar section-toolbar--wrap">
             <zc-search-bar
               [value]="auditSearchQuery()"
-              (valueChange)="auditSearchQuery.set($event); onAuditSearchChange()"
+              (valueChange)="auditSearchQuery.set($event)"
               placeholder="Buscar por nro de venta u orden…"
               ariaLabel="Buscar en historial de sincronización"
             />
@@ -286,7 +282,11 @@
             <div class="alert error">{{ revertError }}</div>
           }
 
-          @if (auditRows.length === 0) {
+          @if (auditLoading) {
+            <p class="loading-text">Cargando historial…</p>
+          } @else if (auditError) {
+            <div class="alert error">{{ auditError }}</div>
+          } @else if (auditRows.length === 0) {
             <div class="empty-state">
               @if (auditSearchQuery().trim()) {
                 <i class="ti ti-search" aria-hidden="true"></i>
@@ -303,14 +303,19 @@
               @for (row of auditRows; track row.id) {
                 <div class="audit-row" [class.audit-ml]="row.channelSale === 'mercadolibre'" [class.audit-tn]="row.channelSale === 'tiendanube'" [class.audit-reverted]="row.revertedAt">
                   <div class="audit-main">
-                    <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
+                    <div class="audit-title">
+                      <span class="audit-title-name">{{ row.productDisplay || row.sku }}</span>
+                      @if (row.orderId) {
+                        <span class="product-id-tag">Product ID: {{ row.orderId }}</span>
+                      }
+                    </div>
                     <div class="audit-meta">
                       <code>{{ row.sku }}</code>
-                      @if (row.orderId) {
-                        <span>Pack <code>{{ row.orderId }}</code></span>
+                      @if (row.packId || row.orderId) {
+                        <span>Pack <code>{{ row.packId || row.orderId }}</code></span>
                       }
                       @if (row.saleItemId) {
-                        <span>Orden <code>{{ row.saleItemId }}</code></span>
+                        <span>Ítem <code>{{ row.saleItemId }}</code></span>
                       }
                       <span class="meta-date">{{ formatDate(row.createdAt) }}</span>
                     </div>

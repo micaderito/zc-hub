@@ -59,6 +59,19 @@ export async function initDb() {
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS sale_item_id VARCHAR(128);`);
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS product_display VARCHAR(1024);`);
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS notification_payload TEXT;`);
+    await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS pack_id VARCHAR(128);`);
+    // Backfill una sola vez: rellena pack_id de filas viejas leyendo el pack_id real desde el JSON crudo de la orden.
+    try {
+      await p.query(`
+        UPDATE sync_audit
+        SET pack_id = (notification_payload::jsonb ->> 'pack_id')
+        WHERE pack_id IS NULL
+          AND notification_payload IS NOT NULL
+          AND (notification_payload::jsonb ->> 'pack_id') IS NOT NULL
+      `);
+    } catch (e) {
+      console.error('DB init: backfill pack_id error:', e.message);
+    }
 
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_pending_returns (
@@ -262,7 +275,9 @@ export async function releaseOrderProcessingClaim(channelSale, orderId, operatio
 
 /**
  * Registra una línea del historial de sincronización.
- * @param {object} row - { channelSale, orderId, sku, productLabel?, productDisplay?, quantity, updatedChannel, stockBefore, stockAfter, saleItemId?, notificationPayload? }
+ * @param {object} row - { channelSale, orderId, packId?, sku, productLabel?, productDisplay?, quantity, updatedChannel, stockBefore, stockAfter, saleItemId?, notificationPayload? }
+ * orderId = id de la orden individual (ML: order.id; TN: order id).
+ * packId = nro de venta real (ML: pack_id de la orden, agrupa varias órdenes de un mismo carrito; TN no tiene pack, se usa el propio orderId).
  * saleItemId = id del ítem en esa venta (ML: item_id o item_id:variation_id; TN: variant_id o product_id:variant_id).
  * productLabel = estado/acción que afecta el stock: "Venta ML", "Venta TN", "Cancelación ML", "Cancelación TN", "Devolución aprobada".
  * productDisplay = descripción y variante del producto (nombre + variante); no usar productLabel para el nombre del producto.
@@ -276,11 +291,12 @@ export async function insertAuditLog(row) {
       ? (typeof row.notificationPayload === 'string' ? row.notificationPayload : JSON.stringify(row.notificationPayload))
       : null;
     await p.query(
-      `INSERT INTO sync_audit (channel_sale, order_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      `INSERT INTO sync_audit (channel_sale, order_id, pack_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         row.channelSale,
         row.orderId || '',
+        row.packId || row.orderId || '',
         row.saleItemId ?? null,
         row.sku || '',
         row.productLabel ?? null,
@@ -301,7 +317,7 @@ export async function insertAuditLog(row) {
  * Lista el historial de sincronización (más recientes primero).
  * @param {number} limit
  * @param {number} offset
- * @param {string} [search] - filtrar por nº de venta (order_id) o por id. ítem (sale_item_id); busca en ambos.
+ * @param {string} [search] - filtrar por nº de venta (pack_id), nº de orden (order_id) o id. ítem (sale_item_id); busca en los tres.
  */
 export async function getAuditLog(limit = 100, offset = 0, search = '') {
   const p = getPool();
@@ -310,21 +326,21 @@ export async function getAuditLog(limit = 100, offset = 0, search = '') {
     const searchTrim = search && String(search).trim();
     const pattern = searchTrim ? '%' + searchTrim + '%' : null;
     const countSql = pattern
-      ? 'SELECT COUNT(*)::int AS total FROM sync_audit WHERE (order_id ILIKE $1 OR sale_item_id ILIKE $1)'
+      ? 'SELECT COUNT(*)::int AS total FROM sync_audit WHERE (order_id ILIKE $1 OR pack_id ILIKE $1 OR sale_item_id ILIKE $1)'
       : 'SELECT COUNT(*)::int AS total FROM sync_audit';
     const countParams = pattern ? [pattern] : [];
     const countResult = await p.query(countSql, countParams);
     const total = countResult.rows[0]?.total ?? 0;
 
     const listSql = pattern
-      ? `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
+      ? `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
                 quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
                 created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
          FROM sync_audit
-         WHERE (order_id ILIKE $1 OR sale_item_id ILIKE $1)
+         WHERE (order_id ILIKE $1 OR pack_id ILIKE $1 OR sale_item_id ILIKE $1)
          ORDER BY created_at DESC
          LIMIT $2 OFFSET $3`
-      : `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
+      : `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
                 quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
                 created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
          FROM sync_audit
@@ -353,7 +369,7 @@ export async function getAuditRowById(id) {
   if (!p || !id) return null;
   try {
     const r = await p.query(
-      `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
+      `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
               quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
               reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
        FROM sync_audit WHERE id = $1`,

@@ -2,8 +2,8 @@ import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { toSignal, toObservable } from '@angular/core/rxjs-interop';
-import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { toObservable } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged, skip } from 'rxjs/operators';
 import { QueryClient, injectQuery, injectMutation } from '@tanstack/angular-query-experimental';
 import { SyncService, SyncConfig, SyncAuditRow, PendingReturnRow, PendingMlTask, PendingMlTasksResponse } from '../../core/services/sync.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
@@ -43,11 +43,7 @@ export class SyncComponent implements OnInit {
 
   readonly auditSearchQuery = signal('');
   readonly auditCurrentPage = signal(1);
-
-  readonly debouncedAuditSearch = toSignal(
-    toObservable(this.auditSearchQuery).pipe(debounceTime(350), distinctUntilChanged()),
-    { initialValue: '' }
-  );
+  private auditRequestId = 0;
 
   readonly auditTotalPages = computed(() =>
     Math.max(1, Math.ceil(this.auditTotal / AUDIT_PAGE_SIZE))
@@ -141,6 +137,12 @@ export class SyncComponent implements OnInit {
   ngOnInit(): void {
     this.loadConfig();
     this.loadAudit();
+    toObservable(this.auditSearchQuery)
+      .pipe(skip(1), debounceTime(350), distinctUntilChanged())
+      .subscribe(() => {
+        this.auditCurrentPage.set(1);
+        this.loadAudit(1);
+      });
   }
 
   loadConfig(): void {
@@ -173,15 +175,17 @@ export class SyncComponent implements OnInit {
     this.auditError = null;
     this.revertError = null;
     const offset = (page - 1) * AUDIT_PAGE_SIZE;
-    const search = this.debouncedAuditSearch() || this.auditSearchQuery();
-    const orderId = search.trim() || undefined;
+    const orderId = this.auditSearchQuery().trim() || undefined;
+    const requestId = ++this.auditRequestId;
     this.sync.getAudit(AUDIT_PAGE_SIZE, offset, orderId).subscribe({
       next: (r) => {
+        if (requestId !== this.auditRequestId) return;
         this.auditRows = r.rows;
         this.auditTotal = r.total;
         this.auditLoading = false;
       },
       error: (e) => {
+        if (requestId !== this.auditRequestId) return;
         this.auditError = e.error?.error || e.message || 'Error al cargar historial.';
         this.auditLoading = false;
       }
@@ -210,11 +214,6 @@ export class SyncComponent implements OnInit {
     const total = this.tasksTotalPages();
     if (page < 1 || page > total) return;
     this.tasksCurrentPage.set(page);
-  }
-
-  onAuditSearchChange(): void {
-    this.auditCurrentPage.set(1);
-    this.loadAudit(1);
   }
 
   reprocessOrder(): void {
