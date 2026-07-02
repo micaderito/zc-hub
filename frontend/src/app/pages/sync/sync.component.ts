@@ -132,17 +132,18 @@ export class SyncComponent implements OnInit {
     ];
   });
 
-  constructor() {}
-
-  ngOnInit(): void {
-    this.loadConfig();
-    this.loadAudit();
+  constructor() {
     toObservable(this.auditSearchQuery)
       .pipe(skip(1), debounceTime(350), distinctUntilChanged())
       .subscribe(() => {
         this.auditCurrentPage.set(1);
         this.loadAudit(1);
       });
+  }
+
+  ngOnInit(): void {
+    this.loadConfig();
+    this.loadAudit();
   }
 
   loadConfig(): void {
