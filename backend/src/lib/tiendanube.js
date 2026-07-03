@@ -229,6 +229,33 @@ export async function getOrder(accessToken, storeId, orderId) {
   return res.json();
 }
 
+/**
+ * Busca una orden por su número visible (order.number, el "nro de venta" que ve el dueño en TN),
+ * que NO es el id interno que espera GET /orders/:id. Recorre /orders paginado (más recientes
+ * primero) hasta encontrar el número o agotar maxPages. Devuelve la orden completa o null.
+ */
+export async function findOrderByNumber(accessToken, storeId, number) {
+  const target = String(number).trim();
+  if (!target) return null;
+  const perPage = 100;
+  const maxPages = 20;
+  const headers = {
+    Authentication: `bearer ${accessToken}`,
+    'User-Agent': 'ZonacuadernoSync/1.0'
+  };
+  for (let page = 1; page <= maxPages; page++) {
+    const url = `${getBaseUrl(storeId)}/orders?page=${page}&per_page=${perPage}`;
+    const res = await fetchTn(url, { headers });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const list = toList(data);
+    const match = list.find(o => String(o.number) === target || String(o.id) === target);
+    if (match) return match;
+    if (list.length < perPage) break;
+  }
+  return null;
+}
+
 /** GET /webhooks - lista webhooks registrados en la tienda. */
 export async function getWebhooks(accessToken, storeId) {
   const url = `${getBaseUrl(storeId)}/webhooks`;

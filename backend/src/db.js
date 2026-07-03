@@ -742,3 +742,21 @@ export async function getMlTaskStatus(taskId) {
     return null;
   }
 }
+
+/**
+ * Espera a que una tarea encolada de ML termine (done/failed) o hasta agotar el timeout.
+ * Las escrituras a ML (stock_ml) las aplica el worker en segundo plano (cada 500ms), así que el
+ * historial no refleja el cambio hasta que la tarea termina. Para acciones manuales donde el
+ * usuario espera ver el resultado ya reflejado (reintentar venta, revertir), se espera acá en vez
+ * de devolver "ok" antes de que exista el registro en sync_audit.
+ */
+export async function waitForMlTask(taskId, timeoutMs = 15000, pollMs = 400) {
+  if (!taskId) return null;
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const status = await getMlTaskStatus(taskId);
+    if (!status || status.status === 'done' || status.status === 'failed') return status;
+    await new Promise(resolve => setTimeout(resolve, pollMs));
+  }
+  return null;
+}
