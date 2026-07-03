@@ -14,6 +14,7 @@ import {
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
+import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 import { StockFilterTabsComponent, StockFilter } from './components/stock-filter-tabs/stock-filter-tabs.component';
 import { PairCardComponent, PairPrices } from './components/pair-card/pair-card.component';
 
@@ -23,7 +24,7 @@ const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
-  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, StockFilterTabsComponent, PairCardComponent],
+  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, StockFilterTabsComponent, PairCardComponent],
   templateUrl: './precio-stock.component.html',
   styleUrl: './precio-stock.component.scss'
 })

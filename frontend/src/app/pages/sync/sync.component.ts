@@ -9,6 +9,7 @@ import { SyncService, SyncConfig, SyncAuditRow, PendingReturnRow, PendingMlTask,
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
+import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 
 const SYNC_RETURNS_QUERY_KEY = ['sync', 'returns'] as const;
 const SYNC_PENDING_TASKS_QUERY_KEY = ['sync', 'pendingTasks'] as const;
@@ -19,7 +20,7 @@ const TASKS_PAGE_SIZE = 20;
 @Component({
   selector: 'app-sync',
   standalone: true,
-  imports: [CommonModule, FormsModule, SearchBarComponent, PaginationComponent, TabsComponent],
+  imports: [CommonModule, FormsModule, SearchBarComponent, PaginationComponent, TabsComponent, ConfirmDialogComponent],
   templateUrl: './sync.component.html',
   styleUrl: './sync.component.scss'
 })
@@ -217,11 +218,41 @@ export class SyncComponent implements OnInit {
     this.tasksCurrentPage.set(page);
   }
 
+  /** Nro de venta pendiente de confirmación por reintentar (ya estaba en el historial). */
+  readonly confirmReprocessId = signal<string | null>(null);
+
   reprocessOrder(): void {
     const id = this.reprocessOrderId.trim();
     if (!id) return;
     this.reprocessResult = null;
     this.reprocessingOrder = true;
+    this.sync.getAudit(50, 0, id).subscribe({
+      next: (r) => {
+        const alreadySynced = r.rows.some(row => !row.revertedAt && (row.orderId === id || row.packId === id));
+        if (alreadySynced) {
+          this.reprocessingOrder = false;
+          this.confirmReprocessId.set(id);
+          return;
+        }
+        this.submitReprocess(id);
+      },
+      error: () => this.submitReprocess(id)
+    });
+  }
+
+  confirmReprocess(): void {
+    const id = this.confirmReprocessId();
+    if (!id) return;
+    this.confirmReprocessId.set(null);
+    this.reprocessingOrder = true;
+    this.submitReprocess(id);
+  }
+
+  cancelReprocess(): void {
+    this.confirmReprocessId.set(null);
+  }
+
+  private submitReprocess(id: string): void {
     this.sync.reprocessOrder(id).subscribe({
       next: (r) => {
         this.reprocessingOrder = false;
