@@ -12,7 +12,7 @@ import {
   tnLabel,
   matchSearchByTokens
 } from '../../core/services/conflicts.service';
-import { injectQuery } from '@tanstack/angular-query-experimental';
+import { injectQuery, keepPreviousData } from '@tanstack/angular-query-experimental';
 import {
   ResumenTabComponent,
   CoincidenciasTabComponent,
@@ -123,7 +123,8 @@ export class ConflictsComponent implements OnInit {
     }),
     refetchOnWindowFocus: false,
     /** No refetch al entrar si los datos son recientes. Tras 1 h se consideran viejos y puede refetchear al volver. */
-    staleTime: 60 * 60 * 1000
+    staleTime: 60 * 60 * 1000,
+    placeholderData: keepPreviousData
   }));
 
   constructor() {
