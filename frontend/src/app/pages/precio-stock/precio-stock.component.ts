@@ -11,7 +11,7 @@ import {
   TnRow,
   getPairId,
 } from '../../core/services/conflicts.service';
-import { injectQuery } from '@tanstack/angular-query-experimental';
+import { injectQuery, keepPreviousData } from '@tanstack/angular-query-experimental';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
@@ -55,6 +55,7 @@ export class PrecioStockComponent {
     }),
     refetchOnWindowFocus: false,
     staleTime: 60 * 60 * 1000,
+    placeholderData: keepPreviousData,
   }));
 
   analysis = computed<ConflictAnalysis | null>(() => this.analysisQuery.data() ?? null);
