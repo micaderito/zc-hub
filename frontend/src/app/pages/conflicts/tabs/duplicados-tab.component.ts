@@ -115,7 +115,7 @@ export class DuplicadosTabComponent {
 
   get pageTN(): { sku: string; items: TnRow[] }[] {
     const start = Math.max(0, (this.currentPage() - 1) * PAGE_SIZE - this.filteredML.length);
-    const end = start + PAGE_SIZE;
+    const end = Math.max(0, this.currentPage() * PAGE_SIZE - this.filteredML.length);
     return this.filteredTN.slice(start, Math.min(end, this.filteredTN.length));
   }
 }

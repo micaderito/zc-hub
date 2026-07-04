@@ -10,7 +10,7 @@ import { PaginationComponent } from '../../../shared/components/pagination/pagin
   imports: [CommonModule, ConflictRowComponent, PaginationComponent],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
-    <p class="tab-hint">{{ paging.total }} publicación{{ paging.total !== 1 ? 'es' : '' }} de ML sin par en TN. Vinculá o asigná un SKU para emparejarlas.</p>
+    <p class="tab-hint">{{ paging.total }} {{ paging.total !== 1 ? 'publicaciones' : 'publicación' }} de ML sin par en TN. Vinculá o asigná un SKU para emparejarlas.</p>
 
     @for (row of rows; track row.itemId + (row.variationId || '')) {
       <zc-conflict-row channel="mercadolibre" [name]="mlLabel(row)" [thumbnail]="row.thumbnail" [sku]="row.sku">
