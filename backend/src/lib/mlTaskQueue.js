@@ -19,7 +19,7 @@ import * as tn from './tiendanube.js';
 const POLL_INTERVAL_MS = 500;
 let workerTimer = null;
 
-async function processTask(task) {
+export async function processTask(task) {
   const { id, kind, itemId, variationId, targetQty, targetSku, targetPrice, attempts } = task;
   const ctx = task.contextJson ? JSON.parse(task.contextJson) : null;
 
@@ -99,7 +99,7 @@ async function processTask(task) {
   }
 }
 
-async function tick() {
+export async function tick() {
   try {
     const task = await claimNextMlTask();
     if (task) await processTask(task);
