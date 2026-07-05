@@ -45,7 +45,7 @@ const syncServiceState = {
 };
 
 const syncRouteState = { processClaimResult: { created: 0, skipped: 0 } };
-const conflictsServiceState = { getAnalysisCalls: 0, refreshItemCalls: [] };
+const conflictsServiceState = { getAnalysisCalls: 0, refreshItemCalls: [], refreshTnProductCalls: [] };
 
 let app, server, baseUrl;
 
@@ -76,6 +76,7 @@ before(async () => {
     exports: {
       getAnalysis: async () => { conflictsServiceState.getAnalysisCalls++; return {}; },
       refreshMlItemInSnapshot: async (...a) => { conflictsServiceState.refreshItemCalls.push(a); },
+      refreshTnProductInSnapshot: async (...a) => { conflictsServiceState.refreshTnProductCalls.push(a); },
     },
   });
   mock.module('../src/db.js', {
@@ -132,6 +133,8 @@ beforeEach(() => {
   syncServiceState.onTnCancelledCalls = [];
   syncRouteState.processClaimResult = { created: 0, skipped: 0 };
   conflictsServiceState.getAnalysisCalls = 0;
+  conflictsServiceState.refreshItemCalls = [];
+  conflictsServiceState.refreshTnProductCalls = [];
   delete process.env.TN_CLIENT_SECRET;
 });
 
@@ -251,8 +254,17 @@ test('sin id en el body, se ignora', async () => {
 });
 
 test('evento no soportado se ignora', async () => {
-  const res = await postJson('/tiendanube', { event: 'product/updated', id: 1 });
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  const res = await postJson('/tiendanube', { event: 'category/updated', id: 1 });
   assert.equal(res.status, 200);
+  assert.equal(conflictsServiceState.refreshTnProductCalls.length, 0);
+});
+
+test('product/updated: refresca ese producto en el snapshot (no re-baja el catálogo)', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  const res = await postJson('/tiendanube', { event: 'product/updated', id: 42 });
+  assert.equal(res.status, 200);
+  assert.deepEqual(conflictsServiceState.refreshTnProductCalls, [['tn-tok', '5', 42]]);
 });
 
 test('sin token TN no procesa', async () => {

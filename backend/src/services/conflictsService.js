@@ -609,3 +609,31 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
     return data.mlRows.length !== before || newRows.length > 0;
   });
 }
+
+/**
+ * Webhook `product/*` de TN: re-baja UN producto (1 request) y reemplaza sus filas en el snapshot.
+ * Si el producto ya no existe (deleted / 404), quita sus filas. Análogo a `refreshMlItemInSnapshot`
+ * (topic `items` de ML): mantiene el catálogo fresco cuando editan un producto por fuera de la app,
+ * sin re-bajarlo entero.
+ */
+export async function refreshTnProductInSnapshot(accessToken, storeId, productId) {
+  if (productId == null) return;
+  let product = null;
+  try {
+    product = await tn.getProduct(accessToken, storeId, productId);
+  } catch (e) {
+    if (e.status === 401) setTnTokenKnownInvalid(true);
+    console.error('[Analysis] refreshTnProductInSnapshot getProduct falló:', e.message);
+    return;
+  }
+  const withVariants = product && product.id
+    ? [{ ...product, variants: product.variants ?? [], images: Array.isArray(product.images) ? product.images : [] }]
+    : [];
+  const newRows = flattenTnVariants(withVariants);
+  await patchSnapshot((data) => {
+    const before = data.tnRows.length;
+    data.tnRows = data.tnRows.filter((r) => String(r.productId) !== String(productId));
+    data.tnRows.push(...newRows);
+    return data.tnRows.length !== before || newRows.length > 0;
+  });
+}
