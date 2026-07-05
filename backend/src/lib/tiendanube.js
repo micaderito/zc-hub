@@ -212,6 +212,21 @@ export async function updateVariantPrice(accessToken, storeId, productId, varian
   return updateVariant(accessToken, storeId, productId, variantId, { price: String(price) });
 }
 
+/**
+ * Aplicar el mismo precio a TODAS las variantes de un producto TN.
+ * A diferencia de ML, en TN el precio vive en cada variante de forma independiente
+ * (no hay reconciliación server-side), así que "aplicar a todas" es una elección de UX,
+ * no una limitación de la API: se resuelve pidiendo las variantes y actualizando cada una.
+ */
+export async function updateVariantPriceAllVariants(accessToken, storeId, productId, price) {
+  const variants = await getProductVariants(accessToken, storeId, productId);
+  for (let i = 0; i < variants.length; i++) {
+    if (i > 0) await delay(MIN_INTERVAL_MS);
+    await updateVariant(accessToken, storeId, productId, variants[i].id, { price: String(price) });
+  }
+  return true;
+}
+
 /** Actualizar SKU de una variante. */
 export async function updateVariantSku(accessToken, storeId, productId, variantId, sku) {
   return updateVariant(accessToken, storeId, productId, variantId, { sku: String(sku) });

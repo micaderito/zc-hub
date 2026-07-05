@@ -82,6 +82,65 @@ function buildAnalysis(overrides: Partial<ConflictAnalysis> = {}): ConflictAnaly
   };
 }
 
+/**
+ * Fixture con 2 pares que comparten producto TN (variantes hermanas) pero NO comparten
+ * ítem ML: sirve para probar el modal de confirmación de Tienda Nube en aislamiento.
+ */
+function buildTnSiblingsAnalysis(): ConflictAnalysis {
+  const pairA: Pair = { ml: makeMlRow({ itemId: 'MLA10', title: 'Producto TN multi' }), tn: makeTnRow({ productId: 10, variantId: 100 }) };
+  const pairB: Pair = { ml: makeMlRow({ itemId: 'MLA11', title: 'Producto TN multi' }), tn: makeTnRow({ productId: 10, variantId: 101 }) };
+  return {
+    mlConnected: true,
+    tnConnected: true,
+    summary: { matched: 2, onlyML: 0, onlyTN: 0, noSkuML: 0, noSkuTN: 0, duplicateSkuML: 0, duplicateSkuTN: 0, resolved: 0 },
+    matched: [pairA, pairB],
+    onlyML: [],
+    onlyTN: [],
+    noSkuML: [],
+    noSkuTN: [],
+    duplicateSkuML: [],
+    duplicateSkuTN: [],
+    mappings: [],
+    paging: { page: 1, limit: 25, total: 2, pages: 1 },
+    stockSummary: { total: 2, mismatch: 0, synced: 2, noStock: 0, withStock: 2 },
+  };
+}
+
+/**
+ * Fixture para el caso "ambos canales cambian a la vez": pairA es una variación ML (con
+ * hermana ML pairB) y además comparte producto TN con pairC (hermana TN). Permite probar que
+ * los modales de ML y TN se encadenan y que cada uno bloquea/propaga solo sus propias filas.
+ */
+function buildBothModalsAnalysis(): ConflictAnalysis {
+  const pairA: Pair = {
+    ml: makeMlRow({ itemId: 'MLA20', variationId: 'V1', title: 'Multi', sku: 'SKU20', price: 50, stock: 10 }),
+    tn: makeTnRow({ productId: 20, variantId: 200, sku: 'SKU20', price: 100, stock: 10 }),
+  };
+  const pairB: Pair = {
+    ml: makeMlRow({ itemId: 'MLA20', variationId: 'V2', title: 'Multi', sku: 'SKU21', price: 50, stock: 8 }),
+    tn: makeTnRow({ productId: 30, variantId: 300, sku: 'SKU21', price: 90, stock: 8 }),
+  };
+  const pairC: Pair = {
+    ml: makeMlRow({ itemId: 'MLA40', title: 'Otro', sku: 'SKU22', price: 20, stock: 5 }),
+    tn: makeTnRow({ productId: 20, variantId: 202, sku: 'SKU22', price: 100, stock: 5 }),
+  };
+  return {
+    mlConnected: true,
+    tnConnected: true,
+    summary: { matched: 3, onlyML: 0, onlyTN: 0, noSkuML: 0, noSkuTN: 0, duplicateSkuML: 0, duplicateSkuTN: 0, resolved: 0 },
+    matched: [pairA, pairB, pairC],
+    onlyML: [],
+    onlyTN: [],
+    noSkuML: [],
+    noSkuTN: [],
+    duplicateSkuML: [],
+    duplicateSkuTN: [],
+    mappings: [],
+    paging: { page: 1, limit: 25, total: 3, pages: 1 },
+    stockSummary: { total: 3, mismatch: 0, synced: 3, noStock: 0, withStock: 3 },
+  };
+}
+
 describe('PrecioStockComponent', () => {
   let fixture: ComponentFixture<PrecioStockComponent>;
   let component: PrecioStockComponent;
@@ -93,6 +152,7 @@ describe('PrecioStockComponent', () => {
       'updatePricesAndStock',
       'updatePairInCache',
       'updateItemVariationsPriceInCache',
+      'updateProductVariantsPriceInCache',
       'invalidateAnalysis',
       'getTaskStatus',
     ]);
@@ -248,7 +308,8 @@ describe('PrecioStockComponent', () => {
 
       component.updatePrices(pair);
 
-      expect(component.confirmPriceAll()).toBeNull();
+      expect(component.confirmPriceAllML()).toBeNull();
+      expect(component.confirmPriceAllTN()).toBeNull();
       expect(conflictsSpy.updatePricesAndStock).toHaveBeenCalledWith(
         jasmine.objectContaining({ itemId: pair.ml.itemId, priceML: 150, priceTN: 120 })
       );
@@ -262,26 +323,26 @@ describe('PrecioStockComponent', () => {
 
       component.updatePrices(pair);
 
-      expect(component.confirmPriceAll()).toEqual({ pair, priceML: 70, priceTN: 50 });
+      expect(component.confirmPriceAllML()).toEqual({ pair, priceML: 70, priceTN: 50, priceTNChanged: false });
       expect(conflictsSpy.updatePricesAndStock).not.toHaveBeenCalled();
     });
 
-    it('cancelApplyPriceToAll descarta la confirmación sin llamar al backend', () => {
+    it('cancelApplyPriceToAllML descarta la confirmación sin llamar al backend', () => {
       const pair = component.analysis()!.matched.find(p => p.ml.variationId === 'V1')!;
       component.pairPrices.set(getPairId(pair), { priceML: 70, priceTN: 50, syncStock: 3 });
       component.updatePrices(pair);
-      expect(component.confirmPriceAll()).not.toBeNull();
+      expect(component.confirmPriceAllML()).not.toBeNull();
 
-      component.cancelApplyPriceToAll();
+      component.cancelApplyPriceToAllML();
 
-      expect(component.confirmPriceAll()).toBeNull();
+      expect(component.confirmPriceAllML()).toBeNull();
       expect(conflictsSpy.updatePricesAndStock).not.toHaveBeenCalled();
     });
 
-    it('confirmApplyPriceToAll no hace nada si no hay una confirmación pendiente', () => {
-      expect(component.confirmPriceAll()).toBeNull();
+    it('confirmApplyPriceToAllML no hace nada si no hay una confirmación pendiente', () => {
+      expect(component.confirmPriceAllML()).toBeNull();
 
-      component.confirmApplyPriceToAll();
+      component.confirmApplyPriceToAllML();
 
       expect(conflictsSpy.updatePricesAndStock).not.toHaveBeenCalled();
     });
@@ -298,20 +359,20 @@ describe('PrecioStockComponent', () => {
       expect(component.pairPrices.get(getPairId(pair))).toEqual(prices);
     });
 
-    it('confirmApplyPriceToAll aplica el precio a todas las variaciones del mismo ítem', () => {
+    it('confirmApplyPriceToAllML aplica el precio a todas las variaciones del mismo ítem', () => {
       const pairs = component.analysis()!.matched;
       const pair2a = pairs.find(p => p.ml.variationId === 'V1')!;
       const pair2b = pairs.find(p => p.ml.variationId === 'V2')!;
       component.pairPrices.set(getPairId(pair2a), { priceML: 70, priceTN: 50, syncStock: 3 });
       component.updatePrices(pair2a);
-      expect(component.confirmPriceAll()).not.toBeNull();
+      expect(component.confirmPriceAllML()).not.toBeNull();
 
       const response$ = new Subject<{ ok: boolean; ml: boolean; tn: boolean; mlTaskId?: number }>();
       conflictsSpy.updatePricesAndStock.and.returnValue(response$.asObservable());
 
-      component.confirmApplyPriceToAll();
+      component.confirmApplyPriceToAllML();
 
-      expect(component.confirmPriceAll()).toBeNull();
+      expect(component.confirmPriceAllML()).toBeNull();
       // Ambas variaciones del mismo itemId quedan bloqueadas mientras se aplica el precio.
       expect(component.isPairPending(pair2a)).toBeTrue();
       expect(component.isPairPending(pair2b)).toBeTrue();
@@ -333,6 +394,139 @@ describe('PrecioStockComponent', () => {
 
       expect(component.getPairError(pair)).toBe('ml rechazo');
       expect(component.isPairPending(pair)).toBeFalse();
+    });
+  });
+
+  describe('updatePrices - Tienda Nube (variantes hermanas)', () => {
+    it('pide confirmación TN cuando cambia el precio y el producto tiene otras variantes', async () => {
+      await createAndLoad(buildTnSiblingsAnalysis());
+      const [pairA] = component.analysis()!.matched;
+      component.pairPrices.set(getPairId(pairA), { priceML: 100, priceTN: 150, syncStock: 10 });
+
+      component.updatePrices(pairA);
+
+      expect(component.confirmPriceAllTN()).toEqual({ pair: pairA, priceML: 100, priceTN: 150 });
+      expect(component.confirmPriceAllML()).toBeNull();
+      expect(conflictsSpy.updatePricesAndStock).not.toHaveBeenCalled();
+    });
+
+    it('confirmApplyPriceToAllTN aplica el precio a todas las variantes del producto TN', async () => {
+      await createAndLoad(buildTnSiblingsAnalysis());
+      const [pairA, pairB] = component.analysis()!.matched;
+      component.pairPrices.set(getPairId(pairA), { priceML: 100, priceTN: 150, syncStock: 10 });
+      component.updatePrices(pairA);
+      expect(component.confirmPriceAllTN()).not.toBeNull();
+
+      const response$ = new Subject<{ ok: boolean; ml: boolean; tn: boolean; mlTaskId?: number }>();
+      conflictsSpy.updatePricesAndStock.and.returnValue(response$.asObservable());
+
+      component.confirmApplyPriceToAllTN();
+
+      expect(component.confirmPriceAllTN()).toBeNull();
+      expect(conflictsSpy.updatePricesAndStock).toHaveBeenCalledWith(
+        jasmine.objectContaining({ priceTN: 150, applyTnToAllVariants: true })
+      );
+      // Ambas variantes del mismo producto TN quedan bloqueadas mientras se aplica el precio.
+      expect(component.isPairPending(pairA)).toBeTrue();
+      expect(component.isPairPending(pairB)).toBeTrue();
+
+      response$.next({ ok: true, ml: true, tn: true });
+      response$.complete();
+
+      expect(component.isPairPending(pairA)).toBeFalse();
+      expect(component.isPairPending(pairB)).toBeFalse();
+      expect(conflictsSpy.updateProductVariantsPriceInCache).toHaveBeenCalledWith(10, 150, jasmine.anything());
+    });
+
+    it('applyPriceOnlyThisVariantTN aplica el precio solo a la variante editada', async () => {
+      await createAndLoad(buildTnSiblingsAnalysis());
+      const [pairA, pairB] = component.analysis()!.matched;
+      component.pairPrices.set(getPairId(pairA), { priceML: 100, priceTN: 150, syncStock: 10 });
+      component.updatePrices(pairA);
+      expect(component.confirmPriceAllTN()).not.toBeNull();
+
+      component.applyPriceOnlyThisVariantTN();
+
+      expect(component.confirmPriceAllTN()).toBeNull();
+      expect(conflictsSpy.updatePricesAndStock).toHaveBeenCalledWith(
+        jasmine.objectContaining({ priceTN: 150, applyTnToAllVariants: false })
+      );
+      expect(component.isPairPending(pairB)).toBeFalse();
+      expect(conflictsSpy.updateProductVariantsPriceInCache).not.toHaveBeenCalled();
+    });
+
+    it('confirmApplyPriceToAllTN no hace nada si no hay una confirmación pendiente', async () => {
+      await createAndLoad(buildTnSiblingsAnalysis());
+      expect(component.confirmPriceAllTN()).toBeNull();
+
+      component.confirmApplyPriceToAllTN();
+
+      expect(conflictsSpy.updatePricesAndStock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updatePrices - ML y TN cambian a la vez (dos modales encadenados)', () => {
+    it('muestra primero el modal de ML y, tras confirmarlo, el de TN si también cambió ese precio', async () => {
+      await createAndLoad(buildBothModalsAnalysis());
+      const [pairA] = component.analysis()!.matched;
+      component.pairPrices.set(getPairId(pairA), { priceML: 70, priceTN: 150, syncStock: 10 });
+
+      component.updatePrices(pairA);
+
+      // Primero pide confirmar Mercado Libre; Tienda Nube todavía no se preguntó.
+      expect(component.confirmPriceAllML()).toEqual({ pair: pairA, priceML: 70, priceTN: 150, priceTNChanged: true });
+      expect(component.confirmPriceAllTN()).toBeNull();
+      expect(conflictsSpy.updatePricesAndStock).not.toHaveBeenCalled();
+
+      component.confirmApplyPriceToAllML();
+
+      // Al confirmar ML, recién ahí aparece el modal de Tienda Nube.
+      expect(component.confirmPriceAllML()).toBeNull();
+      expect(component.confirmPriceAllTN()).toEqual({ pair: pairA, priceML: 70, priceTN: 150 });
+      expect(conflictsSpy.updatePricesAndStock).not.toHaveBeenCalled();
+    });
+
+    it('al confirmar ambos modales, bloquea y propaga las hermanas ML y TN de forma independiente', async () => {
+      await createAndLoad(buildBothModalsAnalysis());
+      const [pairA, pairB, pairC] = component.analysis()!.matched;
+      component.pairPrices.set(getPairId(pairA), { priceML: 70, priceTN: 150, syncStock: 10 });
+
+      const response$ = new Subject<{ ok: boolean; ml: boolean; tn: boolean; mlTaskId?: number }>();
+      conflictsSpy.updatePricesAndStock.and.returnValue(response$.asObservable());
+
+      component.updatePrices(pairA);
+      component.confirmApplyPriceToAllML();
+      component.confirmApplyPriceToAllTN();
+
+      expect(conflictsSpy.updatePricesAndStock).toHaveBeenCalledWith(
+        jasmine.objectContaining({ priceML: 70, priceTN: 150, applyTnToAllVariants: true })
+      );
+      // pairB (hermana ML) y pairC (hermana TN) quedan bloqueadas, cada una por su propio canal.
+      expect(component.isPairPending(pairA)).toBeTrue();
+      expect(component.isPairPending(pairB)).toBeTrue();
+      expect(component.isPairPending(pairC)).toBeTrue();
+
+      response$.next({ ok: true, ml: true, tn: true });
+      response$.complete();
+
+      expect(component.isPairPending(pairA)).toBeFalse();
+      expect(component.isPairPending(pairB)).toBeFalse();
+      expect(component.isPairPending(pairC)).toBeFalse();
+      expect(conflictsSpy.updateItemVariationsPriceInCache).toHaveBeenCalledWith('MLA20', 70, jasmine.anything());
+      expect(conflictsSpy.updateProductVariantsPriceInCache).toHaveBeenCalledWith(20, 150, jasmine.anything());
+    });
+
+    it('si se cancela el modal de ML, no se llega a preguntar por Tienda Nube ni se envía nada', async () => {
+      await createAndLoad(buildBothModalsAnalysis());
+      const [pairA] = component.analysis()!.matched;
+      component.pairPrices.set(getPairId(pairA), { priceML: 70, priceTN: 150, syncStock: 10 });
+
+      component.updatePrices(pairA);
+      component.cancelApplyPriceToAllML();
+
+      expect(component.confirmPriceAllML()).toBeNull();
+      expect(component.confirmPriceAllTN()).toBeNull();
+      expect(conflictsSpy.updatePricesAndStock).not.toHaveBeenCalled();
     });
   });
 

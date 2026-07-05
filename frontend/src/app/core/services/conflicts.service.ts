@@ -172,6 +172,22 @@ export class ConflictsService {
     this.analysisInvalidated.next();
   }
 
+  /**
+   * Actualiza en caché el precio TN de TODAS las variantes de un mismo producto.
+   * Se usa cuando el usuario elige aplicar el precio TN a todas las variantes (a diferencia
+   * de ML, en TN esto es una elección del usuario, no una obligación de la API).
+   */
+  updateProductVariantsPriceInCache(productId: number, priceTN: number, queryKey?: readonly unknown[]): void {
+    const key = queryKey ?? CONFLICTS_ANALYSIS_QUERY_KEY;
+    const prev = this.queryClient.getQueryData<ConflictAnalysis>(key as unknown[]);
+    if (!prev?.matched) return;
+    const matched = prev.matched.map((pair) =>
+      pair.tn.productId === productId ? { ...pair, tn: { ...pair.tn, price: priceTN } } : pair
+    );
+    this.queryClient.setQueryData<ConflictAnalysis>(key as unknown[], { ...prev, matched });
+    this.analysisInvalidated.next();
+  }
+
   /** Cabeceras para que el navegador no use caché en este GET. */
   private static readonly NO_CACHE_HEADERS = new HttpHeaders({
     'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -233,6 +249,8 @@ export class ConflictsService {
     priceTN: number;
     stockML?: number;
     stockTN?: number;
+    /** true: aplicar priceTN a todas las variantes del producto TN (elección del usuario, no obligación de la API). */
+    applyTnToAllVariants?: boolean;
   }) {
     return this.http.post<{ ok: boolean; mlTaskId?: number; ml: boolean; tn: boolean }>(
       `${this.api.baseUrl}/conflicts/update-prices`,
@@ -244,7 +262,8 @@ export class ConflictsService {
         priceML: params.priceML,
         priceTN: params.priceTN,
         stockML: params.stockML,
-        stockTN: params.stockTN
+        stockTN: params.stockTN,
+        applyTnToAllVariants: params.applyTnToAllVariants || undefined
       }
     );
   }
