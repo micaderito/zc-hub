@@ -101,17 +101,32 @@
     </div>
   }
 
-  <!-- Confirmación: ML no permite precio por variación en ítems legacy -->
-  @if (confirmPriceAll(); as c) {
+  <!-- Confirmación Mercado Libre: no permite precio por variación en ítems legacy -->
+  @if (confirmPriceAllML(); as c) {
     <zc-confirm-dialog
-      title="Precio por variación no disponible"
+      title="Mercado Libre: precio por variación no disponible"
       confirmLabel="Aplicar a todas"
-      (confirmed)="confirmApplyPriceToAll()"
-      (cancelled)="cancelApplyPriceToAll()"
+      (confirmed)="confirmApplyPriceToAllML()"
+      (cancelled)="cancelApplyPriceToAllML()"
     >
-      Mercado Libre no permite precios distintos por variación en este producto.
+      <strong>Mercado Libre</strong> no permite precios distintos por variación en este producto.
       El precio <strong>{{ c.priceML | currency:'ARS':'symbol':'1.0-2' }}</strong> se aplicará
-      a <strong>todas las variaciones</strong> de la publicación.
+      a <strong>todas las variaciones</strong> de la publicación en Mercado Libre.
+    </zc-confirm-dialog>
+  }
+
+  <!-- Confirmación Tienda Nube: sí admite precio distinto por variante, se pregunta el alcance -->
+  @if (confirmPriceAllTN(); as c) {
+    <zc-confirm-dialog
+      title="Tienda Nube: alcance del cambio de precio"
+      confirmLabel="Aplicar a todas las variantes"
+      cancelLabel="Solo esta variante"
+      (confirmed)="confirmApplyPriceToAllTN()"
+      (cancelled)="applyPriceOnlyThisVariantTN()"
+    >
+      En <strong>Tienda Nube</strong> el precio <strong>{{ c.priceTN | currency:'ARS':'symbol':'1.0-2' }}</strong>
+      se puede aplicar solo a esta variante o a todas las variantes de este producto.
+      ¿Qué querés hacer?
     </zc-confirm-dialog>
   }
 </div>

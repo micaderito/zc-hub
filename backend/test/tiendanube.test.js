@@ -97,3 +97,30 @@ test('número vacío no dispara ningún request', async () => {
   assert.equal(found, null);
   assert.equal(state.calls.length, 0);
 });
+
+/**
+ * A diferencia de ML (precio único por ítem legacy), en TN el precio vive en cada variante
+ * de forma independiente. "Aplicar a todas las variantes" es una elección de UX, no una
+ * obligación de la API: updateVariantPriceAllVariants la resuelve trayendo las variantes del
+ * producto y actualizando cada una con un PUT propio.
+ */
+test('updateVariantPriceAllVariants: trae las variantes del producto y actualiza el precio de cada una', async () => {
+  const variants = [{ id: 501 }, { id: 502 }, { id: 503 }];
+  const puts = [];
+  state.responder = (url, opts) => {
+    if (opts.method === 'PUT') {
+      puts.push({ url, body: JSON.parse(opts.body) });
+      return makeRes({ json: {} });
+    }
+    assert.match(url, /\/products\/999\/variants\?page=1&per_page=100/);
+    return makeRes({ json: variants });
+  };
+
+  const ok = await tn.updateVariantPriceAllVariants(TOKEN, STORE_ID, 999, 1500);
+
+  assert.equal(ok, true);
+  assert.deepEqual(puts.map((p) => p.url), variants.map((v) =>
+    `https://api.tiendanube.com/v1/${STORE_ID}/products/999/variants/${v.id}`
+  ));
+  for (const p of puts) assert.deepEqual(p.body, { price: '1500' });
+});
