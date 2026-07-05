@@ -18,7 +18,7 @@
 
 import { tokens, getMlToken, tryRefreshMlToken, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import { setResolutionFromAnalysis } from '../store.js';
-import { hasDatabase, getAnalysisCache, setAnalysisCache } from '../db.js';
+import { hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot, invalidateAnalysisCache } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -183,28 +183,91 @@ function groupBySku(rows, key = 'sku') {
   return bySku;
 }
 
-/** Solo una ejecución a la vez por proceso. Caché en DB (90s) para que otras réplicas/requests no vuelvan a llamar a ML. */
-let analysisInFlight = null;
+/**
+ * Modelo de snapshot (ver db.js): guardamos las FILAS CRUDAS del catálogo (mlRows/tnRows) y
+ * computamos el análisis en cada lectura (barato). El crawl completo a ML/TN solo ocurre cuando
+ * no hay snapshot (primer arranque), en refresh manual (force), o en un reconcile por antigüedad
+ * (stale-while-revalidate). Las escrituras y el webhook `items` parchan filas puntuales — nunca
+ * re-bajan todo el catálogo. Esto elimina las ráfagas de requests que disparaban 429.
+ */
 
-export async function getAnalysis() {
-  if (hasDatabase()) {
-    const cached = await getAnalysisCache();
-    if (cached) return cached;
-  }
-  if (analysisInFlight) return analysisInFlight;
-  const p = getAnalysisImpl()
-    .then(async (result) => {
-      if (hasDatabase()) await setAnalysisCache(result);
-      return result;
-    })
-    .finally(() => {
-      analysisInFlight = null;
-    });
-  analysisInFlight = p;
-  return p;
+/** Antigüedad a partir de la cual se dispara un reconcile en background (no bloquea la lectura). */
+const SNAPSHOT_STALE_MS = 6 * 60 * 60 * 1000; // 6 h
+
+/** Snapshot en memoria para cuando no hay Postgres (dev). Con DB, la fuente es sync_settings. */
+let memSnapshot = null; // { at, data: { mlRows, tnRows, mlConnected, tnConnected, mlAuthError } }
+
+/** Serializa las lecturas/escrituras del snapshot para evitar carreras read-modify-write entre parches. */
+let snapshotLock = Promise.resolve();
+function withSnapshotLock(fn) {
+  const run = snapshotLock.then(fn, fn);
+  snapshotLock = run.then(() => {}, () => {});
+  return run;
 }
 
-async function getAnalysisImpl() {
+async function loadSnapshot() {
+  if (hasDatabase()) return getAnalysisSnapshot();
+  return memSnapshot;
+}
+async function storeSnapshot(data) {
+  memSnapshot = { at: Date.now(), data };
+  if (hasDatabase()) await setAnalysisSnapshot(data);
+}
+
+/** Dedupe: un solo crawl completo a la vez por proceso. */
+let crawlInFlight = null;
+function crawlAndStore() {
+  if (crawlInFlight) return crawlInFlight;
+  crawlInFlight = fetchRawRows()
+    .then(async (rows) => { await withSnapshotLock(() => storeSnapshot(rows)); return rows; })
+    .finally(() => { crawlInFlight = null; });
+  return crawlInFlight;
+}
+
+/**
+ * Devuelve el análisis. Sirve del snapshot si existe (y refresca en background si está viejo);
+ * si no hay snapshot o se pide `force`, hace el crawl completo. `computeAnalysis` corre siempre
+ * (también refresca la resolución por SKU que usa sync).
+ * @param {{ force?: boolean }} [opts]
+ */
+export async function getAnalysis(opts = {}) {
+  if (!opts.force) {
+    const snap = await loadSnapshot();
+    if (snap?.data?.mlRows) {
+      if (Date.now() - (snap.at ?? 0) > SNAPSHOT_STALE_MS && !crawlInFlight) {
+        crawlAndStore().catch((e) => console.error('[Analysis] reconcile en background falló:', e.message));
+      }
+      return computeAnalysis(snap.data);
+    }
+  }
+  const rows = await crawlAndStore();
+  return computeAnalysis(rows);
+}
+
+/** Fuerza un crawl completo y actualiza el snapshot (refresh manual desde la UI). */
+export async function refreshAnalysis() {
+  return getAnalysis({ force: true });
+}
+
+/**
+ * Descarta el snapshot (memoria + DB) para forzar un crawl completo en la próxima lectura.
+ * Se usa al conectar/reconectar un canal (OAuth): así los datos del canal recién conectado
+ * aparecen enseguida sin esperar al reconcile por antigüedad.
+ */
+export async function invalidateSnapshot() {
+  memSnapshot = null;
+  crawlInFlight = null;
+  if (hasDatabase()) await invalidateAnalysisCache();
+}
+
+/** Solo para tests: limpia el snapshot en memoria y el crawl en curso (aislamiento entre casos). */
+export function __resetSnapshotCacheForTests() {
+  memSnapshot = null;
+  crawlInFlight = null;
+}
+
+/** Baja TODO el catálogo de ML y TN y devuelve las filas crudas (sin computar el análisis). */
+async function fetchRawRows() {
   const accessToken = await getMlToken();
   const mlConnected = !!accessToken;
   const tnConnected = !!tokens.tiendanube?.access_token;
@@ -220,50 +283,43 @@ async function getAnalysisImpl() {
       let authFailed = false;
       // Doc ML: /users/$USER_ID/items/search con limit (máx 100) y offset; results = array de IDs
       const limit = 100;
-      const maxPages = 200;
       const userId = tokens.mercadolibre.user_id;
+      /**
+       * Paginación con search_type=scan + scroll_id. El offset tradicional está capado en 1000
+       * ítems por ML; scan no tiene ese límite. Además es secuencial (no paralelizable), lo que
+       * evita la ráfaga de N/100 requests simultáneos que contribuía a los 429. El scroll_id
+       * expira ~5 min y puede cambiar en cada respuesta: reenviamos siempre el último.
+       */
       const runSearch = async () => {
         const ids = [];
         const authHeaders = { Authorization: `Bearer ${token}` };
-
-        // Página 0 para conocer el total
-        const firstUrl = `https://api.mercadolibre.com/users/${userId}/items/search?limit=${limit}&offset=0`;
-        const firstRes = await ml.fetchWith429Retry(firstUrl, { headers: authHeaders }, 'search');
-        if (!firstRes.ok) {
-          if (firstRes.status === 401) authFailed = true;
-          console.error('[ML] search failed:', firstRes.status, firstUrl, (await firstRes.text()).slice(0, 400));
-          return ids;
+        const base = `https://api.mercadolibre.com/users/${userId}/items/search?search_type=scan&limit=${limit}`;
+        let scrollId = null;
+        let firstCall = true;
+        // Tope de seguridad para no ciclar indefinidamente si ML devolviera siempre scroll_id.
+        const maxIterations = 2000;
+        for (let guard = 0; guard < maxIterations; guard++) {
+          const url = scrollId ? `${base}&scroll_id=${encodeURIComponent(scrollId)}` : base;
+          const res = await ml.fetchWith429Retry(url, { headers: authHeaders }, 'search');
+          if (!res.ok) {
+            if (res.status === 401) authFailed = true;
+            console.error('[ML] search(scan) failed:', res.status, (await res.text()).slice(0, 400));
+            break;
+          }
+          const data = await res.json();
+          const results = data.results || [];
+          const newScroll = data.scroll_id || null;
+          if (firstCall) console.log('[ML] search(scan) ok: primera tanda', results.length, 'de paging.total:', data.paging?.total ?? '?');
+          if (results.length) {
+            ids.push(...results.map(x => (typeof x === 'string' ? x : (x && x.id) || null)).filter(Boolean));
+          }
+          // Continuar mientras haya scroll_id y (haya resultados, o sea la 1ª llamada — algunas
+          // cuentas devuelven la 1ª tanda recién con el scroll_id en la 2ª request).
+          const canContinue = !!newScroll && (results.length > 0 || firstCall);
+          firstCall = false;
+          if (!canContinue) break;
+          scrollId = newScroll;
         }
-        const firstData = await firstRes.json();
-        const firstResults = firstData.results || [];
-        ids.push(...firstResults.map(x => (typeof x === 'string' ? x : (x && x.id) || null)).filter(Boolean));
-        const total = firstData.paging?.total ?? 0;
-        console.log('[ML] search ok:', firstResults.length, 'en esta página, paging.total:', total);
-        if (firstResults.length === 0 && total === 0) {
-          console.log('[ML] respuesta search (keys):', Object.keys(firstData));
-        }
-
-        // Páginas restantes en paralelo (el mlLimiter controla concurrencia y espaciado)
-        if (total > limit) {
-          const offsets = [];
-          for (let off = limit; off < Math.min(total, limit * maxPages); off += limit) offsets.push(off);
-          const pageResults = await Promise.all(
-            offsets.map(offset => {
-              const url = `https://api.mercadolibre.com/users/${userId}/items/search?limit=${limit}&offset=${offset}`;
-              return ml.fetchWith429Retry(url, { headers: authHeaders }, 'search').then(async r => {
-                if (!r.ok) {
-                  if (r.status === 401) authFailed = true;
-                  console.error('[ML] search page failed:', r.status, url);
-                  return [];
-                }
-                const d = await r.json();
-                return (d.results || []).map(x => (typeof x === 'string' ? x : (x && x.id) || null)).filter(Boolean);
-              });
-            })
-          );
-          for (const page of pageResults) ids.push(...page);
-        }
-
         return ids;
       };
       const allIds = await runSearch();
@@ -340,6 +396,15 @@ async function getAnalysisImpl() {
     }
   }
 
+  return { mlRows, tnRows, mlConnected, tnConnected, mlAuthError };
+}
+
+/**
+ * Computa el análisis (matched/onlyML/onlyTN/sin-SKU/duplicados) a partir de las filas crudas.
+ * Es barato (solo agrupa en memoria), así que corre en cada lectura. También refresca la
+ * resolución por SKU (setResolutionFromAnalysis) que usa la sincronización de stock.
+ */
+function computeAnalysis({ mlRows = [], tnRows = [], mlConnected = false, tnConnected = false, mlAuthError = false }) {
   const mlBySku = groupBySku(mlRows);
   const tnBySku = groupBySku(tnRows);
 
@@ -423,4 +488,124 @@ async function getAnalysisImpl() {
       tiendanube: { productId: tn.productId, variantId: tn.variantId }
     }))
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parches puntuales del snapshot. Reemplazan al viejo `invalidateAnalysisCache()`:
+// en vez de borrar todo el catálogo y re-bajarlo de ML, actualizan la(s) fila(s)
+// afectada(s) en memoria/DB. El análisis se recomputa en la próxima lectura.
+// Todas son no-op si todavía no hay snapshot (la primera lectura hará el crawl).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Aplica `mutator(data)` sobre las filas del snapshot bajo lock; guarda solo si hubo cambios. */
+async function patchSnapshot(mutator) {
+  await withSnapshotLock(async () => {
+    const snap = await loadSnapshot();
+    if (!snap?.data?.mlRows) return;
+    const changed = mutator(snap.data);
+    if (changed) await storeSnapshot(snap.data);
+  });
+}
+
+const sameVar = (a, b) => String(a ?? '') === String(b ?? '');
+
+/** Precio ML: en ítems legacy con variaciones ML aplica el mismo precio a TODAS las variaciones del ítem. */
+export function patchMlPrice(itemId, price) {
+  return patchSnapshot((data) => {
+    let changed = false;
+    for (const r of data.mlRows) {
+      if (r.itemId === itemId && r.price !== price) { r.price = price; changed = true; }
+    }
+    return changed;
+  });
+}
+
+/** Stock ML: por variación (o por ítem si no tiene variación). */
+export function patchMlStock(itemId, variationId, stock) {
+  return patchSnapshot((data) => {
+    let changed = false;
+    for (const r of data.mlRows) {
+      if (r.itemId !== itemId) continue;
+      if (variationId != null && variationId !== '' && !sameVar(r.variationId, variationId)) continue;
+      if (r.stock !== stock) { r.stock = stock; changed = true; }
+    }
+    return changed;
+  });
+}
+
+/** SKU ML: por variación (o por ítem simple). */
+export function patchMlSku(itemId, variationId, sku) {
+  const skuTrim = (sku || '').trim() || null;
+  return patchSnapshot((data) => {
+    let changed = false;
+    for (const r of data.mlRows) {
+      if (r.itemId !== itemId) continue;
+      if (variationId != null && variationId !== '' && !sameVar(r.variationId, variationId)) continue;
+      if (r.sku !== skuTrim) { r.sku = skuTrim; r.hasSku = !!skuTrim; changed = true; }
+    }
+    return changed;
+  });
+}
+
+/** Precio TN: por variante, o a todas las variantes del producto si applyAll. */
+export function patchTnPrice(productId, variantId, price, applyAll = false) {
+  return patchSnapshot((data) => {
+    let changed = false;
+    for (const r of data.tnRows) {
+      if (String(r.productId) !== String(productId)) continue;
+      if (!applyAll && !sameVar(r.variantId, variantId)) continue;
+      if (r.price !== price) { r.price = price; changed = true; }
+    }
+    return changed;
+  });
+}
+
+/** Stock TN: por variante. */
+export function patchTnStock(productId, variantId, stock) {
+  return patchSnapshot((data) => {
+    let changed = false;
+    for (const r of data.tnRows) {
+      if (String(r.productId) !== String(productId)) continue;
+      if (!sameVar(r.variantId, variantId)) continue;
+      if (r.stock !== stock) { r.stock = stock; changed = true; }
+    }
+    return changed;
+  });
+}
+
+/** SKU TN: por variante. */
+export function patchTnSku(productId, variantId, sku) {
+  const skuTrim = (sku || '').trim() || null;
+  return patchSnapshot((data) => {
+    let changed = false;
+    for (const r of data.tnRows) {
+      if (String(r.productId) !== String(productId)) continue;
+      if (!sameVar(r.variantId, variantId)) continue;
+      if (r.sku !== skuTrim) { r.sku = skuTrim; r.hasSku = !!skuTrim; changed = true; }
+    }
+    return changed;
+  });
+}
+
+/**
+ * Webhook `items` de ML: re-baja UN ítem (1 request) y reemplaza sus filas en el snapshot.
+ * Si el ítem ya no existe/está inactivo, quita sus filas. Recomendación oficial de ML: mantener
+ * el catálogo con notificaciones de `items` en vez de re-bajarlo entero.
+ */
+export async function refreshMlItemInSnapshot(accessToken, itemId) {
+  if (!itemId) return;
+  let item = null;
+  try {
+    item = await ml.getItem(accessToken, itemId);
+  } catch (e) {
+    console.error('[Analysis] refreshMlItemInSnapshot getItem falló:', e.message);
+    return;
+  }
+  const newRows = item && item.id ? flattenMlItems([item]) : [];
+  await patchSnapshot((data) => {
+    const before = data.mlRows.length;
+    data.mlRows = data.mlRows.filter((r) => r.itemId !== itemId);
+    data.mlRows.push(...newRows);
+    return data.mlRows.length !== before || newRows.length > 0;
+  });
 }

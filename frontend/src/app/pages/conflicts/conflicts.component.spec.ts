@@ -95,11 +95,13 @@ describe('ConflictsComponent', () => {
       'updateSku',
       'linkManually',
       'invalidateAnalysis',
+      'forceRefresh',
       'updatePairInCache',
       'updateItemVariationsPriceInCache',
       'updatePricesAndStock',
       'getTaskStatus'
     ]);
+    spy.forceRefresh.and.returnValue(Promise.resolve());
     spy.updateSku.and.returnValue(of({ ok: true }));
     spy.linkManually.and.returnValue(of({ ok: true, sku: 'SKU-MATCH', persisted: { ml: true, tn: true } }));
     return spy;
@@ -212,13 +214,13 @@ describe('ConflictsComponent', () => {
       expect(el.textContent).toContain('sesión de Mercado Libre venció');
     });
 
-    it('refreshAnalysis debería invalidar la caché de análisis', async () => {
+    it('refreshAnalysis debería forzar un refresh del análisis', async () => {
       conflictsSpy.getAnalysisPromise.and.returnValue(Promise.resolve(createAnalysis()));
       await init();
 
       component.refreshAnalysis();
 
-      expect(conflictsSpy.invalidateAnalysis).toHaveBeenCalled();
+      expect(conflictsSpy.forceRefresh).toHaveBeenCalled();
     });
   });
 

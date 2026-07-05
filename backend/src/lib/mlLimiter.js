@@ -17,9 +17,14 @@
  */
 
 /** Máximo de requests a ML en vuelo a la vez. */
-const MAX_CONCURRENT = Number(process.env.ML_MAX_CONCURRENT) || 4;
-/** Espaciado mínimo entre arranques de request (ms). ~350ms => ~170 req/min. */
-const MIN_SPACING_MS = Number(process.env.ML_MIN_SPACING_MS) || 350;
+const MAX_CONCURRENT = Number(process.env.ML_MAX_CONCURRENT) || 6;
+/**
+ * Espaciado mínimo entre arranques de request (ms). ~150ms => ~400 req/min, cómodo bajo el
+ * límite real de ML (~1500 req/min por vendedor) y ~2.3x más rápido que antes (350ms). Se puede
+ * ajustar por env. El crawl completo ya casi no ocurre (ver snapshot en conflictsService), así que
+ * este ritmo aplica sobre todo a lecturas puntuales y writes.
+ */
+const MIN_SPACING_MS = Number(process.env.ML_MIN_SPACING_MS) || 150;
 
 let active = 0;
 let lastStart = 0;

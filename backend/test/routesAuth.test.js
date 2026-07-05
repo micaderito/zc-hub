@@ -50,6 +50,9 @@ before(async () => {
       registerOrderWebhooks: async () => { if (tnState.registerWebhooksError) throw tnState.registerWebhooksError; return tnState.registerWebhooksResult; },
     },
   });
+  mock.module('../src/services/conflictsService.js', {
+    exports: { invalidateSnapshot: async () => { storeState.invalidateSnapshotCalls = (storeState.invalidateSnapshotCalls || 0) + 1; } },
+  });
 
   const { authRoutes } = await import('../src/routes/auth.js');
   app = express();

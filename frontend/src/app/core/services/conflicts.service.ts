@@ -198,13 +198,14 @@ export class ConflictsService {
    * Obtiene el análisis de conflictos (Observable). Para caché con TanStack Query usar getAnalysisPromise().
    * Soporta paginación y filtros opcionales; sin params devuelve página 1 con 25 resultados.
    */
-  getAnalysis(opts?: { page?: number; limit?: number; filter?: string; search?: string; tab?: string }): Observable<ConflictAnalysis> {
+  getAnalysis(opts?: { page?: number; limit?: number; filter?: string; search?: string; tab?: string; refresh?: boolean }): Observable<ConflictAnalysis> {
     let params = new HttpParams().set('_t', String(Date.now()));
     if (opts?.page != null)   params = params.set('page', String(opts.page));
     if (opts?.limit != null)  params = params.set('limit', String(opts.limit));
     if (opts?.filter)         params = params.set('filter', opts.filter);
     if (opts?.search)         params = params.set('search', opts.search);
     if (opts?.tab)            params = params.set('tab', opts.tab);
+    if (opts?.refresh)        params = params.set('refresh', '1');
     return this.http.get<ConflictAnalysis>(`${this.api.baseUrl}/conflicts`, {
       params,
       headers: ConflictsService.NO_CACHE_HEADERS
@@ -212,8 +213,21 @@ export class ConflictsService {
   }
 
   /** Promesa del análisis; usar en queryFn de TanStack Query (misma queryKey = caché compartida). */
-  getAnalysisPromise(opts?: { page?: number; limit?: number; filter?: string; search?: string; tab?: string }): Promise<ConflictAnalysis> {
+  getAnalysisPromise(opts?: { page?: number; limit?: number; filter?: string; search?: string; tab?: string; refresh?: boolean }): Promise<ConflictAnalysis> {
     return lastValueFrom(this.getAnalysis(opts));
+  }
+
+  /**
+   * Botón "actualizar": fuerza un crawl real a ML/TN (repuebla el snapshot del backend) y después
+   * refetch de las queries de la vista actual, que ya leen del snapshot fresco. A diferencia de
+   * invalidateAnalysis() (que solo refetch del snapshot), esto sí vuelve a consultar los canales.
+   */
+  async forceRefresh(): Promise<void> {
+    try {
+      await this.getAnalysisPromise({ page: 1, limit: 25, refresh: true });
+    } finally {
+      this.invalidateAnalysis();
+    }
   }
 
   updateSku(channel: 'mercadolibre' | 'tiendanube', sku: string, payload: {

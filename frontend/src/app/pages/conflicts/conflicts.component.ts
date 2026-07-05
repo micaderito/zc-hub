@@ -152,8 +152,17 @@ export class ConflictsComponent implements OnInit {
 
   ngOnInit() {}
 
-  refreshAnalysis(): void {
-    this.conflicts.invalidateAnalysis();
+  /** Refresh manual en curso (crawl a los canales, por fuera de la query): loading del botón. */
+  readonly refreshing = signal(false);
+
+  async refreshAnalysis(): Promise<void> {
+    if (this.refreshing()) return;
+    this.refreshing.set(true);
+    try {
+      await this.conflicts.forceRefresh();
+    } finally {
+      this.refreshing.set(false);
+    }
   }
 
   openLinkFromMl(ml: MlRow) {

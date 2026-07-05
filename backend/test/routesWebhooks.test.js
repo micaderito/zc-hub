@@ -45,7 +45,7 @@ const syncServiceState = {
 };
 
 const syncRouteState = { processClaimResult: { created: 0, skipped: 0 } };
-const conflictsServiceState = { getAnalysisCalls: 0 };
+const conflictsServiceState = { getAnalysisCalls: 0, refreshItemCalls: [] };
 
 let app, server, baseUrl;
 
@@ -73,7 +73,10 @@ before(async () => {
     exports: { getOrder: async () => tnState.order },
   });
   mock.module('../src/services/conflictsService.js', {
-    exports: { getAnalysis: async () => { conflictsServiceState.getAnalysisCalls++; return {}; } },
+    exports: {
+      getAnalysis: async () => { conflictsServiceState.getAnalysisCalls++; return {}; },
+      refreshMlItemInSnapshot: async (...a) => { conflictsServiceState.refreshItemCalls.push(a); },
+    },
   });
   mock.module('../src/db.js', {
     exports: {

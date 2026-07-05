@@ -8,6 +8,7 @@ import { getSkuByMlItem, getSkuByTnVariant, getMlItemBySku, getTnVariantBySku } 
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask } from '../db.js';
+import { patchTnStock, patchTnPrice } from './conflictsService.js';
 
 /**
  * El mapeo SKU↔canal (`store.js`) vive solo en memoria y se llena al correr el análisis de
@@ -119,6 +120,7 @@ export async function deductStockTiendaNube(sku, quantity) {
     variantId,
     newStock
   );
+  if (ok) await patchTnStock(productId, variantId, newStock).catch(e => console.error('[Sync] patchTnStock:', e.message));
   return { ok, stockBefore, stockAfter: newStock };
 }
 
@@ -174,6 +176,7 @@ export async function restoreStockTiendaNube(sku, quantity) {
     variantId,
     newStock
   );
+  if (ok) await patchTnStock(productId, variantId, newStock).catch(e => console.error('[Sync] patchTnStock:', e.message));
   return { ok, stockBefore, stockAfter: newStock };
 }
 
@@ -434,6 +437,7 @@ export async function syncPricesForSku(sku) {
     tnIds.variantId,
     priceML
   );
+  if (tnOk) await patchTnPrice(tnIds.productId, tnIds.variantId, priceML, false).catch(e => console.error('[Sync] patchTnPrice:', e.message));
   return { ml: true, tn: tnOk };
 }
 

@@ -1,8 +1,15 @@
 import { Router } from 'express';
 import { tokens, getMlToken, addResolution } from '../store.js';
-import { getAnalysis } from '../services/conflictsService.js';
+import {
+  getAnalysis,
+  patchMlSku,
+  patchTnSku,
+  patchMlStock,
+  patchTnPrice,
+  patchTnStock,
+} from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { invalidateAnalysisCache, enqueueMlTask, getMlTaskStatus } from '../db.js';
+import { enqueueMlTask, getMlTaskStatus } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -23,7 +30,9 @@ conflictsRoutes.get('/', async (req, res) => {
     const timeout = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('timeout')), ANALYSIS_TIMEOUT_MS)
     );
-    const analysis = await Promise.race([getAnalysis(), timeout]);
+    // ?refresh=1 fuerza un crawl completo a ML/TN (botón "actualizar"); si no, sirve del snapshot.
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const analysis = await Promise.race([getAnalysis({ force: forceRefresh }), timeout]);
 
     const allMatched = analysis.matched || [];
 
@@ -129,8 +138,8 @@ conflictsRoutes.post('/update-sku', async (req, res) => {
       await (variationId
         ? ml.updateVariationSku(accessToken, itemId, variationId, skuTrim)
         : ml.updateItemSku(accessToken, itemId, skuTrim));
-      await invalidateAnalysisCache();
-      await getAnalysis();
+      // Parche puntual del snapshot (sin re-bajar el catálogo). El análisis se recomputa al leer.
+      await patchMlSku(itemId, variationId ?? null, skuTrim);
       return res.json({ ok: true });
     } catch (e) {
       let msg = e.message || 'No se pudo actualizar el SKU en Mercado Libre';
@@ -159,8 +168,7 @@ conflictsRoutes.post('/update-sku', async (req, res) => {
         Number(variantId),
         skuTrim
       );
-      await invalidateAnalysisCache();
-      await getAnalysis();
+      await patchTnSku(Number(productId), Number(variantId), skuTrim);
       return res.json({ ok: true });
   } catch (e) {
     const msg = e.message || 'No se pudo actualizar el SKU en Tienda Nube';
@@ -271,6 +279,7 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
             Number(variantId),
             priceTNNum
           );
+      if (tnPriceOk) await patchTnPrice(Number(productId), Number(variantId), priceTNNum, !!applyTnToAllVariants);
     }
     if (stockMLNum !== undefined && stockMLNum >= 0) {
       mlStockOk = await ml.updateItemOrVariationStock(
@@ -279,15 +288,18 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
         variationId ?? undefined,
         stockMLNum
       );
+      if (mlStockOk) await patchMlStock(itemId, variationId ?? null, stockMLNum);
     }
     if (stockTNNum !== undefined && stockTNNum >= 0) {
+      const flooredTn = Math.max(0, Math.floor(stockTNNum));
       tnStockOk = await tn.updateVariantStock(
         tokens.tiendanube.access_token,
         tokens.tiendanube.store_id,
         Number(productId),
         Number(variantId),
-        Math.max(0, Math.floor(stockTNNum))
+        flooredTn
       );
+      if (tnStockOk) await patchTnStock(Number(productId), Number(variantId), flooredTn);
     }
 
     const triedTn = priceTNNum > 0 || (stockTNNum !== undefined && stockTNNum >= 0);
@@ -298,8 +310,8 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       });
     }
 
-    // Invalidar caché por los cambios sincrónicos (TN/stock ML). El precio ML lo invalida el worker al completar.
-    if (triedTn || mlStockOk) await invalidateAnalysisCache();
+    // El snapshot ya quedó parchado in-place con cada cambio sincrónico. El precio ML lo aplica y
+    // parcha el worker al completar la tarea encolada. Nunca se re-baja el catálogo entero.
     return res.json({ ok: true, mlTaskId: mlPriceTaskId ?? undefined, ml: !!(mlPriceTaskId || mlStockOk), tn: tnOk });
   } catch (e) {
     const status = e?.mlStatus >= 400 && e?.mlStatus < 500 ? 422 : 502;

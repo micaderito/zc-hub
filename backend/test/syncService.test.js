@@ -63,6 +63,8 @@ before(async () => {
   mock.module('../src/services/conflictsService.js', {
     exports: {
       getAnalysis: async () => ({ mappings: analysisState.mappings }),
+      patchTnStock: async () => {},
+      patchTnPrice: async () => {},
     },
   });
   mock.module('node-fetch', { exports: { default: (url, opts) => tnFetchState.responder(url, opts) } });

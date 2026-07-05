@@ -10,9 +10,14 @@ function sleep(ms) {
 
 /**
  * Espera ante un 429. Respeta Retry-After si viene; si no, backoff exponencial
- * (10s, 20s, 40s… cap 30s) con jitter para evitar que varias llamadas reintenten
+ * (1.5s, 3s, 6s… cap 12s) con jitter para evitar que varias llamadas reintenten
  * todas en el mismo instante. Además pausa TODO el caño a ML (pauseMlFor) para
  * que un solo 429 frene a las demás llamadas pendientes, no solo a esta.
+ *
+ * El backoff base es corto a propósito: ML documenta "inténtalo de nuevo en unos
+ * segundos" y como pausa TODO el caño, un base grande (antes 10s) congelaba la app
+ * entera por cada 429. Con la Fase C casi no hay 429, así que priorizamos recuperar
+ * rápido cuando aparece uno aislado.
  */
 function waitFor429(res, context = '', attemptIndex = 0) {
   if (res.status !== 429) return Promise.resolve();
@@ -21,11 +26,11 @@ function waitFor429(res, context = '', attemptIndex = 0) {
   if (retryAfter) {
     secs = parseInt(retryAfter, 10) || 1;
   } else {
-    const base = Math.min(10 * Math.pow(2, attemptIndex), 30);
-    // Jitter ±50% para desincronizar reintentos concurrentes.
+    const base = Math.min(1.5 * Math.pow(2, attemptIndex), 12);
+    // Jitter ±25% para desincronizar reintentos concurrentes.
     secs = base * (0.75 + Math.random() * 0.5);
   }
-  const ms = Math.min(secs * 1000, 30000);
+  const ms = Math.min(secs * 1000, 15000);
   pauseMlFor(ms / 1000);
   console.warn(`[ML] 429 ${context}, esperando ${Math.round(ms / 1000)}s antes de reintentar (doc: unos segundos)`);
   return sleep(ms);

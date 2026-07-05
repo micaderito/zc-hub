@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { tokens, persistTokens, persistTokensAsync, clearMlTokens, clearTnTokens, getMlToken, isTnTokenKnownInvalid, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
+import { invalidateSnapshot } from '../services/conflictsService.js';
 
 export const authRoutes = Router();
 
@@ -30,6 +31,8 @@ authRoutes.get('/mercadolibre/callback', async (req, res) => {
       expires_at: data.expires_in ? Date.now() + data.expires_in * 1000 : null
     };
     await persistTokensAsync();
+    // Canal recién conectado: descartar el snapshot para que el próximo análisis lo re-crawlee.
+    await invalidateSnapshot().catch(e => console.error('[Auth] invalidateSnapshot ML:', e.message));
     res.redirect(frontBase.replace(/\/?$/, '/') + '?ml_connected=1');
   } catch (e) {
     res.redirect(frontBase.replace(/\/?$/, '/') + '?ml_error=' + encodeURIComponent(e.message));
@@ -62,6 +65,7 @@ authRoutes.get('/tiendanube/callback', async (req, res) => {
       store_id: data.user_id
     };
     await persistTokensAsync();
+    await invalidateSnapshot().catch(e => console.error('[Auth] invalidateSnapshot TN:', e.message));
     const baseUrl = process.env.WEBHOOK_BASE_URL;
     if (baseUrl && data.access_token && data.user_id) {
       try {

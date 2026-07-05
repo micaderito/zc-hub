@@ -13,7 +13,8 @@
 import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], invalidateCacheCalls: 0, hasDb: true };
+const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], hasDb: true };
+const patchState = { calls: [] };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '55' } } };
 const mlState = {
   item: { id: 'MLA1', available_quantity: 10, variations: [] },
@@ -32,7 +33,14 @@ before(async () => {
       updateMlTaskStatus: async (id, status, err) => { dbState.statusUpdates.push({ id, status, err }); return true; },
       hasDatabase: () => dbState.hasDb,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
-      invalidateAnalysisCache: async () => { dbState.invalidateCacheCalls++; },
+    },
+  });
+  mock.module('../src/services/conflictsService.js', {
+    exports: {
+      patchMlPrice: async (...a) => { patchState.calls.push(['patchMlPrice', ...a]); },
+      patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); },
+      patchMlSku: async (...a) => { patchState.calls.push(['patchMlSku', ...a]); },
+      patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
     },
   });
   mock.module('../src/store.js', {
@@ -65,7 +73,7 @@ beforeEach(() => {
   dbState.claimedTask = null;
   dbState.statusUpdates = [];
   dbState.auditLogs = [];
-  dbState.invalidateCacheCalls = 0;
+  patchState.calls = [];
   dbState.hasDb = true;
   storeState.mlToken = 'ml-tok';
   storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '55' };
@@ -142,10 +150,10 @@ test('sku_ml: si el update devuelve false → failed', async () => {
 
 // ─── processTask: price_ml ─────────────────────────────────────────────────
 
-test('price_ml: precio válido → done e invalida la caché de análisis', async () => {
+test('price_ml: precio válido → done y parcha el precio en el snapshot', async () => {
   await mlTaskQueue.processTask({ id: 10, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'done');
-  assert.equal(dbState.invalidateCacheCalls, 1);
+  assert.deepEqual(patchState.calls[0], ['patchMlPrice', 'MLA1', 150]);
 });
 
 test('price_ml: precio inválido (<=0) → failed sin llamar a ML', async () => {

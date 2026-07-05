@@ -44,6 +44,8 @@
 
     &:hover:not(:disabled) { background: var(--surface-2); }
     &:disabled { opacity: 0.5; cursor: default; }
+
+    .ti.spinning { animation: spin 0.7s linear infinite; }
   }
 
   .subtitle {
