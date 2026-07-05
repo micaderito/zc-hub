@@ -3,11 +3,14 @@
  * Usa claimNextMlTask (FOR UPDATE SKIP LOCKED) para ser safe con múltiples réplicas.
  *
  * Tipos de tarea:
- *   stock_ml  — aplica un delta de stock en ML (target_qty negativo = deducir, positivo = restaurar).
- *               El worker hace GET + computa nueva qty + PUT para evitar races con delta relativo.
- *   sku_ml    — actualiza seller_sku de un ítem/variación en ML.
- *   sku_tn    — actualiza seller_sku de una variante en Tienda Nube.
- *   price_ml  — actualiza el precio (target_price) de un ítem/variación en ML.
+ *   stock_ml     — aplica un delta de stock en ML (target_qty negativo = deducir, positivo = restaurar).
+ *                  El worker hace GET + computa nueva qty + PUT para evitar races con delta relativo.
+ *   stock_ml_set — fija el stock de un ítem/variación en ML al valor absoluto target_qty (lo usa el
+ *                  botón "sincronizar stock" de la pantalla de precios/stock; a diferencia de stock_ml
+ *                  no depende del valor previo, así que no necesita el GET intermedio).
+ *   sku_ml       — actualiza seller_sku de un ítem/variación en ML.
+ *   sku_tn       — actualiza seller_sku de una variante en Tienda Nube.
+ *   price_ml     — actualiza el precio (target_price) de un ítem/variación en ML.
  */
 
 import { claimNextMlTask, updateMlTaskStatus, hasDatabase } from '../db.js';
@@ -59,6 +62,20 @@ export async function processTask(task) {
           stockAfter: newQty,
         }).catch(e => console.error('[MLQueue] insertAuditLog:', e.message));
       }
+
+    } else if (kind === 'stock_ml_set') {
+      const accessToken = await getMlToken();
+      if (!accessToken) throw new Error('Sin token ML');
+
+      const vid = variationId || undefined;
+      const qty = Math.max(0, Math.floor(Number(targetQty)));
+      const ok = await ml.updateItemOrVariationStock(accessToken, itemId, vid, qty);
+      if (!ok) throw new Error('updateItemOrVariationStock devolvió false');
+
+      await updateMlTaskStatus(id, 'done');
+      // Stock (valor absoluto) aplicado en ML: parchamos esa fila del snapshot in-place.
+      await patchMlStock(itemId, vid ?? null, qty).catch(e => console.error('[MLQueue] patchMlStock:', e.message));
+      console.log(`[MLQueue] Tarea ${id} stock_ml_set: ${itemId}${vid ? '/' + vid : ''} → ${qty}`);
 
     } else if (kind === 'sku_ml') {
       const accessToken = await getMlToken();

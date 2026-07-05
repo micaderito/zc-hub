@@ -317,3 +317,32 @@ test('POST /update-prices: encola precio ML y actualiza TN → ok', async () => 
   assert.equal(body.ok, true);
   assert.equal(body.mlTaskId, 5);
 });
+
+test('POST /update-prices: stock ML se encola (no se aplica inline) → ok con mlStockTaskId', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  const res = await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockML: 10, stockTN: 10 }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.mlStockTaskId, 5);
+  assert.equal(body.ml, true);
+});
+
+test('POST /update-prices: no se pudo encolar el stock ML (sin DB) → 502, no ok:true', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  dbState.enqueueResult = null;
+  try {
+    const res = await fetch(`${baseUrl}/update-prices`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockML: 10, stockTN: 10 }),
+    });
+    const body = await res.json();
+    assert.equal(res.status, 502);
+    assert.ok(body.error);
+  } finally {
+    dbState.enqueueResult = 5;
+  }
+});

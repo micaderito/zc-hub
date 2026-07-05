@@ -4,7 +4,6 @@ import {
   getAnalysis,
   patchMlSku,
   patchTnSku,
-  patchMlStock,
   patchTnPrice,
   patchTnStock,
 } from '../services/conflictsService.js';
@@ -239,8 +238,8 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
 
     let mlPriceTaskId = null;
+    let mlStockTaskId = null;
     let tnPriceOk = false;
-    let mlStockOk = false;
     let tnStockOk = false;
     const priceMLNum = Number(priceML);
     const priceTNNum = Number(priceTN);
@@ -281,14 +280,25 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
           );
       if (tnPriceOk) await patchTnPrice(Number(productId), Number(variantId), priceTNNum, !!applyTnToAllVariants);
     }
+    // El stock en ML se encola (igual que el precio y el SKU): antes se aplicaba inline con
+    // fetchWith429Retry y, si los reintentos ante 429 se agotaban, la función devolvía `false`
+    // sin lanzar — la ruta igual respondía `ok:true` y el front daba el stock por sincronizado
+    // aunque ML nunca lo hubiera recibido. Encolarlo hace que el worker lo reintente en segundo
+    // plano (ver mlTaskQueue.js, kind `stock_ml_set`) y el front haga polling del resultado real.
     if (stockMLNum !== undefined && stockMLNum >= 0) {
-      mlStockOk = await ml.updateItemOrVariationStock(
-        accessToken,
+      const vid = variationId != null && variationId !== '' ? String(variationId) : null;
+      mlStockTaskId = await enqueueMlTask({
+        kind: 'stock_ml_set',
         itemId,
-        variationId ?? undefined,
-        stockMLNum
-      );
-      if (mlStockOk) await patchMlStock(itemId, variationId ?? null, stockMLNum);
+        variationId: vid,
+        targetQty: stockMLNum,
+        idempotencyKey: `stock_ml_set:${itemId}:${vid || 'item'}`, // coalescing: el último valor gana
+      });
+      if (!mlStockTaskId) {
+        return res.status(502).json({
+          error: 'No se pudo encolar la actualización de stock en Mercado Libre. Verificá que la base de datos (DATABASE_URL) esté configurada en el backend.'
+        });
+      }
     }
     if (stockTNNum !== undefined && stockTNNum >= 0) {
       const flooredTn = Math.max(0, Math.floor(stockTNNum));
@@ -310,9 +320,16 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       });
     }
 
-    // El snapshot ya quedó parchado in-place con cada cambio sincrónico. El precio ML lo aplica y
-    // parcha el worker al completar la tarea encolada. Nunca se re-baja el catálogo entero.
-    return res.json({ ok: true, mlTaskId: mlPriceTaskId ?? undefined, ml: !!(mlPriceTaskId || mlStockOk), tn: tnOk });
+    // El snapshot ya quedó parchado in-place con los cambios TN sincrónicos. El precio y el stock
+    // en ML los aplica y parcha el worker al completar la tarea encolada (ver mlTaskQueue.js).
+    // Nunca se re-baja el catálogo entero.
+    return res.json({
+      ok: true,
+      mlTaskId: mlPriceTaskId ?? undefined,
+      mlStockTaskId: mlStockTaskId ?? undefined,
+      ml: !!(mlPriceTaskId || mlStockTaskId),
+      tn: tnOk
+    });
   } catch (e) {
     const status = e?.mlStatus >= 400 && e?.mlStatus < 500 ? 422 : 502;
     return res.status(status).json({ error: e.message || 'Error al actualizar' });
