@@ -68,73 +68,77 @@
     </div>
 
     <div class="list-area">
-      @if (fetching) {
-        <div class="refetch-overlay" aria-live="polite">
-          <span class="refetch-spinner" aria-hidden="true"></span>
-          <span>Actualizando…</span>
-        </div>
-      }
-
       <zc-tabs [tabs]="conflictTabs(analysis)" [activeKey]="activeTab()" (tabChange)="onTabChange($any($event))" />
 
       @if (activeTab() !== 'resumen') {
-        <zc-search-bar
-          [value]="searchQuery()"
-          (valueChange)="onSearchChange($event)"
-          placeholder="Buscar por título o SKU…"
-          ariaLabel="Buscar producto"
-        />
+        <div class="search-card">
+          <zc-search-bar
+            [value]="searchQuery()"
+            (valueChange)="onSearchChange($event)"
+            placeholder="Buscar por título o SKU…"
+            ariaLabel="Buscar producto"
+            class="search-bar-wrap"
+          />
+        </div>
       }
 
-      @if (activeTab() === 'resumen') {
-        <app-conflicts-resumen-tab [analysis]="analysis" />
+      @if (fetching) {
+        <div class="list-progress" role="status" aria-label="Actualizando lista">
+          <span class="list-progress-bar" aria-hidden="true"></span>
+        </div>
       }
-      @if (activeTab() === 'coincidencias') {
-        <app-conflicts-coincidencias-tab
-          [pairs]="analysis.matched"
-          [paging]="analysis.paging"
-          (editSku)="onEditSku($event)"
-          (editBothSku)="openEditBothSkuModal($event)"
-          (pageChange)="currentPage.set($event)"
-        />
-      }
-      @if (activeTab() === 'solo-ml') {
-        <app-conflicts-solo-ml-tab
-          [rows]="analysis.onlyML"
-          [paging]="analysis.paging"
-          (editSku)="onEditSku($event)"
-          (linkFromMl)="openLinkFromMl($event)"
-          (pageChange)="currentPage.set($event)"
-        />
-      }
-      @if (activeTab() === 'solo-tn') {
-        <app-conflicts-solo-tn-tab
-          [rows]="analysis.onlyTN"
-          [paging]="analysis.paging"
-          (editSku)="onEditSku($event)"
-          (linkFromTn)="openLinkFromTn($event)"
-          (pageChange)="currentPage.set($event)"
-        />
-      }
-      @if (activeTab() === 'sin-sku') {
-        <app-conflicts-sin-sku-tab
-          [noSkuML]="analysis.noSkuML"
-          [noSkuTN]="analysis.noSkuTN"
-          [searchQuery]="searchQuery()"
-          (editSku)="onEditSku($event)"
-          (linkFromMl)="openLinkFromMl($event)"
-          (linkFromTn)="openLinkFromTn($event)"
-        />
-      }
-      @if (activeTab() === 'duplicados') {
-        <app-conflicts-duplicados-tab
-          [duplicateSkuML]="analysis.duplicateSkuML"
-          [duplicateSkuTN]="analysis.duplicateSkuTN"
-          [searchQuery]="searchQuery()"
-          (editSku)="onEditSku($event)"
-          (editBulkSku)="onBulkEditSku($event)"
-        />
-      }
+
+      <div class="tab-content" [class.is-fetching]="fetching">
+        @if (activeTab() === 'resumen') {
+          <app-conflicts-resumen-tab [analysis]="analysis" />
+        }
+        @if (activeTab() === 'coincidencias') {
+          <app-conflicts-coincidencias-tab
+            [pairs]="analysis.matched"
+            [paging]="analysis.paging"
+            (editSku)="onEditSku($event)"
+            (editBothSku)="openEditBothSkuModal($event)"
+            (pageChange)="currentPage.set($event)"
+          />
+        }
+        @if (activeTab() === 'solo-ml') {
+          <app-conflicts-solo-ml-tab
+            [rows]="analysis.onlyML"
+            [paging]="analysis.paging"
+            (editSku)="onEditSku($event)"
+            (linkFromMl)="openLinkFromMl($event)"
+            (pageChange)="currentPage.set($event)"
+          />
+        }
+        @if (activeTab() === 'solo-tn') {
+          <app-conflicts-solo-tn-tab
+            [rows]="analysis.onlyTN"
+            [paging]="analysis.paging"
+            (editSku)="onEditSku($event)"
+            (linkFromTn)="openLinkFromTn($event)"
+            (pageChange)="currentPage.set($event)"
+          />
+        }
+        @if (activeTab() === 'sin-sku') {
+          <app-conflicts-sin-sku-tab
+            [noSkuML]="analysis.noSkuML"
+            [noSkuTN]="analysis.noSkuTN"
+            [searchQuery]="searchQuery()"
+            (editSku)="onEditSku($event)"
+            (linkFromMl)="openLinkFromMl($event)"
+            (linkFromTn)="openLinkFromTn($event)"
+          />
+        }
+        @if (activeTab() === 'duplicados') {
+          <app-conflicts-duplicados-tab
+            [duplicateSkuML]="analysis.duplicateSkuML"
+            [duplicateSkuTN]="analysis.duplicateSkuTN"
+            [searchQuery]="searchQuery()"
+            (editSku)="onEditSku($event)"
+            (editBulkSku)="onBulkEditSku($event)"
+          />
+        }
+      </div>
     </div>
 
     <!-- Modal: Vincular manualmente -->

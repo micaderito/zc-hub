@@ -38,6 +38,7 @@ export class SyncComponent implements OnInit {
   auditRows: SyncAuditRow[] = [];
   auditTotal = 0;
   auditLoading = true;
+  auditFetching = false;
   auditError: string | null = null;
   revertingAuditId: number | null = null;
   revertError: string | null = null;
@@ -173,7 +174,11 @@ export class SyncComponent implements OnInit {
   }
 
   loadAudit(page = this.auditCurrentPage()): void {
-    this.auditLoading = true;
+    if (this.auditRows.length > 0) {
+      this.auditFetching = true;
+    } else {
+      this.auditLoading = true;
+    }
     this.auditError = null;
     this.revertError = null;
     const offset = (page - 1) * AUDIT_PAGE_SIZE;
@@ -185,11 +190,13 @@ export class SyncComponent implements OnInit {
         this.auditRows = r.rows;
         this.auditTotal = r.total;
         this.auditLoading = false;
+        this.auditFetching = false;
       },
       error: (e) => {
         if (requestId !== this.auditRequestId) return;
         this.auditError = e.error?.error || e.message || 'Error al cargar historial.';
         this.auditLoading = false;
+        this.auditFetching = false;
       }
     });
   }
