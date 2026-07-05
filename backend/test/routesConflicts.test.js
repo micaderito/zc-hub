@@ -24,7 +24,8 @@ const analysisState = {
 };
 
 const syncServiceState = { persistResult: { ml: true, tn: true } };
-const dbState = { invalidateCalls: 0, enqueueResult: 5, taskStatus: null };
+const dbState = { enqueueResult: 5, taskStatus: null };
+const patchState = { calls: [] };
 const mlState = {
   updateVariationSkuError: null,
   updateItemSkuError: null,
@@ -58,14 +59,20 @@ before(async () => {
     },
   });
   mock.module('../src/services/conflictsService.js', {
-    exports: { getAnalysis: async () => analysisState.result },
+    exports: {
+      getAnalysis: async () => analysisState.result,
+      patchMlSku: async (...a) => { patchState.calls.push(['patchMlSku', ...a]); },
+      patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
+      patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); },
+      patchTnPrice: async (...a) => { patchState.calls.push(['patchTnPrice', ...a]); },
+      patchTnStock: async (...a) => { patchState.calls.push(['patchTnStock', ...a]); },
+    },
   });
   mock.module('../src/services/syncService.js', {
     exports: { persistSkuToChannels: async () => syncServiceState.persistResult },
   });
   mock.module('../src/db.js', {
     exports: {
-      invalidateAnalysisCache: async () => { dbState.invalidateCalls++; },
       enqueueMlTask: async () => dbState.enqueueResult,
       getMlTaskStatus: async () => dbState.taskStatus,
     },
@@ -109,7 +116,7 @@ beforeEach(() => {
     mlConnected: true, tnConnected: true, summary: {},
   };
   syncServiceState.persistResult = { ml: true, tn: true };
-  dbState.invalidateCalls = 0;
+  patchState.calls = [];
   dbState.enqueueResult = 5;
   dbState.taskStatus = null;
   mlState.updateVariationSkuError = null;
@@ -173,7 +180,7 @@ test('POST /update-sku: ML éxito sin variationId (updateItemSku)', async () => 
   const res = await fetch(`${baseUrl}/update-sku`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'mercadolibre', sku: 'X', itemId: 'MLA1' }) });
   const body = await res.json();
   assert.deepEqual(body, { ok: true });
-  assert.equal(dbState.invalidateCalls, 1);
+  assert.deepEqual(patchState.calls[0], ['patchMlSku', 'MLA1', null, 'X']);
 });
 
 test('POST /update-sku: ML éxito con variationId (updateVariationSku)', async () => {

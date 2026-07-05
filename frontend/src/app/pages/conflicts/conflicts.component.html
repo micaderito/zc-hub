@@ -5,9 +5,9 @@
       <p class="subtitle">Productos sin par entre ML y TN. Vinculá por SKU o resolvé manualmente.</p>
     </div>
     @if (analysis && !loading) {
-      <button type="button" class="btn-refresh" (click)="refreshAnalysis()" [disabled]="fetching" [title]="fetching ? 'Actualizando…' : 'Actualizar lista'">
-        <i class="ti ti-refresh" aria-hidden="true"></i>
-        {{ fetching ? 'Actualizando…' : 'Actualizar' }}
+      <button type="button" class="btn-refresh" (click)="refreshAnalysis()" [disabled]="fetching || refreshing()" [title]="(fetching || refreshing()) ? 'Actualizando…' : 'Actualizar lista'">
+        <i class="ti ti-refresh" [class.spinning]="fetching || refreshing()" aria-hidden="true"></i>
+        {{ (fetching || refreshing()) ? 'Actualizando…' : 'Actualizar' }}
       </button>
     }
   </div>

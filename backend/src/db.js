@@ -23,7 +23,6 @@ function getPool() {
 
 const SYNC_ENABLED_KEY = 'stock_sync_enabled';
 const ANALYSIS_CACHE_KEY = 'conflicts_analysis_cache';
-const ANALYSIS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /** Crea las tablas si no existen. */
 export async function initDb() {
@@ -146,8 +145,14 @@ export async function initDb() {
   }
 }
 
-/** Caché del análisis de conflictos (compartida entre réplicas). Evita 429 cuando varios requests/replicas piden análisis seguido. */
-export async function getAnalysisCache() {
+/**
+ * Snapshot persistente del catálogo (filas crudas mlRows/tnRows) del que se computa el análisis.
+ * A diferencia de una caché con TTL, es la FUENTE del análisis: se llena con un crawl completo de
+ * ML/TN solo la primera vez (o en refresh manual / reconcile periódico) y después se mantiene fresco
+ * con parches puntuales (webhooks, escrituras). Devuelve { at, data } sin filtrar por antigüedad:
+ * quien lo consume decide si dispara un refresh en background (stale-while-revalidate).
+ */
+export async function getAnalysisSnapshot() {
   const p = getPool();
   if (!p) return null;
   try {
@@ -155,14 +160,14 @@ export async function getAnalysisCache() {
     if (!r.rows?.length) return null;
     const raw = r.rows[0].value;
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (!parsed?.at || Date.now() - parsed.at > ANALYSIS_CACHE_TTL_MS) return null;
-    return parsed.data ?? null;
+    if (!parsed?.data) return null;
+    return { at: parsed.at ?? 0, data: parsed.data };
   } catch {
     return null;
   }
 }
 
-export async function setAnalysisCache(data) {
+export async function setAnalysisSnapshot(data) {
   const p = getPool();
   if (!p) return;
   try {
@@ -171,11 +176,11 @@ export async function setAnalysisCache(data) {
       [ANALYSIS_CACHE_KEY, JSON.stringify({ at: Date.now(), data })]
     );
   } catch (e) {
-    console.error('setAnalysisCache:', e.message);
+    console.error('setAnalysisSnapshot:', e.message);
   }
 }
 
-/** Invalida la caché del análisis (ej. tras actualizar SKU o precios) para que el próximo GET traiga datos frescos. */
+/** Borra el snapshot para forzar un crawl completo en la próxima lectura (refresh manual). */
 export async function invalidateAnalysisCache() {
   const p = getPool();
   if (!p) return;

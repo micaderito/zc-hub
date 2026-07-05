@@ -61,6 +61,10 @@ export class PrecioStockComponent {
   analysis = computed<ConflictAnalysis | null>(() => this.analysisQuery.data() ?? null);
   loading = computed(() => this.analysisQuery.isLoading());
   fetching = computed(() => this.analysisQuery.isFetching());
+  /** Refresh manual en curso (crawl a los canales): el force va por fuera de la query, así que
+   *  lo trackeamos aparte para mostrar el loading del botón desde el click y no solo al final. */
+  readonly refreshing = signal(false);
+  readonly busy = computed(() => this.fetching() || this.refreshing());
   error = computed<string | null>(() => {
     if (!this.analysisQuery.isError() || !this.analysisQuery.error()) return null;
     const err = this.analysisQuery.error() as { error?: { error?: string }; message?: string };
@@ -141,9 +145,15 @@ export class PrecioStockComponent {
     });
   }
 
-  refreshAnalysis(): void {
+  async refreshAnalysis(): Promise<void> {
+    if (this.refreshing()) return;
     this.localOverrides.set(new Map());
-    this.conflicts.invalidateAnalysis();
+    this.refreshing.set(true);
+    try {
+      await this.conflicts.forceRefresh();
+    } finally {
+      this.refreshing.set(false);
+    }
   }
 
   goToPage(page: number): void {

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { tokens, getResolvedSkus, getMlToken, setMlTokenKnownInvalid } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getAnalysis } from '../services/conflictsService.js';
+import { getAnalysis, refreshMlItemInSnapshot } from '../services/conflictsService.js';
 import { tryClaimOrderProcessing, hasOrderProcessingClaimed, releaseOrderProcessingClaim, hasDatabase, hasPendingReturnForOrder } from '../db.js';
 import {
   onMercadoLibreOrderPaid,
@@ -173,6 +173,24 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
       }
     } catch (e) {
       console.error('[Webhook ML] claims:', e);
+    }
+    return;
+  }
+
+  // Topic `items`: ML avisa que cambió una publicación (precio/stock/estado). Actualizamos SOLO
+  // ese ítem en el snapshot (1 request), en vez de re-bajar el catálogo. Recomendación oficial de ML.
+  if (topic === 'items') {
+    res.status(200).send();
+    const m = String(resource || '').match(/\/items\/([A-Za-z0-9]+)/i);
+    const itemId = m ? m[1] : (parseMlResourceId(resource) || null);
+    if (!itemId) return;
+    const accessToken = await getMlToken();
+    if (!accessToken) return;
+    try {
+      await refreshMlItemInSnapshot(accessToken, itemId);
+      console.log('[Webhook ML] items: snapshot actualizado para %s', itemId);
+    } catch (e) {
+      console.error('[Webhook ML] items:', e.message);
     }
     return;
   }

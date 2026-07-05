@@ -14,7 +14,8 @@
 import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], invalidateCacheCalls: 0, hasDb: true };
+const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], hasDb: true };
+const patchState = { calls: [] };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '55' } } };
 const mlState = {
   item: { id: 'MLA1', available_quantity: 10, variations: [] },
@@ -33,7 +34,14 @@ before(async () => {
       updateMlTaskStatus: async (id, status, err) => { dbState.statusUpdates.push({ id, status, err }); return true; },
       hasDatabase: () => dbState.hasDb,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
-      invalidateAnalysisCache: async () => { dbState.invalidateCacheCalls++; },
+    },
+  });
+  mock.module('../src/services/conflictsService.js', {
+    exports: {
+      patchMlPrice: async (...a) => { patchState.calls.push(['patchMlPrice', ...a]); },
+      patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); },
+      patchMlSku: async (...a) => { patchState.calls.push(['patchMlSku', ...a]); },
+      patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
     },
   });
   mock.module('../src/store.js', {
@@ -66,7 +74,7 @@ beforeEach(() => {
   dbState.claimedTask = null;
   dbState.statusUpdates = [];
   dbState.auditLogs = [];
-  dbState.invalidateCacheCalls = 0;
+  patchState.calls = [];
   dbState.hasDb = true;
   storeState.mlToken = 'ml-tok';
   storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '55' };
@@ -125,10 +133,10 @@ test('stock_ml: updateItemOrVariationStock devuelve false → failed', async () 
 
 // ─── processTask: stock_ml_set ─────────────────────────────────────────────
 
-test('stock_ml_set: fija el valor absoluto (no depende del stock previo) → done e invalida caché', async () => {
+test('stock_ml_set: fija el valor absoluto (no depende del stock previo) → done y parcha el snapshot', async () => {
   await mlTaskQueue.processTask({ id: 20, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 7, attempts: 0 });
   assert.deepEqual(dbState.statusUpdates, [{ id: 20, status: 'done', err: undefined }]);
-  assert.equal(dbState.invalidateCacheCalls, 1);
+  assert.deepEqual(patchState.calls[0], ['patchMlStock', 'MLA1', null, 7]);
 });
 
 test('stock_ml_set: con variación pasa el variationId a updateItemOrVariationStock', async () => {
@@ -147,7 +155,7 @@ test('stock_ml_set: updateItemOrVariationStock devuelve false (429 con reintento
   mlState.updateStockResult = false;
   await mlTaskQueue.processTask({ id: 23, kind: 'stock_ml_set', itemId: 'MLA1', targetQty: 5, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'failed');
-  assert.equal(dbState.invalidateCacheCalls, 0);
+  assert.equal(patchState.calls.length, 0, 'si ML no aplicó el stock, no se parcha el snapshot');
 });
 
 // ─── processTask: sku_ml ───────────────────────────────────────────────────
@@ -170,10 +178,10 @@ test('sku_ml: si el update devuelve false → failed', async () => {
 
 // ─── processTask: price_ml ─────────────────────────────────────────────────
 
-test('price_ml: precio válido → done e invalida la caché de análisis', async () => {
+test('price_ml: precio válido → done y parcha el precio en el snapshot', async () => {
   await mlTaskQueue.processTask({ id: 10, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'done');
-  assert.equal(dbState.invalidateCacheCalls, 1);
+  assert.deepEqual(patchState.calls[0], ['patchMlPrice', 'MLA1', 150]);
 });
 
 test('price_ml: precio inválido (<=0) → failed sin llamar a ML', async () => {

@@ -5,9 +5,9 @@
       <p class="subtitle">Solo aparecen productos que coinciden por SKU en ML y TN. Actualizá precios por canal y sincronizá el stock en ambos con un solo valor.</p>
     </div>
     @if (analysis() && !loading()) {
-      <button type="button" class="btn-refresh zc-btn" (click)="refreshAnalysis()" [disabled]="fetching()" [title]="fetching() ? 'Actualizando…' : 'Actualizar lista'">
-        <i class="ti ti-refresh" aria-hidden="true"></i>
-        {{ fetching() ? 'Actualizando…' : 'Actualizar' }}
+      <button type="button" class="btn-refresh zc-btn" (click)="refreshAnalysis()" [disabled]="busy()" [title]="busy() ? 'Actualizando…' : 'Actualizar lista'">
+        <i class="ti ti-refresh" [class.spinning]="busy()" aria-hidden="true"></i>
+        {{ busy() ? 'Actualizando…' : 'Actualizar' }}
       </button>
     }
   </div>

@@ -64,7 +64,7 @@ test('sin DATABASE_URL: las funciones devuelven su valor por defecto sin tocar l
   assert.equal(await db.getSyncEnabled(), false);
   assert.equal(await db.setSyncEnabled(true), false);
   assert.deepEqual(await db.getAuditLog(), { rows: [], total: 0 });
-  assert.equal(await db.getAnalysisCache(), null);
+  assert.equal(await db.getAnalysisSnapshot(), null);
   assert.equal(await db.getAuditRowById(1), null);
   assert.equal(await db.setAuditReverted(1), false);
   assert.equal(await db.getOAuthTokens(), null);
@@ -118,37 +118,39 @@ test('initDb: si falla una query de creación de tabla, devuelve false', async (
 
 // ─── getAnalysisCache / setAnalysisCache / invalidateAnalysisCache ──────────
 
-test('getAnalysisCache: sin fila cacheada devuelve null', async () => {
+test('getAnalysisSnapshot: sin fila devuelve null', async () => {
   state.responder = () => ({ rows: [] });
-  assert.equal(await db.getAnalysisCache(), null);
+  assert.equal(await db.getAnalysisSnapshot(), null);
 });
 
-test('getAnalysisCache: fila fresca devuelve data', async () => {
-  state.responder = () => ({ rows: [{ value: JSON.stringify({ at: Date.now(), data: { foo: 1 } }) }] });
-  const data = await db.getAnalysisCache();
-  assert.deepEqual(data, { foo: 1 });
+test('getAnalysisSnapshot: fila devuelve { at, data } sin filtrar por antigüedad', async () => {
+  const at = Date.now() - 10 * 60 * 1000; // "viejo": ya no se filtra por TTL, lo decide el consumidor
+  state.responder = () => ({ rows: [{ value: JSON.stringify({ at, data: { mlRows: [], tnRows: [] } }) }] });
+  const snap = await db.getAnalysisSnapshot();
+  assert.deepEqual(snap.data, { mlRows: [], tnRows: [] });
+  assert.equal(snap.at, at);
 });
 
-test('getAnalysisCache: fila vieja (TTL vencido) devuelve null', async () => {
-  state.responder = () => ({ rows: [{ value: JSON.stringify({ at: Date.now() - 10 * 60 * 1000, data: { foo: 1 } }) }] });
-  assert.equal(await db.getAnalysisCache(), null);
+test('getAnalysisSnapshot: sin data devuelve null', async () => {
+  state.responder = () => ({ rows: [{ value: JSON.stringify({ at: Date.now() }) }] });
+  assert.equal(await db.getAnalysisSnapshot(), null);
 });
 
-test('getAnalysisCache: error de query → catch devuelve null', async () => {
+test('getAnalysisSnapshot: error de query → catch devuelve null', async () => {
   state.responder = () => { throw new Error('db down'); };
-  assert.equal(await db.getAnalysisCache(), null);
+  assert.equal(await db.getAnalysisSnapshot(), null);
 });
 
-test('setAnalysisCache: hace upsert sin lanzar', async () => {
+test('setAnalysisSnapshot: hace upsert sin lanzar', async () => {
   let inserted = null;
   state.responder = (sql, params) => { inserted = params; return { rows: [] }; };
-  await db.setAnalysisCache({ a: 1 });
+  await db.setAnalysisSnapshot({ a: 1 });
   assert.equal(inserted[0], 'conflicts_analysis_cache');
 });
 
-test('setAnalysisCache: error de query no propaga (catch interno)', async () => {
+test('setAnalysisSnapshot: error de query no propaga (catch interno)', async () => {
   state.responder = () => { throw new Error('boom'); };
-  await db.setAnalysisCache({ a: 1 }); // no debe lanzar
+  await db.setAnalysisSnapshot({ a: 1 }); // no debe lanzar
 });
 
 test('invalidateAnalysisCache: borra la fila sin lanzar', async () => {
