@@ -76,6 +76,7 @@ export class PrecioStockComponent {
     this.analysis()?.paging ?? { page: 1, limit: PAGE_SIZE, total: 0, pages: 1 }
   );
   protected stockSummary = computed(() => this.analysis()?.stockSummary);
+  protected stockTotal = computed(() => this.analysis()?.stockTotal);
 
   collapsedPairs = signal<Set<string>>(new Set());
 

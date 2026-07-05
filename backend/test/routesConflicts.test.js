@@ -136,6 +136,7 @@ test('GET /: tab=coincidencias devuelve matched paginado y stockSummary', async 
   assert.equal(body.matched.length, 1);
   assert.ok(body.stockSummary);
   assert.ok(body.paging);
+  assert.deepEqual(body.stockTotal, { units: 5, products: 1 });
 });
 
 test('GET /: tab=solo-ml filtra por búsqueda', async () => {
@@ -156,6 +157,14 @@ test('GET /: filter=mismatch filtra coincidencias con stock distinto', async () 
   const body = await res.json();
   assert.equal(body.matched.length, 1);
   assert.equal(body.matched[0].sku, 'X');
+});
+
+test('GET /: stockTotal suma el mínimo ML/TN por par y respeta el filtro activo', async () => {
+  analysisState.result.matched.push({ ml: { stock: 3 }, tn: { stock: 9 }, sku: 'X' });
+  const res = await fetch(`${baseUrl}/?tab=coincidencias&filter=mismatch`);
+  const body = await res.json();
+  // Solo el par 'X' (stock distinto) pasa el filtro; su stock vendible es el mínimo entre canales.
+  assert.deepEqual(body.stockTotal, { units: 3, products: 1 });
 });
 
 // ─── POST /update-sku ────────────────────────────────────────────────────

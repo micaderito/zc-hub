@@ -79,6 +79,8 @@ export interface ConflictAnalysis {
   paging: { page: number; limit: number; total: number; pages: number };
   /** Totales por filtro de stock (del full dataset, no de la página actual) */
   stockSummary?: { total: number; mismatch: number; synced: number; noStock: number; withStock: number };
+  /** Stock total (unidades) y cantidad de productos que matchean el filtro/búsqueda activos */
+  stockTotal?: { units: number; products: number };
 }
 
 /** Etiqueta legible para una fila ML (título + nombre de variante). */
@@ -156,9 +158,10 @@ export class ConflictsService {
    * La UI muestra el cambio al instante vía overrides locales en el componente.
    *
    * Cuando `updates.stock` viene seteado, además ajusta localmente los chips de arriba
-   * (`stockSummary`, ver GET /conflicts en el backend para la lógica que replica) y, si se pasa
-   * el `filter` activo, saca el par de la lista visible cuando deja de pertenecer a ese filtro
-   * (ej.: estando en "Stock distinto", sincronizar un par lo pasa a "Mismo stock" y debe desaparecer).
+   * (`stockSummary` y `stockTotal`, ver GET /conflicts en el backend para la lógica que replica)
+   * y, si se pasa el `filter` activo, saca el par de la lista visible cuando deja de pertenecer a
+   * ese filtro (ej.: estando en "Stock distinto", sincronizar un par lo pasa a "Mismo stock" y debe
+   * desaparecer).
    * @param queryKey - Query key exacto de la página actual; si no se provee, se intenta con el key base.
    */
   updatePairInCache(
@@ -189,6 +192,7 @@ export class ConflictsService {
     });
 
     let stockSummary = prev.stockSummary;
+    let stockTotal = prev.stockTotal;
     let paging = prev.paging;
 
     if (updates.stock !== undefined) {
@@ -204,7 +208,19 @@ export class ConflictsService {
         };
       }
 
-      if (filter && filter !== 'all' && !matchesStockFilter(filter, newMl, newTn)) {
+      const droppedByFilter = !!filter && filter !== 'all' && !matchesStockFilter(filter, newMl, newTn);
+
+      // stockTotal (chip "N unidades en stock · M productos") usa el mismo criterio que el backend:
+      // el mínimo entre canales por par (stock realmente vendible), sumado sobre el filtro activo.
+      if (stockTotal) {
+        const oldUnits = Math.min(oldMl, oldTn);
+        const newUnits = Math.min(newMl, newTn);
+        stockTotal = droppedByFilter
+          ? { units: Math.max(0, stockTotal.units - oldUnits), products: Math.max(0, stockTotal.products - 1) }
+          : { units: stockTotal.units - oldUnits + newUnits, products: stockTotal.products };
+      }
+
+      if (droppedByFilter) {
         matched = matched.filter((pair) => getPairId(pair) !== pairId);
         if (paging) {
           const total = Math.max(0, paging.total - 1);
@@ -213,7 +229,7 @@ export class ConflictsService {
       }
     }
 
-    this.queryClient.setQueryData<ConflictAnalysis>(key as unknown[], { ...prev, matched, stockSummary, paging });
+    this.queryClient.setQueryData<ConflictAnalysis>(key as unknown[], { ...prev, matched, stockSummary, stockTotal, paging });
     this.analysisInvalidated.next();
   }
 

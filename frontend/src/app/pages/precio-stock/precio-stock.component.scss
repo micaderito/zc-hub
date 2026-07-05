@@ -141,9 +141,34 @@
     color: var(--brand);
   }
 
+  .search-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
   .search-bar-wrap {
     display: block;
-    margin-bottom: 1rem;
+    flex-shrink: 0;
+  }
+
+  .stock-total-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+    margin-left: auto;
+    background: var(--surface-2);
+    border-radius: var(--radius-md);
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--text-2);
+    white-space: nowrap;
+
+    .ti { font-size: 0.9rem; }
+    strong { color: var(--text); font-weight: 600; }
+    .sep { color: var(--text-3); }
   }
 }
 

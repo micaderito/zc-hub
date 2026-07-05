@@ -52,13 +52,23 @@
           (filterChange)="stockFilter.set($event)"
         />
 
-        <zc-search-bar
-          [value]="searchQuery()"
-          (valueChange)="searchQuery.set($event)"
-          placeholder="Buscar por título, SKU o variante…"
-          ariaLabel="Buscar productos"
-          class="search-bar-wrap"
-        />
+        <div class="search-row">
+          <zc-search-bar
+            [value]="searchQuery()"
+            (valueChange)="searchQuery.set($event)"
+            placeholder="Buscar por título, SKU o variante…"
+            ariaLabel="Buscar productos"
+            class="search-bar-wrap"
+          />
+          @if (stockTotal(); as st) {
+            <div class="stock-total-chip">
+              <i class="ti ti-package" aria-hidden="true"></i>
+              <span><strong>{{ st.units }}</strong> unidad{{ st.units === 1 ? '' : 'es' }} en stock</span>
+              <span class="sep">·</span>
+              <span>{{ st.products }} producto{{ st.products === 1 ? '' : 's' }}</span>
+            </div>
+          }
+        </div>
 
         <section aria-label="Productos">
           @if (currentPagePairs().length === 0) {
