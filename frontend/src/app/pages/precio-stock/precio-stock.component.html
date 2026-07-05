@@ -27,12 +27,6 @@
     <p class="alert">La sesión de Mercado Libre venció. Reconectá desde <a routerLink="/">Inicio</a>.</p>
   } @else if (analysis()) {
     <div class="list-area">
-      @if (fetching()) {
-        <div class="refetch-overlay" aria-live="polite">
-          <span class="refetch-spinner" aria-hidden="true"></span>
-          <span>Actualizando lista…</span>
-        </div>
-      }
       @if (pendingUpdatesCount() > 0) {
         <div class="sync-status-bar" aria-live="polite">
           <span class="sync-status-spinner" aria-hidden="true"></span>
@@ -52,7 +46,7 @@
           (filterChange)="stockFilter.set($event)"
         />
 
-        <div class="search-row">
+        <div class="search-card">
           <zc-search-bar
             [value]="searchQuery()"
             (valueChange)="searchQuery.set($event)"
@@ -81,7 +75,13 @@
               </button>
             </div>
 
-            <div class="pairs-list">
+            @if (fetching()) {
+              <div class="list-progress" role="status" aria-label="Actualizando lista">
+                <span class="list-progress-bar" aria-hidden="true"></span>
+              </div>
+            }
+
+            <div class="pairs-list" [class.is-fetching]="fetching()">
               @for (pair of currentPagePairs(); track getPairId(pair)) {
                 <zc-pair-card
                   [pair]="pair"

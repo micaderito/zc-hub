@@ -1,6 +1,11 @@
+:host {
+  display: block;
+  width: 100%;
+}
+
 .search-bar {
   position: relative;
-  max-width: min(360px, 100%);
+  width: 100%;
 
   .search-icon {
     position: absolute;
