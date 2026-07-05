@@ -254,16 +254,17 @@
           <p class="muted">El historial se guarda cuando hay una base de datos configurada.</p>
         } @else {
 
-          <div class="section-toolbar section-toolbar--wrap">
+          <div class="search-card">
             <zc-search-bar
               [value]="auditSearchQuery()"
               (valueChange)="auditSearchQuery.set($event)"
               placeholder="Buscar por nro de venta u orden…"
               ariaLabel="Buscar en historial de sincronización"
+              class="search-bar-wrap"
             />
             <button type="button" class="btn-secondary" (click)="refreshAudit()" [disabled]="auditLoading">
-              <i class="ti ti-refresh" aria-hidden="true"></i>
-              Actualizar
+              <i class="ti ti-refresh" [class.spin]="auditFetching" aria-hidden="true"></i>
+              {{ auditFetching ? 'Actualizando…' : 'Actualizar' }}
             </button>
           </div>
 
@@ -291,6 +292,12 @@
             <div class="alert error">{{ revertError }}</div>
           }
 
+          @if (auditFetching) {
+            <div class="list-progress" role="status" aria-label="Actualizando historial">
+              <span class="list-progress-bar" aria-hidden="true"></span>
+            </div>
+          }
+
           @if (auditLoading) {
             <p class="loading-text">Cargando historial…</p>
           } @else if (auditError) {
@@ -308,7 +315,7 @@
               }
             </div>
           } @else {
-            <div class="audit-list">
+            <div class="audit-list" [class.is-fetching]="auditFetching">
               @for (row of auditRows; track row.id) {
                 <div class="audit-row" [class.audit-ml]="row.channelSale === 'mercadolibre'" [class.audit-tn]="row.channelSale === 'tiendanube'" [class.audit-reverted]="row.revertedAt">
                   <div class="audit-main">
