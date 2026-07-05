@@ -82,8 +82,15 @@ conflictsRoutes.get('/', async (req, res) => {
       }
 
       total = filtered.length;
+      // Stock total de la búsqueda/filtro activos (para el chip informativo del listado): por
+      // par se usa el menor entre ML y TN (mismo criterio que syncStock en el front), ya que un
+      // ítem con stock distinto entre canales solo puede vender hasta el mínimo de los dos.
+      const stockTotal = {
+        units: filtered.reduce((sum, p) => sum + Math.min(p.ml?.stock ?? 0, p.tn?.stock ?? 0), 0),
+        products: filtered.length,
+      };
       const offset = (page - 1) * limit;
-      responseOverride = { matched: filtered.slice(offset, offset + limit) };
+      responseOverride = { matched: filtered.slice(offset, offset + limit), stockTotal };
       paging = { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) };
     } else if (tab === 'solo-ml') {
       const filtered = searchRows(analysis.onlyML || [], searchTokens);
