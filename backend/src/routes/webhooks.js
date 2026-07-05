@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { tokens, getResolvedSkus, getMlToken, setMlTokenKnownInvalid } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getAnalysis, refreshMlItemInSnapshot } from '../services/conflictsService.js';
+import { getAnalysis, refreshMlItemInSnapshot, refreshTnProductInSnapshot } from '../services/conflictsService.js';
 import { tryClaimOrderProcessing, hasOrderProcessingClaimed, releaseOrderProcessingClaim, hasDatabase, hasPendingReturnForOrder } from '../db.js';
 import {
   onMercadoLibreOrderPaid,
@@ -287,11 +287,23 @@ webhookRoutes.post('/tiendanube', async (req, res) => {
     if (event != null) console.log('[Webhook TN] Evento sin id, se ignora.');
     return;
   }
-  if (!['order/created', 'order/paid', 'order/cancelled'].includes(event)) {
-    return;
-  }
   if (!tokens.tiendanube?.access_token) {
     console.warn('[Webhook TN] No hay token de TN, no se puede procesar.');
+    return;
+  }
+  // Topic product/*: TN avisa que se creó/editó/borró un producto (id = productId). Refrescamos
+  // SOLO ese producto en el snapshot (1 request), en vez de re-bajar el catálogo. Análogo al
+  // topic `items` de ML.
+  if (['product/created', 'product/updated', 'product/deleted'].includes(event)) {
+    try {
+      await refreshTnProductInSnapshot(tokens.tiendanube.access_token, tokens.tiendanube.store_id, id);
+      console.log('[Webhook TN] %s: snapshot actualizado para producto %s', event, id);
+    } catch (e) {
+      console.error('[Webhook TN] product:', e.message);
+    }
+    return;
+  }
+  if (!['order/created', 'order/paid', 'order/cancelled'].includes(event)) {
     return;
   }
   try {
