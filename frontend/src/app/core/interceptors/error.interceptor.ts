@@ -10,9 +10,11 @@ function getErrorMessage(err: HttpErrorResponse): string {
     if (body.error && typeof body.error === 'string') return body.error;
     if (body.message && typeof body.message === 'string') return body.message;
   }
-  if (err?.message) return err.message;
+  // HttpErrorResponse siempre trae un .message autogenerado (texto técnico en inglés), así que
+  // se prioriza un mensaje sintetizado a partir del status antes de caer en él.
   if (err?.status === 0) return 'No se pudo conectar. ¿Está corriendo el backend?';
   if (err?.status) return `Error ${err.status}: ${err.statusText || 'Error en la solicitud'}`;
+  if (err?.message) return err.message;
   return 'Error de conexión';
 }
 

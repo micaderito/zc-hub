@@ -3,11 +3,39 @@
  * Si la sincronización está activada, se registra cada cambio en la auditoría (Postgres).
  */
 
-import { tokens, getMlToken } from '../store.js';
+import { tokens, getMlToken, addResolution } from '../store.js';
 import { getSkuByMlItem, getSkuByTnVariant, getMlItemBySku, getTnVariantBySku } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask } from '../db.js';
+import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask } from '../db.js';
+
+/**
+ * El mapeo SKU↔canal (`store.js`) vive solo en memoria y se llena al correr el análisis de
+ * Conflictos/Precio y Stock. Si el backend se reinició y todavía no se visitó esa pantalla,
+ * el mapeo está vacío aunque el SKU siga vinculado. Antes de dar por perdido un SKU, se
+ * refresca el análisis (getAnalysis, con su propio cache) y se reintenta la resolución.
+ */
+async function ensureSkuResolved(sku, side) {
+  const resolved = side === 'tn' ? getTnVariantBySku(sku) : getMlItemBySku(sku);
+  if (resolved) return;
+  try {
+    const { getAnalysis } = await import('./conflictsService.js');
+    const analysis = await getAnalysis();
+    for (const m of analysis.mappings || []) addResolution(m);
+  } catch (e) {
+    console.error('[Sync] No se pudo refrescar el mapeo SKU→canal:', e.message);
+  }
+}
+
+/** ID real de la orden ML (order.id); si no vino el payload completo, usa el fallback recibido. */
+function resolveMlOrderId(orderPayload, fallback) {
+  return String(orderPayload?.id ?? fallback ?? '');
+}
+
+/** Nro de venta real (pack_id) de una orden ML; si la orden no forma parte de un pack, ML no trae pack_id y se usa el fallback (el propio order id). */
+function resolveMlPackId(orderPayload, fallback) {
+  return String(orderPayload?.pack_id ?? fallback ?? '');
+}
 
 /** Arma "descripción | variante" desde el ítem de una orden ML (item.title + variation_attributes). */
 function mlOrderItemDisplay(oi) {
@@ -66,6 +94,7 @@ export async function persistSkuToChannels(entry) {
 
 /** Descontar stock en Tienda Nube para el SKU dado. Devuelve { ok, stockBefore, stockAfter }. */
 export async function deductStockTiendaNube(sku, quantity) {
+  await ensureSkuResolved(sku, 'tn');
   const tnVariant = getTnVariantBySku(sku);
   if (!tnVariant?.productId || !tokens.tiendanube?.access_token) return { ok: false };
   const { productId, variantId } = tnVariant;
@@ -100,6 +129,7 @@ export async function deductStockTiendaNube(sku, quantity) {
  * Devuelve { ok, queued: true, taskId } — ok=true significa "encolado con éxito".
  */
 export async function deductStockMercadoLibre(sku, quantity, auditCtx = null) {
+  await ensureSkuResolved(sku, 'ml');
   const mlItem = getMlItemBySku(sku);
   if (!mlItem?.itemId) return { ok: false };
   const { itemId, variationId: rawVid } = mlItem;
@@ -119,6 +149,7 @@ export async function deductStockMercadoLibre(sku, quantity, auditCtx = null) {
 
 /** Restaurar stock en Tienda Nube (sumar cantidad). Devuelve { ok, stockBefore, stockAfter }. */
 export async function restoreStockTiendaNube(sku, quantity) {
+  await ensureSkuResolved(sku, 'tn');
   const tnVariant = getTnVariantBySku(sku);
   if (!tnVariant?.productId || !tokens.tiendanube?.access_token) return { ok: false };
   const { productId, variantId } = tnVariant;
@@ -152,6 +183,7 @@ export async function restoreStockTiendaNube(sku, quantity) {
  * Devuelve { ok, queued: true, taskId }.
  */
 export async function restoreStockMercadoLibre(sku, quantity, auditCtx = null) {
+  await ensureSkuResolved(sku, 'ml');
   const mlItem = getMlItemBySku(sku);
   if (!mlItem?.itemId) return { ok: false };
   const { itemId, variationId: rawVid } = mlItem;
@@ -185,6 +217,15 @@ export async function revertSyncAudit(row) {
   }
   if (channel === 'mercadolibre') {
     const out = await restoreStockMercadoLibre(sku, quantity);
+    // La restauración en ML se encola y la aplica el worker en segundo plano; esperamos a que
+    // termine antes de marcar el registro como revertido (si no, el historial diría "revertido"
+    // sin que el stock en ML se haya actualizado todavía).
+    if (out.ok && out.queued && out.taskId) {
+      const status = await waitForMlTask(out.taskId);
+      if (status?.status === 'failed') {
+        return { ok: false, error: status.lastError || 'No se pudo restaurar stock en Mercado Libre (la tarea encolada falló).' };
+      }
+    }
     return { ok: out.ok, error: out.ok ? undefined : 'No se pudo restaurar stock en Mercado Libre (revisá que el SKU siga vinculado)' };
   }
   return { ok: false, error: 'Canal no reconocido' };
@@ -197,6 +238,8 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
     console.warn('[Sync] ML orden %s: sincronización desactivada, no se descuenta.', orderId);
     return [];
   }
+  const realOrderId = resolveMlOrderId(orderPayload, saleOrderId ?? orderId);
+  const packId = resolveMlPackId(orderPayload, orderId);
   const results = [];
   for (const oi of orderItems) {
     const itemId = oi?.item?.id;
@@ -229,7 +272,8 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
       const saleItemId = saleOrderId != null ? String(saleOrderId) : (orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null);
       await insertAuditLog({
         channelSale: 'mercadolibre',
-        orderId: String(orderId),
+        orderId: realOrderId,
+        packId,
         saleItemId,
         sku,
         productLabel: 'Venta ML',
@@ -265,10 +309,6 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '', orderPaylo
       console.warn('[Sync] TN orden %s: variante %s no tiene SKU en el mapeo (¿producto vinculado en Conflictos?).', orderId, variantId);
       continue;
     }
-    if (!getMlItemBySku(sku)) {
-      console.warn('[Sync] TN orden %s: SKU %s no tiene ítem de ML en el mapeo.', orderId, sku);
-      continue;
-    }
     const productId = item.product_id ?? item.productId;
     const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
     const auditCtx = {
@@ -297,6 +337,8 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '', orderPaylo
 export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', orderPayload = null) {
   const enabled = await getSyncEnabled();
   if (!enabled) return [];
+  const realOrderId = resolveMlOrderId(orderPayload, orderId);
+  const packId = resolveMlPackId(orderPayload, orderId);
   const results = [];
   for (const oi of orderItems) {
     const itemId = oi?.item?.id;
@@ -324,7 +366,8 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
           : null;
         await insertAuditLog({
           channelSale: 'mercadolibre',
-          orderId: String(orderId),
+          orderId: realOrderId,
+          packId,
           saleItemId,
           sku,
           productLabel: 'Cancelación ML',
@@ -352,7 +395,6 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
     if (variantId == null) continue;
     const sku = getSkuByTnVariant(variantId) || (item.sku ? String(item.sku).trim() : null);
     if (!sku) continue;
-    if (!getMlItemBySku(sku)) continue;
     const productId = item.product_id ?? item.productId;
     const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
     const auditCtx = {

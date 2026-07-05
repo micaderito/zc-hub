@@ -1,0 +1,298 @@
+/**
+ * Tests de conflictsService.js (getAnalysis): cruza publicaciones de ML y TN por SKU para
+ * detectar coincidencias, solo-ML, solo-TN, sin SKU y SKU duplicados.
+ *
+ * Mockeamos:
+ * - '../src/store.js' (tokens, getMlToken, tryRefreshMlToken, setMlTokenKnownInvalid,
+ *   setTnTokenKnownInvalid, setResolutionFromAnalysis) — no hay tokens reales.
+ * - '../src/db.js' (hasDatabase, getAnalysisCache, setAnalysisCache) — no hay Postgres real.
+ * - '../src/lib/mercadolibre.js' (fetchWith429Retry) — conflictsService pega directo a la API
+ *   de búsqueda/multiget de ML con esta función, sin pasar por getItem/getItems.
+ * - '../src/lib/tiendanube.js' (getProducts) — TN devuelve productos con variants/images embebidos.
+ */
+import { test, before, beforeEach, mock } from 'node:test';
+import assert from 'node:assert/strict';
+
+const storeState = {
+  tokens: {
+    mercadolibre: { access_token: null, user_id: null },
+    tiendanube: { access_token: null, store_id: null }
+  },
+  mlToken: null,
+  refreshedToken: null,
+  setMlInvalidCalls: [],
+  setTnInvalidCalls: [],
+  resolutionCalls: [],
+};
+
+const dbState = { hasDb: false, cache: null, setCacheCalls: [] };
+
+const mlState = { responder: null };
+const tnState = { getProductsImpl: null };
+
+function makeRes({ status = 200, json = null } = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => null },
+    json: async () => json,
+    text: async () => JSON.stringify(json ?? {}),
+  };
+}
+
+let conflictsService;
+before(async () => {
+  mock.module('../src/store.js', {
+    exports: {
+      tokens: storeState.tokens,
+      getMlToken: async () => storeState.mlToken,
+      tryRefreshMlToken: async () => storeState.refreshedToken,
+      setMlTokenKnownInvalid: (v) => storeState.setMlInvalidCalls.push(v),
+      setTnTokenKnownInvalid: (v) => storeState.setTnInvalidCalls.push(v),
+      setResolutionFromAnalysis: (ml, tn) => storeState.resolutionCalls.push({ ml, tn }),
+    },
+  });
+  mock.module('../src/db.js', {
+    exports: {
+      hasDatabase: () => dbState.hasDb,
+      getAnalysisCache: async () => dbState.cache,
+      setAnalysisCache: async (d) => { dbState.setCacheCalls.push(d); },
+    },
+  });
+  mock.module('../src/lib/mercadolibre.js', {
+    exports: {
+      fetchWith429Retry: async (url, opts, ctx) => mlState.responder(url, opts, ctx),
+    },
+  });
+  mock.module('../src/lib/tiendanube.js', {
+    exports: {
+      getProducts: async (token, storeId) => tnState.getProductsImpl(token, storeId),
+    },
+  });
+  conflictsService = await import('../src/services/conflictsService.js');
+});
+
+beforeEach(() => {
+  storeState.tokens.mercadolibre = { access_token: null, user_id: null };
+  storeState.tokens.tiendanube = { access_token: null, store_id: null };
+  storeState.mlToken = null;
+  storeState.refreshedToken = null;
+  storeState.setMlInvalidCalls = [];
+  storeState.setTnInvalidCalls = [];
+  storeState.resolutionCalls = [];
+  dbState.hasDb = false;
+  dbState.cache = null;
+  dbState.setCacheCalls = [];
+  mlState.responder = null;
+  tnState.getProductsImpl = null;
+});
+
+test('ni ML ni TN conectados: mlConnected/tnConnected false, listas vacías', async () => {
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.mlConnected, false);
+  assert.equal(result.tnConnected, false);
+  assert.deepEqual(result.matched, []);
+  assert.deepEqual(result.summary.totalML, 0);
+});
+
+test('ML conectado sin user_id: no intenta buscar, mlRows vacío', async () => {
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = null;
+  let called = false;
+  mlState.responder = () => { called = true; return makeRes({ json: {} }); };
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.mlConnected, true);
+  assert.equal(called, false);
+  assert.deepEqual(result.mlRows, undefined); // no se expone directo, solo vía summary
+  assert.equal(result.summary.totalML, 0);
+});
+
+test('ML: trae ítems (uno con variantes, otro simple) vía search + multiget', async () => {
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) {
+      return makeRes({ json: { results: ['MLA1', 'MLA2'], paging: { total: 2 } } });
+    }
+    if (url.includes('/items?ids=')) {
+      return makeRes({
+        json: [
+          {
+            code: 200,
+            body: {
+              id: 'MLA1',
+              title: 'Cuaderno',
+              catalog_listing: false,
+              variations: [
+                { id: 10, seller_sku: 'SKU-A', price: 100, available_quantity: 5 },
+              ],
+            },
+          },
+          {
+            code: 200,
+            body: { id: 'MLA2', title: 'Lapicera', catalog_listing: false, seller_sku: 'SKU-B', price: 50, available_quantity: 2 },
+          },
+        ],
+      });
+    }
+    throw new Error('URL inesperada ' + url);
+  };
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.summary.totalML, 2);
+  assert.equal(result.onlyML.length, 2); // sin TN conectado, todo cae en onlyML
+});
+
+test('ML: pagina cuando el total supera el límite de la primera página', async () => {
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  const seenOffsets = [];
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) {
+      const u = new URL(url);
+      const offset = Number(u.searchParams.get('offset'));
+      seenOffsets.push(offset);
+      if (offset === 0) return makeRes({ json: { results: Array.from({ length: 100 }, (_, i) => `MLA${i}`), paging: { total: 150 } } });
+      return makeRes({ json: { results: Array.from({ length: 50 }, (_, i) => `MLB${i}`) } });
+    }
+    if (url.includes('/items?ids=')) return makeRes({ json: [] });
+    throw new Error('URL inesperada ' + url);
+  };
+  await conflictsService.getAnalysis();
+  assert.ok(seenOffsets.includes(100), 'debe pedir la página siguiente (offset 100)');
+});
+
+test('ML: 401 en la búsqueda dispara refresh de token y reintenta', async () => {
+  storeState.mlToken = 'old-tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  storeState.refreshedToken = 'new-tok';
+  let usedTokens = [];
+  mlState.responder = (url, opts) => {
+    const auth = opts.headers.Authorization;
+    usedTokens.push(auth);
+    if (url.includes('/items/search')) {
+      if (auth.includes('old-tok')) return makeRes({ status: 401, json: { message: 'invalid token' } });
+      return makeRes({ json: { results: [], paging: { total: 0 } } });
+    }
+    return makeRes({ json: [] });
+  };
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.mlAuthError, false);
+  assert.ok(usedTokens.some((t) => t.includes('new-tok')));
+});
+
+test('ML: 401 persiste incluso tras refrescar → mlAuthError true y marca token inválido', async () => {
+  storeState.mlToken = 'old-tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  storeState.refreshedToken = null; // no se pudo refrescar
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) return makeRes({ status: 401, json: { message: 'invalid token' } });
+    return makeRes({ json: [] });
+  };
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.mlAuthError, true);
+  assert.deepEqual(storeState.setMlInvalidCalls, [true]);
+});
+
+test('TN: conectado trae productos con variantes e imágenes', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '55' };
+  tnState.getProductsImpl = async () => [
+    {
+      id: 1,
+      name: { es: 'Cuaderno' },
+      images: [{ id: 1, src: 'http://img/1.jpg' }],
+      variants: [{ id: 10, sku: 'SKU-A', price: '100', stock: 3, image_id: 1, values: [{ es: 'Grande' }] }],
+    },
+  ];
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.summary.totalTN, 1);
+  assert.equal(result.onlyTN.length, 1);
+  assert.equal(result.onlyTN[0].thumbnail, 'https://img/1.jpg', 'debe forzar https');
+});
+
+test('TN: error con status 401 marca token TN inválido y no lanza', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '55' };
+  tnState.getProductsImpl = async () => { const e = new Error('unauthorized'); e.status = 401; throw e; };
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.summary.totalTN, 0);
+  assert.deepEqual(storeState.setTnInvalidCalls, [true]);
+});
+
+test('ML y TN con el mismo SKU quedan matched; SKU duplicado en ML se agrupa aparte', async () => {
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '55' };
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) return makeRes({ json: { results: ['MLA1', 'MLA2', 'MLA3'], paging: { total: 3 } } });
+    if (url.includes('/items?ids=')) {
+      return makeRes({
+        json: [
+          { code: 200, body: { id: 'MLA1', title: 'A', catalog_listing: false, seller_sku: 'SKU-MATCH', price: 10, available_quantity: 1 } },
+          { code: 200, body: { id: 'MLA2', title: 'B', catalog_listing: false, seller_sku: 'DUP', price: 10, available_quantity: 1 } },
+          { code: 200, body: { id: 'MLA3', title: 'C', catalog_listing: false, seller_sku: 'DUP', price: 10, available_quantity: 1 } },
+        ],
+      });
+    }
+    throw new Error('URL inesperada ' + url);
+  };
+  tnState.getProductsImpl = async () => [
+    { id: 1, name: 'X', images: [], variants: [{ id: 10, sku: 'SKU-MATCH', price: 10, stock: 1 }] },
+  ];
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.matched.length, 1);
+  assert.equal(result.matched[0].sku, 'SKU-MATCH');
+  assert.equal(result.duplicateSkuML.length, 1);
+  assert.equal(result.duplicateSkuML[0].sku, 'DUP');
+  assert.equal(result.mappings.length, 1);
+  assert.deepEqual(storeState.resolutionCalls.length, 1);
+});
+
+test('ítems sin SKU van a noSkuML / noSkuTN', async () => {
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) return makeRes({ json: { results: ['MLA1'], paging: { total: 1 } } });
+    if (url.includes('/items?ids=')) {
+      return makeRes({ json: [{ code: 200, body: { id: 'MLA1', title: 'Sin sku', catalog_listing: false, price: 1, available_quantity: 1 } }] });
+    }
+    throw new Error('URL inesperada ' + url);
+  };
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.noSkuML.length, 1);
+});
+
+test('getAnalysis con caché de DB fresca: devuelve la caché sin llamar a ML/TN', async () => {
+  dbState.hasDb = true;
+  dbState.cache = { summary: { totalML: 999 }, matched: [] };
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  let called = false;
+  mlState.responder = () => { called = true; return makeRes({ json: {} }); };
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.summary.totalML, 999);
+  assert.equal(called, false, 'no debe pegarle a ML si hay caché fresca');
+});
+
+test('getAnalysis sin caché pero con DB: corre el análisis y lo guarda en caché', async () => {
+  dbState.hasDb = true;
+  dbState.cache = null;
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.mlConnected, false);
+  assert.equal(dbState.setCacheCalls.length, 1);
+});
+
+test('getAnalysis: llamadas concurrentes sin caché comparten la misma ejecución (dedup in-flight)', async () => {
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  let searchCalls = 0;
+  mlState.responder = async (url) => {
+    if (url.includes('/items/search')) {
+      searchCalls++;
+      await new Promise((r) => setTimeout(r, 20));
+      return makeRes({ json: { results: [], paging: { total: 0 } } });
+    }
+    return makeRes({ json: [] });
+  };
+  const [a, b] = await Promise.all([conflictsService.getAnalysis(), conflictsService.getAnalysis()]);
+  assert.equal(searchCalls, 1, 'las dos llamadas concurrentes deben compartir la misma ejecución en curso');
+  assert.equal(a, b);
+});

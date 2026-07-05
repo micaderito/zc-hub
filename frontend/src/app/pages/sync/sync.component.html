@@ -252,41 +252,50 @@
 
         @if (!config.hasDatabase) {
           <p class="muted">El historial se guarda cuando hay una base de datos configurada.</p>
-        } @else if (auditLoading) {
-          <p class="loading-text">Cargando historial…</p>
-        } @else if (auditError) {
-          <div class="alert error">{{ auditError }}</div>
         } @else {
 
           <div class="section-toolbar section-toolbar--wrap">
             <zc-search-bar
               [value]="auditSearchQuery()"
-              (valueChange)="auditSearchQuery.set($event); onAuditSearchChange()"
+              (valueChange)="auditSearchQuery.set($event)"
               placeholder="Buscar por nro de venta u orden…"
               ariaLabel="Buscar en historial de sincronización"
             />
-            <div class="toolbar-right">
-              <div class="reprocess-row">
-                <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta (reintentar)" class="zc-input reprocess-input" (keyup.enter)="reprocessOrder()" />
-                <button type="button" class="btn-secondary" (click)="reprocessOrder()" [disabled]="!reprocessOrderId.trim() || reprocessingOrder">
-                  {{ reprocessingOrder ? '…' : 'Reintentar venta' }}
-                </button>
-                @if (reprocessResult) {
-                  <span class="inline-result" [class.err]="reprocessResult.startsWith('Error')">{{ reprocessResult }}</span>
+            <button type="button" class="btn-secondary" (click)="refreshAudit()" [disabled]="auditLoading">
+              <i class="ti ti-refresh" aria-hidden="true"></i>
+              Actualizar
+            </button>
+          </div>
+
+          <div class="reprocess-card">
+            <div class="reprocess-icon"><i class="ti ti-refresh-alert" aria-hidden="true"></i></div>
+            <div class="reprocess-info">
+              <div class="reprocess-title">Reintentar sincronización de una venta</div>
+              <p class="hint">Volvé a procesar una venta si el webhook no descontó el stock automáticamente.</p>
+            </div>
+            <div class="reprocess-form">
+              <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta" class="zc-input reprocess-input" (keyup.enter)="reprocessOrder()" />
+              <button type="button" class="btn-secondary" (click)="reprocessOrder()" [disabled]="!reprocessOrderId.trim() || reprocessingOrder">
+                @if (reprocessingOrder) {
+                  <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
                 }
-              </div>
-              <button type="button" class="btn-secondary" (click)="refreshAudit()" [disabled]="auditLoading">
-                <i class="ti ti-refresh" aria-hidden="true"></i>
-                Actualizar
+                {{ reprocessingOrder ? 'Reintentando…' : 'Reintentar venta' }}
               </button>
             </div>
+            @if (reprocessResult) {
+              <span class="inline-result" [class.err]="reprocessResult.startsWith('Error')">{{ reprocessResult }}</span>
+            }
           </div>
 
           @if (revertError) {
             <div class="alert error">{{ revertError }}</div>
           }
 
-          @if (auditRows.length === 0) {
+          @if (auditLoading) {
+            <p class="loading-text">Cargando historial…</p>
+          } @else if (auditError) {
+            <div class="alert error">{{ auditError }}</div>
+          } @else if (auditRows.length === 0) {
             <div class="empty-state">
               @if (auditSearchQuery().trim()) {
                 <i class="ti ti-search" aria-hidden="true"></i>
@@ -306,11 +315,14 @@
                     <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
                     <div class="audit-meta">
                       <code>{{ row.sku }}</code>
+                      @if (row.packId || row.orderId) {
+                        <span>Pack <code>{{ row.packId || row.orderId }}</code></span>
+                      }
                       @if (row.orderId) {
-                        <span>Pack <code>{{ row.orderId }}</code></span>
+                        <span>Product ID <code>{{ row.orderId }}</code></span>
                       }
                       @if (row.saleItemId) {
-                        <span>Orden <code>{{ row.saleItemId }}</code></span>
+                        <span>Ítem <code>{{ row.saleItemId }}</code></span>
                       }
                       <span class="meta-date">{{ formatDate(row.createdAt) }}</span>
                     </div>
@@ -329,7 +341,10 @@
                       <span class="reverted-badge">Revertido</span>
                     } @else {
                       <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + channelLabel(row.updatedChannel)">
-                        {{ revertingAuditId === row.id ? '…' : 'Revertir' }}
+                        @if (revertingAuditId === row.id) {
+                          <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
+                        }
+                        {{ revertingAuditId === row.id ? 'Revirtiendo…' : 'Revertir' }}
                       </button>
                     }
                   </div>
@@ -349,5 +364,15 @@
       </div>
     }
 
+  }
+
+  @if (confirmReprocessId(); as id) {
+    <zc-confirm-dialog
+      title="Venta ya sincronizada"
+      [message]="'La venta ' + id + ' ya fue descontada antes. ¿Querés volver a descontarla de todas formas?'"
+      confirmLabel="Descontar de nuevo"
+      (confirmed)="confirmReprocess()"
+      (cancelled)="cancelReprocess()"
+    />
   }
 </div>

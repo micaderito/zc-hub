@@ -213,7 +213,7 @@ conflictsRoutes.post('/link', async (req, res) => {
 
 /**
  * POST actualizar precios y/o stock de un par (ML y TN pueden tener valores distintos).
- * Body: { itemId, variationId?, productId, variantId, priceML?, priceTN?, stockML?, stockTN? }
+ * Body: { itemId, variationId?, productId, variantId, priceML?, priceTN?, stockML?, stockTN?, applyTnToAllVariants? }
  * Las requests se serializan con una pausa entre una y otra para no saturar la API de ML.
  */
 conflictsRoutes.post('/update-prices', async (req, res) => {
@@ -223,7 +223,7 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
   await myTurn;
 
   try {
-    const { itemId, variationId, productId, variantId, priceML, priceTN, stockML, stockTN } = req.body;
+    const { itemId, variationId, productId, variantId, priceML, priceTN, stockML, stockTN, applyTnToAllVariants } = req.body;
     if (!itemId) return res.status(400).json({ error: 'itemId es requerido' });
     if (productId == null || variantId == null) return res.status(400).json({ error: 'productId y variantId son requeridos' });
     const accessToken = await getMlToken();
@@ -257,13 +257,20 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       }
     }
     if (priceTNNum > 0) {
-      tnPriceOk = await tn.updateVariantPrice(
-        tokens.tiendanube.access_token,
-        tokens.tiendanube.store_id,
-        Number(productId),
-        Number(variantId),
-        priceTNNum
-      );
+      tnPriceOk = applyTnToAllVariants
+        ? await tn.updateVariantPriceAllVariants(
+            tokens.tiendanube.access_token,
+            tokens.tiendanube.store_id,
+            Number(productId),
+            priceTNNum
+          )
+        : await tn.updateVariantPrice(
+            tokens.tiendanube.access_token,
+            tokens.tiendanube.store_id,
+            Number(productId),
+            Number(variantId),
+            priceTNNum
+          );
     }
     if (stockMLNum !== undefined && stockMLNum >= 0) {
       mlStockOk = await ml.updateItemOrVariationStock(

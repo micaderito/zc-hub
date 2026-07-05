@@ -1,0 +1,53 @@
+.zc-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.zc-confirm-card {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--surface);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop, 0 10px 40px rgba(0, 0, 0, 0.25));
+  padding: 1.25rem;
+}
+
+.zc-confirm-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+
+  .ti { font-size: 1.15rem; color: var(--warn); }
+  h2 { font-size: 0.95rem; font-weight: 600; margin: 0; color: var(--text); }
+
+  &.danger .ti { color: var(--err); }
+}
+
+.zc-confirm-body {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin-bottom: 1.1rem;
+
+  p { margin: 0; }
+}
+
+.zc-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+
+  .primary.danger {
+    background: var(--err);
+    &:hover:not(:disabled) { background: var(--err); opacity: 0.9; }
+  }
+}

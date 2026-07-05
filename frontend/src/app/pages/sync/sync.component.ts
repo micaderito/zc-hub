@@ -2,13 +2,14 @@ import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { toSignal, toObservable } from '@angular/core/rxjs-interop';
-import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { toObservable } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged, skip } from 'rxjs/operators';
 import { QueryClient, injectQuery, injectMutation } from '@tanstack/angular-query-experimental';
 import { SyncService, SyncConfig, SyncAuditRow, PendingReturnRow, PendingMlTask, PendingMlTasksResponse } from '../../core/services/sync.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
+import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 
 const SYNC_RETURNS_QUERY_KEY = ['sync', 'returns'] as const;
 const SYNC_PENDING_TASKS_QUERY_KEY = ['sync', 'pendingTasks'] as const;
@@ -19,7 +20,7 @@ const TASKS_PAGE_SIZE = 20;
 @Component({
   selector: 'app-sync',
   standalone: true,
-  imports: [CommonModule, FormsModule, SearchBarComponent, PaginationComponent, TabsComponent],
+  imports: [CommonModule, FormsModule, SearchBarComponent, PaginationComponent, TabsComponent, ConfirmDialogComponent],
   templateUrl: './sync.component.html',
   styleUrl: './sync.component.scss'
 })
@@ -43,11 +44,7 @@ export class SyncComponent implements OnInit {
 
   readonly auditSearchQuery = signal('');
   readonly auditCurrentPage = signal(1);
-
-  readonly debouncedAuditSearch = toSignal(
-    toObservable(this.auditSearchQuery).pipe(debounceTime(350), distinctUntilChanged()),
-    { initialValue: '' }
-  );
+  private auditRequestId = 0;
 
   readonly auditTotalPages = computed(() =>
     Math.max(1, Math.ceil(this.auditTotal / AUDIT_PAGE_SIZE))
@@ -136,7 +133,14 @@ export class SyncComponent implements OnInit {
     ];
   });
 
-  constructor() {}
+  constructor() {
+    toObservable(this.auditSearchQuery)
+      .pipe(skip(1), debounceTime(350), distinctUntilChanged())
+      .subscribe(() => {
+        this.auditCurrentPage.set(1);
+        this.loadAudit(1);
+      });
+  }
 
   ngOnInit(): void {
     this.loadConfig();
@@ -173,15 +177,17 @@ export class SyncComponent implements OnInit {
     this.auditError = null;
     this.revertError = null;
     const offset = (page - 1) * AUDIT_PAGE_SIZE;
-    const search = this.debouncedAuditSearch() || this.auditSearchQuery();
-    const orderId = search.trim() || undefined;
+    const orderId = this.auditSearchQuery().trim() || undefined;
+    const requestId = ++this.auditRequestId;
     this.sync.getAudit(AUDIT_PAGE_SIZE, offset, orderId).subscribe({
       next: (r) => {
+        if (requestId !== this.auditRequestId) return;
         this.auditRows = r.rows;
         this.auditTotal = r.total;
         this.auditLoading = false;
       },
       error: (e) => {
+        if (requestId !== this.auditRequestId) return;
         this.auditError = e.error?.error || e.message || 'Error al cargar historial.';
         this.auditLoading = false;
       }
@@ -212,16 +218,41 @@ export class SyncComponent implements OnInit {
     this.tasksCurrentPage.set(page);
   }
 
-  onAuditSearchChange(): void {
-    this.auditCurrentPage.set(1);
-    this.loadAudit(1);
-  }
+  /** Nro de venta pendiente de confirmación por reintentar (ya estaba en el historial). */
+  readonly confirmReprocessId = signal<string | null>(null);
 
   reprocessOrder(): void {
     const id = this.reprocessOrderId.trim();
     if (!id) return;
     this.reprocessResult = null;
     this.reprocessingOrder = true;
+    this.sync.getAudit(50, 0, id).subscribe({
+      next: (r) => {
+        const alreadySynced = r.rows.some(row => !row.revertedAt && (row.orderId === id || row.packId === id));
+        if (alreadySynced) {
+          this.reprocessingOrder = false;
+          this.confirmReprocessId.set(id);
+          return;
+        }
+        this.submitReprocess(id);
+      },
+      error: () => this.submitReprocess(id)
+    });
+  }
+
+  confirmReprocess(): void {
+    const id = this.confirmReprocessId();
+    if (!id) return;
+    this.confirmReprocessId.set(null);
+    this.reprocessingOrder = true;
+    this.submitReprocess(id);
+  }
+
+  cancelReprocess(): void {
+    this.confirmReprocessId.set(null);
+  }
+
+  private submitReprocess(id: string): void {
     this.sync.reprocessOrder(id).subscribe({
       next: (r) => {
         this.reprocessingOrder = false;
