@@ -42,12 +42,14 @@ const PENDING_ORDER_MAX_AGE_MS = 30 * 60 * 1000; // 30 min
 /** Misma orden siendo obtenida por otro request: no duplicar getOrder (evita 429). No usamos "recently processed" para no perder cancelaciones. */
 const inFlightOrderIds = new Set();
 
-function enqueuePendingMlOrder(orderId) {
+/** addedAt opcional: al reencolar tras un 429 hay que conservar la fecha original para que
+ * PENDING_ORDER_MAX_AGE_MS realmente expire la orden en vez de resetearse en cada reintento. */
+function enqueuePendingMlOrder(orderId, addedAt = Date.now()) {
   if (!orderId || pendingMlOrderIds.some((e) => e.orderId === orderId)) return;
   if (pendingMlOrderIds.length >= PENDING_ORDER_MAX) {
     pendingMlOrderIds.shift();
   }
-  pendingMlOrderIds.push({ orderId, addedAt: Date.now() });
+  pendingMlOrderIds.push({ orderId, addedAt });
 }
 
 function isOrderIdPending(orderId) {
@@ -143,7 +145,7 @@ let pendingMlOrderInterval = setInterval(async () => {
     }
   } catch (e) {
     if (e?.statusCode === 429) {
-      enqueuePendingMlOrder(entry.orderId);
+      enqueuePendingMlOrder(entry.orderId, entry.addedAt);
     }
   }
 }, ML_PENDING_INTERVAL_MS);
@@ -205,20 +207,16 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
     res.status(200).send();
     return;
   }
+  // Ack inmediato (como claims/items): si esperáramos a getOrder acá, un 429 puede tardar
+  // hasta ~40s en resolverse y ML reentrega la notificación por timeout, amplificando el 429.
+  res.status(200).send();
   const accessToken = await getMlToken();
   if (!accessToken) {
     console.warn('[Webhook ML] Sin token válido (reconectá ML en Inicio). No se puede obtener la orden.');
-    res.status(200).send();
     return;
   }
-  if (isOrderIdPending(orderId)) {
-    res.status(200).send();
-    return;
-  }
-  if (inFlightOrderIds.has(orderId)) {
-    res.status(200).send();
-    return;
-  }
+  if (isOrderIdPending(orderId)) return;
+  if (inFlightOrderIds.has(orderId)) return;
   inFlightOrderIds.add(orderId);
   try {
     let order = await ml.getOrder(accessToken, orderId);
@@ -234,21 +232,17 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
     }
     if (!order?.order_items?.length) {
       console.warn('[Webhook ML] No se pudo obtener la orden %s', orderId);
-      res.status(200).send();
       return;
     }
     console.log('[Webhook ML] Orden obtenida, order_id=%s, status=%s, items=%s', order.id ?? orderId, order.status, (order.order_items || []).length);
     await processMlOrderPayload(order, orderId);
-    res.status(200).send();
   } catch (e) {
     if (e?.statusCode === 429) {
       enqueuePendingMlOrder(orderId);
-      console.warn('[Webhook ML] 429 al obtener orden %s. Respondiendo 200 (sin loop) y encolando para procesar en 1 min.', orderId);
-      res.status(200).send();
+      console.warn('[Webhook ML] 429 al obtener orden %s. Encolado para procesar en 1 min.', orderId);
     } else {
       if (e?.message?.includes('401') || e?.response?.status === 401) setMlTokenKnownInvalid(true);
       console.error('Webhook ML:', e);
-      res.status(200).send();
     }
   } finally {
     inFlightOrderIds.delete(orderId);
