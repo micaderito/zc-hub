@@ -1,8 +1,14 @@
 import { Router } from 'express';
 import { tokens, getMlToken, addResolution } from '../store.js';
-import { getAnalysis } from '../services/conflictsService.js';
+import {
+  getAnalysis,
+  patchMlSku,
+  patchTnSku,
+  patchTnPrice,
+  patchTnStock,
+} from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { invalidateAnalysisCache, enqueueMlTask, getMlTaskStatus } from '../db.js';
+import { enqueueMlTask, getMlTaskStatus } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -23,7 +29,9 @@ conflictsRoutes.get('/', async (req, res) => {
     const timeout = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('timeout')), ANALYSIS_TIMEOUT_MS)
     );
-    const analysis = await Promise.race([getAnalysis(), timeout]);
+    // ?refresh=1 fuerza un crawl completo a ML/TN (botón "actualizar"); si no, sirve del snapshot.
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const analysis = await Promise.race([getAnalysis({ force: forceRefresh }), timeout]);
 
     const allMatched = analysis.matched || [];
 
@@ -74,8 +82,15 @@ conflictsRoutes.get('/', async (req, res) => {
       }
 
       total = filtered.length;
+      // Stock total de la búsqueda/filtro activos (para el chip informativo del listado): por
+      // par se usa el menor entre ML y TN (mismo criterio que syncStock en el front), ya que un
+      // ítem con stock distinto entre canales solo puede vender hasta el mínimo de los dos.
+      const stockTotal = {
+        units: filtered.reduce((sum, p) => sum + Math.min(p.ml?.stock ?? 0, p.tn?.stock ?? 0), 0),
+        products: filtered.length,
+      };
       const offset = (page - 1) * limit;
-      responseOverride = { matched: filtered.slice(offset, offset + limit) };
+      responseOverride = { matched: filtered.slice(offset, offset + limit), stockTotal };
       paging = { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) };
     } else if (tab === 'solo-ml') {
       const filtered = searchRows(analysis.onlyML || [], searchTokens);
@@ -129,8 +144,8 @@ conflictsRoutes.post('/update-sku', async (req, res) => {
       await (variationId
         ? ml.updateVariationSku(accessToken, itemId, variationId, skuTrim)
         : ml.updateItemSku(accessToken, itemId, skuTrim));
-      await invalidateAnalysisCache();
-      await getAnalysis();
+      // Parche puntual del snapshot (sin re-bajar el catálogo). El análisis se recomputa al leer.
+      await patchMlSku(itemId, variationId ?? null, skuTrim);
       return res.json({ ok: true });
     } catch (e) {
       let msg = e.message || 'No se pudo actualizar el SKU en Mercado Libre';
@@ -159,8 +174,7 @@ conflictsRoutes.post('/update-sku', async (req, res) => {
         Number(variantId),
         skuTrim
       );
-      await invalidateAnalysisCache();
-      await getAnalysis();
+      await patchTnSku(Number(productId), Number(variantId), skuTrim);
       return res.json({ ok: true });
   } catch (e) {
     const msg = e.message || 'No se pudo actualizar el SKU en Tienda Nube';
@@ -231,8 +245,8 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
 
     let mlPriceTaskId = null;
+    let mlStockTaskId = null;
     let tnPriceOk = false;
-    let mlStockOk = false;
     let tnStockOk = false;
     const priceMLNum = Number(priceML);
     const priceTNNum = Number(priceTN);
@@ -271,23 +285,38 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
             Number(variantId),
             priceTNNum
           );
+      if (tnPriceOk) await patchTnPrice(Number(productId), Number(variantId), priceTNNum, !!applyTnToAllVariants);
     }
+    // El stock en ML se encola (igual que el precio y el SKU): antes se aplicaba inline con
+    // fetchWith429Retry y, si los reintentos ante 429 se agotaban, la función devolvía `false`
+    // sin lanzar — la ruta igual respondía `ok:true` y el front daba el stock por sincronizado
+    // aunque ML nunca lo hubiera recibido. Encolarlo hace que el worker lo reintente en segundo
+    // plano (ver mlTaskQueue.js, kind `stock_ml_set`) y el front haga polling del resultado real.
     if (stockMLNum !== undefined && stockMLNum >= 0) {
-      mlStockOk = await ml.updateItemOrVariationStock(
-        accessToken,
+      const vid = variationId != null && variationId !== '' ? String(variationId) : null;
+      mlStockTaskId = await enqueueMlTask({
+        kind: 'stock_ml_set',
         itemId,
-        variationId ?? undefined,
-        stockMLNum
-      );
+        variationId: vid,
+        targetQty: stockMLNum,
+        idempotencyKey: `stock_ml_set:${itemId}:${vid || 'item'}`, // coalescing: el último valor gana
+      });
+      if (!mlStockTaskId) {
+        return res.status(502).json({
+          error: 'No se pudo encolar la actualización de stock en Mercado Libre. Verificá que la base de datos (DATABASE_URL) esté configurada en el backend.'
+        });
+      }
     }
     if (stockTNNum !== undefined && stockTNNum >= 0) {
+      const flooredTn = Math.max(0, Math.floor(stockTNNum));
       tnStockOk = await tn.updateVariantStock(
         tokens.tiendanube.access_token,
         tokens.tiendanube.store_id,
         Number(productId),
         Number(variantId),
-        Math.max(0, Math.floor(stockTNNum))
+        flooredTn
       );
+      if (tnStockOk) await patchTnStock(Number(productId), Number(variantId), flooredTn);
     }
 
     const triedTn = priceTNNum > 0 || (stockTNNum !== undefined && stockTNNum >= 0);
@@ -298,9 +327,16 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       });
     }
 
-    // Invalidar caché por los cambios sincrónicos (TN/stock ML). El precio ML lo invalida el worker al completar.
-    if (triedTn || mlStockOk) await invalidateAnalysisCache();
-    return res.json({ ok: true, mlTaskId: mlPriceTaskId ?? undefined, ml: !!(mlPriceTaskId || mlStockOk), tn: tnOk });
+    // El snapshot ya quedó parchado in-place con los cambios TN sincrónicos. El precio y el stock
+    // en ML los aplica y parcha el worker al completar la tarea encolada (ver mlTaskQueue.js).
+    // Nunca se re-baja el catálogo entero.
+    return res.json({
+      ok: true,
+      mlTaskId: mlPriceTaskId ?? undefined,
+      mlStockTaskId: mlStockTaskId ?? undefined,
+      ml: !!(mlPriceTaskId || mlStockTaskId),
+      tn: tnOk
+    });
   } catch (e) {
     const status = e?.mlStatus >= 400 && e?.mlStatus < 500 ? 422 : 502;
     return res.status(status).json({ error: e.message || 'Error al actualizar' });

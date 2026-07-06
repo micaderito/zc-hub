@@ -5,9 +5,9 @@
       <p class="subtitle">Solo aparecen productos que coinciden por SKU en ML y TN. Actualizá precios por canal y sincronizá el stock en ambos con un solo valor.</p>
     </div>
     @if (analysis() && !loading()) {
-      <button type="button" class="btn-refresh zc-btn" (click)="refreshAnalysis()" [disabled]="fetching()" [title]="fetching() ? 'Actualizando…' : 'Actualizar lista'">
-        <i class="ti ti-refresh" aria-hidden="true"></i>
-        {{ fetching() ? 'Actualizando…' : 'Actualizar' }}
+      <button type="button" class="btn-refresh zc-btn" (click)="refreshAnalysis()" [disabled]="busy()" [title]="busy() ? 'Actualizando…' : 'Actualizar lista'">
+        <i class="ti ti-refresh" [class.spinning]="busy()" aria-hidden="true"></i>
+        {{ busy() ? 'Actualizando…' : 'Actualizar' }}
       </button>
     }
   </div>
@@ -27,12 +27,6 @@
     <p class="alert">La sesión de Mercado Libre venció. Reconectá desde <a routerLink="/">Inicio</a>.</p>
   } @else if (analysis()) {
     <div class="list-area">
-      @if (fetching()) {
-        <div class="refetch-overlay" aria-live="polite">
-          <span class="refetch-spinner" aria-hidden="true"></span>
-          <span>Actualizando lista…</span>
-        </div>
-      }
       @if (pendingUpdatesCount() > 0) {
         <div class="sync-status-bar" aria-live="polite">
           <span class="sync-status-spinner" aria-hidden="true"></span>
@@ -52,13 +46,23 @@
           (filterChange)="stockFilter.set($event)"
         />
 
-        <zc-search-bar
-          [value]="searchQuery()"
-          (valueChange)="searchQuery.set($event)"
-          placeholder="Buscar por título, SKU o variante…"
-          ariaLabel="Buscar productos"
-          class="search-bar-wrap"
-        />
+        <div class="search-card">
+          <zc-search-bar
+            [value]="searchQuery()"
+            (valueChange)="searchQuery.set($event)"
+            placeholder="Buscar por título, SKU o variante…"
+            ariaLabel="Buscar productos"
+            class="search-bar-wrap"
+          />
+          @if (stockTotal(); as st) {
+            <div class="stock-total-chip">
+              <i class="ti ti-package" aria-hidden="true"></i>
+              <span><strong>{{ st.units }}</strong> unidad{{ st.units === 1 ? '' : 'es' }} en stock</span>
+              <span class="sep">·</span>
+              <span>{{ st.products }} producto{{ st.products === 1 ? '' : 's' }}</span>
+            </div>
+          }
+        </div>
 
         <section aria-label="Productos">
           @if (currentPagePairs().length === 0) {
@@ -71,7 +75,13 @@
               </button>
             </div>
 
-            <div class="pairs-list">
+            @if (fetching()) {
+              <div class="list-progress" role="status" aria-label="Actualizando lista">
+                <span class="list-progress-bar" aria-hidden="true"></span>
+              </div>
+            }
+
+            <div class="pairs-list" [class.is-fetching]="fetching()">
               @for (pair of currentPagePairs(); track getPairId(pair)) {
                 <zc-pair-card
                   [pair]="pair"

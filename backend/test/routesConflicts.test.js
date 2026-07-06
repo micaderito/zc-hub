@@ -24,7 +24,8 @@ const analysisState = {
 };
 
 const syncServiceState = { persistResult: { ml: true, tn: true } };
-const dbState = { invalidateCalls: 0, enqueueResult: 5, taskStatus: null };
+const dbState = { enqueueResult: 5, taskStatus: null };
+const patchState = { calls: [] };
 const mlState = {
   updateVariationSkuError: null,
   updateItemSkuError: null,
@@ -58,14 +59,20 @@ before(async () => {
     },
   });
   mock.module('../src/services/conflictsService.js', {
-    exports: { getAnalysis: async () => analysisState.result },
+    exports: {
+      getAnalysis: async () => analysisState.result,
+      patchMlSku: async (...a) => { patchState.calls.push(['patchMlSku', ...a]); },
+      patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
+      patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); },
+      patchTnPrice: async (...a) => { patchState.calls.push(['patchTnPrice', ...a]); },
+      patchTnStock: async (...a) => { patchState.calls.push(['patchTnStock', ...a]); },
+    },
   });
   mock.module('../src/services/syncService.js', {
     exports: { persistSkuToChannels: async () => syncServiceState.persistResult },
   });
   mock.module('../src/db.js', {
     exports: {
-      invalidateAnalysisCache: async () => { dbState.invalidateCalls++; },
       enqueueMlTask: async () => dbState.enqueueResult,
       getMlTaskStatus: async () => dbState.taskStatus,
     },
@@ -109,7 +116,7 @@ beforeEach(() => {
     mlConnected: true, tnConnected: true, summary: {},
   };
   syncServiceState.persistResult = { ml: true, tn: true };
-  dbState.invalidateCalls = 0;
+  patchState.calls = [];
   dbState.enqueueResult = 5;
   dbState.taskStatus = null;
   mlState.updateVariationSkuError = null;
@@ -129,6 +136,7 @@ test('GET /: tab=coincidencias devuelve matched paginado y stockSummary', async 
   assert.equal(body.matched.length, 1);
   assert.ok(body.stockSummary);
   assert.ok(body.paging);
+  assert.deepEqual(body.stockTotal, { units: 5, products: 1 });
 });
 
 test('GET /: tab=solo-ml filtra por búsqueda', async () => {
@@ -149,6 +157,14 @@ test('GET /: filter=mismatch filtra coincidencias con stock distinto', async () 
   const body = await res.json();
   assert.equal(body.matched.length, 1);
   assert.equal(body.matched[0].sku, 'X');
+});
+
+test('GET /: stockTotal suma el mínimo ML/TN por par y respeta el filtro activo', async () => {
+  analysisState.result.matched.push({ ml: { stock: 3 }, tn: { stock: 9 }, sku: 'X' });
+  const res = await fetch(`${baseUrl}/?tab=coincidencias&filter=mismatch`);
+  const body = await res.json();
+  // Solo el par 'X' (stock distinto) pasa el filtro; su stock vendible es el mínimo entre canales.
+  assert.deepEqual(body.stockTotal, { units: 3, products: 1 });
 });
 
 // ─── POST /update-sku ────────────────────────────────────────────────────
@@ -173,7 +189,7 @@ test('POST /update-sku: ML éxito sin variationId (updateItemSku)', async () => 
   const res = await fetch(`${baseUrl}/update-sku`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'mercadolibre', sku: 'X', itemId: 'MLA1' }) });
   const body = await res.json();
   assert.deepEqual(body, { ok: true });
-  assert.equal(dbState.invalidateCalls, 1);
+  assert.deepEqual(patchState.calls[0], ['patchMlSku', 'MLA1', null, 'X']);
 });
 
 test('POST /update-sku: ML éxito con variationId (updateVariationSku)', async () => {
@@ -309,4 +325,33 @@ test('POST /update-prices: encola precio ML y actualiza TN → ok', async () => 
   assert.equal(res.status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.mlTaskId, 5);
+});
+
+test('POST /update-prices: stock ML se encola (no se aplica inline) → ok con mlStockTaskId', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  const res = await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockML: 10, stockTN: 10 }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.mlStockTaskId, 5);
+  assert.equal(body.ml, true);
+});
+
+test('POST /update-prices: no se pudo encolar el stock ML (sin DB) → 502, no ok:true', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  dbState.enqueueResult = null;
+  try {
+    const res = await fetch(`${baseUrl}/update-prices`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockML: 10, stockTN: 10 }),
+    });
+    const body = await res.json();
+    assert.equal(res.status, 502);
+    assert.ok(body.error);
+  } finally {
+    dbState.enqueueResult = 5;
+  }
 });

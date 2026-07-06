@@ -3,15 +3,19 @@
  * Usa claimNextMlTask (FOR UPDATE SKIP LOCKED) para ser safe con múltiples réplicas.
  *
  * Tipos de tarea:
- *   stock_ml  — aplica un delta de stock en ML (target_qty negativo = deducir, positivo = restaurar).
- *               El worker hace GET + computa nueva qty + PUT para evitar races con delta relativo.
- *   sku_ml    — actualiza seller_sku de un ítem/variación en ML.
- *   sku_tn    — actualiza seller_sku de una variante en Tienda Nube.
- *   price_ml  — actualiza el precio (target_price) de un ítem/variación en ML.
+ *   stock_ml     — aplica un delta de stock en ML (target_qty negativo = deducir, positivo = restaurar).
+ *                  El worker hace GET + computa nueva qty + PUT para evitar races con delta relativo.
+ *   stock_ml_set — fija el stock de un ítem/variación en ML al valor absoluto target_qty (lo usa el
+ *                  botón "sincronizar stock" de la pantalla de precios/stock; a diferencia de stock_ml
+ *                  no depende del valor previo, así que no necesita el GET intermedio).
+ *   sku_ml       — actualiza seller_sku de un ítem/variación en ML.
+ *   sku_tn       — actualiza seller_sku de una variante en Tienda Nube.
+ *   price_ml     — actualiza el precio (target_price) de un ítem/variación en ML.
  */
 
 import { claimNextMlTask, updateMlTaskStatus, hasDatabase } from '../db.js';
-import { insertAuditLog, invalidateAnalysisCache } from '../db.js';
+import { insertAuditLog } from '../db.js';
+import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku } from '../services/conflictsService.js';
 import { getMlToken, tokens } from '../store.js';
 import * as ml from './mercadolibre.js';
 import * as tn from './tiendanube.js';
@@ -47,6 +51,7 @@ export async function processTask(task) {
       if (!ok) throw new Error('updateItemOrVariationStock devolvió false');
 
       await updateMlTaskStatus(id, 'done');
+      await patchMlStock(itemId, vid ?? null, newQty).catch(e => console.error('[MLQueue] patchMlStock:', e.message));
       console.log(`[MLQueue] Tarea ${id} stock_ml: ${itemId} ${stockBefore} → ${newQty}`);
 
       // Escribir audit log si tenemos contexto
@@ -58,6 +63,20 @@ export async function processTask(task) {
         }).catch(e => console.error('[MLQueue] insertAuditLog:', e.message));
       }
 
+    } else if (kind === 'stock_ml_set') {
+      const accessToken = await getMlToken();
+      if (!accessToken) throw new Error('Sin token ML');
+
+      const vid = variationId || undefined;
+      const qty = Math.max(0, Math.floor(Number(targetQty)));
+      const ok = await ml.updateItemOrVariationStock(accessToken, itemId, vid, qty);
+      if (!ok) throw new Error('updateItemOrVariationStock devolvió false');
+
+      await updateMlTaskStatus(id, 'done');
+      // Stock (valor absoluto) aplicado en ML: parchamos esa fila del snapshot in-place.
+      await patchMlStock(itemId, vid ?? null, qty).catch(e => console.error('[MLQueue] patchMlStock:', e.message));
+      console.log(`[MLQueue] Tarea ${id} stock_ml_set: ${itemId}${vid ? '/' + vid : ''} → ${qty}`);
+
     } else if (kind === 'sku_ml') {
       const accessToken = await getMlToken();
       if (!accessToken) throw new Error('Sin token ML');
@@ -66,6 +85,7 @@ export async function processTask(task) {
         : await ml.updateItemSku(accessToken, itemId, targetSku);
       if (!ok) throw new Error('updateSku ML devolvió false');
       await updateMlTaskStatus(id, 'done');
+      await patchMlSku(itemId, variationId ?? null, targetSku).catch(e => console.error('[MLQueue] patchMlSku:', e.message));
       console.log(`[MLQueue] Tarea ${id} sku_ml: ${itemId} → ${targetSku}`);
 
     } else if (kind === 'price_ml') {
@@ -76,8 +96,9 @@ export async function processTask(task) {
       // updateItemOrVariationPrice lanza si ML rechaza (propaga el mensaje real de la API)
       await ml.updateItemOrVariationPrice(accessToken, itemId, variationId || null, price);
       await updateMlTaskStatus(id, 'done');
-      // El precio ya quedó aplicado en ML: invalidamos la caché para que el análisis traiga datos frescos.
-      await invalidateAnalysisCache().catch(e => console.error('[MLQueue] invalidateAnalysisCache:', e.message));
+      // Precio aplicado en ML: parchamos el snapshot in-place (en ítems legacy ML aplica el mismo
+      // precio a TODAS las variaciones del ítem, y patchMlPrice hace exactamente eso).
+      await patchMlPrice(itemId, price).catch(e => console.error('[MLQueue] patchMlPrice:', e.message));
       console.log(`[MLQueue] Tarea ${id} price_ml: ${itemId}${variationId ? '/' + variationId : ''} → $${price}`);
 
     } else if (kind === 'sku_tn') {
@@ -86,6 +107,7 @@ export async function processTask(task) {
       const ok = await tn.updateVariantSku(access_token, store_id, itemId, variationId, targetSku);
       if (!ok) throw new Error('updateVariantSku TN devolvió false');
       await updateMlTaskStatus(id, 'done');
+      await patchTnSku(itemId, variationId, targetSku).catch(e => console.error('[MLQueue] patchTnSku:', e.message));
       console.log(`[MLQueue] Tarea ${id} sku_tn: producto ${itemId} variante ${variationId} → ${targetSku}`);
 
     } else {

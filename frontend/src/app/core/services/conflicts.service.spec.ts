@@ -38,7 +38,10 @@ function tnRow(overrides: Partial<TnRow> = {}): TnRow {
   };
 }
 
-function analysisFixture(matched: ConflictAnalysis['matched'] = []): ConflictAnalysis {
+function analysisFixture(
+  matched: ConflictAnalysis['matched'] = [],
+  overrides: Partial<Pick<ConflictAnalysis, 'stockSummary' | 'stockTotal' | 'paging'>> = {}
+): ConflictAnalysis {
   return {
     mlConnected: true,
     tnConnected: true,
@@ -60,7 +63,9 @@ function analysisFixture(matched: ConflictAnalysis['matched'] = []): ConflictAna
     duplicateSkuML: [],
     duplicateSkuTN: [],
     mappings: [],
-    paging: { page: 1, limit: 25, total: matched.length, pages: 1 }
+    paging: overrides.paging ?? { page: 1, limit: 25, total: matched.length, pages: 1 },
+    stockSummary: overrides.stockSummary,
+    stockTotal: overrides.stockTotal
   };
 }
 
@@ -238,6 +243,92 @@ describe('ConflictsService', () => {
   it('updatePairInCache() no hace nada si no hay datos en caché para ese key', () => {
     expect(() => service.updatePairInCache('no-existe', { stock: 1 })).not.toThrow();
     expect(queryClient.getQueryData([...CONFLICTS_ANALYSIS_QUERY_KEY])).toBeUndefined();
+  });
+
+  it('updatePairInCache() con stock ajusta los chips (stockSummary) sin refetch', () => {
+    // Antes de sincronizar: ml=10, tn=8 → mismatch. Después de "Sincronizar stock" ambos quedan en 10 → synced.
+    const pair = { ml: mlRow({ stock: 10 }), tn: tnRow({ stock: 8 }) };
+    queryClient.setQueryData(
+      [...CONFLICTS_ANALYSIS_QUERY_KEY],
+      analysisFixture([pair], { stockSummary: { total: 1, mismatch: 1, synced: 0, noStock: 0, withStock: 1 } })
+    );
+
+    service.updatePairInCache(getPairId(pair), { stock: 10 }, CONFLICTS_ANALYSIS_QUERY_KEY);
+
+    const updated = queryClient.getQueryData<ConflictAnalysis>([...CONFLICTS_ANALYSIS_QUERY_KEY]);
+    expect(updated?.stockSummary).toEqual({ total: 1, mismatch: 0, synced: 1, noStock: 0, withStock: 1 });
+  });
+
+  it('updatePairInCache() saca el par de la lista y ajusta paging cuando deja de pertenecer al filtro activo', () => {
+    // Viendo la pestaña "Stock distinto" (filter: mismatch): al sincronizar, el par pasa a "synced"
+    // y debe desaparecer de esta vista aunque siga siendo un match válido.
+    const pair = { ml: mlRow({ stock: 10 }), tn: tnRow({ stock: 8 }) };
+    const other = { ml: mlRow({ itemId: 'MLA2', stock: 3 }), tn: tnRow({ productId: 2, variantId: 20, stock: 1 }) };
+    queryClient.setQueryData(
+      [...CONFLICTS_ANALYSIS_QUERY_KEY],
+      analysisFixture([pair, other], {
+        stockSummary: { total: 2, mismatch: 2, synced: 0, noStock: 0, withStock: 1 },
+        paging: { page: 1, limit: 25, total: 2, pages: 1 }
+      })
+    );
+
+    service.updatePairInCache(getPairId(pair), { stock: 10 }, CONFLICTS_ANALYSIS_QUERY_KEY, 'mismatch');
+
+    const updated = queryClient.getQueryData<ConflictAnalysis>([...CONFLICTS_ANALYSIS_QUERY_KEY]);
+    expect(updated?.matched.length).toBe(1);
+    expect(updated?.matched[0]).toEqual(other);
+    expect(updated?.paging.total).toBe(1);
+    expect(updated?.stockSummary?.mismatch).toBe(1);
+    expect(updated?.stockSummary?.synced).toBe(1);
+  });
+
+  it('updatePairInCache() con stock ajusta el chip de stock total (stockTotal) sin refetch', () => {
+    // ml=10, tn=8 (min vendible 8) → al sincronizar a 10/10, el par vendible pasa a aportar 10.
+    const pair = { ml: mlRow({ stock: 10 }), tn: tnRow({ stock: 8 }) };
+    queryClient.setQueryData(
+      [...CONFLICTS_ANALYSIS_QUERY_KEY],
+      analysisFixture([pair], { stockTotal: { units: 8, products: 1 } })
+    );
+
+    service.updatePairInCache(getPairId(pair), { stock: 10 }, CONFLICTS_ANALYSIS_QUERY_KEY);
+
+    const updated = queryClient.getQueryData<ConflictAnalysis>([...CONFLICTS_ANALYSIS_QUERY_KEY]);
+    expect(updated?.stockTotal).toEqual({ units: 10, products: 1 });
+  });
+
+  it('updatePairInCache() resta del stockTotal el par que deja de pertenecer al filtro activo', () => {
+    // Mismo escenario que el test de stockSummary/paging de arriba, pero mirando el chip de unidades:
+    // el par sincronizado (aportaba min(10,8)=8) sale de la vista "Stock distinto"; solo queda `other` (min(3,1)=1).
+    const pair = { ml: mlRow({ stock: 10 }), tn: tnRow({ stock: 8 }) };
+    const other = { ml: mlRow({ itemId: 'MLA2', stock: 3 }), tn: tnRow({ productId: 2, variantId: 20, stock: 1 }) };
+    queryClient.setQueryData(
+      [...CONFLICTS_ANALYSIS_QUERY_KEY],
+      analysisFixture([pair, other], { stockTotal: { units: 9, products: 2 } })
+    );
+
+    service.updatePairInCache(getPairId(pair), { stock: 10 }, CONFLICTS_ANALYSIS_QUERY_KEY, 'mismatch');
+
+    const updated = queryClient.getQueryData<ConflictAnalysis>([...CONFLICTS_ANALYSIS_QUERY_KEY]);
+    expect(updated?.stockTotal).toEqual({ units: 1, products: 1 });
+  });
+
+  it('updatePairInCache() mantiene el par si sigue perteneciendo al filtro activo tras el update', () => {
+    // ml=0, tn=5 → "Sin stock" (algún lado en 0). Al sincronizar a 0, sigue siendo "Sin stock":
+    // no debería desaparecer de esa pestaña.
+    const pair = { ml: mlRow({ stock: 0 }), tn: tnRow({ stock: 5 }) };
+    queryClient.setQueryData(
+      [...CONFLICTS_ANALYSIS_QUERY_KEY],
+      analysisFixture([pair], {
+        stockSummary: { total: 1, mismatch: 1, synced: 0, noStock: 1, withStock: 0 },
+        paging: { page: 1, limit: 25, total: 1, pages: 1 }
+      })
+    );
+
+    service.updatePairInCache(getPairId(pair), { stock: 0 }, CONFLICTS_ANALYSIS_QUERY_KEY, 'no-stock');
+
+    const updated = queryClient.getQueryData<ConflictAnalysis>([...CONFLICTS_ANALYSIS_QUERY_KEY]);
+    expect(updated?.matched.length).toBe(1);
+    expect(updated?.paging.total).toBe(1);
   });
 
   it('updateItemVariationsPriceInCache() actualiza el precio ML de todas las filas del mismo itemId', () => {

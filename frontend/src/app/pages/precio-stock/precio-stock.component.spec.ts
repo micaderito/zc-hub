@@ -154,8 +154,10 @@ describe('PrecioStockComponent', () => {
       'updateItemVariationsPriceInCache',
       'updateProductVariantsPriceInCache',
       'invalidateAnalysis',
+      'forceRefresh',
       'getTaskStatus',
     ]);
+    conflictsSpy.forceRefresh.and.returnValue(Promise.resolve());
     conflictsSpy.getAnalysisPromise.and.returnValue(Promise.resolve(buildAnalysis()));
     conflictsSpy.updatePricesAndStock.and.returnValue(of({ ok: true, ml: true, tn: true }));
     conflictsSpy.getTaskStatus.and.returnValue(of({ id: 0, status: 'done' }));
@@ -274,7 +276,7 @@ describe('PrecioStockComponent', () => {
   });
 
   describe('refreshAnalysis', () => {
-    it('limpia los overrides locales e invalida el análisis en caché', async () => {
+    it('limpia los overrides locales y fuerza un refresh del análisis', async () => {
       await createAndLoad();
       const pair = component.analysis()!.matched[0];
       component.syncStock(pair);
@@ -283,7 +285,7 @@ describe('PrecioStockComponent', () => {
       component.refreshAnalysis();
 
       expect(component.localOverrides().size).toBe(0);
-      expect(conflictsSpy.invalidateAnalysis).toHaveBeenCalled();
+      expect(conflictsSpy.forceRefresh).toHaveBeenCalled();
     });
   });
 

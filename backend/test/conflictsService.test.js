@@ -5,7 +5,7 @@
  * Mockeamos:
  * - '../src/store.js' (tokens, getMlToken, tryRefreshMlToken, setMlTokenKnownInvalid,
  *   setTnTokenKnownInvalid, setResolutionFromAnalysis) — no hay tokens reales.
- * - '../src/db.js' (hasDatabase, getAnalysisCache, setAnalysisCache) — no hay Postgres real.
+ * - '../src/db.js' (hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot) — no hay Postgres real.
  * - '../src/lib/mercadolibre.js' (fetchWith429Retry) — conflictsService pega directo a la API
  *   de búsqueda/multiget de ML con esta función, sin pasar por getItem/getItems.
  * - '../src/lib/tiendanube.js' (getProducts) — TN devuelve productos con variants/images embebidos.
@@ -25,9 +25,9 @@ const storeState = {
   resolutionCalls: [],
 };
 
-const dbState = { hasDb: false, cache: null, setCacheCalls: [] };
+const dbState = { hasDb: false, snapshot: null, setSnapshotCalls: [] };
 
-const mlState = { responder: null };
+const mlState = { responder: null, getItemImpl: null };
 const tnState = { getProductsImpl: null };
 
 function makeRes({ status = 200, json = null } = {}) {
@@ -55,13 +55,15 @@ before(async () => {
   mock.module('../src/db.js', {
     exports: {
       hasDatabase: () => dbState.hasDb,
-      getAnalysisCache: async () => dbState.cache,
-      setAnalysisCache: async (d) => { dbState.setCacheCalls.push(d); },
+      getAnalysisSnapshot: async () => dbState.snapshot,
+      setAnalysisSnapshot: async (d) => { dbState.setSnapshotCalls.push(d); dbState.snapshot = { at: Date.now(), data: d }; },
+      invalidateAnalysisCache: async () => { dbState.snapshot = null; },
     },
   });
   mock.module('../src/lib/mercadolibre.js', {
     exports: {
       fetchWith429Retry: async (url, opts, ctx) => mlState.responder(url, opts, ctx),
+      getItem: async (token, itemId) => (mlState.getItemImpl ? mlState.getItemImpl(itemId) : null),
     },
   });
   mock.module('../src/lib/tiendanube.js', {
@@ -81,10 +83,12 @@ beforeEach(() => {
   storeState.setTnInvalidCalls = [];
   storeState.resolutionCalls = [];
   dbState.hasDb = false;
-  dbState.cache = null;
-  dbState.setCacheCalls = [];
+  dbState.snapshot = null;
+  dbState.setSnapshotCalls = [];
   mlState.responder = null;
+  mlState.getItemImpl = null;
   tnState.getProductsImpl = null;
+  conflictsService.__resetSnapshotCacheForTests();
 });
 
 test('ni ML ni TN conectados: mlConnected/tnConnected false, listas vacías', async () => {
@@ -142,23 +146,28 @@ test('ML: trae ítems (uno con variantes, otro simple) vía search + multiget', 
   assert.equal(result.onlyML.length, 2); // sin TN conectado, todo cae en onlyML
 });
 
-test('ML: pagina cuando el total supera el límite de la primera página', async () => {
+test('ML: paginación scan sigue el scroll_id hasta agotar resultados', async () => {
   storeState.mlToken = 'tok';
   storeState.tokens.mercadolibre.user_id = 999;
-  const seenOffsets = [];
+  const scrollsSeen = [];
+  let call = 0;
   mlState.responder = (url) => {
     if (url.includes('/items/search')) {
+      assert.ok(url.includes('search_type=scan'), 'debe usar search_type=scan');
       const u = new URL(url);
-      const offset = Number(u.searchParams.get('offset'));
-      seenOffsets.push(offset);
-      if (offset === 0) return makeRes({ json: { results: Array.from({ length: 100 }, (_, i) => `MLA${i}`), paging: { total: 150 } } });
-      return makeRes({ json: { results: Array.from({ length: 50 }, (_, i) => `MLB${i}`) } });
+      scrollsSeen.push(u.searchParams.get('scroll_id'));
+      call++;
+      if (call === 1) return makeRes({ json: { results: Array.from({ length: 100 }, (_, i) => `MLA${i}`), paging: { total: 150 }, scroll_id: 'SCROLL-1' } });
+      if (call === 2) return makeRes({ json: { results: Array.from({ length: 50 }, (_, i) => `MLB${i}`), scroll_id: 'SCROLL-1' } });
+      return makeRes({ json: { results: [], scroll_id: 'SCROLL-1' } });
     }
     if (url.includes('/items?ids=')) return makeRes({ json: [] });
     throw new Error('URL inesperada ' + url);
   };
   await conflictsService.getAnalysis();
-  assert.ok(seenOffsets.includes(100), 'debe pedir la página siguiente (offset 100)');
+  assert.equal(scrollsSeen[0], null, 'la primera llamada no manda scroll_id');
+  assert.equal(scrollsSeen[1], 'SCROLL-1', 'la segunda reenvía el scroll_id');
+  assert.ok(call >= 3, 'sigue paginando hasta que results viene vacío');
 });
 
 test('ML: 401 en la búsqueda dispara refresh de token y reintenta', async () => {
@@ -260,24 +269,48 @@ test('ítems sin SKU van a noSkuML / noSkuTN', async () => {
   assert.equal(result.noSkuML.length, 1);
 });
 
-test('getAnalysis con caché de DB fresca: devuelve la caché sin llamar a ML/TN', async () => {
+test('getAnalysis con snapshot: computa desde las filas del snapshot sin llamar a ML/TN', async () => {
   dbState.hasDb = true;
-  dbState.cache = { summary: { totalML: 999 }, matched: [] };
+  dbState.snapshot = {
+    at: Date.now(),
+    data: {
+      mlRows: [{ type: 'ml', itemId: 'MLA1', variationId: null, title: 'X', sku: 'S1', hasSku: true, price: 1, stock: 1 }],
+      tnRows: [],
+      mlConnected: true,
+      tnConnected: false,
+    },
+  };
   storeState.mlToken = 'tok';
   storeState.tokens.mercadolibre.user_id = 999;
   let called = false;
   mlState.responder = () => { called = true; return makeRes({ json: {} }); };
   const result = await conflictsService.getAnalysis();
-  assert.equal(result.summary.totalML, 999);
-  assert.equal(called, false, 'no debe pegarle a ML si hay caché fresca');
+  assert.equal(result.summary.totalML, 1);
+  assert.equal(result.onlyML.length, 1);
+  assert.equal(called, false, 'no debe pegarle a ML si hay snapshot');
 });
 
-test('getAnalysis sin caché pero con DB: corre el análisis y lo guarda en caché', async () => {
+test('getAnalysis sin snapshot pero con DB: corre el crawl y guarda el snapshot', async () => {
   dbState.hasDb = true;
-  dbState.cache = null;
+  dbState.snapshot = null;
   const result = await conflictsService.getAnalysis();
   assert.equal(result.mlConnected, false);
-  assert.equal(dbState.setCacheCalls.length, 1);
+  assert.equal(dbState.setSnapshotCalls.length, 1);
+  assert.ok(Array.isArray(dbState.setSnapshotCalls[0].mlRows), 'el snapshot guarda filas crudas mlRows');
+});
+
+test('getAnalysis({ force }) ignora el snapshot y vuelve a crawlear', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = { at: Date.now(), data: { mlRows: [{ type: 'ml', itemId: 'OLD', variationId: null, title: 'viejo', sku: 'S', hasSku: true, price: 1, stock: 1 }], tnRows: [], mlConnected: true } };
+  let searchCalled = false;
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) { searchCalled = true; return makeRes({ json: { results: [], paging: { total: 0 } } }); }
+    return makeRes({ json: [] });
+  };
+  await conflictsService.getAnalysis({ force: true });
+  assert.equal(searchCalled, true, 'con force debe re-crawlear aunque haya snapshot');
 });
 
 test('getAnalysis: llamadas concurrentes sin caché comparten la misma ejecución (dedup in-flight)', async () => {
@@ -293,6 +326,78 @@ test('getAnalysis: llamadas concurrentes sin caché comparten la misma ejecució
     return makeRes({ json: [] });
   };
   const [a, b] = await Promise.all([conflictsService.getAnalysis(), conflictsService.getAnalysis()]);
-  assert.equal(searchCalls, 1, 'las dos llamadas concurrentes deben compartir la misma ejecución en curso');
-  assert.equal(a, b);
+  assert.equal(searchCalls, 1, 'las dos llamadas concurrentes deben compartir el mismo crawl en curso');
+  assert.deepEqual(a, b);
+});
+
+// ─── Parches puntuales del snapshot ──────────────────────────────────────────
+
+function snapshotWithMlVariations() {
+  return {
+    at: Date.now(),
+    data: {
+      mlRows: [
+        { type: 'ml', itemId: 'MLA1', variationId: '10', title: 'X', sku: 'A', hasSku: true, price: 100, stock: 5 },
+        { type: 'ml', itemId: 'MLA1', variationId: '11', title: 'X', sku: 'B', hasSku: true, price: 100, stock: 3 },
+      ],
+      tnRows: [],
+      mlConnected: true,
+    },
+  };
+}
+
+test('patchMlPrice: aplica el precio a TODAS las filas del ítem (variaciones legacy)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  await conflictsService.patchMlPrice('MLA1', 250);
+  const result = await conflictsService.getAnalysis();
+  assert.deepEqual(result.onlyML.map((r) => r.price), [250, 250]);
+});
+
+test('patchMlStock: actualiza solo la variación indicada', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  await conflictsService.patchMlStock('MLA1', '10', 99);
+  const result = await conflictsService.getAnalysis();
+  const byVar = Object.fromEntries(result.onlyML.map((r) => [r.variationId, r.stock]));
+  assert.equal(byVar['10'], 99);
+  assert.equal(byVar['11'], 3, 'la otra variación no cambia');
+});
+
+test('patchMlSku: cambiar el SKU re-clasifica en la próxima lectura (matchea con TN)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = {
+    at: Date.now(),
+    data: {
+      mlRows: [{ type: 'ml', itemId: 'MLA1', variationId: null, title: 'X', sku: 'VIEJO', hasSku: true, price: 1, stock: 1 }],
+      tnRows: [{ type: 'tn', productId: 5, variantId: 50, productName: 'X', sku: 'NUEVO', hasSku: true, price: 1, stock: 1 }],
+      mlConnected: true, tnConnected: true,
+    },
+  };
+  let r = await conflictsService.getAnalysis();
+  assert.equal(r.matched.length, 0, 'antes del patch no matchean');
+  await conflictsService.patchMlSku('MLA1', null, 'NUEVO');
+  r = await conflictsService.getAnalysis();
+  assert.equal(r.matched.length, 1, 'tras igualar el SKU quedan matched');
+});
+
+test('invalidateSnapshot: descarta el snapshot (memoria + DB)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  await conflictsService.invalidateSnapshot();
+  assert.equal(dbState.snapshot, null);
+});
+
+test('refreshMlItemInSnapshot: reemplaza las filas del ítem con lo que trae getItem', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemImpl = (id) => (id === 'MLA1'
+    ? { id: 'MLA1', title: 'X', catalog_listing: false, seller_sku: 'SOLO', price: 999, available_quantity: 7 }
+    : null);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  const result = await conflictsService.getAnalysis();
+  // Las 2 variaciones viejas se reemplazan por 1 fila simple con el nuevo precio/stock.
+  assert.equal(result.onlyML.length, 1);
+  assert.equal(result.onlyML[0].price, 999);
+  assert.equal(result.onlyML[0].stock, 7);
 });

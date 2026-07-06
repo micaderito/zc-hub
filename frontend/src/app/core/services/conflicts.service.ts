@@ -4,6 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { lastValueFrom } from 'rxjs';
 import { QueryClient } from '@tanstack/angular-query-experimental';
 import { ApiService } from './api.service';
+import { StockFilter } from '../../pages/precio-stock/components/stock-filter-tabs/stock-filter-tabs.component';
 
 /** Debounce (ms) antes de refetch tras invalidar: varios "Sincronizar"/"Actualizar" seguidos = un solo GET. */
 const REFETCH_DEBOUNCE_MS = 600;
@@ -78,6 +79,8 @@ export interface ConflictAnalysis {
   paging: { page: number; limit: number; total: number; pages: number };
   /** Totales por filtro de stock (del full dataset, no de la página actual) */
   stockSummary?: { total: number; mismatch: number; synced: number; noStock: number; withStock: number };
+  /** Stock total (unidades) y cantidad de productos que matchean el filtro/búsqueda activos */
+  stockTotal?: { units: number; products: number };
 }
 
 /** Etiqueta legible para una fila ML (título + nombre de variante). */
@@ -103,6 +106,25 @@ export function matchSearchByTokens(searchQuery: string, searchableText: string)
   const text = (searchableText || '').toLowerCase();
   const tokens = q.split(/\s+/).filter(Boolean);
   return tokens.every((t) => text.includes(t));
+}
+
+/** Buckets de stock que alimentan los chips de arriba; replica la lógica de GET /conflicts en el backend. */
+function stockCategories(mlStock: number, tnStock: number) {
+  return {
+    mismatch: mlStock !== tnStock,
+    synced: mlStock === tnStock,
+    noStock: mlStock === 0 || tnStock === 0,
+    withStock: mlStock > 0 && tnStock > 0,
+  };
+}
+
+/** Si un par con este stock pertenece al filtro activo; replica el filtro server-side de GET /conflicts. */
+function matchesStockFilter(filter: StockFilter, mlStock: number, tnStock: number): boolean {
+  if (filter === 'mismatch') return mlStock !== tnStock;
+  if (filter === 'synced') return mlStock === tnStock;
+  if (filter === 'no-stock') return mlStock === 0 || tnStock === 0;
+  if (filter === 'with-stock') return mlStock > 0 && tnStock > 0;
+  return true; // 'all'
 }
 
 @Injectable({ providedIn: 'root' })
@@ -134,17 +156,33 @@ export class ConflictsService {
    * Actualiza en caché solo el par recién guardado. No hace refetch: así evitamos
    * disparar ~14 requests a ML por cada "Sincronizar"/"Actualizar" (doc ML: distribuir requisiciones).
    * La UI muestra el cambio al instante vía overrides locales en el componente.
+   *
+   * Cuando `updates.stock` viene seteado, además ajusta localmente los chips de arriba
+   * (`stockSummary` y `stockTotal`, ver GET /conflicts en el backend para la lógica que replica)
+   * y, si se pasa el `filter` activo, saca el par de la lista visible cuando deja de pertenecer a
+   * ese filtro (ej.: estando en "Stock distinto", sincronizar un par lo pasa a "Mismo stock" y debe
+   * desaparecer).
    * @param queryKey - Query key exacto de la página actual; si no se provee, se intenta con el key base.
    */
   updatePairInCache(
     pairId: string,
     updates: { stock?: number; priceML?: number; priceTN?: number },
-    queryKey?: readonly unknown[]
+    queryKey?: readonly unknown[],
+    filter?: StockFilter
   ): void {
     const key = queryKey ?? CONFLICTS_ANALYSIS_QUERY_KEY;
     const prev = this.queryClient.getQueryData<ConflictAnalysis>(key as unknown[]);
     if (!prev?.matched) return;
-    const matched = prev.matched.map((pair) => {
+
+    const target = prev.matched.find((pair) => getPairId(pair) === pairId);
+    if (!target) return;
+
+    const oldMl = target.ml.stock ?? 0;
+    const oldTn = target.tn.stock ?? 0;
+    const newMl = updates.stock !== undefined ? updates.stock : oldMl;
+    const newTn = updates.stock !== undefined ? updates.stock : oldTn;
+
+    let matched = prev.matched.map((pair) => {
       if (getPairId(pair) !== pairId) return pair;
       const ml = updates.stock !== undefined ? { ...pair.ml, stock: updates.stock } : pair.ml;
       const tn = updates.stock !== undefined ? { ...pair.tn, stock: updates.stock } : pair.tn;
@@ -152,7 +190,46 @@ export class ConflictsService {
       const tn2 = updates.priceTN !== undefined ? { ...tn, price: updates.priceTN } : tn;
       return { ...pair, ml: ml2, tn: tn2 };
     });
-    this.queryClient.setQueryData<ConflictAnalysis>(key as unknown[], { ...prev, matched });
+
+    let stockSummary = prev.stockSummary;
+    let stockTotal = prev.stockTotal;
+    let paging = prev.paging;
+
+    if (updates.stock !== undefined) {
+      if (stockSummary) {
+        const oldCat = stockCategories(oldMl, oldTn);
+        const newCat = stockCategories(newMl, newTn);
+        stockSummary = {
+          total: stockSummary.total,
+          mismatch: stockSummary.mismatch + (Number(newCat.mismatch) - Number(oldCat.mismatch)),
+          synced: stockSummary.synced + (Number(newCat.synced) - Number(oldCat.synced)),
+          noStock: stockSummary.noStock + (Number(newCat.noStock) - Number(oldCat.noStock)),
+          withStock: stockSummary.withStock + (Number(newCat.withStock) - Number(oldCat.withStock)),
+        };
+      }
+
+      const droppedByFilter = !!filter && filter !== 'all' && !matchesStockFilter(filter, newMl, newTn);
+
+      // stockTotal (chip "N unidades en stock · M productos") usa el mismo criterio que el backend:
+      // el mínimo entre canales por par (stock realmente vendible), sumado sobre el filtro activo.
+      if (stockTotal) {
+        const oldUnits = Math.min(oldMl, oldTn);
+        const newUnits = Math.min(newMl, newTn);
+        stockTotal = droppedByFilter
+          ? { units: Math.max(0, stockTotal.units - oldUnits), products: Math.max(0, stockTotal.products - 1) }
+          : { units: stockTotal.units - oldUnits + newUnits, products: stockTotal.products };
+      }
+
+      if (droppedByFilter) {
+        matched = matched.filter((pair) => getPairId(pair) !== pairId);
+        if (paging) {
+          const total = Math.max(0, paging.total - 1);
+          paging = { ...paging, total, pages: Math.max(1, Math.ceil(total / paging.limit)) };
+        }
+      }
+    }
+
+    this.queryClient.setQueryData<ConflictAnalysis>(key as unknown[], { ...prev, matched, stockSummary, stockTotal, paging });
     this.analysisInvalidated.next();
   }
 
@@ -198,13 +275,14 @@ export class ConflictsService {
    * Obtiene el análisis de conflictos (Observable). Para caché con TanStack Query usar getAnalysisPromise().
    * Soporta paginación y filtros opcionales; sin params devuelve página 1 con 25 resultados.
    */
-  getAnalysis(opts?: { page?: number; limit?: number; filter?: string; search?: string; tab?: string }): Observable<ConflictAnalysis> {
+  getAnalysis(opts?: { page?: number; limit?: number; filter?: string; search?: string; tab?: string; refresh?: boolean }): Observable<ConflictAnalysis> {
     let params = new HttpParams().set('_t', String(Date.now()));
     if (opts?.page != null)   params = params.set('page', String(opts.page));
     if (opts?.limit != null)  params = params.set('limit', String(opts.limit));
     if (opts?.filter)         params = params.set('filter', opts.filter);
     if (opts?.search)         params = params.set('search', opts.search);
     if (opts?.tab)            params = params.set('tab', opts.tab);
+    if (opts?.refresh)        params = params.set('refresh', '1');
     return this.http.get<ConflictAnalysis>(`${this.api.baseUrl}/conflicts`, {
       params,
       headers: ConflictsService.NO_CACHE_HEADERS
@@ -212,8 +290,21 @@ export class ConflictsService {
   }
 
   /** Promesa del análisis; usar en queryFn de TanStack Query (misma queryKey = caché compartida). */
-  getAnalysisPromise(opts?: { page?: number; limit?: number; filter?: string; search?: string; tab?: string }): Promise<ConflictAnalysis> {
+  getAnalysisPromise(opts?: { page?: number; limit?: number; filter?: string; search?: string; tab?: string; refresh?: boolean }): Promise<ConflictAnalysis> {
     return lastValueFrom(this.getAnalysis(opts));
+  }
+
+  /**
+   * Botón "actualizar": fuerza un crawl real a ML/TN (repuebla el snapshot del backend) y después
+   * refetch de las queries de la vista actual, que ya leen del snapshot fresco. A diferencia de
+   * invalidateAnalysis() (que solo refetch del snapshot), esto sí vuelve a consultar los canales.
+   */
+  async forceRefresh(): Promise<void> {
+    try {
+      await this.getAnalysisPromise({ page: 1, limit: 25, refresh: true });
+    } finally {
+      this.invalidateAnalysis();
+    }
   }
 
   updateSku(channel: 'mercadolibre' | 'tiendanube', sku: string, payload: {
@@ -252,7 +343,7 @@ export class ConflictsService {
     /** true: aplicar priceTN a todas las variantes del producto TN (elección del usuario, no obligación de la API). */
     applyTnToAllVariants?: boolean;
   }) {
-    return this.http.post<{ ok: boolean; mlTaskId?: number; ml: boolean; tn: boolean }>(
+    return this.http.post<{ ok: boolean; mlTaskId?: number; mlStockTaskId?: number; ml: boolean; tn: boolean }>(
       `${this.api.baseUrl}/conflicts/update-prices`,
       {
         itemId: params.itemId,

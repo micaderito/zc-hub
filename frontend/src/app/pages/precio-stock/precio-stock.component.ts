@@ -61,6 +61,10 @@ export class PrecioStockComponent {
   analysis = computed<ConflictAnalysis | null>(() => this.analysisQuery.data() ?? null);
   loading = computed(() => this.analysisQuery.isLoading());
   fetching = computed(() => this.analysisQuery.isFetching());
+  /** Refresh manual en curso (crawl a los canales): el force va por fuera de la query, así que
+   *  lo trackeamos aparte para mostrar el loading del botón desde el click y no solo al final. */
+  readonly refreshing = signal(false);
+  readonly busy = computed(() => this.fetching() || this.refreshing());
   error = computed<string | null>(() => {
     if (!this.analysisQuery.isError() || !this.analysisQuery.error()) return null;
     const err = this.analysisQuery.error() as { error?: { error?: string }; message?: string };
@@ -72,6 +76,7 @@ export class PrecioStockComponent {
     this.analysis()?.paging ?? { page: 1, limit: PAGE_SIZE, total: 0, pages: 1 }
   );
   protected stockSummary = computed(() => this.analysis()?.stockSummary);
+  protected stockTotal = computed(() => this.analysis()?.stockTotal);
 
   collapsedPairs = signal<Set<string>>(new Set());
 
@@ -141,9 +146,15 @@ export class PrecioStockComponent {
     });
   }
 
-  refreshAnalysis(): void {
+  async refreshAnalysis(): Promise<void> {
+    if (this.refreshing()) return;
     this.localOverrides.set(new Map());
-    this.conflicts.invalidateAnalysis();
+    this.refreshing.set(true);
+    try {
+      await this.conflicts.forceRefresh();
+    } finally {
+      this.refreshing.set(false);
+    }
   }
 
   goToPage(page: number): void {
@@ -412,16 +423,61 @@ export class PrecioStockComponent {
       stockML: stock,
       stockTN: stock,
     }).subscribe({
-      next: () => {
-        this.removePendingPair(id);
-        this.setLocalOverride(id, { stock });
-        const cur = this.pairPrices.get(id);
-        if (cur) cur.syncStock = stock;
-        this.conflicts.updatePairInCache(id, { stock }, this.currentQueryKey);
+      next: (res) => {
+        if (res.mlStockTaskId) {
+          // El stock ML quedó encolado (se aplica en segundo plano, con reintentos ante 429):
+          // esperar a que el worker confirme antes de reflejarlo como sincronizado.
+          this.pollMlStockTask(pair, res.mlStockTaskId, stock);
+        } else {
+          this.removePendingPair(id);
+          this.applyStockLocally(pair, stock);
+        }
       },
       error: (e) => {
         this.removePendingPair(id);
         this.saveError = e.error?.error || e.message || 'No se pudo sincronizar el stock.';
+      },
+    });
+  }
+
+  private applyStockLocally(pair: { ml: MlRow; tn: TnRow }, stock: number): void {
+    const id = getPairId(pair);
+    this.setLocalOverride(id, { stock });
+    const cur = this.pairPrices.get(id);
+    if (cur) cur.syncStock = stock;
+    this.conflicts.updatePairInCache(id, { stock }, this.currentQueryKey, this.stockFilter());
+  }
+
+  private pollMlStockTask(pair: { ml: MlRow; tn: TnRow }, taskId: number, stock: number): void {
+    const pairId = getPairId(pair);
+    const pollKey = `${pairId}::stock`;
+    this.pollStop.get(pollKey)?.next();
+    const stop$ = new Subject<void>();
+    this.pollStop.set(pollKey, stop$);
+
+    timer(1500, 2000).pipe(
+      switchMap(() => this.conflicts.getTaskStatus(taskId)),
+      takeUntil(stop$),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (task) => {
+        if (task.status === 'done') {
+          stop$.next();
+          this.pollStop.delete(pollKey);
+          this.removePendingPair(pairId);
+          this.applyStockLocally(pair, stock);
+        } else if (task.status === 'failed') {
+          stop$.next();
+          this.pollStop.delete(pollKey);
+          this.removePendingPair(pairId);
+          this.saveError = task.lastError || 'Mercado Libre no pudo actualizar el stock.';
+        }
+      },
+      error: () => {
+        stop$.next();
+        this.pollStop.delete(pollKey);
+        this.removePendingPair(pairId);
+        this.saveError = 'No se pudo verificar el estado de la actualización de stock en ML.';
       },
     });
   }

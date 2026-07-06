@@ -63,9 +63,11 @@ before(async () => {
   mock.module('../src/services/conflictsService.js', {
     exports: {
       getAnalysis: async () => ({ mappings: analysisState.mappings }),
+      patchTnStock: async () => {},
+      patchTnPrice: async () => {},
     },
   });
-  mock.module('node-fetch', { exports: { default: (url, opts) => tnFetchState.responder(url, opts) } });
+  mock.module('node-fetch', { exports: { default: (url, opts) => Promise.resolve(tnFetchState.responder(url, opts)) } });
   // deductStockTiendaNube/restoreStockTiendaNube usan el fetch global (no node-fetch) para el GET previo.
   mock.method(globalThis, 'fetch', (url, opts) => Promise.resolve(tnFetchState.responder(url, opts)));
 

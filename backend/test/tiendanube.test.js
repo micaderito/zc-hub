@@ -6,8 +6,8 @@
  * /orders paginado hasta encontrar ese número (o el id interno, por si lo tipean directo).
  *
  * Mockeamos `node-fetch` (igual que mercadolibre.test.js) para no pegarle a la API real. Nota: TN
- * tiene un rate-limit de 500ms entre requests (tiendanube.js MIN_INTERVAL_MS), así que los tests
- * con varias páginas tardan ese tiempo real — se mantienen en pocas páginas a propósito.
+ * enruta todo por el limitador (lib/tnLimiter.js), que espacia los requests. El script `npm test`
+ * setea TN_MIN_SPACING_MS=0 para que los tests no esperen ese espaciado real.
  */
 import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,12 +19,13 @@ function mockFetch(url, opts = {}) {
   return Promise.resolve(state.responder(url, opts));
 }
 
-function makeRes({ status = 200, json = null } = {}) {
+function makeRes({ status = 200, json = null, resetMs = null } = {}) {
   return {
     ok: status >= 200 && status < 300,
     status,
-    headers: { get: () => null },
+    headers: { get: (h) => (h === 'x-rate-limit-reset' ? resetMs : null) },
     json: async () => json,
+    text: async () => (json != null ? JSON.stringify(json) : ''),
   };
 }
 
@@ -102,14 +103,14 @@ test('número vacío no dispara ningún request', async () => {
  * A diferencia de ML (precio único por ítem legacy), en TN el precio vive en cada variante
  * de forma independiente. "Aplicar a todas las variantes" es una elección de UX, no una
  * obligación de la API: updateVariantPriceAllVariants la resuelve trayendo las variantes del
- * producto y actualizando cada una con un PUT propio.
+ * producto y aplicando el precio con el bulk endpoint (1 PATCH cada 50 variantes, no N PUTs).
  */
-test('updateVariantPriceAllVariants: trae las variantes del producto y actualiza el precio de cada una', async () => {
+test('updateVariantPriceAllVariants: trae las variantes y aplica el precio con un solo PATCH bulk', async () => {
   const variants = [{ id: 501 }, { id: 502 }, { id: 503 }];
-  const puts = [];
+  const patches = [];
   state.responder = (url, opts) => {
-    if (opts.method === 'PUT') {
-      puts.push({ url, body: JSON.parse(opts.body) });
+    if (opts.method === 'PATCH') {
+      patches.push({ url, body: JSON.parse(opts.body) });
       return makeRes({ json: {} });
     }
     assert.match(url, /\/products\/999\/variants\?page=1&per_page=100/);
@@ -119,8 +120,59 @@ test('updateVariantPriceAllVariants: trae las variantes del producto y actualiza
   const ok = await tn.updateVariantPriceAllVariants(TOKEN, STORE_ID, 999, 1500);
 
   assert.equal(ok, true);
-  assert.deepEqual(puts.map((p) => p.url), variants.map((v) =>
-    `https://api.tiendanube.com/v1/${STORE_ID}/products/999/variants/${v.id}`
-  ));
-  for (const p of puts) assert.deepEqual(p.body, { price: '1500' });
+  assert.equal(patches.length, 1, '3 variantes = 1 request bulk, no 3 PUTs');
+  assert.equal(patches[0].url, `https://api.tiendanube.com/v1/${STORE_ID}/products/stock-price`);
+  assert.deepEqual(patches[0].body, [
+    { id: 999, variants: [
+      { id: 501, price: '1500' },
+      { id: 502, price: '1500' },
+      { id: 503, price: '1500' },
+    ] },
+  ]);
+});
+
+/**
+ * Bulk PATCH /products/stock-price: TN acepta hasta 50 variantes por request (contando todos los
+ * productos). updateVariantsStockPrice parte la lista en chunks de 50 y agrupa por producto.
+ */
+test('updateVariantsStockPrice: parte en chunks de 50 y arma el body agrupado por producto', async () => {
+  const updates = Array.from({ length: 51 }, (_, i) => ({
+    productId: 999, variantId: 600 + i, price: 100 + i, stock: i,
+  }));
+  const patches = [];
+  state.responder = (url, opts) => {
+    assert.equal(opts.method, 'PATCH');
+    assert.equal(url, `https://api.tiendanube.com/v1/${STORE_ID}/products/stock-price`);
+    patches.push(JSON.parse(opts.body));
+    return makeRes({ json: {} });
+  };
+
+  const ok = await tn.updateVariantsStockPrice(TOKEN, STORE_ID, updates);
+
+  assert.equal(ok, true);
+  assert.equal(patches.length, 2, '51 variantes = 2 requests (50 + 1)');
+  assert.equal(patches[0][0].variants.length, 50);
+  assert.equal(patches[1][0].variants.length, 1);
+  // El precio va como string y el stock dentro de inventory_levels.
+  assert.deepEqual(patches[0][0].variants[0], {
+    id: 600, price: '100', inventory_levels: [{ stock: 0 }],
+  });
+});
+
+/**
+ * El limitador comparte gate y reintenta ante 429 respetando x-rate-limit-reset. Antes el retry
+ * era único; ahora hay varios, así que un 429 aislado se recupera solo sin perder el write.
+ */
+test('updateVariant reintenta ante 429 y respeta x-rate-limit-reset', async () => {
+  let n = 0;
+  state.responder = () => {
+    n++;
+    if (n === 1) return makeRes({ status: 429, resetMs: 10 });
+    return makeRes({ json: {} });
+  };
+
+  const ok = await tn.updateVariantStock(TOKEN, STORE_ID, 999, 501, 7);
+
+  assert.equal(ok, true);
+  assert.equal(n, 2, 'un 429 dispara exactamente un reintento que sale OK');
 });
