@@ -45,6 +45,25 @@ const CIRCUIT_BASE_MS = Number(process.env.ML_CIRCUIT_BASE_MS) || 30_000;
 const CIRCUIT_MAX_MS = Number(process.env.ML_CIRCUIT_MAX_MS) || 5 * 60_000;
 let consecutive429 = 0;
 let circuitLevel = 0;
+
+/**
+ * Telemetría por ventana para diagnosticar de dónde sale el tráfico a ML cuando se forma una
+ * tormenta de 429. Cada `recordMlRequest(context)` cuenta un request por endpoint y cada 429 suma
+ * a su tally. Un reporter periódico vuelca el resumen (solo si hubo actividad) y limpia la ventana.
+ * Así, cuando reaparezca el problema, el log dice EXACTAMENTE qué caller (getOrder vs getItem vs
+ * getClaimsSearch vs writes) está generando el volumen y cuánto de eso rebota con 429.
+ */
+const REPORT_INTERVAL_MS = Number(process.env.ML_STATS_INTERVAL_MS) || 30_000;
+/** @type {Map<string, { req: number, r429: number }>} */
+const statsWindow = new Map();
+
+function bumpStat(context, field) {
+  const key = context || 'unknown';
+  const entry = statsWindow.get(key) || { req: 0, r429: 0 };
+  entry[field]++;
+  statsWindow.set(key, entry);
+}
+
 /** Único timer de "despertar" pendiente, para no acumular timers redundantes. */
 let timer = null;
 /** @type {{ run: () => Promise<any>, resolve: (v:any)=>void, reject:(e:any)=>void }[]} */
@@ -119,7 +138,8 @@ export function pauseMlFor(seconds) {
  * el caño por un cooldown que escala con cada apertura. Devuelve el cooldown en ms si abrió el
  * circuito, o 0 si solo contó. Lo llama fetchWith429Retry en cada 429.
  */
-export function recordMl429() {
+export function recordMl429(context = '') {
+  bumpStat(context, 'r429');
   consecutive429++;
   const inRecovery = circuitLevel > 0;
   if (inRecovery || consecutive429 >= CIRCUIT_429_THRESHOLD) {
@@ -134,9 +154,31 @@ export function recordMl429() {
 
 /** Registra una respuesta OK de ML: cierra el circuito y resetea la escalada. */
 export function recordMlOk() {
+  if (circuitLevel > 0) {
+    console.log(`[ML] circuit breaker cerrado: request OK tras bloqueo (estaba en nivel ${circuitLevel}). Caño recuperado.`);
+  }
   consecutive429 = 0;
   circuitLevel = 0;
 }
+
+/** Cuenta un request lógico a ML (una llamada a fetchWith429Retry), para la telemetría por ventana. */
+export function recordMlRequest(context = '') {
+  bumpStat(context, 'req');
+}
+
+/** Reporter periódico: vuelca el resumen de tráfico a ML de la última ventana (si hubo actividad). */
+const statsTimer = setInterval(() => {
+  if (statsWindow.size === 0) return;
+  const parts = [...statsWindow.entries()]
+    .sort((a, b) => b[1].req - a[1].req)
+    .map(([k, v]) => (v.r429 > 0 ? `${k}=${v.req}(${v.r429}×429)` : `${k}=${v.req}`));
+  const s = mlLimiterStats();
+  console.log(
+    `[ML stats ${Math.round(REPORT_INTERVAL_MS / 1000)}s] ${parts.join(' ')} | active=${s.active} queued=${s.queued} circuitLevel=${s.circuitLevel} pausedMs=${s.pausedForMs}`
+  );
+  statsWindow.clear();
+}, REPORT_INTERVAL_MS);
+statsTimer.unref?.();
 
 /** Para tests/diagnóstico: estado actual del limitador. */
 export function mlLimiterStats() {

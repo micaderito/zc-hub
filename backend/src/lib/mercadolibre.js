@@ -1,5 +1,5 @@
 import fetch from 'node-fetch';
-import { mlSchedule, pauseMlFor, recordMl429, recordMlOk } from './mlLimiter.js';
+import { mlSchedule, pauseMlFor, recordMl429, recordMlOk, recordMlRequest } from './mlLimiter.js';
 
 const BASE = 'https://api.mercadolibre.com';
 
@@ -45,11 +45,12 @@ const MAX_429_RETRIES = 5;
  * (mlSchedule), que espacia los requests y respeta el cooldown por 429.
  */
 export async function fetchWith429Retry(url, options = {}, context = '') {
+  recordMlRequest(context);
   let res = await mlSchedule(() => fetch(url, options));
   for (let r = 0; r < MAX_429_RETRIES && res.status === 429; r++) {
     // Alimenta el circuit breaker global: N 429 consecutivos abren el circuito y pausan TODO el
     // caño por un cooldown escalado, para que un bloqueo sostenido de ML pueda levantarse.
-    const cooldownMs = recordMl429();
+    const cooldownMs = recordMl429(context);
     if (cooldownMs > 0) {
       console.warn(`[ML] circuit breaker abierto tras 429 sostenidos: pausando TODO el caño ${Math.round(cooldownMs / 1000)}s (${context})`);
     }
