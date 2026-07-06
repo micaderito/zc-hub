@@ -30,6 +30,21 @@ let active = 0;
 let lastStart = 0;
 /** Hasta cuándo está pausado el caño por un 429 (timestamp ms). */
 let pauseUntil = 0;
+
+/**
+ * Circuit breaker: cuando ML nos pone un bloqueo sostenido, TODAS las llamadas devuelven 429
+ * incluso en el primer intento. El backoff por-request (1-15s) no alcanza: al vencer, arrancan
+ * de nuevo MAX_CONCURRENT requests, vuelven a chocar y el bloqueo nunca se levanta (ML lo mantiene
+ * mientras le sigas pegando). Este breaker cuenta 429 consecutivos a nivel de TODO el caño y, al
+ * cruzar el umbral, pausa el pipe entero por un cooldown que escala (30s→1m→2m→4m, cap 5m). Un
+ * solo éxito lo resetea. Así el volumen cae de ~400/min a un puñado por ventana y ML puede
+ * levantar el bloqueo.
+ */
+const CIRCUIT_429_THRESHOLD = Number(process.env.ML_CIRCUIT_THRESHOLD) || 3;
+const CIRCUIT_BASE_MS = Number(process.env.ML_CIRCUIT_BASE_MS) || 30_000;
+const CIRCUIT_MAX_MS = Number(process.env.ML_CIRCUIT_MAX_MS) || 5 * 60_000;
+let consecutive429 = 0;
+let circuitLevel = 0;
 /** Único timer de "despertar" pendiente, para no acumular timers redundantes. */
 let timer = null;
 /** @type {{ run: () => Promise<any>, resolve: (v:any)=>void, reject:(e:any)=>void }[]} */
@@ -98,9 +113,40 @@ export function pauseMlFor(seconds) {
   if (until > pauseUntil) pauseUntil = until;
 }
 
+/**
+ * Registra un 429 recibido de ML. Suma al contador de 429 consecutivos y, si se cruza el umbral
+ * (o ya estábamos en recuperación tras un bloqueo, circuitLevel>0), abre el circuito: pausa TODO
+ * el caño por un cooldown que escala con cada apertura. Devuelve el cooldown en ms si abrió el
+ * circuito, o 0 si solo contó. Lo llama fetchWith429Retry en cada 429.
+ */
+export function recordMl429() {
+  consecutive429++;
+  const inRecovery = circuitLevel > 0;
+  if (inRecovery || consecutive429 >= CIRCUIT_429_THRESHOLD) {
+    consecutive429 = 0;
+    const cooldownMs = Math.min(CIRCUIT_BASE_MS * Math.pow(2, circuitLevel), CIRCUIT_MAX_MS);
+    circuitLevel = Math.min(circuitLevel + 1, 8);
+    pauseMlFor(cooldownMs / 1000);
+    return cooldownMs;
+  }
+  return 0;
+}
+
+/** Registra una respuesta OK de ML: cierra el circuito y resetea la escalada. */
+export function recordMlOk() {
+  consecutive429 = 0;
+  circuitLevel = 0;
+}
+
 /** Para tests/diagnóstico: estado actual del limitador. */
 export function mlLimiterStats() {
-  return { active, queued: queue.length, pausedForMs: Math.max(0, pauseUntil - Date.now()) };
+  return {
+    active,
+    queued: queue.length,
+    pausedForMs: Math.max(0, pauseUntil - Date.now()),
+    consecutive429,
+    circuitLevel
+  };
 }
 
 export { sleep };
