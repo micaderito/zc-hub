@@ -24,10 +24,10 @@ jobs:
     environment: github-pages
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: 'npm'
@@ -55,7 +55,7 @@ jobs:
           echo "DEPLOY_PATH=$DIR" >> $GITHUB_ENV
 
       - name: Upload artifact for Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ env.DEPLOY_PATH }}
 
@@ -66,4 +66,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
