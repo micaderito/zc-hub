@@ -347,7 +347,7 @@
                     @if (row.revertedAt) {
                       <span class="reverted-badge">Revertido</span>
                     } @else {
-                      <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="'Sumar ' + row.quantity + ' de nuevo en ' + channelLabel(row.updatedChannel)">
+                      <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="revertTitle(row)">
                         @if (revertingAuditId === row.id) {
                           <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
                         }
