@@ -28,7 +28,7 @@ export class SyncComponent implements OnInit {
   private readonly sync = inject(SyncService);
   private readonly queryClient = inject(QueryClient);
 
-  readonly activeTab = signal<string>('estado');
+  readonly activeTab = signal<string>('historial');
 
   config: SyncConfig | null = null;
   loading = true;
@@ -119,7 +119,7 @@ export class SyncComponent implements OnInit {
     const active = this.activeTasksCount;
     const taskCount = active + failed;
     return [
-      { key: 'estado', label: 'Estado' },
+      { key: 'historial', label: 'Historial' },
       {
         key: 'devoluciones',
         label: 'Devoluciones',
@@ -130,7 +130,7 @@ export class SyncComponent implements OnInit {
         label: 'Cola ML',
         ...(taskCount > 0 ? { count: taskCount, countVariant: (failed > 0 ? 'err' : 'warn') as 'err' | 'warn' } : {})
       },
-      { key: 'historial', label: 'Historial' }
+      { key: 'estado', label: 'Estado' }
     ];
   });
 
