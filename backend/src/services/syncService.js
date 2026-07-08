@@ -205,8 +205,10 @@ export async function restoreStockMercadoLibre(sku, quantity, auditCtx = null) {
 }
 
 /**
- * Revierte un registro del historial: suma de nuevo la cantidad en el canal que se había descontado.
- * @param {{ sku: string, quantity: number, updatedChannel: string }} row - fila del audit
+ * Revierte un registro del historial, deshaciendo el movimiento original según su dirección:
+ * si el movimiento original sumó stock (ej. cancelación que restauró stock), revertir lo
+ * descuenta; si el movimiento original lo descontó (ej. venta), revertir lo vuelve a sumar.
+ * @param {{ sku: string, quantity: number, updatedChannel: string, stockBefore?: number, stockAfter?: number }} row - fila del audit
  * @returns {{ ok: boolean, error?: string }}
  */
 export async function revertSyncAudit(row) {
@@ -214,22 +216,28 @@ export async function revertSyncAudit(row) {
   const quantity = Math.max(0, Number(row.quantity) || 0);
   const channel = (row.updatedChannel || '').toLowerCase();
   if (!sku || quantity <= 0) return { ok: false, error: 'SKU o cantidad inválidos' };
+  const stockIncreased = Number(row.stockAfter) > Number(row.stockBefore);
+  const action = stockIncreased ? 'descontar' : 'restaurar';
   if (channel === 'tiendanube') {
-    const out = await restoreStockTiendaNube(sku, quantity);
-    return { ok: out.ok, error: out.ok ? undefined : 'No se pudo restaurar stock en Tienda Nube (revisá que el SKU siga vinculado)' };
+    const out = stockIncreased
+      ? await deductStockTiendaNube(sku, quantity)
+      : await restoreStockTiendaNube(sku, quantity);
+    return { ok: out.ok, error: out.ok ? undefined : `No se pudo ${action} stock en Tienda Nube (revisá que el SKU siga vinculado)` };
   }
   if (channel === 'mercadolibre') {
-    const out = await restoreStockMercadoLibre(sku, quantity);
-    // La restauración en ML se encola y la aplica el worker en segundo plano; esperamos a que
+    const out = stockIncreased
+      ? await deductStockMercadoLibre(sku, quantity)
+      : await restoreStockMercadoLibre(sku, quantity);
+    // La actualización en ML se encola y la aplica el worker en segundo plano; esperamos a que
     // termine antes de marcar el registro como revertido (si no, el historial diría "revertido"
     // sin que el stock en ML se haya actualizado todavía).
     if (out.ok && out.queued && out.taskId) {
       const status = await waitForMlTask(out.taskId);
       if (status?.status === 'failed') {
-        return { ok: false, error: status.lastError || 'No se pudo restaurar stock en Mercado Libre (la tarea encolada falló).' };
+        return { ok: false, error: status.lastError || `No se pudo ${action} stock en Mercado Libre (la tarea encolada falló).` };
       }
     }
-    return { ok: out.ok, error: out.ok ? undefined : 'No se pudo restaurar stock en Mercado Libre (revisá que el SKU siga vinculado)' };
+    return { ok: out.ok, error: out.ok ? undefined : `No se pudo ${action} stock en Mercado Libre (revisá que el SKU siga vinculado)` };
   }
   return { ok: false, error: 'Canal no reconocido' };
 }

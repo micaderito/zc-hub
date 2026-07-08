@@ -203,3 +203,69 @@ test('revertSyncAudit: canal no reconocido devuelve error explícito', async () 
   assert.equal(result.ok, false);
   assert.match(result.error, /canal/i);
 });
+
+// ─── revertSyncAudit: la dirección de la reversión depende del movimiento original ──
+
+test('revertSyncAudit (tiendanube, venta — el movimiento original restó stock): revertir SUMA', async () => {
+  analysisState.mappings = [
+    { sku: 'LLUVIA', mercadolibre: { itemId: 'MLA2' }, tiendanube: { productId: 10, variantId: 20 } },
+  ];
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  let putBody = null;
+  tnFetchState.responder = (url, opts) => {
+    if (!opts?.method || opts.method === 'GET') return makeRes({ json: { stock: 5 } });
+    putBody = JSON.parse(opts.body);
+    return makeRes({ status: 200, json: {} });
+  };
+
+  const result = await syncService.revertSyncAudit({
+    sku: 'LLUVIA', quantity: 2, updatedChannel: 'tiendanube', stockBefore: 10, stockAfter: 8
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(putBody.stock, 7, 'GET devolvió stock=5; al sumar 2 (revertir una venta) debe quedar en 7');
+});
+
+test('revertSyncAudit (tiendanube, cancelación — el movimiento original sumó stock): revertir DESCUENTA', async () => {
+  analysisState.mappings = [
+    { sku: 'LLUVIA', mercadolibre: { itemId: 'MLA2' }, tiendanube: { productId: 10, variantId: 20 } },
+  ];
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  let putBody = null;
+  tnFetchState.responder = (url, opts) => {
+    if (!opts?.method || opts.method === 'GET') return makeRes({ json: { stock: 5 } });
+    putBody = JSON.parse(opts.body);
+    return makeRes({ status: 200, json: {} });
+  };
+
+  const result = await syncService.revertSyncAudit({
+    sku: 'LLUVIA', quantity: 2, updatedChannel: 'tiendanube', stockBefore: 8, stockAfter: 10
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(putBody.stock, 3, 'GET devolvió stock=5; al descontar 2 (revertir una cancelación) debe quedar en 3');
+});
+
+test('revertSyncAudit (mercadolibre, venta — el movimiento original restó stock): encola delta positivo (suma)', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], []);
+  dbState.taskStatuses.set(1, { status: 'done' });
+
+  const result = await syncService.revertSyncAudit({
+    sku: 'CREANDO', quantity: 2, updatedChannel: 'mercadolibre', stockBefore: 10, stockAfter: 8
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(dbState.enqueuedTasks[0].targetQty, 2);
+});
+
+test('revertSyncAudit (mercadolibre, cancelación — el movimiento original sumó stock): encola delta negativo (descuenta)', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], []);
+  dbState.taskStatuses.set(1, { status: 'done' });
+
+  const result = await syncService.revertSyncAudit({
+    sku: 'CREANDO', quantity: 2, updatedChannel: 'mercadolibre', stockBefore: 8, stockAfter: 10
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(dbState.enqueuedTasks[0].targetQty, -2);
+});
