@@ -182,14 +182,25 @@ test('topic orders: orden paid pero ya procesada (idempotencia) no vuelve a desc
   assert.ok(!dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'deduct'));
 });
 
-test('topic orders: orden cancelada restaura stock', async () => {
+test('topic orders: orden cancelada que sí se había descontado, restaura stock', async () => {
+  mlState.order = {
+    id: 557, status: 'cancelled',
+    order_items: [{ item: { id: 'MLA1' }, quantity: 1 }],
+  };
+  dbState.hasProcessed = true; // simula que la orden llegó a pagarse y descontar stock antes de cancelarse
+  const res = await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/557' });
+  assert.equal(res.status, 200);
+  assert.ok(dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'restore'));
+});
+
+test('topic orders: orden cancelada que nunca se descontó (cancelada antes de pagarse) no restaura', async () => {
   mlState.order = {
     id: 557, status: 'cancelled',
     order_items: [{ item: { id: 'MLA1' }, quantity: 1 }],
   };
   const res = await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/557' });
   assert.equal(res.status, 200);
-  assert.ok(dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'restore'));
+  assert.ok(!dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'restore'));
 });
 
 test('topic orders: orden cancelada con devolución pendiente en DB no restaura automáticamente', async () => {
@@ -197,6 +208,7 @@ test('topic orders: orden cancelada con devolución pendiente en DB no restaura 
     id: 558, status: 'cancelled',
     order_items: [{ item: { id: 'MLA1' }, quantity: 1 }],
   };
+  dbState.hasProcessed = true;
   dbState.hasPendingReturn = true;
   const res = await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/558' });
   assert.equal(res.status, 200);
