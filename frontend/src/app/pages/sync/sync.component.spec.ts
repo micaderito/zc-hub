@@ -852,6 +852,16 @@ describe('SyncComponent', () => {
       expect(component.channelLabel('tiendanube')).toBe('Tienda Nube');
     });
 
+    it('revertTitle() dice "Sumar" cuando el movimiento original restó stock (venta)', () => {
+      const venta: SyncAuditRow = { ...auditRow, quantity: 2, stockBefore: 10, stockAfter: 8, updatedChannel: 'tiendanube' };
+      expect(component.revertTitle(venta)).toBe('Sumar 2 de nuevo en Tienda Nube');
+    });
+
+    it('revertTitle() dice "Descontar" cuando el movimiento original sumó stock (cancelación)', () => {
+      const cancelacion: SyncAuditRow = { ...auditRow, quantity: 2, stockBefore: 8, stockAfter: 10, updatedChannel: 'mercadolibre' };
+      expect(component.revertTitle(cancelacion)).toBe('Descontar 2 de nuevo en Mercado Libre');
+    });
+
     it('stateChipClass() cubre todas las variantes de estado', () => {
       expect(component.stateChipClass(null)).toBe('state-chip n');
       expect(component.stateChipClass(undefined)).toBe('state-chip n');
