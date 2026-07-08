@@ -54,6 +54,9 @@ jobs:
           if [ -d "${DIR}/browser" ]; then DIR="${DIR}/browser"; fi
           echo "DEPLOY_PATH=$DIR" >> $GITHUB_ENV
 
+      - name: Copiar index.html a 404.html (fallback para rutas de Angular Router)
+        run: cp "${DEPLOY_PATH}/index.html" "${DEPLOY_PATH}/404.html"
+
       - name: Upload artifact for Pages
         uses: actions/upload-pages-artifact@v3
         with:
