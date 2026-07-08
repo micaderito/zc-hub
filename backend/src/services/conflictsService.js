@@ -497,8 +497,16 @@ function computeAnalysis({ mlRows = [], tnRows = [], mlConnected = false, tnConn
 // Todas son no-op si todavía no hay snapshot (la primera lectura hará el crawl).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Aplica `mutator(data)` sobre las filas del snapshot bajo lock; guarda solo si hubo cambios. */
+/**
+ * Aplica `mutator(data)` sobre las filas del snapshot bajo lock; guarda solo si hubo cambios.
+ * Si hay un crawl completo en curso (reconcile por antigüedad o refresh manual), espera a que
+ * termine antes de leer: `fetchRawRows()` corre FUERA del lock (tarda decenas de segundos) y su
+ * `storeSnapshot()` final SÍ pasa por el lock, así que si el parche entrara primero, el crawl lo
+ * pisaría al terminar con datos de antes de la edición (el usuario ve el SKU/precio/stock
+ * "volver" al valor viejo). Esperar el crawl garantiza que el parche se aplique último.
+ */
 async function patchSnapshot(mutator) {
+  if (crawlInFlight) await crawlInFlight.catch(() => {});
   await withSnapshotLock(async () => {
     const snap = await loadSnapshot();
     if (!snap?.data?.mlRows) return;

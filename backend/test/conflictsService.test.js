@@ -381,6 +381,55 @@ test('patchMlSku: cambiar el SKU re-clasifica en la próxima lectura (matchea co
   assert.equal(r.matched.length, 1, 'tras igualar el SKU quedan matched');
 });
 
+test('patchTnSku no se pierde si un crawl de reconcile termina después del parche', async () => {
+  // Reproduce el bug: el snapshot está viejo (> SNAPSHOT_STALE_MS), así que getAnalysis()
+  // dispara un reconcile en background. fetchRawRows() tarda (sin lock) y devuelve el estado
+  // DE ANTES de la edición del usuario. Si el parche no espera ese crawl, el crawl termina
+  // después y pisa el SKU recién editado con el valor viejo.
+  dbState.hasDb = true;
+  const staleAt = Date.now() - 7 * 60 * 60 * 1000; // > 6h
+  dbState.snapshot = {
+    at: staleAt,
+    data: {
+      mlRows: [{ type: 'ml', itemId: 'MLA1', variationId: null, title: 'X', sku: 'NUEVO', hasSku: true, price: 1, stock: 1 }],
+      tnRows: [{ type: 'tn', productId: 5, variantId: 50, productName: 'X', sku: 'VIEJO', hasSku: true, price: 1, stock: 1 }],
+      mlConnected: true, tnConnected: true,
+    },
+  };
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  mlState.responder = async (url) => {
+    if (url.includes('/items/search')) {
+      await new Promise((r) => setTimeout(r, 30));
+      return makeRes({ json: { results: ['MLA1'], paging: { total: 1 } } });
+    }
+    if (url.includes('/items?ids=')) {
+      return makeRes({
+        json: [{ code: 200, body: { id: 'MLA1', title: 'X', catalog_listing: false, seller_sku: 'NUEVO', price: 1, available_quantity: 1 } }],
+      });
+    }
+    return makeRes({ json: [] });
+  };
+  tnState.getProductsImpl = async () => {
+    await new Promise((r) => setTimeout(r, 30));
+    // El crawl "ve" el catálogo de TN de antes de la edición del usuario.
+    return [{ id: 5, name: { es: 'X' }, variants: [{ id: 50, sku: 'VIEJO', stock: 1, price: '1' }], images: [] }];
+  };
+  storeState.tokens.tiendanube = { access_token: 'tok', store_id: 1 };
+
+  // getAnalysis() sirve del snapshot viejo y dispara el reconcile en background (no lo espera).
+  await conflictsService.getAnalysis();
+  // El usuario edita el SKU de TN mientras el crawl de arriba sigue en vuelo.
+  await conflictsService.patchTnSku(5, 50, 'NUEVO');
+  // Deja tiempo de sobra a que el crawl en background (delay de 30ms simulado arriba) termine
+  // de escribir, para comprobar el estado FINAL (no si el parche ganó una carrera de timing).
+  await new Promise((r) => setTimeout(r, 100));
+
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.matched.length, 1, 'el parche debe ganarle al crawl que empezó antes');
+  assert.equal(result.matched[0].tn.sku, 'NUEVO');
+});
+
 test('invalidateSnapshot: descarta el snapshot (memoria + DB)', async () => {
   dbState.hasDb = true;
   dbState.snapshot = snapshotWithMlVariations();
