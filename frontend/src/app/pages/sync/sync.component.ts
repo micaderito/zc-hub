@@ -312,6 +312,11 @@ export class SyncComponent implements OnInit {
     return ch === 'mercadolibre' ? 'Mercado Libre' : 'Tienda Nube';
   }
 
+  revertTitle(row: SyncAuditRow): string {
+    const verb = row.stockAfter > row.stockBefore ? 'Descontar' : 'Sumar';
+    return `${verb} ${row.quantity} de nuevo en ${this.channelLabel(row.updatedChannel)}`;
+  }
+
   stateChipClass(label: string | null | undefined): string {
     if (!label) return 'state-chip n';
     const n = label.toLowerCase().replace(/\s+/g, '-');
