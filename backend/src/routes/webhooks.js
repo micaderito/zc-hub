@@ -64,6 +64,13 @@ async function processMlOrderPayload(order, orderId) {
   const effectiveOrderId = String(order.id ?? orderId);
 
   if (status === 'cancelled' || status === 'canceled') {
+    // Orden cancelada antes de llegar a pagarse (rechazo de pago, timeout, antifraude de ML): nunca se
+    // descontó stock, así que no hay nada que restaurar. Evita inflar stock en TN con órdenes fantasma.
+    const wasDeducted = await hasOrderProcessingClaimed('mercadolibre', effectiveOrderId, 'deduct');
+    if (!wasDeducted) {
+      console.log('[Webhook ML] Orden %s cancelada pero nunca se descontó stock, no se restaura.', effectiveOrderId);
+      return;
+    }
     // Verificar si hay una devolución pendiente en DB (caso normal: claims webhook llegó primero)
     if (await hasPendingReturnForOrder(effectiveOrderId)) {
       console.log('[Webhook ML] Orden %s cancelada por devolución (pending return en DB). Se omite restauración automática de stock.', effectiveOrderId);
@@ -73,7 +80,7 @@ async function processMlOrderPayload(order, orderId) {
     try {
       const accessToken = await getMlToken();
       if (accessToken) {
-        const claimsRes = await ml.getClaimsSearch(accessToken, { resource_id: effectiveOrderId, type: 'return' });
+        const claimsRes = await ml.getClaimsSearch(accessToken, { resource: 'order', resource_id: effectiveOrderId, type: 'return' });
         const activeClaims = (claimsRes?.data ?? []).filter(c => {
           const s = (c.status || '').toLowerCase();
           return s !== 'closed' && s !== 'expired' && s !== 'cancelled' && s !== 'canceled';
