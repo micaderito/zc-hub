@@ -802,7 +802,7 @@ describe('SyncComponent', () => {
       fixture.detectChanges();
       const tabs = component.tabs();
 
-      expect(tabs.map(t => t.key)).toEqual(['estado', 'devoluciones', 'cola', 'historial']);
+      expect(tabs.map(t => t.key)).toEqual(['historial', 'devoluciones', 'cola', 'estado']);
       expect(tabs.find(t => t.key === 'devoluciones')?.count).toBeUndefined();
       expect(tabs.find(t => t.key === 'cola')?.count).toBeUndefined();
     });
