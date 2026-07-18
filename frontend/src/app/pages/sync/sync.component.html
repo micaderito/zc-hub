@@ -32,7 +32,7 @@
     <zc-tabs
       [tabs]="tabs()"
       [activeKey]="activeTab()"
-      (tabChange)="activeTab.set($event)"
+      (tabChange)="onTabChange($event)"
     />
 
     @if (activeTab() === 'estado') {
@@ -258,14 +258,23 @@
             <zc-search-bar
               [value]="auditSearchQuery()"
               (valueChange)="auditSearchQuery.set($event)"
-              placeholder="Buscar por nro de venta u orden…"
-              ariaLabel="Buscar en historial de sincronización"
+              placeholder="Buscar por nro de venta, orden o SKU…"
+              ariaLabel="Buscar en historial de stock"
               class="search-bar-wrap"
             />
             <button type="button" class="btn-secondary" (click)="refreshAudit()" [disabled]="auditLoading">
               <i class="ti ti-refresh" [class.spin]="auditFetching" aria-hidden="true"></i>
               {{ auditFetching ? 'Actualizando…' : 'Actualizar' }}
             </button>
+          </div>
+
+          <div class="source-filter" role="group" aria-label="Filtrar historial por origen del cambio">
+            @for (opt of auditSourceOptions; track opt.key) {
+              <button type="button" class="source-chip" [class.active]="auditSource() === opt.key"
+                      [attr.aria-pressed]="auditSource() === opt.key" (click)="setAuditSource(opt.key)">
+                {{ opt.label }}
+              </button>
+            }
           </div>
 
           <div class="reprocess-card">
@@ -311,7 +320,7 @@
               } @else {
                 <i class="ti ti-history" aria-hidden="true"></i>
                 <p>Aún no hay registros.</p>
-                <p class="hint">Cuando la sincronización esté activa y ocurra una venta, cada descuento de stock aparecerá acá.</p>
+                <p class="hint">Acá aparece cada cambio de stock: los que hace una venta y los que hacés a mano desde Precio y stock.</p>
               }
             </div>
           } @else {
@@ -321,6 +330,7 @@
                   <div class="audit-main">
                     <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
                     <div class="audit-meta">
+                      <span class="source-tag" [class.manual]="row.source === 'manual'">{{ auditSourceLabel(row.source) }}</span>
                       <code>{{ row.sku }}</code>
                       @if (row.packId || row.orderId) {
                         <span>Pack <code>{{ row.packId || row.orderId }}</code></span>
@@ -346,7 +356,7 @@
                     </div>
                     @if (row.revertedAt) {
                       <span class="reverted-badge">Revertido</span>
-                    } @else {
+                    } @else if (canRevert(row)) {
                       <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="revertTitle(row)">
                         @if (revertingAuditId === row.id) {
                           <i class="ti ti-loader-2 spin" aria-hidden="true"></i>

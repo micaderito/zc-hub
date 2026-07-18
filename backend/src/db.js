@@ -59,6 +59,17 @@ export async function initDb() {
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS product_display VARCHAR(1024);`);
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS notification_payload TEXT;`);
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS pack_id VARCHAR(128);`);
+    // `source` distingue de dónde vino el cambio de stock. La tabla nació asumiendo que todo
+    // cambio era consecuencia de una venta, así que las filas viejas son todas 'venta' y el
+    // DEFAULT las backfillea. Los cambios manuales (botón "sincronizar stock") no tienen orden
+    // ni canal de venta: por eso los NOT NULL de abajo se aflojan en vez de rellenarse con
+    // sentinelas vacíos, que harían pasar por "sin orden" a algo que nunca tuvo una.
+    await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'venta';`);
+    await p.query(`ALTER TABLE sync_audit ALTER COLUMN channel_sale DROP NOT NULL;`);
+    await p.query(`ALTER TABLE sync_audit ALTER COLUMN order_id DROP NOT NULL;`);
+    await p.query(`ALTER TABLE sync_audit ALTER COLUMN quantity DROP NOT NULL;`);
+    // El historial por producto filtra por SKU y ordena por fecha.
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_sync_audit_sku_created ON sync_audit (sku, created_at DESC);`);
     // Backfill una sola vez: rellena pack_id de filas viejas leyendo el pack_id real desde el JSON crudo de la orden.
     try {
       await p.query(`
@@ -295,22 +306,28 @@ export async function insertAuditLog(row) {
     const payloadStr = row.notificationPayload != null
       ? (typeof row.notificationPayload === 'string' ? row.notificationPayload : JSON.stringify(row.notificationPayload))
       : null;
+    const source = row.source || 'venta';
+    // Un cambio manual no nace de una orden: no tiene canal de venta, nº de orden ni cantidad
+    // vendida. Esos campos van NULL; el qué pasó lo cuentan stock_before/stock_after. Las filas
+    // de venta mantienen los defaults de siempre ('' y 0) para no cambiar lo ya guardado.
+    const fromSale = source !== 'manual';
     await p.query(
-      `INSERT INTO sync_audit (channel_sale, order_id, pack_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      `INSERT INTO sync_audit (channel_sale, order_id, pack_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
-        row.channelSale,
-        row.orderId || '',
-        row.packId || row.orderId || '',
+        row.channelSale ?? null,
+        fromSale ? (row.orderId || '') : null,
+        fromSale ? (row.packId || row.orderId || '') : null,
         row.saleItemId ?? null,
         row.sku || '',
         row.productLabel ?? null,
         row.productDisplay ?? null,
-        row.quantity ?? 0,
+        fromSale ? (row.quantity ?? 0) : null,
         row.updatedChannel,
         row.stockBefore ?? 0,
         row.stockAfter ?? 0,
-        payloadStr
+        payloadStr,
+        source
       ]
     );
   } catch (e) {
@@ -318,52 +335,93 @@ export async function insertAuditLog(row) {
   }
 }
 
+/** Columnas del historial, en el formato camelCase que espera el front. */
+const AUDIT_COLUMNS = `id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId",
+        sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
+        quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
+        source, created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"`;
+
+/** Orígenes válidos de un cambio de stock. Se valida en la query para no filtrar por algo inexistente. */
+export const AUDIT_SOURCES = ['venta', 'manual', 'devolucion'];
+
+function mapAuditRow(r) {
+  return {
+    ...r,
+    saleItemId: r.saleItemId ?? null,
+    createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+    revertedAt: r.revertedAt ? new Date(r.revertedAt).toISOString() : null
+  };
+}
+
 /**
- * Lista el historial de sincronización (más recientes primero).
+ * Lista el historial de cambios de stock (más recientes primero).
  * @param {number} limit
  * @param {number} offset
- * @param {string} [search] - filtrar por nº de venta (pack_id), nº de orden (order_id) o id. ítem (sale_item_id); busca en los tres.
+ * @param {string} [search] - nº de venta (pack_id), nº de orden (order_id), id. ítem (sale_item_id) o SKU; busca en los cuatro.
+ * @param {string} [source] - filtra por origen ('venta' | 'manual' | 'devolucion'); vacío = todos.
  */
-export async function getAuditLog(limit = 100, offset = 0, search = '') {
+export async function getAuditLog(limit = 100, offset = 0, search = '', source = '') {
   const p = getPool();
   if (!p) return { rows: [], total: 0 };
   try {
+    const where = [];
+    const params = [];
+
     const searchTrim = search && String(search).trim();
-    const pattern = searchTrim ? '%' + searchTrim + '%' : null;
-    const countSql = pattern
-      ? 'SELECT COUNT(*)::int AS total FROM sync_audit WHERE (order_id ILIKE $1 OR pack_id ILIKE $1 OR sale_item_id ILIKE $1)'
-      : 'SELECT COUNT(*)::int AS total FROM sync_audit';
-    const countParams = pattern ? [pattern] : [];
-    const countResult = await p.query(countSql, countParams);
+    if (searchTrim) {
+      params.push('%' + searchTrim + '%');
+      const i = params.length;
+      where.push(`(order_id ILIKE $${i} OR pack_id ILIKE $${i} OR sale_item_id ILIKE $${i} OR sku ILIKE $${i})`);
+    }
+    const sourceTrim = source && String(source).trim();
+    if (sourceTrim && AUDIT_SOURCES.includes(sourceTrim)) {
+      params.push(sourceTrim);
+      where.push(`source = $${params.length}`);
+    }
+    const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+
+    const countResult = await p.query(`SELECT COUNT(*)::int AS total FROM sync_audit${whereSql}`, params);
     const total = countResult.rows[0]?.total ?? 0;
 
-    const listSql = pattern
-      ? `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
-                quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-                created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
-         FROM sync_audit
-         WHERE (order_id ILIKE $1 OR pack_id ILIKE $1 OR sale_item_id ILIKE $1)
+    const result = await p.query(
+      `SELECT ${AUDIT_COLUMNS}
+         FROM sync_audit${whereSql}
          ORDER BY created_at DESC
-         LIMIT $2 OFFSET $3`
-      : `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
-                quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-                created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
-         FROM sync_audit
-         ORDER BY created_at DESC
-         LIMIT $1 OFFSET $2`;
-    const listParams = pattern
-      ? [pattern, Math.min(limit, 500), offset]
-      : [Math.min(limit, 500), offset];
-    const result = await p.query(listSql, listParams);
-    const rows = result.rows.map(r => ({
-      ...r,
-      saleItemId: r.saleItemId ?? null,
-      createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
-      revertedAt: r.revertedAt ? new Date(r.revertedAt).toISOString() : null
-    }));
-    return { rows, total };
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, Math.min(limit, 500), offset]
+    );
+    return { rows: result.rows.map(mapAuditRow), total };
   } catch (e) {
     console.error('getAuditLog:', e.message);
+    return { rows: [], total: 0 };
+  }
+}
+
+/**
+ * Historial de un producto puntual, por SKU (la unidad que une ML ↔ TN).
+ * Trae los cambios de ambos canales juntos, más recientes primero.
+ */
+export async function getStockHistoryBySku(sku, limit = 50, offset = 0) {
+  const p = getPool();
+  const skuTrim = sku && String(sku).trim();
+  if (!p || !skuTrim) return { rows: [], total: 0 };
+  try {
+    const countResult = await p.query(
+      'SELECT COUNT(*)::int AS total FROM sync_audit WHERE sku = $1',
+      [skuTrim]
+    );
+    const total = countResult.rows[0]?.total ?? 0;
+    const result = await p.query(
+      `SELECT ${AUDIT_COLUMNS}
+         FROM sync_audit
+         WHERE sku = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
+      [skuTrim, Math.min(limit, 200), offset]
+    );
+    return { rows: result.rows.map(mapAuditRow), total };
+  } catch (e) {
+    console.error('getStockHistoryBySku:', e.message);
     return { rows: [], total: 0 };
   }
 }
@@ -376,7 +434,7 @@ export async function getAuditRowById(id) {
     const r = await p.query(
       `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
               quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-              reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
+              source, reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
        FROM sync_audit WHERE id = $1`,
       [Number(id)]
     );
@@ -710,6 +768,34 @@ export async function getPendingMlTasks(limit = 20, offset = 0) {
   } catch (e) {
     console.error('getPendingMlTasks:', e.message);
     return { tasks: [], total: 0, activeCount: 0, failedCount: 0 };
+  }
+}
+
+/**
+ * Tareas todavía en vuelo (pending/processing), solo con lo necesario para identificar a qué
+ * ítem/variación afectan. Lo usa Precio y stock para distinguir "todavía no lo apliqué" de
+ * "los canales difieren de verdad": sin esto, una tarea encolada se ve igual que un conflicto.
+ *
+ * A diferencia de getPendingMlTasks (que pagina para la tab Cola ML), acá hacen falta TODAS:
+ * una tarea que quede fuera de la página mostraría un conflicto falso en su fila. Es una lista
+ * corta — las tareas se procesan cada 500ms — y las filas pesan tres campos.
+ *
+ * No incluye 'failed' a propósito: si la tarea falló, el canal quedó desincronizado de verdad
+ * y la fila DEBE mostrar el conflicto. El reintento vive en la tab Cola ML.
+ */
+export async function getActiveMlTasks() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT kind, item_id AS "itemId", variation_id AS "variationId"
+         FROM ml_pending_tasks
+        WHERE status IN ('pending', 'processing')`
+    );
+    return r.rows;
+  } catch (e) {
+    console.error('getActiveMlTasks:', e.message);
+    return [];
   }
 }
 

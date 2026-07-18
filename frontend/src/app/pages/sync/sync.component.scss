@@ -266,6 +266,36 @@
     border-radius: var(--radius-lg);
   }
 
+  // Filtro por origen del cambio (Todos / Ventas / Manuales / Devoluciones).
+  .source-filter {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+
+  .source-chip {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text-2);
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: 20px;
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--border-strong);
+      color: var(--text);
+    }
+
+    &.active {
+      background: var(--brand-bg);
+      border-color: var(--brand);
+      color: var(--brand);
+    }
+  }
+
   .search-bar-wrap {
     flex: 1 1 220px;
     min-width: 0;
@@ -604,6 +634,24 @@
       border-radius: 4px;
       font-size: 0.66rem;
       color: var(--text);
+    }
+
+    // Origen del cambio. Los manuales se destacan porque son la excepción: el resto del
+    // historial lo genera la sincronización automática.
+    .source-tag {
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.62rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      background: var(--surface-2);
+      color: var(--text-2);
+
+      &.manual {
+        background: var(--brand-bg);
+        color: var(--brand);
+      }
     }
 
     .meta-date { color: var(--text-3); }

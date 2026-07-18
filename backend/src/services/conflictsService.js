@@ -528,17 +528,27 @@ export function patchMlPrice(itemId, price) {
   });
 }
 
-/** Stock ML: por variación (o por ítem si no tiene variación). */
+/**
+ * Stock ML: por variación (o por ítem si no tiene variación).
+ *
+ * Devuelve `{ stockBefore, sku }` con lo que la fila tenía ANTES del parche (o `null` si no
+ * había snapshot o la fila no estaba). Lo usa el historial para registrar de cuánto a cuánto
+ * fue el cambio sin gastar un GET extra contra ML: el snapshot es la mejor foto que tenemos
+ * y lo mantienen al día los webhooks y cada write. Puede quedar corto si ML cambió por fuera
+ * sin avisar, pero un GET por cada write es justo lo que dispara los 429 que evitamos.
+ */
 export function patchMlStock(itemId, variationId, stock) {
+  let before = null;
   return patchSnapshot((data) => {
     let changed = false;
     for (const r of data.mlRows) {
       if (r.itemId !== itemId) continue;
       if (variationId != null && variationId !== '' && !sameVar(r.variationId, variationId)) continue;
+      if (before === null) before = { stockBefore: r.stock ?? null, sku: r.sku ?? null };
       if (r.stock !== stock) { r.stock = stock; changed = true; }
     }
     return changed;
-  });
+  }).then(() => before);
 }
 
 /** SKU ML: por variación (o por ítem simple). */
@@ -568,17 +578,19 @@ export function patchTnPrice(productId, variantId, price, applyAll = false) {
   });
 }
 
-/** Stock TN: por variante. */
+/** Stock TN: por variante. Devuelve `{ stockBefore, sku }` previo al parche (ver patchMlStock). */
 export function patchTnStock(productId, variantId, stock) {
+  let before = null;
   return patchSnapshot((data) => {
     let changed = false;
     for (const r of data.tnRows) {
       if (String(r.productId) !== String(productId)) continue;
       if (!sameVar(r.variantId, variantId)) continue;
+      if (before === null) before = { stockBefore: r.stock ?? null, sku: r.sku ?? null };
       if (r.stock !== stock) { r.stock = stock; changed = true; }
     }
     return changed;
-  });
+  }).then(() => before);
 }
 
 /** SKU TN: por variante. */

@@ -3,13 +3,16 @@ import { CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { debounceTime, distinctUntilChanged, switchMap, takeUntil } from 'rxjs/operators';
-import { timer, Subject } from 'rxjs';
+import { timer, Subject, firstValueFrom } from 'rxjs';
 import {
   ConflictsService,
   ConflictAnalysis,
   MlRow,
   TnRow,
   getPairId,
+  getMlTaskKey,
+  stockTaskKeys,
+  ActiveTasksResponse,
 } from '../../core/services/conflicts.service';
 import { injectQuery, keepPreviousData } from '@tanstack/angular-query-experimental';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
@@ -17,6 +20,7 @@ import { PaginationComponent } from '../../shared/components/pagination/paginati
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 import { StockFilterTabsComponent, StockFilter } from './components/stock-filter-tabs/stock-filter-tabs.component';
 import { PairCardComponent, PairPrices } from './components/pair-card/pair-card.component';
+import { StockHistoryDialogComponent } from './components/stock-history-dialog/stock-history-dialog.component';
 
 const PAGE_SIZE = 25;
 const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
@@ -24,7 +28,7 @@ const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
-  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, StockFilterTabsComponent, PairCardComponent],
+  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, StockFilterTabsComponent, PairCardComponent, StockHistoryDialogComponent],
   templateUrl: './precio-stock.component.html',
   styleUrl: './precio-stock.component.scss'
 })
@@ -57,6 +61,29 @@ export class PrecioStockComponent {
     staleTime: 60 * 60 * 1000,
     placeholderData: keepPreviousData,
   }));
+
+  /**
+   * Cambios de stock todavía en cola, según el servidor. `savingPairIds` vive en el componente y
+   * se pierde al navegar: al volver a la pantalla, una fila que estaba esperando al worker se veía
+   * como "Stock distinto" — un conflicto que en realidad no existía, solo una escritura sin aplicar.
+   * Esta query es la que sobrevive a la navegación.
+   *
+   * Solo trae pending/processing. Las fallidas quedan afuera a propósito: ahí ML nunca recibió el
+   * cambio, los canales difieren de verdad y el badge tiene que decirlo. El rojo y el reintento
+   * viven únicamente en Sincronización › Cola ML.
+   */
+  readonly activeTasksQuery = injectQuery<ActiveTasksResponse>(() => ({
+    queryKey: ['sync', 'active-tasks'],
+    queryFn: () => firstValueFrom(this.conflicts.getActiveTasks()),
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+    // Solo se sondea mientras hay algo en vuelo, para verlo salir de la cola. Con la cola vacía no
+    // hay timer: las tareas que nacen acá ya disparan un refetch explícito, y las que nacen de una
+    // venta las levanta el foco de la ventana. Un intervalo permanente sondearía de gusto.
+    refetchInterval: (query) => ((query.state.data?.tasks?.length ?? 0) > 0 ? 3000 : false),
+  }));
+
+  private readonly queuedStockKeys = computed(() => stockTaskKeys(this.activeTasksQuery.data()?.tasks ?? []));
 
   analysis = computed<ConflictAnalysis | null>(() => this.analysisQuery.data() ?? null);
   loading = computed(() => this.analysisQuery.isLoading());
@@ -120,6 +147,23 @@ export class PrecioStockComponent {
 
   isPairPending(pair: { ml: MlRow; tn: TnRow }): boolean {
     return this.savingPairIds().has(getPairId(pair));
+  }
+
+  /**
+   * El stock de este par tiene un cambio esperando en la cola de ML. No usa `savingPairIds` porque
+   * ese set no distingue un update de precio de uno de stock, y un precio en vuelo no explica que
+   * los stocks difieran: taparía un conflicto real.
+   */
+  isPairStockQueued(pair: { ml: MlRow; tn: TnRow }): boolean {
+    return this.queuedStockKeys().has(getMlTaskKey(pair.ml.itemId, pair.ml.variationId));
+  }
+
+  /** SKU del par cuyo historial se está mirando; null = diálogo cerrado. */
+  readonly historySku = signal<string | null>(null);
+
+  openHistory(pair: { ml: MlRow; tn: TnRow; sku?: string }): void {
+    const sku = pair.sku || pair.ml.sku || pair.tn.sku;
+    if (sku) this.historySku.set(sku);
   }
 
   getPairError(pair: { ml: MlRow; tn: TnRow }): string | null {
@@ -427,6 +471,8 @@ export class PrecioStockComponent {
         if (res.mlStockTaskId) {
           // El stock ML quedó encolado (se aplica en segundo plano, con reintentos ante 429):
           // esperar a que el worker confirme antes de reflejarlo como sincronizado.
+          // El refetch hace que el badge diga "Actualizándose…" ya, sin esperar al próximo latido.
+          this.activeTasksQuery.refetch();
           this.pollMlStockTask(pair, res.mlStockTaskId, stock);
         } else {
           this.removePendingPair(id);
@@ -466,11 +512,15 @@ export class PrecioStockComponent {
           this.pollStop.delete(pollKey);
           this.removePendingPair(pairId);
           this.applyStockLocally(pair, stock);
+          // La tarea salió de la cola: refrescar para que el badge deje de decir "Actualizándose…".
+          this.activeTasksQuery.refetch();
         } else if (task.status === 'failed') {
           stop$.next();
           this.pollStop.delete(pollKey);
           this.removePendingPair(pairId);
           this.saveError = task.lastError || 'Mercado Libre no pudo actualizar el stock.';
+          // Falló: ya no está en vuelo. El badge vuelve a mostrar el conflicto, que ahora es real.
+          this.activeTasksQuery.refetch();
         }
       },
       error: () => {

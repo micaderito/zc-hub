@@ -73,9 +73,27 @@ export async function processTask(task) {
       if (!ok) throw new Error('updateItemOrVariationStock devolvió false');
 
       await updateMlTaskStatus(id, 'done');
-      // Stock (valor absoluto) aplicado en ML: parchamos esa fila del snapshot in-place.
-      await patchMlStock(itemId, vid ?? null, qty).catch(e => console.error('[MLQueue] patchMlStock:', e.message));
+      // Stock (valor absoluto) aplicado en ML: parchamos esa fila del snapshot in-place. El parche
+      // devuelve el stock previo, que es lo que el historial necesita para contar el cambio.
+      const before = await patchMlStock(itemId, vid ?? null, qty).catch(e => {
+        console.error('[MLQueue] patchMlStock:', e.message);
+        return null;
+      });
       console.log(`[MLQueue] Tarea ${id} stock_ml_set: ${itemId}${vid ? '/' + vid : ''} → ${qty}`);
+
+      // Historial: solo se registra si el stock efectivamente se movió — un "sincronizar" sobre un
+      // valor que ya estaba no es un cambio y solo ensuciaría el historial.
+      if (before && before.stockBefore !== qty) {
+        await insertAuditLog({
+          source: 'manual',
+          sku: ctx?.sku || before.sku || '',
+          productLabel: 'Cambio manual',
+          productDisplay: ctx?.productDisplay ?? null,
+          updatedChannel: 'mercadolibre',
+          stockBefore: before.stockBefore,
+          stockAfter: qty,
+        }).catch(e => console.error('[MLQueue] insertAuditLog:', e.message));
+      }
 
     } else if (kind === 'sku_ml') {
       const accessToken = await getMlToken();

@@ -7,11 +7,22 @@ export interface SyncConfig {
   hasDatabase: boolean;
 }
 
+/**
+ * De dónde salió un cambio de stock. 'venta' y 'devolucion' los produce la sincronización
+ * automática; 'manual' es alguien tocando el stock desde Precio y stock.
+ */
+export type AuditSource = 'venta' | 'manual' | 'devolucion';
+
 export interface SyncAuditRow {
   id: number;
-  channelSale: 'mercadolibre' | 'tiendanube';
+  source: AuditSource;
+  /**
+   * Los campos de venta van en null cuando source es 'manual': un cambio a mano no tiene canal de
+   * venta, ni orden, ni cantidad vendida. Lo que pasó lo cuentan stockBefore/stockAfter.
+   */
+  channelSale: 'mercadolibre' | 'tiendanube' | null;
   /** Id. de la orden individual (ML: order.id; TN: order id). */
-  orderId: string;
+  orderId: string | null;
   /** Nro de venta real (ML: pack_id, agrupa varias órdenes de un mismo carrito). */
   packId?: string | null;
   /** Id. del ítem en esa venta (ML: item_id o item_id:variation_id; TN: variant_id o product_id:variant_id). */
@@ -20,7 +31,8 @@ export interface SyncAuditRow {
   productLabel: string | null;
   /** Descripción y variante del producto para identificar más rápido. */
   productDisplay?: string | null;
-  quantity: number;
+  quantity: number | null;
+  /** Canal donde se escribió el stock. Siempre presente, sea cual sea el origen. */
   updatedChannel: 'mercadolibre' | 'tiendanube';
   stockBefore: number;
   stockAfter: number;
@@ -95,10 +107,21 @@ export class SyncService {
     return this.http.patch<{ enabled: boolean }>(`${this.api.baseUrl}/sync/config`, { enabled });
   }
 
-  getAudit(limit = 100, offset = 0, orderId?: string) {
+  /** `orderId` busca por nº de venta, id. de ítem o SKU. `source` filtra por origen (vacío = todos). */
+  getAudit(limit = 100, offset = 0, orderId?: string, source?: AuditSource | '') {
     const params: Record<string, string> = { limit: String(limit), offset: String(offset) };
     if (orderId != null && orderId.trim()) params['orderId'] = orderId.trim();
+    if (source) params['source'] = source;
     return this.http.get<SyncAuditResponse>(`${this.api.baseUrl}/sync/audit`, { params });
+  }
+
+  /** Historial de stock de un producto puntual (ambos canales, todos los orígenes). */
+  getStockHistoryBySku(sku: string, limit = 50, offset = 0) {
+    const params: Record<string, string> = { limit: String(limit), offset: String(offset) };
+    return this.http.get<SyncAuditResponse>(
+      `${this.api.baseUrl}/sync/audit/by-sku/${encodeURIComponent(sku)}`,
+      { params }
+    );
   }
 
   /** Revierte un registro del historial: vuelve a sumar el stock en el canal donde se había descontado. */
@@ -138,7 +161,12 @@ export class SyncService {
 
   /** Traer devoluciones desde ML (reclamos con devolución). No tenés que ingresar el nº de orden. */
   fetchReturnsFromMl() {
-    return this.http.post<{ ok: boolean; claimsChecked: number; created: number; skipped: number }>(
+    // skippedCrawl/mlBusy: el backend no crawleó porque ML está saturado (circuit breaker) o en
+    // cooldown; devuelve el último resultado bueno (stale) o ceros. Ver /returns/fetch en el backend.
+    return this.http.post<{
+      ok: boolean; claimsChecked: number; created: number; skipped: number;
+      cached?: boolean; stale?: boolean; skippedCrawl?: boolean; mlBusy?: boolean;
+    }>(
       `${this.api.baseUrl}/sync/returns/fetch`,
       {}
     );

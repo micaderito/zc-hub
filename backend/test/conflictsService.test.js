@@ -364,6 +364,27 @@ test('patchMlStock: actualiza solo la variación indicada', async () => {
   assert.equal(byVar['11'], 3, 'la otra variación no cambia');
 });
 
+test('patchMlStock: devuelve el stock previo y el SKU, para que el historial cuente el cambio', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  const before = await conflictsService.patchMlStock('MLA1', '10', 99);
+  assert.deepEqual(before, { stockBefore: 5, sku: 'A' });
+});
+
+test('patchMlStock: devuelve el previo aunque el stock no cambie (mismo valor)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  const before = await conflictsService.patchMlStock('MLA1', '10', 5);
+  assert.deepEqual(before, { stockBefore: 5, sku: 'A' });
+});
+
+test('patchMlStock: fila inexistente en el snapshot → null (no inventa un stock previo)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  const before = await conflictsService.patchMlStock('MLA-INEXISTENTE', null, 7);
+  assert.equal(before, null);
+});
+
 test('patchMlSku: cambiar el SKU re-clasifica en la próxima lectura (matchea con TN)', async () => {
   dbState.hasDb = true;
   dbState.snapshot = {

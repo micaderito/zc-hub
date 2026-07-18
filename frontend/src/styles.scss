@@ -212,4 +212,10 @@ button,
     background: var(--err-bg);
     color: var(--err);
   }
+  // Estado en progreso (ej. un cambio esperando en la cola de ML). No es ni bueno ni malo:
+  // todavía no se sabe. Por eso usa la identidad de la app y no ok/warn/err.
+  &.busy {
+    background: var(--brand-bg);
+    color: var(--brand);
+  }
 }

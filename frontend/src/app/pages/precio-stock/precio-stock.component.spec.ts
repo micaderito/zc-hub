@@ -156,11 +156,15 @@ describe('PrecioStockComponent', () => {
       'invalidateAnalysis',
       'forceRefresh',
       'getTaskStatus',
+      'getActiveTasks',
     ]);
     conflictsSpy.forceRefresh.and.returnValue(Promise.resolve());
     conflictsSpy.getAnalysisPromise.and.returnValue(Promise.resolve(buildAnalysis()));
     conflictsSpy.updatePricesAndStock.and.returnValue(of({ ok: true, ml: true, tn: true }));
     conflictsSpy.getTaskStatus.and.returnValue(of({ id: 0, status: 'done' }));
+    // Cola vacía por defecto: sin tareas en vuelo la query no deja timers y los tests con
+    // fakeAsync pueden drenar el polling de las tareas puntuales sin chocar con este.
+    conflictsSpy.getActiveTasks.and.returnValue(of({ tasks: [] }));
 
     TestBed.configureTestingModule({
       imports: [PrecioStockComponent],
@@ -636,5 +640,73 @@ describe('PrecioStockComponent', () => {
 
       flush();
     }));
+  });
+
+  /**
+   * El bug que motivó esto: al navegar fuera de la pantalla se pierde el estado local de "guardando",
+   * así que al volver una fila que solo estaba esperando al worker se mostraba como "Stock distinto".
+   * Estos tests cubren que el estado venga del servidor, que es lo que sobrevive a la navegación.
+   */
+  describe('cambios de stock en cola (estado del servidor)', () => {
+    /** pair2a del fixture: MLA2/V1, con stock distinto entre canales (5 vs 3). */
+    const pairEnCola = () => buildAnalysis().matched[1];
+
+    it('marca el par como en cola cuando el servidor tiene una tarea de stock para su ítem/variación', async () => {
+      conflictsSpy.getActiveTasks.and.returnValue(
+        of({ tasks: [{ kind: 'stock_ml_set', itemId: 'MLA2', variationId: 'V1' }] })
+      );
+      await createAndLoad();
+
+      expect(component.isPairStockQueued(pairEnCola())).toBeTrue();
+    });
+
+    it('no marca los demás pares: la tarea es de un ítem/variación puntual', async () => {
+      conflictsSpy.getActiveTasks.and.returnValue(
+        of({ tasks: [{ kind: 'stock_ml_set', itemId: 'MLA2', variationId: 'V1' }] })
+      );
+      await createAndLoad();
+
+      const otraVariacion = buildAnalysis().matched[2]; // MLA2/V2: mismo ítem, otra variación
+      expect(component.isPairStockQueued(otraVariacion)).toBeFalse();
+      expect(component.isPairStockQueued(buildAnalysis().matched[0])).toBeFalse();
+    });
+
+    it('una tarea de PRECIO en vuelo no marca el par: no explica que los stocks difieran', async () => {
+      conflictsSpy.getActiveTasks.and.returnValue(
+        of({ tasks: [{ kind: 'price_ml', itemId: 'MLA2', variationId: 'V1' }] })
+      );
+      await createAndLoad();
+
+      expect(component.isPairStockQueued(pairEnCola())).toBeFalse();
+    });
+
+    it('sin tareas en vuelo no hay ningún par en cola', async () => {
+      conflictsSpy.getActiveTasks.and.returnValue(of({ tasks: [] }));
+      await createAndLoad();
+
+      expect(component.isPairStockQueued(pairEnCola())).toBeFalse();
+    });
+  });
+
+  describe('historial de stock por producto', () => {
+    it('openHistory() abre el diálogo con el SKU del par', async () => {
+      await createAndLoad();
+      expect(component.historySku()).toBeNull();
+
+      component.openHistory(buildAnalysis().matched[1]);
+
+      expect(component.historySku()).toBe('SKU2');
+    });
+
+    it('openHistory() no abre nada si el par no tiene SKU en ningún canal', async () => {
+      await createAndLoad();
+
+      component.openHistory({
+        ml: makeMlRow({ sku: null, hasSku: false }),
+        tn: makeTnRow({ sku: null, hasSku: false }),
+      });
+
+      expect(component.historySku()).toBeNull();
+    });
   });
 });
