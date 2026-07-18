@@ -24,8 +24,9 @@ const analysisState = {
 };
 
 const syncServiceState = { persistResult: { ml: true, tn: true } };
-const dbState = { enqueueResult: 5, taskStatus: null };
-const patchState = { calls: [] };
+const dbState = { enqueueResult: 5, taskStatus: null, auditRows: [] };
+// tnStockBefore: lo que patchTnStock devuelve como stock previo (null = fila no encontrada en el snapshot).
+const patchState = { calls: [], tnStockBefore: null };
 const mlState = {
   updateVariationSkuError: null,
   updateItemSkuError: null,
@@ -65,7 +66,7 @@ before(async () => {
       patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
       patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); },
       patchTnPrice: async (...a) => { patchState.calls.push(['patchTnPrice', ...a]); },
-      patchTnStock: async (...a) => { patchState.calls.push(['patchTnStock', ...a]); },
+      patchTnStock: async (...a) => { patchState.calls.push(['patchTnStock', ...a]); return patchState.tnStockBefore; },
     },
   });
   mock.module('../src/services/syncService.js', {
@@ -75,6 +76,7 @@ before(async () => {
     exports: {
       enqueueMlTask: async () => dbState.enqueueResult,
       getMlTaskStatus: async () => dbState.taskStatus,
+      insertAuditLog: async (row) => { dbState.auditRows.push(row); },
     },
   });
   mock.module('../src/lib/mercadolibre.js', {
@@ -117,8 +119,10 @@ beforeEach(() => {
   };
   syncServiceState.persistResult = { ml: true, tn: true };
   patchState.calls = [];
+  patchState.tnStockBefore = null;
   dbState.enqueueResult = 5;
   dbState.taskStatus = null;
+  dbState.auditRows = [];
   mlState.updateVariationSkuError = null;
   mlState.updateItemSkuError = null;
   mlState.updateStockResult = true;
@@ -338,6 +342,36 @@ test('POST /update-prices: stock ML se encola (no se aplica inline) → ok con m
   assert.equal(body.ok, true);
   assert.equal(body.mlStockTaskId, 5);
   assert.equal(body.ml, true);
+});
+
+test('POST /update-prices: el stock TN se escribe inline y queda registrado como cambio manual', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  patchState.tnStockBefore = { stockBefore: 10, sku: 'SKU-1' };
+  await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockTN: 4 }),
+  });
+
+  assert.equal(dbState.auditRows.length, 1);
+  assert.deepEqual(dbState.auditRows[0], {
+    source: 'manual',
+    sku: 'SKU-1',
+    productLabel: 'Cambio manual',
+    updatedChannel: 'tiendanube',
+    stockBefore: 10,
+    stockAfter: 4,
+  });
+});
+
+test('POST /update-prices: si el stock TN ya estaba en el valor pedido no registra nada', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  patchState.tnStockBefore = { stockBefore: 4, sku: 'SKU-1' };
+  await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockTN: 4 }),
+  });
+
+  assert.deepEqual(dbState.auditRows, []);
 });
 
 test('POST /update-prices: no se pudo encolar el stock ML (sin DB) → 502, no ok:true', async () => {

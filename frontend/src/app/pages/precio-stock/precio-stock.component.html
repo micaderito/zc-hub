@@ -89,11 +89,13 @@
                   [displayStockML]="getDisplayStock(pair, 'ml')"
                   [displayStockTN]="getDisplayStock(pair, 'tn')"
                   [isPending]="isPairPending(pair)"
+                  [isStockQueued]="isPairStockQueued(pair)"
                   [isCollapsed]="isPairCollapsed(pair)"
                   [syncError]="getPairError(pair)"
                   (toggleCollapse)="togglePair(pair)"
                   (updatePrices)="updatePrices(pair)"
                   (syncStock)="syncStock(pair)"
+                  (showHistory)="openHistory(pair)"
                 />
               }
             </div>
@@ -138,5 +140,10 @@
       se puede aplicar solo a esta variante o a todas las variantes de este producto.
       ¿Qué querés hacer?
     </zc-confirm-dialog>
+  }
+
+  <!-- Historial de stock del producto (ML y TN juntos, por SKU) -->
+  @if (historySku(); as sku) {
+    <zc-stock-history-dialog [sku]="sku" (closed)="historySku.set(null)" />
   }
 </div>

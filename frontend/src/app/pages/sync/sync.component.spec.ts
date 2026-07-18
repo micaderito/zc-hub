@@ -46,6 +46,7 @@ describe('SyncComponent', () => {
 
   const auditRow: SyncAuditRow = {
     id: 1,
+    source: 'venta',
     channelSale: 'mercadolibre',
     orderId: 'ORD-1',
     packId: 'PACK-1',
@@ -58,6 +59,25 @@ describe('SyncComponent', () => {
     stockBefore: 10,
     stockAfter: 8,
     createdAt: '2026-01-01T10:00:00Z',
+    revertedAt: null
+  };
+
+  /** Cambio hecho a mano: sin venta detrás, por eso channelSale/orderId/quantity van en null. */
+  const auditRowManual: SyncAuditRow = {
+    id: 2,
+    source: 'manual',
+    channelSale: null,
+    orderId: null,
+    packId: null,
+    saleItemId: null,
+    sku: 'SKU-2',
+    productLabel: 'Cambio manual',
+    productDisplay: null,
+    quantity: null,
+    updatedChannel: 'mercadolibre',
+    stockBefore: 5,
+    stockAfter: 2,
+    createdAt: '2026-01-02T10:00:00Z',
     revertedAt: null
   };
 
@@ -150,9 +170,10 @@ describe('SyncComponent', () => {
       expect(component.error).toBeNull();
     });
 
-    it('cuando hay base de datos, activa hasDatabaseForReturns y dispara la búsqueda automática de devoluciones', fakeAsync(() => {
+    it('con base de datos activa hasDatabaseForReturns pero NO crawlea devoluciones al iniciar (tab por defecto: historial)', fakeAsync(() => {
+      // Antes el crawl a ML se disparaba en cada montaje sin importar la tab, alimentando la
+      // tormenta de 429. Ahora la tab por defecto es Historial y el crawl no debe correr.
       syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.fetchReturnsFromMl.and.returnValue(of({ ok: true, claimsChecked: 3, created: 2, skipped: 1 }));
 
       fixture.detectChanges();
       expect(component.hasDatabaseForReturns()).toBeTrue();
@@ -160,35 +181,14 @@ describe('SyncComponent', () => {
       tick();
       fixture.detectChanges();
 
-      // Nota: no se verifica component.fetchResult acá. Con un mock 100% síncrono, mutate()
-      // se ejecuta y resuelve antes de que @tanstack/angular-query-experimental llegue a
-      // suscribirse al MutationObserver interno, y MutationObserver#notify() (query-core)
-      // descarta el callback onSettled cuando hasListeners() da false — el estado de la
-      // mutación sí queda "success" (se verifica en el siguiente test vía refreshReturns()),
-      // pero el callback puntual de este mutate() no llega a correr. Con HTTP real esto no
-      // ocurre nunca: la respuesta siempre llega en un macrotask posterior al montaje.
-      expect(syncServiceSpy.fetchReturnsFromMl).toHaveBeenCalled();
-      // returnsQuery/pendingTasksQuery (también habilitadas por hasDatabaseForReturns) dejan
-      // timers de refetchInterval/gcTime pendientes. Destruir el fixture desuscribe los
-      // observers, pero eso hace que sus entradas de caché programen SU PROPIO timeout de
-      // recolección (gcTime) justo en ese momento — limpiar la caché del QueryClient los
-      // purga sin esperar a que ese timer llegue a disparar, dejando la zona sin timers
-      // pendientes antes de que fakeAsync lo exija al cerrar el test.
+      expect(syncServiceSpy.fetchReturnsFromMl).not.toHaveBeenCalled();
+
+      // returnsQuery/pendingTasksQuery (habilitadas por hasDatabaseForReturns) dejan timers de
+      // refetchInterval/gcTime pendientes; se limpian igual que en el resto del spec.
       fixture.destroy();
       queryClient.clear();
       flush();
     }));
-
-    it('no arma mensaje de resultado si fetchReturnsFromMl no creó ni saltó ítems al iniciar', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.fetchReturnsFromMl.and.returnValue(of({ ok: true, claimsChecked: 0, created: 0, skipped: 0 }));
-
-      fixture.detectChanges();
-      await flushQuery();
-      fixture.detectChanges();
-
-      expect(component.fetchResult).toBeNull();
-    });
 
     it('maneja el error de getConfig usando el mensaje del backend', () => {
       syncServiceSpy.getConfig.and.returnValue(throwError(() => ({ error: { error: 'Config inválida' } })));
@@ -252,7 +252,7 @@ describe('SyncComponent', () => {
       syncServiceSpy.getAudit.and.returnValue(of({ rows: [auditRow], total: 1 }));
       fixture.detectChanges();
 
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined);
+      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined, '');
       expect(component.auditRows).toEqual([auditRow]);
       expect(component.auditTotal).toBe(1);
       expect(component.auditLoading).toBeFalse();
@@ -275,7 +275,7 @@ describe('SyncComponent', () => {
       component.refreshAudit();
 
       expect(component.auditCurrentPage()).toBe(1);
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined);
+      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined, '');
     });
 
     it('goToAuditPage() pagina correctamente y respeta los límites', () => {
@@ -286,7 +286,7 @@ describe('SyncComponent', () => {
 
       component.goToAuditPage(2);
       expect(component.auditCurrentPage()).toBe(2);
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 25, undefined);
+      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 25, undefined, '');
 
       syncServiceSpy.getAudit.calls.reset();
       component.goToAuditPage(0);
@@ -305,9 +305,43 @@ describe('SyncComponent', () => {
       component.auditSearchQuery.set('2000011838697695');
       tick(350);
 
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, '2000011838697695');
+      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, '2000011838697695', '');
       expect(component.auditCurrentPage()).toBe(1);
     }));
+
+    it('setAuditSource() filtra por origen y vuelve a la página 1', () => {
+      syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
+      fixture.detectChanges();
+      component.goToAuditPage(2);
+      syncServiceSpy.getAudit.calls.reset();
+
+      component.setAuditSource('manual');
+
+      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined, 'manual');
+      expect(component.auditCurrentPage()).toBe(1);
+      expect(component.auditSource()).toBe('manual');
+    });
+
+    it('setAuditSource() con el origen ya activo no recarga de gusto', () => {
+      syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
+      fixture.detectChanges();
+      syncServiceSpy.getAudit.calls.reset();
+
+      component.setAuditSource('');
+
+      expect(syncServiceSpy.getAudit).not.toHaveBeenCalled();
+    });
+
+    it('un cambio manual no ofrece revertir: no hay venta que deshacer', () => {
+      expect(component.canRevert(auditRowManual)).toBeFalse();
+      expect(component.canRevert(auditRow)).toBeTrue();
+    });
+
+    it('etiqueta el origen de cada fila del historial', () => {
+      expect(component.auditSourceLabel('manual')).toBe('Manual');
+      expect(component.auditSourceLabel('devolucion')).toBe('Devolución');
+      expect(component.auditSourceLabel('venta')).toBe('Venta');
+    });
 
     it('descarta una respuesta de auditoría obsoleta si llegó tras una carga más nueva', () => {
       const first$ = new Subject<SyncAuditResponse>();
@@ -518,6 +552,39 @@ describe('SyncComponent', () => {
       expect(component.returnsError).toBeNull();
     });
 
+    it('onTabChange("devoluciones") dispara el crawl a ML; abrir otras tabs no', async () => {
+      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
+      fixture.detectChanges();
+      await flushQuery();
+      syncServiceSpy.fetchReturnsFromMl.calls.reset();
+
+      // Abrir Cola ML no debe gatillar un crawl de reclamos.
+      component.onTabChange('cola');
+      await flushQuery();
+      expect(syncServiceSpy.fetchReturnsFromMl).not.toHaveBeenCalled();
+
+      // Abrir Devoluciones sí (mutate corre async → esperamos).
+      component.onTabChange('devoluciones');
+      await flushQuery();
+      expect(syncServiceSpy.fetchReturnsFromMl).toHaveBeenCalledTimes(1);
+
+      // Reentrar a la misma tab (sin haber salido) no re-dispara.
+      component.onTabChange('devoluciones');
+      await flushQuery();
+      expect(syncServiceSpy.fetchReturnsFromMl).toHaveBeenCalledTimes(1);
+    });
+
+    it('onTabChange("devoluciones") sin base de datos no crawlea', async () => {
+      syncServiceSpy.getConfig.and.returnValue(of(configSinDb));
+      fixture.detectChanges();
+      await flushQuery();
+      syncServiceSpy.fetchReturnsFromMl.calls.reset();
+
+      component.onTabChange('devoluciones');
+
+      expect(syncServiceSpy.fetchReturnsFromMl).not.toHaveBeenCalled();
+    });
+
     it('expone el error de returnsQuery formateado', async () => {
       syncServiceSpy.getConfig.and.returnValue(of(configConDb));
       syncServiceSpy.getReturns.and.returnValue(throwError(() => ({ error: { error: 'Error devoluciones' } })));
@@ -583,13 +650,26 @@ describe('SyncComponent', () => {
       expect(component.fetchResult).toBe('Lista actualizada.');
     });
 
-    it('refreshReturns() maneja el error de la mutación', async () => {
+    it('refreshReturns() avisa honestamente cuando ML está saturado (mlBusy) en vez de "no hay reclamos"', async () => {
       syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      // primer llamado (automático de ngOnInit) exitoso, luego el manual falla
-      syncServiceSpy.fetchReturnsFromMl.and.returnValue(of(fetchVacio));
+      syncServiceSpy.fetchReturnsFromMl.and.returnValue(
+        of({ ok: true, claimsChecked: 0, created: 0, skipped: 0, mlBusy: true, skippedCrawl: true })
+      );
       fixture.detectChanges();
       await flushQuery();
 
+      component.refreshReturns();
+      await flushQuery();
+
+      expect(component.fetchResult).toContain('saturado');
+    });
+
+    it('refreshReturns() maneja el error de la mutación', async () => {
+      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
+      fixture.detectChanges();
+      await flushQuery();
+
+      // El crawl ya no corre en el init: el único disparo es el refresh manual, que acá falla.
       syncServiceSpy.fetchReturnsFromMl.and.returnValue(throwError(() => ({ error: { error: 'Error al buscar' } })));
       component.refreshReturns();
       await flushQuery();

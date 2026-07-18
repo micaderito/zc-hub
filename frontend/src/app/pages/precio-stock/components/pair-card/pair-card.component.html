@@ -6,10 +6,18 @@
       <code>{{ pair().sku || pair().ml.sku || pair().tn.sku || '—' }}</code>
     </div>
     <div class="pair-header-right">
-      <span class="zc-badge" [class.ok]="isStockSynced" [class.warn]="!isStockSynced">
-        <i class="ti" [class.ti-check]="isStockSynced" [class.ti-alert-triangle]="!isStockSynced" aria-hidden="true"></i>
-        {{ isStockSynced ? 'Mismo stock' : 'Stock distinto' }}
+      <span class="zc-badge"
+            [class.ok]="stockBadge.variant === 'ok'"
+            [class.warn]="stockBadge.variant === 'warn'"
+            [class.busy]="stockBadge.variant === 'busy'">
+        <i class="ti {{ stockBadge.icon }}" aria-hidden="true"></i>
+        {{ stockBadge.label }}
       </span>
+      <!-- stopPropagation: la cabecera entera colapsa la tarjeta al hacer click. -->
+      <button type="button" class="pair-history-btn" (click)="$event.stopPropagation(); showHistory.emit()"
+              title="Ver historial de stock" aria-label="Ver historial de stock">
+        <i class="ti ti-history" aria-hidden="true"></i>
+      </button>
       <i class="ti collapse-icon" [class.ti-chevron-up]="!isCollapsed()" [class.ti-chevron-down]="isCollapsed()" aria-hidden="true"></i>
     </div>
   </div>

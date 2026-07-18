@@ -14,12 +14,16 @@ const dbState = {
   hasDb: true,
   syncEnabled: true,
   auditRows: { rows: [], total: 0 },
+  auditLogArgs: null,
+  historyBySku: { rows: [], total: 0 },
+  historyBySkuArgs: null,
   auditById: new Map(),
   reverted: [],
   pendingReturns: { rows: [], total: 0 },
   insertedReturns: [],
   hasPendingReturnForClaimItem: false,
   pendingTasks: { tasks: [], total: 0, activeCount: 0, failedCount: 0 },
+  activeTasks: [],
   retryResult: true,
   waitForMlTaskResult: null,
   releaseCalls: [],
@@ -50,10 +54,13 @@ const mlState = {
   item: null,
 };
 const tnState = { findOrderByNumberResult: null };
+/** Estado del limitador ML que ve la ruta /returns/fetch. Por defecto: caño sano (no ocupado). */
+let mlLimiterState = { active: 0, queued: 0, pausedForMs: 0, consecutive429: 0, circuitLevel: 0 };
 
 let app;
 let server;
 let baseUrl;
+let resetReturnsFetchState;
 
 before(async () => {
   mock.module('../src/services/syncService.js', {
@@ -80,7 +87,10 @@ before(async () => {
     exports: {
       getPack: async () => mlState.pack,
       getOrder: async () => mlState.order,
-      getClaimsSearch: async () => mlState.claimsSearch,
+      getClaimsSearch: async () => {
+        if (mlState.claimsSearchError) throw mlState.claimsSearchError;
+        return mlState.claimsSearch;
+      },
       getClaim: async () => mlState.claim,
       getClaimReturns: async () => mlState.claimReturns,
       getItem: async () => mlState.item,
@@ -93,11 +103,23 @@ before(async () => {
       registerOrderWebhooks: async () => [],
     },
   });
+  mock.module('../src/lib/mlLimiter.js', {
+    exports: {
+      mlLimiterStats: () => mlLimiterState,
+    },
+  });
   mock.module('../src/db.js', {
     exports: {
       getSyncEnabled: async () => dbState.syncEnabled,
       setSyncEnabled: async (v) => { dbState.syncEnabled = v; },
-      getAuditLog: async () => dbState.auditRows,
+      getAuditLog: async (limit, offset, search, source) => {
+        dbState.auditLogArgs = { limit, offset, search, source };
+        return dbState.auditRows;
+      },
+      getStockHistoryBySku: async (sku, limit, offset) => {
+        dbState.historyBySkuArgs = { sku, limit, offset };
+        return dbState.historyBySku;
+      },
       getAuditRowById: async (id) => dbState.auditById.get(id) ?? null,
       setAuditReverted: async (id) => { dbState.reverted.push(id); return true; },
       hasDatabase: () => dbState.hasDb,
@@ -106,12 +128,15 @@ before(async () => {
       hasPendingReturnForClaimItem: async () => dbState.hasPendingReturnForClaimItem,
       releaseOrderProcessingClaim: async (...args) => { dbState.releaseCalls.push(args); return true; },
       getPendingMlTasks: async () => dbState.pendingTasks,
+      getActiveMlTasks: async () => dbState.activeTasks,
       retryMlTask: async () => dbState.retryResult,
       waitForMlTask: async () => dbState.waitForMlTaskResult,
     },
   });
 
-  const { syncRoutes } = await import('../src/routes/sync.js');
+  const syncModule = await import('../src/routes/sync.js');
+  const { syncRoutes } = syncModule;
+  resetReturnsFetchState = syncModule.__resetReturnsFetchStateForTests;
   app = express();
   app.use(express.json());
   app.use('/api/sync', syncRoutes);
@@ -154,7 +179,10 @@ beforeEach(() => {
   mlState.claim = null;
   mlState.claimReturns = null;
   mlState.item = null;
+  mlState.claimsSearchError = null;
   tnState.findOrderByNumberResult = null;
+  mlLimiterState = { active: 0, queued: 0, pausedForMs: 0, consecutive429: 0, circuitLevel: 0 };
+  resetReturnsFetchState?.();
 });
 
 // ─── GET/PATCH /config ──────────────────────────────────────────────────────
@@ -242,6 +270,34 @@ test('GET /audit: devuelve rows y total', async () => {
   assert.deepEqual(body, { rows: [{ id: 1 }], total: 1 });
 });
 
+test('GET /audit: pasa el filtro de origen a la query', async () => {
+  dbState.auditRows = { rows: [], total: 0 };
+  await fetch(`${baseUrl}/audit?limit=10&offset=0&source=manual`);
+  assert.equal(dbState.auditLogArgs.source, 'manual');
+});
+
+test('GET /audit: sin source filtra por nada (todos los orígenes)', async () => {
+  dbState.auditRows = { rows: [], total: 0 };
+  await fetch(`${baseUrl}/audit?limit=10&offset=0`);
+  assert.equal(dbState.auditLogArgs.source, '');
+});
+
+// ─── GET /audit/by-sku/:sku ─────────────────────────────────────────────────
+
+test('GET /audit/by-sku: devuelve el historial del SKU pedido', async () => {
+  dbState.historyBySku = { rows: [{ id: 9, sku: 'SKU-1' }], total: 1 };
+  const res = await fetch(`${baseUrl}/audit/by-sku/SKU-1`);
+  const body = await res.json();
+  assert.deepEqual(body, { rows: [{ id: 9, sku: 'SKU-1' }], total: 1 });
+  assert.equal(dbState.historyBySkuArgs.sku, 'SKU-1');
+});
+
+test('GET /audit/by-sku: decodifica SKUs con caracteres especiales (barras, espacios)', async () => {
+  dbState.historyBySku = { rows: [], total: 0 };
+  await fetch(`${baseUrl}/audit/by-sku/${encodeURIComponent('A4/TAPA DURA')}`);
+  assert.equal(dbState.historyBySkuArgs.sku, 'A4/TAPA DURA');
+});
+
 test('POST /audit/:id/revert: id inválido → 400', async () => {
   const res = await fetch(`${baseUrl}/audit/abc/revert`, { method: 'POST' });
   assert.equal(res.status, 400);
@@ -272,6 +328,33 @@ test('POST /audit/:id/revert: revertSyncAudit falla → 502', async () => {
   syncServiceState.revertResult = { ok: false, error: 'no se pudo' };
   const res = await fetch(`${baseUrl}/audit/2/revert`, { method: 'POST' });
   assert.equal(res.status, 502);
+});
+
+test('POST /audit/:id/revert: un cambio manual no se revierte → 400 y no toca los canales', async () => {
+  // Revertir deshace el descuento de una venta; un cambio a mano no tiene venta ni cantidad detrás.
+  dbState.auditById.set(3, { id: 3, revertedAt: null, source: 'manual', sku: 'X', quantity: null, updatedChannel: 'mercadolibre' });
+  const res = await fetch(`${baseUrl}/audit/3/revert`, { method: 'POST' });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.match(body.error, /a mano/);
+  assert.deepEqual(dbState.reverted, []);
+});
+
+// ─── GET /active-tasks ──────────────────────────────────────────────────────
+
+test('GET /active-tasks: devuelve las tareas en vuelo', async () => {
+  dbState.activeTasks = [{ kind: 'stock_ml_set', itemId: 'MLA1', variationId: '111' }];
+  const res = await fetch(`${baseUrl}/active-tasks`);
+  const body = await res.json();
+  assert.deepEqual(body, { tasks: [{ kind: 'stock_ml_set', itemId: 'MLA1', variationId: '111' }] });
+});
+
+test('GET /active-tasks: sin base de datos devuelve lista vacía (sin cola, nada en vuelo)', async () => {
+  dbState.hasDb = false;
+  const res = await fetch(`${baseUrl}/active-tasks`);
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(body, { tasks: [] });
 });
 
 // ─── prices ─────────────────────────────────────────────────────────────────
@@ -324,6 +407,51 @@ test('POST /returns/fetch: sin claims, created=0 skipped=0', async () => {
   assert.equal(res.status, 200);
   assert.equal(body.created, 0);
   assert.equal(body.skipped, 0);
+});
+
+test('POST /returns/fetch: circuit breaker abierto y sin cache → no crawlea, responde mlBusy', async () => {
+  mlLimiterState = { active: 0, queued: 2, pausedForMs: 120000, consecutive429: 0, circuitLevel: 3 };
+  // Si la ruta crawleara igual, el error de getClaimsSearch afloraría; como está ocupado, ni lo toca.
+  mlState.claimsSearchError = new Error('no debería crawlear con el circuito abierto');
+  const res = await fetch(`${baseUrl}/returns/fetch`, { method: 'POST' });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.mlBusy, true);
+  assert.equal(body.skippedCrawl, true);
+  assert.equal(body.created, 0);
+});
+
+test('POST /returns/fetch: pausedForMs > 0 (sin circuito) también frena el crawl', async () => {
+  mlLimiterState = { active: 0, queued: 0, pausedForMs: 5000, consecutive429: 0, circuitLevel: 0 };
+  const res = await fetch(`${baseUrl}/returns/fetch`, { method: 'POST' });
+  const body = await res.json();
+  assert.equal(body.mlBusy, true);
+});
+
+test('POST /returns/fetch: tras un error abre un cooldown y la siguiente llamada no re-crawlea', async () => {
+  // 1ª pasada: el crawl falla (429). La ruta responde 500 y abre el cooldown.
+  mlState.claimsSearchError = new Error('429 Too Many Requests');
+  const res1 = await fetch(`${baseUrl}/returns/fetch`, { method: 'POST' });
+  assert.equal(res1.status, 500);
+
+  // 2ª pasada: aunque ML "se recuperó", el cooldown sigue vigente → no re-dispara el crawl.
+  mlState.claimsSearchError = new Error('si crawleara, esto afloraría');
+  const res2 = await fetch(`${baseUrl}/returns/fetch`, { method: 'POST' });
+  const body2 = await res2.json();
+  assert.equal(res2.status, 200);
+  assert.equal(body2.mlBusy, true);
+});
+
+test('POST /returns/fetch: con cache fresco no vuelve a crawlear (lo sirve cacheado)', async () => {
+  // 1ª pasada con el caño sano: puebla el cache.
+  mlState.claimsSearch = { data: [] };
+  await fetch(`${baseUrl}/returns/fetch`, { method: 'POST' });
+  // 2ª pasada: si intentara crawlear de nuevo, esto lanzaría; el cache fresco lo evita.
+  mlState.claimsSearch = () => { throw new Error('no debería crawlear con cache fresco'); };
+  const res = await fetch(`${baseUrl}/returns/fetch`, { method: 'POST' });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.cached, true);
 });
 
 test('POST /returns: packId requerido → 400', async () => {

@@ -5,7 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { debounceTime, distinctUntilChanged, skip } from 'rxjs/operators';
 import { QueryClient, injectQuery, injectMutation } from '@tanstack/angular-query-experimental';
-import { SyncService, SyncConfig, SyncAuditRow, PendingReturnRow, PendingMlTask, PendingMlTasksResponse } from '../../core/services/sync.service';
+import { SyncService, SyncConfig, SyncAuditRow, AuditSource, PendingReturnRow, PendingMlTask, PendingMlTasksResponse } from '../../core/services/sync.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
@@ -42,6 +42,24 @@ export class SyncComponent implements OnInit {
   auditError: string | null = null;
   revertingAuditId: number | null = null;
   revertError: string | null = null;
+
+  /** Filtro de origen del historial; '' = todos. */
+  readonly auditSource = signal<AuditSource | ''>('');
+
+  /** Opciones del filtro de origen, en el orden en que se muestran. */
+  readonly auditSourceOptions: { key: AuditSource | ''; label: string }[] = [
+    { key: '', label: 'Todos' },
+    { key: 'venta', label: 'Ventas' },
+    { key: 'manual', label: 'Manuales' },
+    { key: 'devolucion', label: 'Devoluciones' },
+  ];
+
+  setAuditSource(source: AuditSource | ''): void {
+    if (this.auditSource() === source) return;
+    this.auditSource.set(source);
+    this.auditCurrentPage.set(1);
+    this.loadAudit(1);
+  }
 
   readonly auditSearchQuery = signal('');
   readonly auditCurrentPage = signal(1);
@@ -155,20 +173,42 @@ export class SyncComponent implements OnInit {
       next: (c) => {
         this.config = c;
         this.loading = false;
+        // hasDatabaseForReturns habilita las queries de la lista de devoluciones y de Cola ML.
+        // El crawl a ML (fetchReturnsMutation) NO se dispara acá: antes corría en cada montaje de
+        // la pantalla sin importar la tab, así que entrar a mirar la cola gatillaba un crawl de
+        // reclamos y alimentaba la tormenta de 429. Ahora solo corre al abrir la tab Devoluciones.
         if (c?.hasDatabase) {
           this.hasDatabaseForReturns.set(true);
-          this.fetchReturnsMutation.mutate(undefined, {
-            onSettled: () => {
-              const r = this.fetchReturnsMutation.data();
-              if (r && (r.created > 0 || r.skipped > 0))
-                this.fetchResult = `Se revisaron ${r.claimsChecked} reclamos. Se agregaron ${r.created} ítems${r.skipped > 0 ? ` (${r.skipped} ya estaban)` : ''}.`;
-            }
-          });
+          if (this.activeTab() === 'devoluciones') this.fetchReturns();
         }
       },
       error: (e) => {
         this.error = e.error?.error || e.message || 'Error al cargar.';
         this.loading = false;
+      }
+    });
+  }
+
+  /** Cambia de tab. Al entrar a Devoluciones, dispara el crawl a ML (una sola vez por apertura). */
+  onTabChange(key: string): void {
+    const prev = this.activeTab();
+    this.activeTab.set(key);
+    if (key === 'devoluciones' && prev !== 'devoluciones' && this.hasDatabaseForReturns()) {
+      this.fetchReturns();
+    }
+  }
+
+  /**
+   * Crawl a ML en busca de devoluciones nuevas. El backend ya se protege solo (cache 2 min, respeta
+   * el circuit breaker y abre un cooldown tras un fallo), así que dispararlo al abrir la tab es
+   * seguro: si ML está saturado, responde sin pegarle. Ver /returns/fetch en el backend.
+   */
+  fetchReturns(): void {
+    this.fetchReturnsMutation.mutate(undefined, {
+      onSettled: () => {
+        const r = this.fetchReturnsMutation.data();
+        if (r && (r.created > 0 || r.skipped > 0))
+          this.fetchResult = `Se revisaron ${r.claimsChecked} reclamos. Se agregaron ${r.created} ítems${r.skipped > 0 ? ` (${r.skipped} ya estaban)` : ''}.`;
       }
     });
   }
@@ -184,7 +224,7 @@ export class SyncComponent implements OnInit {
     const offset = (page - 1) * AUDIT_PAGE_SIZE;
     const orderId = this.auditSearchQuery().trim() || undefined;
     const requestId = ++this.auditRequestId;
-    this.sync.getAudit(AUDIT_PAGE_SIZE, offset, orderId).subscribe({
+    this.sync.getAudit(AUDIT_PAGE_SIZE, offset, orderId, this.auditSource()).subscribe({
       next: (r) => {
         if (requestId !== this.auditRequestId) return;
         this.auditRows = r.rows;
@@ -317,6 +357,22 @@ export class SyncComponent implements OnInit {
     return `${verb} ${row.quantity} de nuevo en ${this.channelLabel(row.updatedChannel)}`;
   }
 
+  /**
+   * Revertir deshace el descuento que hizo una venta. Un cambio manual no tiene venta detrás ni
+   * cantidad que deshacer: se corrige volviendo a fijar el stock desde Precio y stock. El backend
+   * también lo rechaza; esto evita ofrecer un botón que solo puede fallar.
+   */
+  canRevert(row: SyncAuditRow): boolean {
+    return row.source !== 'manual';
+  }
+
+  /** Etiqueta del chip de origen de cada fila del historial. */
+  auditSourceLabel(source: AuditSource): string {
+    if (source === 'manual') return 'Manual';
+    if (source === 'devolucion') return 'Devolución';
+    return 'Venta';
+  }
+
   stateChipClass(label: string | null | undefined): string {
     if (!label) return 'state-chip n';
     const n = label.toLowerCase().replace(/\s+/g, '-');
@@ -356,11 +412,13 @@ export class SyncComponent implements OnInit {
     this.returnsCurrentPage.set(1);
     this.fetchReturnsMutation.mutate(undefined, {
       onSuccess: (r) => {
-        this.fetchResult = r.created > 0 || r.skipped > 0
-          ? `Se revisaron ${r.claimsChecked} reclamos. Se agregaron ${r.created} ítems${r.skipped > 0 ? ` (${r.skipped} ya estaban)` : ''}.`
-          : r.claimsChecked === 0
-            ? 'No hay reclamos recientes con devolución en ML.'
-            : 'Lista actualizada.';
+        this.fetchResult = r.mlBusy
+          ? 'Mercado Libre está saturado en este momento. Probá de nuevo en un minuto.'
+          : r.created > 0 || r.skipped > 0
+            ? `Se revisaron ${r.claimsChecked} reclamos. Se agregaron ${r.created} ítems${r.skipped > 0 ? ` (${r.skipped} ya estaban)` : ''}.`
+            : r.claimsChecked === 0
+              ? 'No hay reclamos recientes con devolución en ML.'
+              : 'Lista actualizada.';
       },
       onError: (e) => {
         this.fetchResult = (e as { error?: { error?: string }; message?: string })?.error?.error ?? (e as Error)?.message ?? 'Error al actualizar.';

@@ -15,7 +15,8 @@ import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], hasDb: true };
-const patchState = { calls: [] };
+// mlStockBefore: lo que patchMlStock devuelve como estado previo del snapshot (null = fila ausente).
+const patchState = { calls: [], mlStockBefore: null };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '55' } } };
 const mlState = {
   item: { id: 'MLA1', available_quantity: 10, variations: [] },
@@ -39,7 +40,7 @@ before(async () => {
   mock.module('../src/services/conflictsService.js', {
     exports: {
       patchMlPrice: async (...a) => { patchState.calls.push(['patchMlPrice', ...a]); },
-      patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); },
+      patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); return patchState.mlStockBefore; },
       patchMlSku: async (...a) => { patchState.calls.push(['patchMlSku', ...a]); },
       patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
     },
@@ -75,6 +76,7 @@ beforeEach(() => {
   dbState.statusUpdates = [];
   dbState.auditLogs = [];
   patchState.calls = [];
+  patchState.mlStockBefore = null;
   dbState.hasDb = true;
   storeState.mlToken = 'ml-tok';
   storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '55' };
@@ -142,6 +144,49 @@ test('stock_ml_set: fija el valor absoluto (no depende del stock previo) → don
 test('stock_ml_set: con variación pasa el variationId a updateItemOrVariationStock', async () => {
   await mlTaskQueue.processTask({ id: 21, kind: 'stock_ml_set', itemId: 'MLA1', variationId: '111', targetQty: 3, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'done');
+});
+
+// ─── processTask: stock_ml_set → historial de cambios manuales ─────────────
+
+test('stock_ml_set: registra el cambio en el historial como manual, con el stock previo del snapshot', async () => {
+  patchState.mlStockBefore = { stockBefore: 9, sku: 'SKU-1' };
+  await mlTaskQueue.processTask({ id: 30, kind: 'stock_ml_set', itemId: 'MLA1', variationId: '111', targetQty: 4, attempts: 0 });
+
+  assert.equal(dbState.auditLogs.length, 1);
+  assert.deepEqual(dbState.auditLogs[0], {
+    source: 'manual',
+    sku: 'SKU-1',
+    productLabel: 'Cambio manual',
+    productDisplay: null,
+    updatedChannel: 'mercadolibre',
+    stockBefore: 9,
+    stockAfter: 4,
+  });
+});
+
+test('stock_ml_set: si el stock ya estaba en el valor pedido no registra nada (no fue un cambio)', async () => {
+  patchState.mlStockBefore = { stockBefore: 4, sku: 'SKU-1' };
+  await mlTaskQueue.processTask({ id: 31, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 4, attempts: 0 });
+
+  assert.equal(dbState.statusUpdates[0].status, 'done');
+  assert.deepEqual(dbState.auditLogs, []);
+});
+
+test('stock_ml_set: sin snapshot previo no inventa un stock anterior — no registra', async () => {
+  patchState.mlStockBefore = null;
+  await mlTaskQueue.processTask({ id: 32, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 4, attempts: 0 });
+
+  assert.equal(dbState.statusUpdates[0].status, 'done');
+  assert.deepEqual(dbState.auditLogs, []);
+});
+
+test('stock_ml_set: si ML rechaza el write no se registra el cambio (nunca pasó)', async () => {
+  patchState.mlStockBefore = { stockBefore: 9, sku: 'SKU-1' };
+  mlState.updateStockResult = false;
+  await mlTaskQueue.processTask({ id: 33, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 4, attempts: 0 });
+
+  assert.equal(dbState.statusUpdates[0].status, 'failed');
+  assert.deepEqual(dbState.auditLogs, []);
 });
 
 test('stock_ml_set: sin token ML → failed', async () => {
