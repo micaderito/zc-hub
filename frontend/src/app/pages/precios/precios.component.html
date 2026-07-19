@@ -1,0 +1,244 @@
+<div class="pr-page">
+  <header class="pr-head">
+    <div>
+      <h1>Precios</h1>
+      <p>Del costo del proveedor al precio publicado, en una sola pasada.</p>
+    </div>
+    <div class="pr-head-actions">
+      <button type="button" class="btn" (click)="openSettings()" [disabled]="!config()">
+        <i class="ti ti-adjustments"></i> Ajustes
+      </button>
+      <button type="button" class="btn" (click)="openCostForm()">
+        <i class="ti ti-plus"></i> Agregar costo
+      </button>
+    </div>
+  </header>
+
+  <!-- Resumen de valores fijos (viven en Ajustes) -->
+  @if (config(); as c) {
+    <div class="pr-rules">
+      <span class="pr-rules-label"><i class="ti ti-lock"></i> Ajustes</span>
+      <span class="chip"><i class="ti ti-percentage"></i> Comisión ML <b>{{ c.settings.commissionPct }}%</b></span>
+      <span class="chip"><i class="ti ti-stairs"></i> Comisión fija <b>por tramo</b></span>
+      <span class="chip"><i class="ti ti-receipt-tax"></i> Impuestos <b>{{ c.settings.taxes | currency:'ARS':'symbol':'1.0-0' }}</b></span>
+      <span class="chip"><i class="ti ti-truck"></i> Envío gratis <b>&gt; {{ c.settings.freeShippingThreshold | currency:'ARS':'symbol':'1.0-0' }}</b></span>
+      <span class="chip"><i class="ti ti-credit-card"></i> Tarjeta <b>×{{ c.settings.cardMultiplier }}</b></span>
+      <span class="chip"><i class="ti ti-arrow-bar-to-up"></i> Redondeo <b>↑ {{ c.settings.roundStep }}</b></span>
+      <button type="button" class="link" (click)="openSettings()">editar</button>
+    </div>
+  }
+
+  <div class="pr-toolbar">
+    <div class="pr-search">
+      <i class="ti ti-search"></i>
+      <input type="text" placeholder="Buscar SKU o producto…" [ngModel]="search()" (ngModelChange)="search.set($event)" />
+    </div>
+    @if (applyResult()) {
+      <span class="pr-applied"><i class="ti ti-circle-check"></i> {{ applyResult() }}</span>
+    }
+  </div>
+
+  @if (errorMsg()) {
+    <div class="pr-error">{{ errorMsg() }}</div>
+  }
+
+  <!-- Tabla -->
+  @if (previewQuery.isLoading()) {
+    <p class="pr-msg">Cargando…</p>
+  } @else if (rows().length === 0) {
+    <div class="pr-empty">
+      <i class="ti ti-tag"></i>
+      <p>Todavía no cargaste ningún costo.</p>
+      <p class="hint">Agregá un costo manual (por bulto o por unidad) y la app calcula los precios de Tienda Nube y Mercado Libre.</p>
+      <button type="button" class="btn pri" (click)="openCostForm()"><i class="ti ti-plus"></i> Agregar el primero</button>
+    </div>
+  } @else {
+    <div class="pr-table-wrap">
+      <table class="pr-table">
+        <thead>
+          <tr>
+            <th class="col-check"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th>
+            <th>Producto</th>
+            <th class="num">Costo u.</th>
+            <th class="num">Valor final</th>
+            <th class="num tn">Tienda Nube ↑</th>
+            <th class="num ml">Mercado Libre ↑</th>
+            <th class="num">Te queda</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of filteredRows(); track row.sku) {
+            <tr [class.row-unmapped]="!row.mappedMl && !row.mappedTn">
+              <td class="col-check">
+                <input type="checkbox" [checked]="selected().has(row.sku)" (change)="toggleRow(row.sku)" />
+              </td>
+              <td>
+                <div class="pr-prod">
+                  <span class="pr-prod-name">{{ row.label || row.sku }}</span>
+                  <span class="pr-prod-sub">
+                    <span class="sku">{{ row.sku }}</span>
+                    @if (row.mappedMl) { <span class="badge ml">ML</span> }
+                    @if (row.mappedTn) { <span class="badge tn">TN</span> }
+                    @if (!row.mappedMl && !row.mappedTn) { <span class="badge warn">sin mapear</span> }
+                    @if (row.source === 'manual') { <span class="badge neu"><i class="ti ti-pencil"></i> manual</span> }
+                  </span>
+                </div>
+              </td>
+              <td class="num">{{ row.unitCost | currency:'ARS':'symbol':'1.0-0' }}</td>
+              <td class="num">{{ row.valorFinal | currency:'ARS':'symbol':'1.0-0' }}</td>
+              <td class="num tn">
+                {{ row.tn.list | currency:'ARS':'symbol':'1.0-0' }}
+                @if (delta(row.currentTn, row.tn.list); as d) {
+                  <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
+                }
+              </td>
+              <td class="num ml">
+                {{ row.ml | currency:'ARS':'symbol':'1.0-0' }}
+                @if (row.freeShipping) { <i class="ti ti-truck" title="En zona de envío gratis"></i> }
+                @if (delta(row.currentMl, row.ml); as d) {
+                  <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
+                }
+              </td>
+              <td class="num net">{{ row.mlNet | currency:'ARS':'symbol':'1.0-0' }}</td>
+              <td class="col-actions">
+                <button type="button" class="icon-btn" (click)="openCostForm(row)" title="Editar costo"><i class="ti ti-pencil"></i></button>
+                <button type="button" class="icon-btn danger" (click)="removeCost(row.sku)" title="Borrar"><i class="ti ti-trash"></i></button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+  <!-- Barra de acción -->
+  @if (rows().length > 0) {
+    <div class="pr-actionbar">
+      <div class="pr-sel"><b>{{ selectedCount() }}</b> seleccionados</div>
+      <div class="spacer"></div>
+      <button type="button" class="btn pri" [disabled]="selectedCount() === 0 || applying()" (click)="apply()">
+        <i class="ti ti-rocket"></i>
+        {{ applying() ? 'Encolando…' : 'Aplicar a ML y TN' }}
+      </button>
+    </div>
+  }
+</div>
+
+<!-- ══════════════ Modal: Ajustes ══════════════ -->
+@if (showSettings() && settingsDraft(); as s) {
+  <div class="modal-backdrop" (click)="showSettings.set(false)">
+    <div class="modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>Ajustes de precios</h2>
+        <button type="button" class="icon-btn" (click)="showSettings.set(false)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-note"><i class="ti ti-world"></i> Valores globales, iguales para todos los proveedores. Precargados con los del Excel.</p>
+
+        <div class="grid2">
+          <label class="fld">Comisión por vender (%)
+            <input type="number" [ngModel]="s.commissionPct" (ngModelChange)="updateSettingsDraft('commissionPct', $event)" />
+          </label>
+          <label class="fld">Impuestos por venta ($)
+            <input type="number" [ngModel]="s.taxes" (ngModelChange)="updateSettingsDraft('taxes', $event)" />
+          </label>
+          <label class="fld">Costo de envío ($)
+            <input type="number" [ngModel]="s.shippingCost" (ngModelChange)="updateSettingsDraft('shippingCost', $event)" />
+          </label>
+          <label class="fld">Umbral de envío gratis ($)
+            <input type="number" [ngModel]="s.freeShippingThreshold" (ngModelChange)="updateSettingsDraft('freeShippingThreshold', $event)" />
+          </label>
+          <label class="fld">Recargo tarjeta (×)
+            <input type="number" step="0.01" [ngModel]="s.cardMultiplier" (ngModelChange)="updateSettingsDraft('cardMultiplier', $event)" />
+          </label>
+          <label class="fld">Redondeo (múltiplo)
+            <input type="number" [ngModel]="s.roundStep" (ngModelChange)="updateSettingsDraft('roundStep', $event)" />
+          </label>
+          <label class="fld">Ganancia por default (%)
+            <input type="number" [ngModel]="s.defaultMarginPct" (ngModelChange)="updateSettingsDraft('defaultMarginPct', $event)" />
+          </label>
+        </div>
+
+        <h3 class="modal-sub"><i class="ti ti-stairs"></i> Comisión fija por tramo de ML</h3>
+        <p class="modal-note">La fija depende del precio publicado, no del producto.</p>
+        <table class="tiers">
+          <thead><tr><th>Hasta ($)</th><th class="num">Comisión fija ($)</th></tr></thead>
+          <tbody>
+            @for (t of tiersDraft(); track $index) {
+              <tr>
+                <td>
+                  @if (t.maxPrice == null) { <span class="tier-top">sin tope</span> }
+                  @else { <input type="number" [ngModel]="t.maxPrice" (ngModelChange)="updateTier($index, 'maxPrice', $event)" /> }
+                </td>
+                <td class="num"><input type="number" [ngModel]="t.fixedFee" (ngModelChange)="updateTier($index, 'fixedFee', $event)" /></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-foot">
+        @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="showSettings.set(false)">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="saving()" (click)="saveSettings()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══════════════ Modal: Carga manual de costo ══════════════ -->
+@if (showCostForm()) {
+  <div class="modal-backdrop" (click)="showCostForm.set(false)">
+    <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>Costo del producto</h2>
+        <button type="button" class="icon-btn" (click)="showCostForm.set(false)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label class="fld">SKU
+          <input type="text" [ngModel]="costForm().sku" (ngModelChange)="updateCostForm('sku', $event)" placeholder="El mismo SKU que en ML/TN" />
+        </label>
+        <label class="fld">Nombre (opcional)
+          <input type="text" [ngModel]="costForm().label" (ngModelChange)="updateCostForm('label', $event)" />
+        </label>
+
+        <div class="seg">
+          <button type="button" [class.on]="costForm().mode === 'unit'" (click)="updateCostForm('mode', 'unit')">Costo unitario</button>
+          <button type="button" [class.on]="costForm().mode === 'bulk'" (click)="updateCostForm('mode', 'bulk')">Por bulto</button>
+        </div>
+
+        @if (costForm().mode === 'unit') {
+          <label class="fld">Costo unitario ($)
+            <input type="number" [ngModel]="costForm().unitCost" (ngModelChange)="updateCostForm('unitCost', $event)" />
+          </label>
+        } @else {
+          <div class="grid2">
+            <label class="fld">Precio por bulto ($)
+              <input type="number" [ngModel]="costForm().bulkPrice" (ngModelChange)="updateCostForm('bulkPrice', $event)" />
+            </label>
+            <label class="fld">Unidades por bulto
+              <input type="number" [ngModel]="costForm().bulkQty" (ngModelChange)="updateCostForm('bulkQty', $event)" />
+            </label>
+            <label class="fld">Descuento 1 (%)
+              <input type="number" [ngModel]="costForm().discount1" (ngModelChange)="updateCostForm('discount1', $event)" />
+            </label>
+            <label class="fld">Descuento 2 (%)
+              <input type="number" [ngModel]="costForm().discount2" (ngModelChange)="updateCostForm('discount2', $event)" />
+            </label>
+          </div>
+        }
+
+        <label class="fld">Ganancia (%) <span class="fld-hint">vacío = usar la de Ajustes</span>
+          <input type="number" [ngModel]="costForm().marginOverride" (ngModelChange)="updateCostForm('marginOverride', $event)" placeholder="por default" />
+        </label>
+      </div>
+      <div class="modal-foot">
+        @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="showCostForm.set(false)">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="saving()" (click)="saveCost()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </div>
+    </div>
+  </div>
+}
