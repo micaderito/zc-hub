@@ -149,6 +149,64 @@ export async function initDb() {
     `);
     // Migración: agrega target_price a tablas ya creadas (price_ml).
     await p.query(`ALTER TABLE ml_pending_tasks ADD COLUMN IF NOT EXISTS target_price NUMERIC(15,2);`);
+
+    // ── Sección de Precios (fase 2) ─────────────────────────────────────────────
+    // Valores fijos del motor de precios: una sola fila, precargada con los del Excel y editable
+    // desde Ajustes. Ver backend/src/lib/pricing.js (DEFAULT_SETTINGS) para el significado.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS pricing_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        commission_pct NUMERIC(6,3) NOT NULL DEFAULT 15,
+        taxes NUMERIC(15,2) NOT NULL DEFAULT 300,
+        shipping_cost NUMERIC(15,2) NOT NULL DEFAULT 6500,
+        free_shipping_threshold NUMERIC(15,2) NOT NULL DEFAULT 33000,
+        card_multiplier NUMERIC(6,3) NOT NULL DEFAULT 1.3,
+        round_step INTEGER NOT NULL DEFAULT 50,
+        default_margin_pct NUMERIC(6,3) NOT NULL DEFAULT 100,
+        default_discount_1 NUMERIC(6,3) NOT NULL DEFAULT 25,
+        default_discount_2 NUMERIC(6,3) NOT NULL DEFAULT 5,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT pricing_settings_singleton CHECK (id = 1)
+      );
+    `);
+    await p.query(`INSERT INTO pricing_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`);
+
+    // Tramos de comisión fija de ML: hasta max_price (precio publicado), la fija es fixed_fee.
+    // NULL en max_price = tramo superior (sin tope). Precargados con los del Excel.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS ml_fee_tiers (
+        id SERIAL PRIMARY KEY,
+        max_price NUMERIC(15,2),
+        fixed_fee NUMERIC(15,2) NOT NULL,
+        sort_order INTEGER NOT NULL
+      );
+    `);
+    const tierCount = await p.query(`SELECT COUNT(*)::int AS n FROM ml_fee_tiers`);
+    if ((tierCount.rows[0]?.n ?? 0) === 0) {
+      await p.query(
+        `INSERT INTO ml_fee_tiers (max_price, fixed_fee, sort_order) VALUES
+           (15000, 1115, 1), (25000, 2300, 2), (33000, 2810, 3), (NULL, 0, 4)`
+      );
+    }
+
+    // Costo vigente de cada producto del hub. source='manual' (proveedores sin PDF, se carga a
+    // mano por bulto o unidad) o 'list' (viene de una lista importada — fase 3). margin_override
+    // permite ganancia propia por producto (Chino/Pagoda la varían).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS product_costs (
+        sku VARCHAR(128) PRIMARY KEY,
+        source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        bulk_price NUMERIC(15,2),
+        bulk_qty INTEGER,
+        unit_cost NUMERIC(15,2),
+        discount_1 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        discount_2 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        margin_override NUMERIC(6,3),
+        label VARCHAR(512),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -850,4 +908,192 @@ export async function waitForMlTask(taskId, timeoutMs = 15000, pollMs = 400) {
     await new Promise(resolve => setTimeout(resolve, pollMs));
   }
   return null;
+}
+
+// ── Sección de Precios (fase 2) ───────────────────────────────────────────────
+
+/**
+ * Devuelve los valores fijos del motor de precios (fila única) + los tramos de comisión, en el
+ * formato camelCase que consume lib/pricing.js (settings + tiers). Si no hay DB, devuelve null y
+ * el que llama usa DEFAULT_SETTINGS.
+ */
+export async function getPricingSettings() {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `SELECT commission_pct AS "commissionPct", taxes, shipping_cost AS "shippingCost",
+              free_shipping_threshold AS "freeShippingThreshold", card_multiplier AS "cardMultiplier",
+              round_step AS "roundStep", default_margin_pct AS "defaultMarginPct",
+              default_discount_1 AS "defaultDiscount1", default_discount_2 AS "defaultDiscount2",
+              updated_at AS "updatedAt"
+       FROM pricing_settings WHERE id = 1`
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    const tiersRes = await p.query(
+      `SELECT max_price AS "maxPrice", fixed_fee AS "fixedFee"
+       FROM ml_fee_tiers ORDER BY sort_order ASC`
+    );
+    const num = (v) => (v == null ? v : Number(v));
+    return {
+      commissionPct: num(row.commissionPct),
+      taxes: num(row.taxes),
+      shippingCost: num(row.shippingCost),
+      freeShippingThreshold: num(row.freeShippingThreshold),
+      cardMultiplier: num(row.cardMultiplier),
+      roundStep: num(row.roundStep),
+      defaultMarginPct: num(row.defaultMarginPct),
+      defaultDiscount1: num(row.defaultDiscount1),
+      defaultDiscount2: num(row.defaultDiscount2),
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+      tiers: tiersRes.rows.map((t) => ({
+        maxPrice: t.maxPrice == null ? Infinity : Number(t.maxPrice),
+        fixedFee: Number(t.fixedFee),
+      })),
+    };
+  } catch (e) {
+    console.error('getPricingSettings:', e.message);
+    return null;
+  }
+}
+
+/** Actualiza los valores fijos del motor. Solo pisa las claves presentes en `patch`. */
+export async function savePricingSettings(patch = {}) {
+  const p = getPool();
+  if (!p) return false;
+  const COLS = {
+    commissionPct: 'commission_pct', taxes: 'taxes', shippingCost: 'shipping_cost',
+    freeShippingThreshold: 'free_shipping_threshold', cardMultiplier: 'card_multiplier',
+    roundStep: 'round_step', defaultMarginPct: 'default_margin_pct',
+    defaultDiscount1: 'default_discount_1', defaultDiscount2: 'default_discount_2',
+  };
+  const sets = [];
+  const vals = [];
+  for (const [key, col] of Object.entries(COLS)) {
+    if (patch[key] != null && Number.isFinite(Number(patch[key]))) {
+      vals.push(Number(patch[key]));
+      sets.push(`${col} = $${vals.length}`);
+    }
+  }
+  if (sets.length === 0) return true;
+  try {
+    await p.query(`UPDATE pricing_settings SET ${sets.join(', ')}, updated_at = NOW() WHERE id = 1`, vals);
+    return true;
+  } catch (e) {
+    console.error('savePricingSettings:', e.message);
+    return false;
+  }
+}
+
+/** Reemplaza los tramos de comisión fija (borra y reinserta en una transacción). */
+export async function saveMlFeeTiers(tiers) {
+  const p = getPool();
+  if (!p || !Array.isArray(tiers) || tiers.length === 0) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM ml_fee_tiers');
+    let order = 0;
+    for (const t of tiers) {
+      order += 1;
+      const maxPrice = t.maxPrice == null || !Number.isFinite(Number(t.maxPrice)) ? null : Number(t.maxPrice);
+      await client.query(
+        `INSERT INTO ml_fee_tiers (max_price, fixed_fee, sort_order) VALUES ($1, $2, $3)`,
+        [maxPrice, Number(t.fixedFee) || 0, order]
+      );
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('saveMlFeeTiers:', e.message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+/** El costo vigente de un SKU, o null. */
+export async function getProductCost(sku) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(`${PRODUCT_COST_SELECT} WHERE sku = $1`, [sku]);
+    return r.rows[0] ? mapProductCost(r.rows[0]) : null;
+  } catch (e) {
+    console.error('getProductCost:', e.message);
+    return null;
+  }
+}
+
+/** Todos los costos cargados (para el preview). */
+export async function getAllProductCosts() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(`${PRODUCT_COST_SELECT} ORDER BY updated_at DESC`);
+    return r.rows.map(mapProductCost);
+  } catch (e) {
+    console.error('getAllProductCosts:', e.message);
+    return [];
+  }
+}
+
+const PRODUCT_COST_SELECT = `SELECT sku, source, bulk_price AS "bulkPrice", bulk_qty AS "bulkQty",
+  unit_cost AS "unitCost", discount_1 AS "discount1", discount_2 AS "discount2",
+  margin_override AS "marginOverride", label, updated_at AS "updatedAt" FROM product_costs`;
+
+function mapProductCost(row) {
+  const num = (v) => (v == null ? null : Number(v));
+  return {
+    sku: row.sku,
+    source: row.source,
+    bulkPrice: num(row.bulkPrice),
+    bulkQty: row.bulkQty == null ? null : Number(row.bulkQty),
+    unitCost: num(row.unitCost),
+    discount1: num(row.discount1),
+    discount2: num(row.discount2),
+    marginOverride: num(row.marginOverride),
+    label: row.label,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+/** Alta/edición del costo de un SKU (upsert). */
+export async function upsertProductCost(sku, data = {}) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  try {
+    await p.query(
+      `INSERT INTO product_costs (sku, source, bulk_price, bulk_qty, unit_cost, discount_1, discount_2, margin_override, label, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (sku) DO UPDATE SET
+         source = EXCLUDED.source, bulk_price = EXCLUDED.bulk_price, bulk_qty = EXCLUDED.bulk_qty,
+         unit_cost = EXCLUDED.unit_cost, discount_1 = EXCLUDED.discount_1, discount_2 = EXCLUDED.discount_2,
+         margin_override = EXCLUDED.margin_override, label = EXCLUDED.label, updated_at = NOW()`,
+      [
+        sku, data.source || 'manual', num(data.bulkPrice), num(data.bulkQty), num(data.unitCost),
+        num(data.discount1) ?? 0, num(data.discount2) ?? 0, num(data.marginOverride), data.label ?? null,
+      ]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertProductCost:', e.message);
+    return false;
+  }
+}
+
+/** Borra el costo de un SKU. */
+export async function deleteProductCost(sku) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  try {
+    await p.query('DELETE FROM product_costs WHERE sku = $1', [sku]);
+    return true;
+  } catch (e) {
+    console.error('deleteProductCost:', e.message);
+    return false;
+  }
 }
