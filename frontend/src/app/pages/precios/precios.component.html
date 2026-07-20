@@ -8,6 +8,9 @@
       <button type="button" class="btn" (click)="openSettings()" [disabled]="!config()">
         <i class="ti ti-adjustments"></i> Ajustes
       </button>
+      <button type="button" class="btn" (click)="openImport()">
+        <i class="ti ti-file-import"></i> Importar lista
+      </button>
       <button type="button" class="btn" (click)="openCostForm()">
         <i class="ti ti-plus"></i> Agregar costo
       </button>
@@ -182,6 +185,122 @@
         <div class="spacer"></div>
         <button type="button" class="btn" (click)="showSettings.set(false)">Cancelar</button>
         <button type="button" class="btn pri" [disabled]="saving()" (click)="saveSettings()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══════════════ Modal: Importar lista del proveedor ══════════════ -->
+@if (showImport()) {
+  <div class="modal-backdrop" (click)="showImport.set(false)">
+    <div class="modal wide" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>Importar lista del proveedor</h2>
+        <button type="button" class="icon-btn" (click)="showImport.set(false)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+
+      <div class="modal-body">
+        <!-- 1. Archivo -->
+        <label class="dropzone">
+          <input type="file" accept=".pdf,.csv,.txt" (change)="onFileSelected($event)" hidden />
+          <i class="ti ti-file-upload"></i>
+          @if (importing()) {
+            <span>Leyendo el archivo…</span>
+          } @else if (importFileName()) {
+            <span><b>{{ importFileName() }}</b> · {{ importFormat() === 'pdf' ? 'PDF' : 'CSV' }}</span>
+            <span class="hint">Clic para elegir otro</span>
+          } @else {
+            <span>Elegí el PDF de Punto Cero (o un CSV)</span>
+            <span class="hint">El archivo se lee en tu navegador; al servidor solo va el texto.</span>
+          }
+        </label>
+
+        @if (importPreview(); as prev) {
+          <!-- 2. Datos de la compra -->
+          <div class="grid2" style="margin-top:14px">
+            <label class="fld">Nombre de la lista
+              <input type="text" [ngModel]="importLabel()" (ngModelChange)="importLabel.set($event)" placeholder="Ej: Marzo 2026" />
+            </label>
+            <div class="fld">
+              <span>Descuentos de esta compra</span>
+              <label class="chk">
+                <input type="checkbox" [ngModel]="noDiscounts()" (ngModelChange)="noDiscounts.set($event)" />
+                Sin descuentos
+              </label>
+            </div>
+          </div>
+          @if (!noDiscounts()) {
+            <div class="grid2">
+              <label class="fld">Descuento 1 (%)
+                <input type="number" [ngModel]="importDiscount1()" (ngModelChange)="importDiscount1.set($event)" />
+              </label>
+              <label class="fld">Descuento 2 (%)
+                <input type="number" [ngModel]="importDiscount2()" (ngModelChange)="importDiscount2.set($event)" />
+              </label>
+            </div>
+          }
+          <p class="modal-note"><i class="ti ti-info-circle"></i> Los descuentos se guardan con la lista: cambian según cuándo compres.</p>
+
+          <!-- 3. Resultado del parseo -->
+          <div class="import-stats">
+            <span class="stat ok"><b>{{ prev.stats.valid }}</b> filas leídas</span>
+            @if (prev.stats.flagged > 0) {
+              <span class="stat warn"><b>{{ prev.stats.flagged }}</b> a revisar</span>
+            }
+            <span class="stat"><b>{{ prev.mapping.auto }}</b> mapeos automáticos</span>
+            @if (prev.mapping.unmatched > 0) {
+              <span class="stat"><b>{{ prev.mapping.unmatched }}</b> sin código</span>
+            }
+          </div>
+
+          @if (prev.flagged.length > 0) {
+            <details class="flagged">
+              <summary><i class="ti ti-alert-triangle"></i> {{ prev.flagged.length }} filas no cierran y no se van a usar</summary>
+              <ul>
+                @for (row of prev.flagged; track $index) {
+                  <li><code>{{ row.code || '—' }}</code> {{ row.description }} <span class="issue">{{ row.issues.join(' · ') }}</span></li>
+                }
+              </ul>
+            </details>
+          }
+
+          <!-- 4. Mapeos a confirmar: lo único que no se aplica solo -->
+          @if (pendingMappings().length > 0) {
+            <h3 class="modal-sub"><i class="ti ti-help-circle"></i> Confirmá estos mapeos ({{ confirmedCount() }}/{{ pendingMappings().length }})</h3>
+            <p class="modal-note">Se adivinaron pero no se aplican solos. Lo que confirmes queda guardado y no se vuelve a preguntar.</p>
+            <ul class="mapping-list">
+              @for (m of pendingMappings(); track m.sku) {
+                <li class="mapping-row" [class.done]="mappingChoices()[m.sku]">
+                  <div class="mapping-info">
+                    <code>{{ m.sku }}</code>
+                    <i class="ti ti-arrow-right"></i>
+                    <code class="suggested">{{ m.suggestion?.code }}</code>
+                    <span class="why">{{ matchSourceLabel(m.suggestion?.matchSource || '') }}</span>
+                  </div>
+                  <div class="mapping-actions">
+                    @if (mappingChoices()[m.sku]) {
+                      <span class="confirmed"><i class="ti ti-check"></i> confirmado</span>
+                      <button type="button" class="icon-btn" (click)="chooseMapping(m.sku, null)" title="Deshacer"><i class="ti ti-x"></i></button>
+                    } @else {
+                      <button type="button" class="btn btn-s" (click)="chooseMapping(m.sku, m.suggestion!.code)">
+                        <i class="ti ti-check"></i> Es este
+                      </button>
+                    }
+                  </div>
+                </li>
+              }
+            </ul>
+          }
+        }
+      </div>
+
+      <div class="modal-foot">
+        @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="showImport.set(false)">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="!importPreview() || saving()" (click)="confirmImport()">
+          {{ saving() ? 'Importando…' : 'Importar y actualizar costos' }}
+        </button>
       </div>
     </div>
   </div>

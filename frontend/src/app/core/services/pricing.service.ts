@@ -76,6 +76,55 @@ export interface PriceHistoryResponse {
   total: number;
 }
 
+/** Una fila parseada de la lista del proveedor. */
+export interface ParsedListRow {
+  code: string | null;
+  description: string | null;
+  unitPrice: number | null;
+  bulkQty: number | null;
+  bulkPrice: number | null;
+  fractionable: boolean;
+  inheritedCode: boolean;
+  valid: boolean;
+  issues: string[];
+}
+
+/** Sugerencia de mapeo para un SKU que todavía no tiene código confirmado. */
+export interface MappingSuggestion {
+  sku: string;
+  label?: string | null;
+  suggestion: {
+    code: string;
+    matchSource: 'exact' | 'saved' | 'base' | 'group' | 'text';
+    score: number;
+    auto: boolean;
+  } | null;
+}
+
+export interface ImportPreview {
+  stats: { total: number; valid: number; flagged: number };
+  rows: ParsedListRow[];
+  flagged: ParsedListRow[];
+  mapping: { auto: number; review: MappingSuggestion[]; unmatched: number };
+}
+
+export interface MappingState {
+  mapped: Array<{ sku: string; code: string; matchSource: string; confirmedAt: string | null }>;
+  skusWithoutCode: string[];
+  codesWithoutSku: Array<{ code: string; description: string | null }>;
+  totals: { codes: number; skus: number; mapped: number };
+}
+
+export interface ImportedList {
+  id: number;
+  label: string;
+  sourceFilename: string | null;
+  discount1: number;
+  discount2: number;
+  importedAt: string | null;
+  itemCount: number;
+}
+
 export interface ApplyResult {
   total: number;
   enqueuedMl: number;
@@ -111,6 +160,42 @@ export class PricingService {
 
   apply(skus: string[], channels: { ml: boolean; tn: boolean } = { ml: true, tn: true }) {
     return this.http.post<ApplyResult>(`${this.api.baseUrl}/pricing/apply`, { skus, channels });
+  }
+
+  /** Preview de una importación: parsea y sugiere mapeos, sin guardar nada. */
+  previewImport(text: string, format: 'pdf' | 'csv' = 'pdf') {
+    return this.http.post<ImportPreview>(`${this.api.baseUrl}/pricing/lists/preview`, { text, format });
+  }
+
+  /** Confirma la importación: guarda lista, códigos, mapeos automáticos y costos. */
+  confirmImport(body: {
+    label: string;
+    sourceFilename?: string | null;
+    discount1: number;
+    discount2: number;
+    rows: ParsedListRow[];
+  }) {
+    return this.http.post<{ ok: boolean; listId: number; autoMapped: number; costsUpdated: number }>(
+      `${this.api.baseUrl}/pricing/lists`, body,
+    );
+  }
+
+  getLists() {
+    return this.http.get<{ lists: ImportedList[] }>(`${this.api.baseUrl}/pricing/lists`);
+  }
+
+  getMappingState() {
+    return this.http.get<MappingState>(`${this.api.baseUrl}/pricing/mapping`);
+  }
+
+  confirmMapping(sku: string, code: string, matchSource = 'manual') {
+    return this.http.put<{ ok: boolean }>(
+      `${this.api.baseUrl}/pricing/mapping/${encodeURIComponent(sku)}`, { code, matchSource },
+    );
+  }
+
+  removeMapping(sku: string) {
+    return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/mapping/${encodeURIComponent(sku)}`);
   }
 
   /** Historial de precios de un producto (ambos canales). */

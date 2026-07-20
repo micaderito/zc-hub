@@ -5,7 +5,9 @@ import { injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
 import {
   PricingService, PricingConfig, PreviewRow, PricingSettings, MlFeeTier,
+  ImportPreview, MappingSuggestion,
 } from '../../core/services/pricing.service';
+import { PdfTextService } from '../../core/services/pdf-text.service';
 
 /** Estado del formulario de carga manual de costo. */
 interface CostForm {
@@ -42,6 +44,20 @@ function emptyCostForm(): CostForm {
 })
 export class PreciosComponent {
   private readonly pricing = inject(PricingService);
+  private readonly pdfText = inject(PdfTextService);
+
+  // ── Importación de lista (fase 4) ──
+  readonly showImport = signal(false);
+  readonly importing = signal(false);
+  readonly importPreview = signal<ImportPreview | null>(null);
+  readonly importFileName = signal<string | null>(null);
+  readonly importFormat = signal<'pdf' | 'csv'>('pdf');
+  readonly importLabel = signal('');
+  readonly importDiscount1 = signal<number>(25);
+  readonly importDiscount2 = signal<number>(5);
+  readonly noDiscounts = signal(false);
+  /** Confirmaciones de mapeo que hizo el usuario en este import: sku → código. */
+  readonly mappingChoices = signal<Record<string, string>>({});
 
   readonly configQuery = injectQuery(() => ({
     queryKey: ['pricing', 'config'],
@@ -199,6 +215,103 @@ export class PreciosComponent {
     } finally {
       this.applying.set(false);
     }
+  }
+
+  // ── Importación de lista ──────────────────────────────────────────────────
+
+  openImport(): void {
+    this.importPreview.set(null);
+    this.importFileName.set(null);
+    this.importLabel.set('');
+    this.mappingChoices.set({});
+    this.errorMsg.set(null);
+    const c = this.config();
+    this.importDiscount1.set(c?.settings.defaultDiscount1 ?? 25);
+    this.importDiscount2.set(c?.settings.defaultDiscount2 ?? 5);
+    this.noDiscounts.set(false);
+    this.showImport.set(true);
+  }
+
+  /** Lee el archivo (PDF o CSV), extrae el texto y pide el preview al backend. */
+  async onFileSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    this.importing.set(true);
+    this.errorMsg.set(null);
+    try {
+      const { text, format } = await this.pdfText.extract(file);
+      this.importFormat.set(format);
+      this.importFileName.set(file.name);
+      if (!this.importLabel()) this.importLabel.set(file.name.replace(/\.(pdf|csv|txt)$/i, ''));
+      const preview = await firstValueFrom(this.pricing.previewImport(text, format));
+      this.importPreview.set(preview);
+    } catch (e) {
+      this.errorMsg.set(`No se pudo leer el archivo: ${(e as Error)?.message ?? e}`);
+      this.importPreview.set(null);
+    } finally {
+      this.importing.set(false);
+      input.value = ''; // permite volver a elegir el mismo archivo
+    }
+  }
+
+  /** Confirma (o descarta) la sugerencia de mapeo de un SKU dentro del import. */
+  chooseMapping(sku: string, code: string | null): void {
+    this.mappingChoices.update((m) => {
+      const next = { ...m };
+      if (code) next[sku] = code; else delete next[sku];
+      return next;
+    });
+  }
+
+  readonly pendingMappings = computed<MappingSuggestion[]>(
+    () => this.importPreview()?.mapping.review ?? [],
+  );
+  readonly confirmedCount = computed(() => Object.keys(this.mappingChoices()).length);
+
+  /** Guarda la lista, los mapeos confirmados a mano y actualiza los costos. */
+  async confirmImport(): Promise<void> {
+    const preview = this.importPreview();
+    if (!preview || !this.importLabel().trim()) {
+      this.errorMsg.set('Falta el nombre de la lista');
+      return;
+    }
+    this.saving.set(true);
+    this.errorMsg.set(null);
+    try {
+      const d1 = this.noDiscounts() ? 0 : Number(this.importDiscount1()) || 0;
+      const d2 = this.noDiscounts() ? 0 : Number(this.importDiscount2()) || 0;
+
+      // Primero los mapeos que confirmaste: así el import ya los usa para volcar los costos.
+      for (const [sku, code] of Object.entries(this.mappingChoices())) {
+        await firstValueFrom(this.pricing.confirmMapping(sku, code, 'manual'));
+      }
+
+      const res = await firstValueFrom(this.pricing.confirmImport({
+        label: this.importLabel().trim(),
+        sourceFilename: this.importFileName(),
+        discount1: d1,
+        discount2: d2,
+        rows: preview.rows,
+      }));
+
+      this.applyResult.set(
+        `Lista importada: ${res.autoMapped} mapeos automáticos · ${res.costsUpdated} costos actualizados`,
+      );
+      await this.previewQuery.refetch();
+      this.showImport.set(false);
+    } catch (e) {
+      this.errorMsg.set((e as Error)?.message ?? 'No se pudo importar');
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  matchSourceLabel(source: string): string {
+    if (source === 'base') return 'código base';
+    if (source === 'group') return 'dentro de un código múltiple';
+    if (source === 'text') return 'parecido por descripción';
+    return source;
   }
 
   updateCostForm<K extends keyof CostForm>(key: K, value: CostForm[K]): void {
