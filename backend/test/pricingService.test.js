@@ -16,6 +16,9 @@ const dbState = {
 };
 const storeState = { mlBySku: {}, tnBySku: {}, tnTokens: { access_token: 'tn-tok', store_id: '55' } };
 const tnState = { bulkCalls: [], bulkError: null };
+// patchTnPrice devuelve el precio previo del snapshot (null = fila ausente), igual que en prod.
+const patchState = { tnPriceBefore: null, calls: [] };
+const auditState = { priceRows: [] };
 
 let svc;
 before(async () => {
@@ -29,6 +32,17 @@ before(async () => {
       upsertProductCost: async () => true,
       deleteProductCost: async () => true,
       enqueueMlTask: async (task) => { dbState.enqueued.push(task); return dbState.enqueued.length; },
+      insertPriceAudit: async (row) => { auditState.priceRows.push(row); return true; },
+      getPriceHistoryBySku: async () => ({ rows: [], total: 0 }),
+    },
+  });
+  // pricingService usa patchTnPrice para refrescar el snapshot y saber el precio previo.
+  mock.module('../src/services/conflictsService.js', {
+    exports: {
+      patchTnPrice: async (...a) => {
+        patchState.calls.push(a);
+        return patchState.tnPriceBefore;
+      },
     },
   });
   mock.module('../src/store.js', {
@@ -60,6 +74,9 @@ beforeEach(() => {
   storeState.access_token = undefined;
   tnState.bulkCalls = [];
   tnState.bulkError = null;
+  patchState.tnPriceBefore = null;
+  patchState.calls = [];
+  auditState.priceRows = [];
 });
 
 // ── helpers puros ──────────────────────────────────────────────────────────
@@ -165,4 +182,49 @@ test('enqueueApply: channels.ml=false no encola ML', async () => {
   const res = await svc.enqueueApply(['B'], { ml: false, tn: true });
   assert.equal(dbState.enqueued.length, 0);
   assert.equal(res.appliedTn, 1);
+});
+
+// ── historial de precios (fase 3) ──────────────────────────────────────────
+
+test('enqueueApply: registra el cambio de precio de TN en el historial', async () => {
+  dbState.costs['H1'] = { sku: 'H1', source: 'manual', unitCost: 1000, label: 'Producto H1' };
+  storeState.tnBySku['H1'] = { productId: 7, variantId: 8 };
+  patchState.tnPriceBefore = { priceBefore: 1500, sku: 'H1' };
+
+  await svc.enqueueApply(['H1'], { ml: false, tn: true });
+
+  assert.equal(auditState.priceRows.length, 1);
+  const row = auditState.priceRows[0];
+  assert.equal(row.sku, 'H1');
+  assert.equal(row.channel, 'tiendanube');
+  assert.equal(row.priceBefore, 1500);
+  assert.equal(row.source, 'bulk');
+  assert.ok(row.priceAfter > 0);
+  // y parcheó el snapshot con el precio nuevo
+  assert.equal(patchState.calls.length, 1);
+  assert.equal(patchState.calls[0][0], 7);
+});
+
+test('enqueueApply: si el precio de TN no cambió, no ensucia el historial', async () => {
+  dbState.costs['H2'] = { sku: 'H2', source: 'manual', unitCost: 1000 };
+  storeState.tnBySku['H2'] = { productId: 1, variantId: 2 };
+  // el precio previo es exactamente el que vamos a aplicar
+  const expected = svc.previewRow(dbState.costs['H2'], DEFAULT_SETTINGS, null).tn.list;
+  patchState.tnPriceBefore = { priceBefore: expected, sku: 'H2' };
+
+  await svc.enqueueApply(['H2'], { ml: false, tn: true });
+
+  assert.equal(auditState.priceRows.length, 0);
+});
+
+test('enqueueApply: si el bulk de TN falla, no registra historial', async () => {
+  dbState.costs['H3'] = { sku: 'H3', source: 'manual', unitCost: 1000 };
+  storeState.tnBySku['H3'] = { productId: 1, variantId: 2 };
+  patchState.tnPriceBefore = { priceBefore: 999, sku: 'H3' };
+  tnState.bulkError = new Error('422');
+
+  await svc.enqueueApply(['H3'], { ml: false, tn: true });
+
+  assert.equal(auditState.priceRows.length, 0);
+  assert.equal(patchState.calls.length, 0);
 });

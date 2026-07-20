@@ -14,9 +14,10 @@
 import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], hasDb: true };
-// mlStockBefore: lo que patchMlStock devuelve como estado previo del snapshot (null = fila ausente).
-const patchState = { calls: [], mlStockBefore: null };
+const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], priceAudits: [], hasDb: true };
+// mlStockBefore / mlPriceBefore: lo que patchMlStock / patchMlPrice devuelven como estado previo
+// del snapshot (null = fila ausente).
+const patchState = { calls: [], mlStockBefore: null, mlPriceBefore: null };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '55' } } };
 const mlState = {
   item: { id: 'MLA1', available_quantity: 10, variations: [] },
@@ -35,11 +36,12 @@ before(async () => {
       updateMlTaskStatus: async (id, status, err) => { dbState.statusUpdates.push({ id, status, err }); return true; },
       hasDatabase: () => dbState.hasDb,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
+      insertPriceAudit: async (row) => { dbState.priceAudits.push(row); },
     },
   });
   mock.module('../src/services/conflictsService.js', {
     exports: {
-      patchMlPrice: async (...a) => { patchState.calls.push(['patchMlPrice', ...a]); },
+      patchMlPrice: async (...a) => { patchState.calls.push(['patchMlPrice', ...a]); return patchState.mlPriceBefore; },
       patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); return patchState.mlStockBefore; },
       patchMlSku: async (...a) => { patchState.calls.push(['patchMlSku', ...a]); },
       patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
@@ -75,8 +77,10 @@ beforeEach(() => {
   dbState.claimedTask = null;
   dbState.statusUpdates = [];
   dbState.auditLogs = [];
+  dbState.priceAudits = [];
   patchState.calls = [];
   patchState.mlStockBefore = null;
+  patchState.mlPriceBefore = null;
   dbState.hasDb = true;
   storeState.mlToken = 'ml-tok';
   storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '55' };
@@ -240,6 +244,43 @@ test('price_ml: ML rechaza el precio (lanza) → failed con el mensaje real', as
   await mlTaskQueue.processTask({ id: 12, kind: 'price_ml', itemId: 'MLA1', variationId: '111', targetPrice: 150, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'failed');
   assert.match(dbState.statusUpdates[0].err, /different prices/);
+});
+
+test('price_ml: registra el cambio en el historial de precios con el valor previo', async () => {
+  patchState.mlPriceBefore = { priceBefore: 120, sku: 'SKU-1' };
+  await mlTaskQueue.processTask({
+    id: 14, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0,
+    contextJson: JSON.stringify({ sku: 'SKU-1', source: 'bulk' }),
+  });
+  assert.equal(dbState.priceAudits.length, 1);
+  const row = dbState.priceAudits[0];
+  assert.equal(row.sku, 'SKU-1');
+  assert.equal(row.channel, 'mercadolibre');
+  assert.equal(row.priceBefore, 120);
+  assert.equal(row.priceAfter, 150);
+  assert.equal(row.source, 'bulk');
+});
+
+test('price_ml: si el precio no cambió, no ensucia el historial', async () => {
+  patchState.mlPriceBefore = { priceBefore: 150, sku: 'SKU-1' };
+  await mlTaskQueue.processTask({ id: 15, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
+  assert.equal(dbState.statusUpdates[0].status, 'done');
+  assert.equal(dbState.priceAudits.length, 0);
+});
+
+test('price_ml: sin fila en el snapshot no registra historial (no hay valor previo que contar)', async () => {
+  patchState.mlPriceBefore = null;
+  await mlTaskQueue.processTask({ id: 16, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
+  assert.equal(dbState.statusUpdates[0].status, 'done');
+  assert.equal(dbState.priceAudits.length, 0);
+});
+
+test('price_ml: si ML rechaza, no registra historial', async () => {
+  patchState.mlPriceBefore = { priceBefore: 120, sku: 'SKU-1' };
+  mlState.updatePriceError = new Error('rechazado');
+  await mlTaskQueue.processTask({ id: 17, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
+  assert.equal(dbState.statusUpdates[0].status, 'failed');
+  assert.equal(dbState.priceAudits.length, 0);
 });
 
 // ─── processTask: sku_tn ────────────────────────────────────────────────────

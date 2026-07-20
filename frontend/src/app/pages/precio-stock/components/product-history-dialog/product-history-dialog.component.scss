@@ -108,6 +108,29 @@
   flex-wrap: wrap;
 }
 
+// Qué tipo de cambio es (stock o precio), para distinguirlos de un vistazo en la línea de tiempo.
+.hist-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 5px;
+  flex-shrink: 0;
+
+  .ti { font-size: 0.72rem; }
+
+  &.stock {
+    background: var(--surface-2);
+    color: var(--text-2);
+  }
+
+  &.price {
+    background: var(--brand-bg);
+    color: var(--brand);
+  }
+}
+
 // Origen del cambio. El manual se destaca: el resto lo genera la sincronización automática.
 .hist-source {
   padding: 1px 6px;

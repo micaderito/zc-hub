@@ -66,6 +66,19 @@ pricingRoutes.delete('/cost/:sku', async (req, res) => {
   }
 });
 
+/** Historial de precios de un producto (ambos canales). Lo consume el modal de historial. */
+pricingRoutes.get('/history/:sku', async (req, res) => {
+  const sku = (req.params.sku || '').trim();
+  if (!sku) return res.status(400).json({ error: 'sku requerido' });
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const offset = Number(req.query.offset) || 0;
+  try {
+    res.json(await pricing.getPriceHistory(sku, limit, offset));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /**
  * Aplicación masiva. Body: { skus: string[], channels?: { ml, tn } }. Encola los cambios (no
  * aplica de una): sobrevive 429 y reinicios vía la cola durable. Nunca aplica sin lista explícita.

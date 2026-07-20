@@ -207,6 +207,24 @@ export async function initDb() {
       );
     `);
 
+    // Historial de cambios de PRECIO, gemela de sync_audit pero con semántica de precio: los
+    // montos son NUMERIC (no enteros) y hay uno por canal. Se mantiene aparte en vez de meter
+    // columnas de precio en sync_audit, cuyo nombre y consumidores asumen stock. El modal de
+    // historial del producto consulta las dos y las fusiona en una sola línea de tiempo.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_audit (
+        id SERIAL PRIMARY KEY,
+        sku VARCHAR(128) NOT NULL,
+        channel VARCHAR(32) NOT NULL,
+        price_before NUMERIC(15,2),
+        price_after NUMERIC(15,2) NOT NULL,
+        source VARCHAR(16) NOT NULL DEFAULT 'bulk',
+        product_label VARCHAR(512),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_price_audit_sku_created ON price_audit (sku, created_at DESC);`);
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -1095,5 +1113,61 @@ export async function deleteProductCost(sku) {
   } catch (e) {
     console.error('deleteProductCost:', e.message);
     return false;
+  }
+}
+
+/**
+ * Registra un cambio de precio en el historial. `priceBefore` puede venir null (si el snapshot no
+ * tenía la fila); la fila se guarda igual porque el "a cuánto quedó" ya es información útil.
+ */
+export async function insertPriceAudit(row) {
+  const p = getPool();
+  if (!p || !row?.sku || row.priceAfter == null) return false;
+  try {
+    await p.query(
+      `INSERT INTO price_audit (sku, channel, price_before, price_after, source, product_label)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        row.sku,
+        row.channel,
+        row.priceBefore ?? null,
+        row.priceAfter,
+        row.source || 'bulk',
+        row.productLabel ?? null,
+      ]
+    );
+    return true;
+  } catch (e) {
+    console.error('insertPriceAudit:', e.message);
+    return false;
+  }
+}
+
+/** Historial de precios de un SKU (ambos canales), más reciente primero. */
+export async function getPriceHistoryBySku(sku, limit = 50, offset = 0) {
+  const p = getPool();
+  if (!p) return { rows: [], total: 0 };
+  try {
+    const countResult = await p.query('SELECT COUNT(*)::int AS total FROM price_audit WHERE sku = $1', [sku]);
+    const r = await p.query(
+      `SELECT id, sku, channel, price_before AS "priceBefore", price_after AS "priceAfter",
+              source, product_label AS "productLabel", created_at AS "createdAt"
+       FROM price_audit WHERE sku = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [sku, Math.min(limit, 200), offset]
+    );
+    return {
+      rows: r.rows.map((row) => ({
+        ...row,
+        priceBefore: row.priceBefore == null ? null : Number(row.priceBefore),
+        priceAfter: Number(row.priceAfter),
+        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+      })),
+      total: countResult.rows[0]?.total ?? 0,
+    };
+  } catch (e) {
+    console.error('getPriceHistoryBySku:', e.message);
+    return { rows: [], total: 0 };
   }
 }

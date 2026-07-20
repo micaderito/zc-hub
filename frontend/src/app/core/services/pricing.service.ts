@@ -58,6 +58,24 @@ export interface PreviewRow {
   mappedTn: boolean;
 }
 
+/** Una fila del historial de precios de un producto. */
+export interface PriceAuditRow {
+  id: number;
+  sku: string;
+  channel: 'mercadolibre' | 'tiendanube';
+  /** Puede ser null si el snapshot no tenía la fila cuando se aplicó el cambio. */
+  priceBefore: number | null;
+  priceAfter: number;
+  source: 'bulk' | 'manual';
+  productLabel: string | null;
+  createdAt: string;
+}
+
+export interface PriceHistoryResponse {
+  rows: PriceAuditRow[];
+  total: number;
+}
+
 export interface ApplyResult {
   total: number;
   enqueuedMl: number;
@@ -93,5 +111,13 @@ export class PricingService {
 
   apply(skus: string[], channels: { ml: boolean; tn: boolean } = { ml: true, tn: true }) {
     return this.http.post<ApplyResult>(`${this.api.baseUrl}/pricing/apply`, { skus, channels });
+  }
+
+  /** Historial de precios de un producto (ambos canales). */
+  getPriceHistoryBySku(sku: string, limit = 50, offset = 0) {
+    return this.http.get<PriceHistoryResponse>(
+      `${this.api.baseUrl}/pricing/history/${encodeURIComponent(sku)}`,
+      { params: { limit: String(limit), offset: String(offset) } },
+    );
   }
 }

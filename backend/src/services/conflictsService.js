@@ -517,15 +517,24 @@ async function patchSnapshot(mutator) {
 
 const sameVar = (a, b) => String(a ?? '') === String(b ?? '');
 
-/** Precio ML: en ítems legacy con variaciones ML aplica el mismo precio a TODAS las variaciones del ítem. */
+/**
+ * Precio ML: en ítems legacy con variaciones ML aplica el mismo precio a TODAS las variaciones del ítem.
+ *
+ * Devuelve `{ priceBefore, sku }` con lo que la fila tenía ANTES del parche (o `null` si no había
+ * snapshot o la fila no estaba), con el mismo criterio que patchMlStock: el historial necesita el
+ * valor previo y el snapshot es la mejor foto que tenemos sin gastar un GET extra contra ML.
+ */
 export function patchMlPrice(itemId, price) {
+  let before = null;
   return patchSnapshot((data) => {
     let changed = false;
     for (const r of data.mlRows) {
-      if (r.itemId === itemId && r.price !== price) { r.price = price; changed = true; }
+      if (r.itemId !== itemId) continue;
+      if (before === null) before = { priceBefore: r.price ?? null, sku: r.sku ?? null };
+      if (r.price !== price) { r.price = price; changed = true; }
     }
     return changed;
-  });
+  }).then(() => before);
 }
 
 /**
@@ -565,17 +574,22 @@ export function patchMlSku(itemId, variationId, sku) {
   });
 }
 
-/** Precio TN: por variante, o a todas las variantes del producto si applyAll. */
+/**
+ * Precio TN: por variante, o a todas las variantes del producto si applyAll.
+ * Devuelve `{ priceBefore, sku }` previo al parche (ver patchMlPrice).
+ */
 export function patchTnPrice(productId, variantId, price, applyAll = false) {
+  let before = null;
   return patchSnapshot((data) => {
     let changed = false;
     for (const r of data.tnRows) {
       if (String(r.productId) !== String(productId)) continue;
       if (!applyAll && !sameVar(r.variantId, variantId)) continue;
+      if (before === null) before = { priceBefore: r.price ?? null, sku: r.sku ?? null };
       if (r.price !== price) { r.price = price; changed = true; }
     }
     return changed;
-  });
+  }).then(() => before);
 }
 
 /** Stock TN: por variante. Devuelve `{ stockBefore, sku }` previo al parche (ver patchMlStock). */

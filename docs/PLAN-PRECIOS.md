@@ -386,7 +386,7 @@ Forzarlos en esa tabla implica hacer nullable dos columnas que hoy son obligator
 discriminador stock/precio en una tabla cuyo nombre y cuyos seis consumidores asumen "stock".
 Es ensuciar algo que **acabás de terminar y que anda**.
 
-**Propuesta:** tabla nueva `price_audit`, gemela de `sync_audit` pero con semántica de precio.
+**Implementado** (fase 3): tabla `price_audit`, gemela de `sync_audit` pero con semántica de precio.
 
 ```
 price_audit
@@ -449,10 +449,10 @@ El prototipo todavía tiene el switch A/B para que compares; en la implementaci�
 
 | Fase | Qué incluye | Por qué acá |
 |---|---|---|
-| **1. El motor** | `lib/pricing.js` + tests contra las 131 filas + despeje corregido | Sin esto nada más importa. Verificable contra tu Excel al peso. |
-| **2. Ajustes + costo manual + aplicar** | `pricing_settings`, `ml_fee_tiers`, `product_costs`, pantalla de Ajustes, carga manual, preview, **encolar `price_ml` en masa** + bulk TN | **Acá ya dejás de hacer cuentas a mano**, sin depender del PDF. La cola y el `price_ml` **ya existen**; el trabajo es encolar en masa y el bulk de TN. |
-| **3. Historial de precios** | tabla `price_audit`, escritura desde el worker, ampliar el `stock-history-dialog` | Chico, porque el modal y el patrón ya están. Va temprano: querés ver qué cambió desde la primera tanda. |
-| **4. PDF + mapeo** | `pdfParser`, `supplier_codes`, `price_lists`, `sku_code_map`, confirmación de mapeo | El grueso del ahorro. Solo Punto Cero. |
+| ~~**1. El motor**~~ ✅ | `lib/pricing.js` + tests contra las 131 filas + despeje corregido | Hecho (commit 5606905). |
+| ~~**2. Ajustes + costo manual + aplicar**~~ ✅ | `pricing_settings`, `ml_fee_tiers`, `product_costs`, pantalla de Ajustes, carga manual, preview, encolar `price_ml` en masa + bulk TN | Hecho (commits 2fec0db backend, e510172 frontend). |
+| ~~**3. Historial de precios**~~ ✅ | tabla `price_audit`, escritura desde el worker y desde el bulk de TN, `product-history-dialog` con stock y precio fusionados | Hecho. `patchMlPrice`/`patchTnPrice` ahora devuelven el precio previo, igual que `patchMlStock`. |
+| **4. PDF + mapeo** | `pdfParser`, `supplier_codes`, `price_lists`, `sku_code_map`, confirmación de mapeo | El grueso del ahorro. Solo Punto Cero. **Siguiente.** |
 | **5. API de ML** | validar endpoints con tu token → `lib/mlFees.js` | Mejora sobre algo que ya anda. Es lo único que depende de terceros. |
 | **6. Refinamiento** | revertir, aviso de zona muerta, contraste contra `sale_fee` real | Cuando el resto esté rodado. |
 

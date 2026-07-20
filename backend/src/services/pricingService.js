@@ -11,8 +11,9 @@
 import {
   getPricingSettings, savePricingSettings, saveMlFeeTiers,
   getAllProductCosts, getProductCost, upsertProductCost, deleteProductCost,
-  enqueueMlTask,
+  enqueueMlTask, insertPriceAudit, getPriceHistoryBySku,
 } from '../db.js';
+import { patchTnPrice } from './conflictsService.js';
 import { getMlItemBySku, getTnVariantBySku } from '../store.js';
 import { computePrices, DEFAULT_SETTINGS } from '../lib/pricing.js';
 import * as tn from '../lib/tiendanube.js';
@@ -128,6 +129,11 @@ export async function removeCost(sku) {
   return deleteProductCost(sku);
 }
 
+/** Historial de precios de un SKU (ambos canales), para el modal de historial del producto. */
+export async function getPriceHistory(sku, limit = 50, offset = 0) {
+  return getPriceHistoryBySku(sku, limit, offset);
+}
+
 /**
  * Aplicación masiva. Para cada SKU: calcula el precio y lo ENCOLA (no aplica de una) —
  * un `price_ml` por SKU en la cola durable (sobrevive 429 y reinicios, ver mlTaskQueue.js) y el
@@ -174,7 +180,10 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
       if (!tnVariant) {
         results.push({ sku, channel: 'tn', ok: false, reason: 'sin variante de TN mapeada' });
       } else {
-        tnBatch.push({ productId: tnVariant.productId, variantId: tnVariant.variantId, price: prices.tn.list });
+        tnBatch.push({
+          productId: tnVariant.productId, variantId: tnVariant.variantId,
+          price: prices.tn.list, sku, label: cost.label ?? null,
+        });
         results.push({ sku, channel: 'tn', ok: true, price: prices.tn.list });
       }
     }
@@ -191,6 +200,25 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
         await tn.updateVariantsStockPrice(access_token, store_id, tnBatch.map((b) => ({
           productId: b.productId, variantId: b.variantId, price: b.price,
         })));
+        // Aplicado en TN: parchamos el snapshot y registramos el historial por variante. El
+        // parche devuelve el precio previo (igual que en ML), así el historial cuenta el cambio
+        // sin gastar un GET extra. Solo se registra si el precio efectivamente se movió.
+        for (const b of tnBatch) {
+          const before = await patchTnPrice(b.productId, b.variantId, b.price).catch((e) => {
+            console.error('[Pricing] patchTnPrice:', e.message);
+            return null;
+          });
+          if (before && before.priceBefore !== b.price) {
+            await insertPriceAudit({
+              sku: b.sku,
+              channel: 'tiendanube',
+              priceBefore: before.priceBefore,
+              priceAfter: b.price,
+              source: 'bulk',
+              productLabel: b.label ?? null,
+            }).catch((e) => console.error('[Pricing] insertPriceAudit:', e.message));
+          }
+        }
       } catch (e) {
         for (const r of results) if (r.channel === 'tn' && r.ok) { r.ok = false; r.reason = `bulk TN falló: ${e.message}`; }
       }
