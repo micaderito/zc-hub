@@ -12,9 +12,13 @@ import {
   getPricingSettings, savePricingSettings, saveMlFeeTiers,
   getAllProductCosts, getProductCost, upsertProductCost, deleteProductCost,
   enqueueMlTask, insertPriceAudit, getPriceHistoryBySku,
+  savePriceList, getPriceLists, getPriceListItems, getSupplierCodes,
+  getSkuCodeMap, upsertSkuCodeMap, deleteSkuCodeMap, upsertProductCost as upsertCost,
 } from '../db.js';
 import { patchTnPrice } from './conflictsService.js';
-import { getMlItemBySku, getTnVariantBySku } from '../store.js';
+import { getMlItemBySku, getTnVariantBySku, getResolvedSkus } from '../store.js';
+import { parseSupplierList, parseSupplierCsv } from '../lib/supplierListParser.js';
+import { buildMappingSuggestions } from '../lib/skuMatcher.js';
 import { computePrices, DEFAULT_SETTINGS } from '../lib/pricing.js';
 import * as tn from '../lib/tiendanube.js';
 import { tokens } from '../store.js';
@@ -232,4 +236,119 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
     failed: results.filter((r) => r.ok === false).length,
     results,
   };
+}
+
+// ── Importación de listas y mapeo (fase 4) ────────────────────────────────────
+
+/**
+ * Parsea el texto de una lista SIN guardar nada: devuelve las filas, las marcadas para revisión y
+ * las sugerencias de mapeo contra los SKUs del hub. Es el preview del import.
+ *
+ * @param {string} text texto del PDF (ya extraído) o contenido de un CSV
+ * @param {{ format?: 'pdf'|'csv' }} [opts]
+ */
+export async function previewImport(text, opts = {}) {
+  const parsed = opts.format === 'csv' ? parseSupplierCsv(text) : parseSupplierList(text);
+
+  // Códigos que trae esta lista, para sugerir el mapeo de los SKUs que todavía no lo tienen.
+  const codes = parsed.valid.map((r) => ({ code: r.code, description: r.description }));
+  const savedRows = await getSkuCodeMap();
+  const savedMap = Object.fromEntries(savedRows.map((r) => [r.sku, r.code]));
+
+  const products = getResolvedSkus().map((sku) => ({ sku }));
+  const mapping = buildMappingSuggestions(products, codes, savedMap);
+
+  return {
+    stats: parsed.stats,
+    rows: parsed.rows,
+    flagged: parsed.flagged,
+    mapping: {
+      auto: mapping.auto.length,
+      review: mapping.review,
+      unmatched: mapping.unmatched.length,
+    },
+  };
+}
+
+/**
+ * Confirma la importación: guarda la lista + sus ítems + el catálogo de códigos, aplica los
+ * mapeos automáticos, y actualiza el costo de cada SKU mapeado con el precio de esta lista.
+ */
+export async function confirmImport({ label, sourceFilename, discount1, discount2, rows, format }) {
+  const items = (rows || []).filter((r) => r?.valid !== false && r?.code);
+  const listId = await savePriceList({ label, sourceFilename, discount1, discount2, items });
+  if (!listId) return { ok: false, error: 'No se pudo guardar la lista' };
+
+  // Mapeos que se aplican solos (exactos y ya confirmados).
+  const codes = items.map((r) => ({ code: r.code, description: r.description }));
+  const savedRows = await getSkuCodeMap();
+  const savedMap = Object.fromEntries(savedRows.map((r) => [r.sku, r.code]));
+  const products = getResolvedSkus().map((sku) => ({ sku }));
+  const { auto } = buildMappingSuggestions(products, codes, savedMap);
+
+  for (const p of auto) {
+    if (p.suggestion.matchSource === 'exact') {
+      await upsertSkuCodeMap(p.sku, p.suggestion.code, 'exact');
+    }
+  }
+
+  const applied = await applyListCosts(listId, { discount1, discount2 });
+  return { ok: true, listId, autoMapped: auto.length, costsUpdated: applied };
+}
+
+/**
+ * Vuelca los precios de una lista a `product_costs`, para cada SKU que tenga mapeo confirmado.
+ * Es lo que hace que "importar la lista" se traduzca en precios nuevos.
+ */
+export async function applyListCosts(listId = null, { discount1 = 0, discount2 = 0 } = {}) {
+  const items = await getPriceListItems(listId);
+  if (items.length === 0) return 0;
+  const byCode = new Map(items.map((i) => [i.code, i]));
+  const map = await getSkuCodeMap();
+
+  let updated = 0;
+  for (const { sku, code } of map) {
+    const item = byCode.get(code);
+    if (!item || !(item.bulkPrice > 0) || !(item.bulkQty > 0)) continue;
+    const ok = await upsertCost(sku, {
+      source: 'list',
+      bulkPrice: item.bulkPrice,
+      bulkQty: item.bulkQty,
+      discount1,
+      discount2,
+      label: item.description,
+    });
+    if (ok) updated++;
+  }
+  return updated;
+}
+
+/** Estado del mapeo: qué SKUs tienen código, cuáles no, y qué códigos no tienen SKU. */
+export async function getMappingState() {
+  const codes = await getSupplierCodes();
+  const map = await getSkuCodeMap();
+  const mappedSkus = new Set(map.map((m) => m.sku));
+  const mappedCodes = new Set(map.map((m) => m.code));
+  const skus = getResolvedSkus();
+
+  return {
+    mapped: map,
+    // Productos del hub sin código: son de otra marca (costo a mano) o falta confirmarlos.
+    skusWithoutCode: skus.filter((s) => !mappedSkus.has(s)),
+    // Códigos que el proveedor vende y el hub no tiene: candidatos a crear producto.
+    codesWithoutSku: codes.filter((c) => !mappedCodes.has(c.code)),
+    totals: { codes: codes.length, skus: skus.length, mapped: map.length },
+  };
+}
+
+export async function confirmMapping(sku, code, matchSource = 'manual') {
+  return upsertSkuCodeMap(sku, code, matchSource);
+}
+
+export async function removeMapping(sku) {
+  return deleteSkuCodeMap(sku);
+}
+
+export async function listImportedLists() {
+  return getPriceLists();
 }

@@ -225,6 +225,61 @@ export async function initDb() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_price_audit_sku_created ON price_audit (sku, created_at DESC);`);
 
+    // ── Listas del proveedor y mapeo (fase 4) ──────────────────────────────────
+    // Catálogo de códigos del proveedor. Vive aparte de las listas importadas para que el mapeo
+    // SKU↔código sobreviva a cada importación nueva: cuando entra la lista de marzo, los códigos
+    // ya están mapeados y solo cambian los precios. Un código puede no tener SKU (producto que el
+    // proveedor vende y el hub no).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS supplier_codes (
+        code VARCHAR(128) PRIMARY KEY,
+        supplier VARCHAR(64) NOT NULL DEFAULT 'punto_cero',
+        description VARCHAR(512),
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_lists (
+        id SERIAL PRIMARY KEY,
+        supplier VARCHAR(64) NOT NULL DEFAULT 'punto_cero',
+        label VARCHAR(256) NOT NULL,
+        source_filename VARCHAR(512),
+        discount_1 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        discount_2 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_list_items (
+        id SERIAL PRIMARY KEY,
+        list_id INTEGER NOT NULL REFERENCES price_lists(id) ON DELETE CASCADE,
+        code VARCHAR(128) NOT NULL,
+        description VARCHAR(512),
+        unit_price NUMERIC(15,2),
+        bulk_qty INTEGER,
+        bulk_price NUMERIC(15,2)
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_price_list_items_list ON price_list_items (list_id);`);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_price_list_items_code ON price_list_items (code);`);
+
+    // El puente SKU del hub ↔ código del proveedor. Se llena UNA vez (a mano o confirmando una
+    // sugerencia) y de ahí en más no se vuelve a preguntar. Un SKU puede no tener código (producto
+    // de otra marca, con costo cargado a mano).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS sku_code_map (
+        sku VARCHAR(128) PRIMARY KEY,
+        code VARCHAR(128) NOT NULL,
+        supplier VARCHAR(64) NOT NULL DEFAULT 'punto_cero',
+        match_source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        confirmed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_sku_code_map_code ON sku_code_map (code);`);
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -1169,5 +1224,165 @@ export async function getPriceHistoryBySku(sku, limit = 50, offset = 0) {
   } catch (e) {
     console.error('getPriceHistoryBySku:', e.message);
     return { rows: [], total: 0 };
+  }
+}
+
+// ── Listas del proveedor y mapeo (fase 4) ─────────────────────────────────────
+
+/**
+ * Guarda una lista importada: la lista, sus ítems, y refresca el catálogo de códigos
+ * (`supplier_codes`), todo en una transacción. Los códigos nuevos se dan de alta y los ya
+ * conocidos actualizan `last_seen_at` y su descripción.
+ */
+export async function savePriceList({ supplier = 'punto_cero', label, sourceFilename = null, discount1 = 0, discount2 = 0, items = [] }) {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const listRes = await client.query(
+      `INSERT INTO price_lists (supplier, label, source_filename, discount_1, discount_2)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [supplier, label, sourceFilename, Number(discount1) || 0, Number(discount2) || 0]
+    );
+    const listId = listRes.rows[0].id;
+
+    for (const it of items) {
+      if (!it?.code) continue;
+      await client.query(
+        `INSERT INTO price_list_items (list_id, code, description, unit_price, bulk_qty, bulk_price)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [listId, it.code, it.description ?? null, it.unitPrice ?? null, it.bulkQty ?? null, it.bulkPrice ?? null]
+      );
+      await client.query(
+        `INSERT INTO supplier_codes (code, supplier, description)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (code) DO UPDATE SET last_seen_at = NOW(),
+           description = COALESCE(EXCLUDED.description, supplier_codes.description)`,
+        [it.code, supplier, it.description ?? null]
+      );
+    }
+    await client.query('COMMIT');
+    return listId;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('savePriceList:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Listas importadas, más reciente primero. */
+export async function getPriceLists(limit = 20) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT l.id, l.supplier, l.label, l.source_filename AS "sourceFilename",
+              l.discount_1 AS "discount1", l.discount_2 AS "discount2", l.imported_at AS "importedAt",
+              (SELECT COUNT(*)::int FROM price_list_items i WHERE i.list_id = l.id) AS "itemCount"
+       FROM price_lists l ORDER BY l.imported_at DESC LIMIT $1`,
+      [Math.min(limit, 100)]
+    );
+    return r.rows.map((row) => ({
+      ...row,
+      discount1: Number(row.discount1),
+      discount2: Number(row.discount2),
+      importedAt: row.importedAt ? new Date(row.importedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getPriceLists:', e.message);
+    return [];
+  }
+}
+
+/** Ítems de una lista (o de la más reciente si no se pasa id), indexados por código. */
+export async function getPriceListItems(listId = null) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = listId
+      ? await p.query(
+          `SELECT code, description, unit_price AS "unitPrice", bulk_qty AS "bulkQty", bulk_price AS "bulkPrice"
+           FROM price_list_items WHERE list_id = $1`, [listId])
+      : await p.query(
+          `SELECT i.code, i.description, i.unit_price AS "unitPrice", i.bulk_qty AS "bulkQty", i.bulk_price AS "bulkPrice"
+           FROM price_list_items i
+           WHERE i.list_id = (SELECT id FROM price_lists ORDER BY imported_at DESC LIMIT 1)`);
+    return r.rows.map((row) => ({
+      ...row,
+      unitPrice: row.unitPrice == null ? null : Number(row.unitPrice),
+      bulkQty: row.bulkQty == null ? null : Number(row.bulkQty),
+      bulkPrice: row.bulkPrice == null ? null : Number(row.bulkPrice),
+    }));
+  } catch (e) {
+    console.error('getPriceListItems:', e.message);
+    return [];
+  }
+}
+
+/** Catálogo completo de códigos del proveedor. */
+export async function getSupplierCodes(supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT code, description, first_seen_at AS "firstSeenAt", last_seen_at AS "lastSeenAt"
+       FROM supplier_codes WHERE supplier = $1 ORDER BY code`, [supplier]);
+    return r.rows;
+  } catch (e) {
+    console.error('getSupplierCodes:', e.message);
+    return [];
+  }
+}
+
+/** Todos los mapeos SKU→código confirmados. */
+export async function getSkuCodeMap(supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT sku, code, match_source AS "matchSource", confirmed_at AS "confirmedAt"
+       FROM sku_code_map WHERE supplier = $1`, [supplier]);
+    return r.rows.map((row) => ({
+      ...row,
+      confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getSkuCodeMap:', e.message);
+    return [];
+  }
+}
+
+/** Confirma (o corrige) el mapeo de un SKU. Se hace una vez y no se vuelve a preguntar. */
+export async function upsertSkuCodeMap(sku, code, matchSource = 'manual', supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p || !sku || !code) return false;
+  try {
+    await p.query(
+      `INSERT INTO sku_code_map (sku, code, supplier, match_source, confirmed_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (sku) DO UPDATE SET code = EXCLUDED.code, supplier = EXCLUDED.supplier,
+         match_source = EXCLUDED.match_source, confirmed_at = NOW()`,
+      [sku, code, supplier, matchSource]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertSkuCodeMap:', e.message);
+    return false;
+  }
+}
+
+/** Borra el mapeo de un SKU (para rehacerlo). */
+export async function deleteSkuCodeMap(sku) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  try {
+    await p.query('DELETE FROM sku_code_map WHERE sku = $1', [sku]);
+    return true;
+  } catch (e) {
+    console.error('deleteSkuCodeMap:', e.message);
+    return false;
   }
 }

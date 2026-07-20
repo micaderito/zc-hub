@@ -66,6 +66,78 @@ pricingRoutes.delete('/cost/:sku', async (req, res) => {
   }
 });
 
+/**
+ * Preview de una importación: parsea el texto y devuelve filas + marcadas + sugerencias de mapeo.
+ * NO guarda nada. Body: { text, format?: 'pdf'|'csv' }.
+ */
+pricingRoutes.post('/lists/preview', async (req, res) => {
+  const text = req.body?.text;
+  if (!text || typeof text !== 'string') return res.status(400).json({ error: 'text requerido' });
+  try {
+    res.json(await pricing.previewImport(text, { format: req.body?.format }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Confirma la importación: guarda lista + ítems + códigos, aplica los mapeos automáticos y
+ * actualiza los costos de los SKUs mapeados.
+ */
+pricingRoutes.post('/lists', async (req, res) => {
+  const { label, sourceFilename, discount1, discount2, rows, format } = req.body || {};
+  if (!label) return res.status(400).json({ error: 'label requerido' });
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows requerido' });
+  try {
+    res.json(await pricing.confirmImport({ label, sourceFilename, discount1, discount2, rows, format }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Listas importadas. */
+pricingRoutes.get('/lists', async (_req, res) => {
+  try {
+    res.json({ lists: await pricing.listImportedLists() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Estado del mapeo: SKUs sin código, códigos sin SKU, y lo ya confirmado. */
+pricingRoutes.get('/mapping', async (_req, res) => {
+  try {
+    res.json(await pricing.getMappingState());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Confirma (o corrige) el mapeo de un SKU. Se hace una vez y no se vuelve a preguntar. */
+pricingRoutes.put('/mapping/:sku', async (req, res) => {
+  const sku = (req.params.sku || '').trim();
+  const code = (req.body?.code || '').trim();
+  if (!sku || !code) return res.status(400).json({ error: 'sku y code requeridos' });
+  try {
+    await pricing.confirmMapping(sku, code, req.body?.matchSource || 'manual');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Borra el mapeo de un SKU (para rehacerlo). */
+pricingRoutes.delete('/mapping/:sku', async (req, res) => {
+  const sku = (req.params.sku || '').trim();
+  if (!sku) return res.status(400).json({ error: 'sku requerido' });
+  try {
+    await pricing.removeMapping(sku);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Historial de precios de un producto (ambos canales). Lo consume el modal de historial. */
 pricingRoutes.get('/history/:sku', async (req, res) => {
   const sku = (req.params.sku || '').trim();
