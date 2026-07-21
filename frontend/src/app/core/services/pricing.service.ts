@@ -27,6 +27,14 @@ export interface PricingConfig {
   updatedAt: string | null;
 }
 
+/** Resultado de sincronizar comisiones con la API de ML. */
+export interface MlFeesSync {
+  remote: { commissionPct: number | null; tiers: MlFeeTier[]; probes: Array<{ price: number; fixedFee: number }>; fetchedAt: string };
+  current: { commissionPct: number; tiers: MlFeeTier[] };
+  applied: boolean;
+  config?: PricingConfig;
+}
+
 /** El costo cargado de un producto (bulto o unidad). */
 export interface ProductCost {
   sku: string;
@@ -144,6 +152,14 @@ export class PricingService {
 
   saveConfig(patch: Partial<PricingSettings> & { tiers?: MlFeeTier[] }) {
     return this.http.put<PricingConfig>(`${this.api.baseUrl}/pricing/config`, patch);
+  }
+
+  /**
+   * Trae las comisiones reales de la API de ML. apply=false solo compara; apply=true además las
+   * guarda en Ajustes.
+   */
+  syncMlFees(apply = false) {
+    return this.http.post<MlFeesSync>(`${this.api.baseUrl}/pricing/ml-fees/sync`, { apply });
   }
 
   getPreview() {

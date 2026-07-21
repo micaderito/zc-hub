@@ -21,14 +21,18 @@ const patchState = { tnPriceBefore: null, calls: [] };
 const auditState = { priceRows: [] };
 // fase 4: listas importadas, ítems, catálogo de códigos y mapeos guardados.
 const listState = { saved: [], items: [], codes: [], map: [] };
+// fase 5: lo que devuelve la API de comisiones de ML (o un error).
+const feesState = { config: null, error: null };
+// registro de lo guardado en Ajustes (savePricingSettings/saveMlFeeTiers).
+const saveState = { settings: [], tiers: [] };
 
 let svc;
 before(async () => {
   mock.module('../src/db.js', {
     exports: {
       getPricingSettings: async () => dbState.settings,
-      savePricingSettings: async () => true,
-      saveMlFeeTiers: async () => true,
+      savePricingSettings: async (patch) => { saveState.settings.push(patch); return true; },
+      saveMlFeeTiers: async (tiers) => { saveState.tiers.push(tiers); return true; },
       getAllProductCosts: async () => Object.values(dbState.costs),
       getProductCost: async (sku) => dbState.costs[sku] || null,
       upsertProductCost: async () => true,
@@ -63,6 +67,7 @@ before(async () => {
       getMlItemBySku: (sku) => storeState.mlBySku[sku] || null,
       getTnVariantBySku: (sku) => storeState.tnBySku[sku] || null,
       getResolvedSkus: () => storeState.resolvedSkus,
+      getMlToken: async () => storeState.mlToken,
       tokens: storeState,
     },
   });
@@ -72,6 +77,14 @@ before(async () => {
         if (tnState.bulkError) throw tnState.bulkError;
         tnState.bulkCalls.push(updates);
         return true;
+      },
+    },
+  });
+  mock.module('../src/lib/mlFees.js', {
+    exports: {
+      fetchFeeConfig: async () => {
+        if (feesState.error) throw feesState.error;
+        return feesState.config;
       },
     },
   });
@@ -92,10 +105,15 @@ beforeEach(() => {
   patchState.calls = [];
   auditState.priceRows = [];
   storeState.resolvedSkus = [];
+  storeState.mlToken = 'ml-tok';
   listState.saved = [];
   listState.items = [];
   listState.codes = [];
   listState.map = [];
+  feesState.config = null;
+  feesState.error = null;
+  saveState.settings = [];
+  saveState.tiers = [];
 });
 
 // ── helpers puros ──────────────────────────────────────────────────────────
@@ -343,4 +361,38 @@ test('confirmMapping / removeMapping: se guarda una vez y se puede rehacer', asy
 
   await svc.removeMapping('30700-ROSA');
   assert.equal(listState.map.length, 0);
+});
+
+// ── sincronización de comisiones desde la API de ML (fase 5) ────────────────
+
+test('syncMlFees: sin apply solo compara (no guarda nada en Ajustes)', async () => {
+  feesState.config = {
+    commissionPct: 13,
+    tiers: [{ maxPrice: 15000, fixedFee: 1115 }, { maxPrice: null, fixedFee: 0 }],
+    probes: [], fetchedAt: '2026-07-20T00:00:00Z', source: 'api',
+  };
+  const res = await svc.syncMlFees({ apply: false });
+  assert.equal(res.applied, false);
+  assert.equal(res.remote.commissionPct, 13);
+  assert.equal(res.current.commissionPct, DEFAULT_SETTINGS.commissionPct); // 15, lo cargado
+  assert.equal(saveState.settings.length, 0, 'no debe guardar sin apply');
+  assert.equal(saveState.tiers.length, 0);
+});
+
+test('syncMlFees: con apply guarda la comisión y los tramos que trajo ML', async () => {
+  feesState.config = {
+    commissionPct: 13,
+    tiers: [{ maxPrice: 15000, fixedFee: 1115 }, { maxPrice: null, fixedFee: 0 }],
+    probes: [], fetchedAt: '2026-07-20T00:00:00Z', source: 'api',
+  };
+  const res = await svc.syncMlFees({ apply: true });
+  assert.equal(res.applied, true);
+  assert.equal(saveState.settings.at(-1).commissionPct, 13);
+  assert.deepEqual(saveState.tiers.at(-1), feesState.config.tiers);
+});
+
+test('syncMlFees: si la API falla, propaga el error (los valores a mano quedan intactos)', async () => {
+  feesState.error = new Error('listing_prices 403: PolicyAgent');
+  await assert.rejects(() => svc.syncMlFees({ apply: true }), /403/);
+  assert.equal(saveState.settings.length, 0);
 });

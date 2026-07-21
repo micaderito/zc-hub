@@ -16,9 +16,10 @@ import {
   getSkuCodeMap, upsertSkuCodeMap, deleteSkuCodeMap, upsertProductCost as upsertCost,
 } from '../db.js';
 import { patchTnPrice } from './conflictsService.js';
-import { getMlItemBySku, getTnVariantBySku, getResolvedSkus } from '../store.js';
+import { getMlItemBySku, getTnVariantBySku, getResolvedSkus, getMlToken } from '../store.js';
 import { parseSupplierList, parseSupplierCsv } from '../lib/supplierListParser.js';
 import { buildMappingSuggestions } from '../lib/skuMatcher.js';
+import { fetchFeeConfig } from '../lib/mlFees.js';
 import { computePrices, DEFAULT_SETTINGS } from '../lib/pricing.js';
 import * as tn from '../lib/tiendanube.js';
 import { tokens } from '../store.js';
@@ -351,4 +352,44 @@ export async function removeMapping(sku) {
 
 export async function listImportedLists() {
   return getPriceLists();
+}
+
+// ── Sincronización de comisiones desde la API de ML (fase 5) ──────────────────
+
+/**
+ * Trae los costos de venta reales desde la API de ML y (opcionalmente) los guarda en Ajustes,
+ * reemplazando la comisión % y los tramos que hoy están cargados a mano.
+ *
+ * No es destructivo por default: `apply=false` solo devuelve lo que la API dice, para que la UI
+ * muestre "esto tenés cargado vs. esto dice ML" y vos decidas. Si la API no está disponible (sin
+ * token, WAF, 403), propaga el error y los valores a mano quedan intactos.
+ *
+ * @param {{ apply?: boolean, listingTypeId?: string, categoryId?: string, extraParams?: object, force?: boolean }} [opts]
+ */
+export async function syncMlFees(opts = {}) {
+  const token = await getMlToken();
+  const remote = await fetchFeeConfig(token, {
+    listingTypeId: opts.listingTypeId,
+    categoryId: opts.categoryId,
+    extraParams: opts.extraParams,
+    force: opts.force,
+  });
+
+  const current = await getConfig();
+  const result = {
+    remote: { commissionPct: remote.commissionPct, tiers: remote.tiers, probes: remote.probes, fetchedAt: remote.fetchedAt },
+    current: { commissionPct: current.settings.commissionPct, tiers: current.tiers },
+    applied: false,
+  };
+
+  if (opts.apply) {
+    const patch = {};
+    if (remote.commissionPct != null) patch.commissionPct = remote.commissionPct;
+    if (Array.isArray(remote.tiers) && remote.tiers.length > 0) patch.tiers = remote.tiers;
+    await saveConfig(patch);
+    result.applied = true;
+    result.config = await getConfig();
+  }
+
+  return result;
 }

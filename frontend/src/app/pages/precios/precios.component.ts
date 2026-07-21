@@ -5,7 +5,7 @@ import { injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
 import {
   PricingService, PricingConfig, PreviewRow, PricingSettings, MlFeeTier,
-  ImportPreview, MappingSuggestion,
+  ImportPreview, MappingSuggestion, MlFeesSync,
 } from '../../core/services/pricing.service';
 import { PdfTextService } from '../../core/services/pdf-text.service';
 
@@ -134,7 +134,35 @@ export class PreciosComponent {
     this.settingsDraft.set({ ...c.settings });
     this.tiersDraft.set(c.tiers.map((t) => ({ ...t })));
     this.errorMsg.set(null);
+    this.feesSync.set(null);
     this.showSettings.set(true);
+  }
+
+  // ── Sincronizar comisiones con ML (fase 5) ──
+  readonly syncingFees = signal(false);
+  readonly feesSync = signal<MlFeesSync | null>(null);
+
+  /** Trae de la API de ML la comisión y los tramos reales, para compararlos con lo cargado. */
+  async fetchMlFees(): Promise<void> {
+    this.syncingFees.set(true);
+    this.errorMsg.set(null);
+    this.feesSync.set(null);
+    try {
+      this.feesSync.set(await firstValueFrom(this.pricing.syncMlFees(false)));
+    } catch (e) {
+      this.errorMsg.set(`No se pudo consultar ML: ${(e as { error?: { error?: string } })?.error?.error ?? (e as Error)?.message ?? e}`);
+    } finally {
+      this.syncingFees.set(false);
+    }
+  }
+
+  /** Vuelca a los campos del formulario la comisión y los tramos que trajo ML. */
+  applyMlFeesToDraft(): void {
+    const sync = this.feesSync();
+    if (!sync) return;
+    if (sync.remote.commissionPct != null) this.updateSettingsDraft('commissionPct', sync.remote.commissionPct);
+    if (sync.remote.tiers?.length) this.tiersDraft.set(sync.remote.tiers.map((t) => ({ ...t })));
+    this.feesSync.set(null);
   }
 
   async saveSettings(): Promise<void> {

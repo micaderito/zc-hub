@@ -26,6 +26,20 @@ pricingRoutes.put('/config', async (req, res) => {
   }
 });
 
+/**
+ * Trae las comisiones reales de la API de ML. Sin body, o `{ apply: false }`: solo devuelve lo que
+ * ML dice vs. lo cargado (no toca nada). Con `{ apply: true }`: además lo guarda en Ajustes.
+ * Acepta `listingTypeId`, `categoryId`, `extraParams` (billable_weight, logistic_type, …).
+ */
+pricingRoutes.post('/ml-fees/sync', async (req, res) => {
+  try {
+    res.json(await pricing.syncMlFees(req.body || {}));
+  } catch (e) {
+    // La API puede fallar (sin token, WAF, 403): se reporta sin romper: lo cargado a mano sigue.
+    res.status(502).json({ error: e.message });
+  }
+});
+
 /** Preview: todos los costos cargados, calculados, con el estado de mapeo por canal. */
 pricingRoutes.get('/preview', async (_req, res) => {
   try {

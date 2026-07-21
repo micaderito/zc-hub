@@ -163,8 +163,34 @@
           </label>
         </div>
 
-        <h3 class="modal-sub"><i class="ti ti-stairs"></i> Comisión fija por tramo de ML</h3>
+        <div class="fees-head">
+          <h3 class="modal-sub"><i class="ti ti-stairs"></i> Comisión fija por tramo de ML</h3>
+          <button type="button" class="btn btn-s" [disabled]="syncingFees()" (click)="fetchMlFees()">
+            <i class="ti ti-cloud-download"></i> {{ syncingFees() ? 'Consultando…' : 'Traer de ML' }}
+          </button>
+        </div>
         <p class="modal-note">La fija depende del precio publicado, no del producto.</p>
+
+        @if (feesSync(); as sync) {
+          <div class="fees-compare">
+            <div class="fees-row">
+              <span>Comisión</span>
+              <span class="fees-vals">
+                <span class="cur">{{ sync.current.commissionPct }}%</span>
+                <i class="ti ti-arrow-right"></i>
+                <span class="rem">{{ sync.remote.commissionPct }}%</span>
+              </span>
+            </div>
+            <div class="fees-tiers">
+              <span>ML dice:</span>
+              @for (t of sync.remote.tiers; track $index) {
+                <span class="tier-pill">{{ t.maxPrice ? ('hasta ' + t.maxPrice) : 'sin tope' }} · {{ t.fixedFee }}</span>
+              }
+            </div>
+            <p class="fees-warn"><i class="ti ti-info-circle"></i> Los tramos son aproximados (sondeo de precios) y el cargo fijo en Argentina varía según el peso. Revisá antes de aplicar.</p>
+            <button type="button" class="btn btn-s pri" (click)="applyMlFeesToDraft()"><i class="ti ti-arrow-down"></i> Usar estos valores</button>
+          </div>
+        }
         <table class="tiers">
           <thead><tr><th>Hasta ($)</th><th class="num">Comisión fija ($)</th></tr></thead>
           <tbody>

@@ -306,3 +306,61 @@
     gap: 3px;
   }
 }
+
+/* ── Sincronizar comisiones con ML (fase 5) ─────────────────────────────── */
+.fees-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  .modal-sub { margin-top: 14px; }
+}
+.btn-s { font-size: 11px; padding: 5px 10px; }
+
+.fees-compare {
+  background: var(--bg);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 13px;
+  margin: 8px 0 4px;
+  font-size: 12px;
+}
+.fees-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--text-2);
+}
+.fees-vals {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  i { font-size: 13px; color: var(--text-3); }
+  .cur { color: var(--text-3); text-decoration: line-through; }
+  .rem { color: var(--text); font-weight: 500; }
+}
+.fees-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.tier-pill {
+  background: var(--brand-bg);
+  color: var(--brand);
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.fees-warn {
+  font-size: 10.5px;
+  color: var(--warn);
+  display: flex;
+  gap: 5px;
+  margin: 0 0 9px;
+  line-height: 1.4;
+}
