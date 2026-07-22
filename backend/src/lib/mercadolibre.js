@@ -301,6 +301,31 @@ export async function getClaimReturns(accessToken, claimId) {
   return res.json();
 }
 
+/**
+ * Envío: GET https://api.mercadolibre.com/shipments/:shipmentId → { id, status, substatus, ... }.
+ * Sirve para saber si la mercadería llegó a salir del depósito: una orden cancelada con envío en
+ * `not_delivered`/`returning_to_sender` es una devolución en tránsito (todavía no la tenemos),
+ * no una cancelación previa al despacho. Reintenta ante 429.
+ */
+export async function getShipment(accessToken, shipmentId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/shipments/${shipmentId}`,
+    { headers: { Authorization: `Bearer ${accessToken}`, 'x-format-new': 'true' } },
+    'getShipment'
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn('[ML] getShipment failed:', res.status, shipmentId, text?.slice(0, 150));
+    if (res.status === 429) {
+      const e = new Error(`ML rate limited (429) shipment ${shipmentId}`);
+      e.statusCode = 429;
+      throw e;
+    }
+    return null;
+  }
+  return res.json();
+}
+
 /** Actualizar stock de un ítem sin variaciones (publicación simple). */
 export async function updateItemStock(accessToken, itemId, quantity) {
   const res = await fetchWith429Retry(

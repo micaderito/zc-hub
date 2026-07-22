@@ -22,6 +22,7 @@ const dbState = {
   pendingReturns: { rows: [], total: 0 },
   insertedReturns: [],
   hasPendingReturnForClaimItem: false,
+  hasPendingReturnForOrderItem: false,
   pendingTasks: { tasks: [], total: 0, activeCount: 0, failedCount: 0 },
   activeTasks: [],
   retryResult: true,
@@ -126,6 +127,7 @@ before(async () => {
       getPendingReturns: async () => dbState.pendingReturns,
       insertPendingReturn: async (row) => { const r = { id: dbState.insertedReturns.length + 1, ...row }; dbState.insertedReturns.push(r); return r; },
       hasPendingReturnForClaimItem: async () => dbState.hasPendingReturnForClaimItem,
+      hasPendingReturnForOrderItem: async () => dbState.hasPendingReturnForOrderItem,
       releaseOrderProcessingClaim: async (...args) => { dbState.releaseCalls.push(args); return true; },
       getPendingMlTasks: async () => dbState.pendingTasks,
       getActiveMlTasks: async () => dbState.activeTasks,
@@ -158,6 +160,7 @@ beforeEach(() => {
   dbState.pendingReturns = { rows: [], total: 0 };
   dbState.insertedReturns = [];
   dbState.hasPendingReturnForClaimItem = false;
+  dbState.hasPendingReturnForOrderItem = false;
   dbState.pendingTasks = { tasks: [], total: 0, activeCount: 0, failedCount: 0 };
   dbState.retryResult = true;
   dbState.waitForMlTaskResult = null;
