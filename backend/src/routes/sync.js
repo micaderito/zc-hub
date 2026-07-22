@@ -4,7 +4,7 @@ import { getResolvedSkus, getSkuByMlItem, getMlToken, tokens } from '../store.js
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { mlLimiterStats } from '../lib/mlLimiter.js';
-import { getSyncEnabled, setSyncEnabled, getAuditLog, getStockHistoryBySku, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, releaseOrderProcessingClaim, getPendingMlTasks, getActiveMlTasks, retryMlTask, waitForMlTask } from '../db.js';
+import { getSyncEnabled, setSyncEnabled, getAuditLog, getStockHistoryBySku, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, hasPendingReturnForOrderItem, releaseOrderProcessingClaim, getPendingMlTasks, getActiveMlTasks, retryMlTask, waitForMlTask } from '../db.js';
 import { onMercadoLibreOrderPaid, onTiendaNubeOrderPaid } from '../services/syncService.js';
 
 export const syncRoutes = Router();
@@ -242,6 +242,78 @@ export function __resetReturnsFetchStateForTests() {
   returnsFetchCooldownUntil = 0;
 }
 
+/** Resuelve el SKU de un order_item de ML: primero el mapeo en memoria, si no el ítem en ML. */
+async function resolveSkuForOrderItem(accessToken, itemId, variationId) {
+  let sku = getSkuByMlItem(itemId, variationId);
+  if (sku) return sku;
+  const item = await ml.getItem(accessToken, itemId);
+  if (item) sku = ml.extractSkuFromItem(item);
+  if (!sku && item?.variations?.length && variationId) {
+    const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
+    if (v?.seller_sku) sku = v.seller_sku;
+  }
+  return sku || null;
+}
+
+/**
+ * Agrega a sync_pending_returns un ítem por cada order_item de una orden de ML, sin duplicar.
+ * Se usa desde el alta manual por pack y desde el webhook de órdenes cuando una cancelación
+ * resulta ser una devolución en tránsito (entrega fallida), caso en el que ML no abre ningún claim.
+ *
+ * `order_id` guarda el nro de venta que ve la usuaria (pack_id si la venta es de un carrito) y
+ * `sale_order_id` el id de la orden individual, que es el que usan el webhook y sync_processed_orders.
+ * @returns {{ created: number, skipped: number, rows: object[] }}
+ */
+export async function insertPendingReturnsForOrder(accessToken, order, opts = {}) {
+  if (!hasDatabase()) return { created: 0, skipped: 0, rows: [] };
+  const items = order?.order_items ?? [];
+  if (items.length === 0) return { created: 0, skipped: 0, rows: [] };
+
+  const saleOrderId = String(order?.id ?? opts.saleOrderId ?? '');
+  const displayOrderId = String(opts.displayOrderId ?? order?.pack_id ?? order?.id ?? saleOrderId);
+  const buyerNickname = opts.buyerNickname ?? order?.buyer?.nickname ?? order?.buyer?.first_name ?? null;
+  const dedupeIds = [...new Set([saleOrderId, displayOrderId].filter(Boolean))];
+
+  let created = 0;
+  let skipped = 0;
+  const rows = [];
+  for (const oi of items) {
+    const itemId = oi?.item?.id;
+    if (!itemId) continue;
+    const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
+
+    let exists = false;
+    for (const id of dedupeIds) {
+      if (await hasPendingReturnForOrderItem(id, itemId, variationId)) {
+        exists = true;
+        break;
+      }
+    }
+    if (exists) {
+      skipped++;
+      continue;
+    }
+
+    const row = await insertPendingReturn({
+      orderId: displayOrderId,
+      saleOrderId: saleOrderId || null,
+      itemId,
+      variationId: variationId ?? undefined,
+      sku: await resolveSkuForOrderItem(accessToken, itemId, variationId),
+      quantity: oi?.quantity ?? 1,
+      productLabel: oi?.item?.title ?? null,
+      reason: opts.reason ?? null,
+      buyerNickname,
+      claimDate: opts.claimDate ?? null
+    });
+    if (row) {
+      created++;
+      rows.push(row);
+    }
+  }
+  return { created, skipped, rows };
+}
+
 /**
  * Procesa un reclamo de ML: si es devolución (return) y no está cerrada, agrega sus ítems a sync_pending_returns.
  * Usado por POST /returns/fetch y por el webhook de notificaciones de claims.
@@ -305,6 +377,7 @@ export async function processClaimToPendingReturns(accessToken, claim) {
     const row = await insertPendingReturn({
       claimId,
       orderId: displayOrderId,
+      saleOrderId: String(order.id ?? orderId),
       itemId,
       variationId: variationId ?? undefined,
       sku: sku || null,
@@ -430,41 +503,20 @@ syncRoutes.post('/returns', async (req, res) => {
     }
     console.log('[returns/add] pack/orden %s: %s órdenes', packId, ordersList.length);
     const created = [];
+    let skipped = 0;
     for (const o of ordersList) {
       const orderId = o?.id ?? o;
       if (orderId == null) continue;
       const order = await ml.getOrder(accessToken, String(orderId));
       if (!order?.order_items?.length) continue;
-      for (const oi of order.order_items) {
-        const itemId = oi?.item?.id;
-        const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
-        const quantity = oi?.quantity ?? 1;
-        const productLabel = oi?.item?.title ?? null;
-        if (!itemId) continue;
-        let sku = getSkuByMlItem(itemId, variationId);
-        if (!sku) {
-          const item = await ml.getItem(accessToken, itemId);
-          if (item) sku = ml.extractSkuFromItem(item);
-          if (!sku && item?.variations?.length && variationId) {
-            const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
-            if (v?.seller_sku) sku = v.seller_sku;
-          }
-        }
-        const row = await insertPendingReturn({
-          orderId: String(packId),
-          itemId,
-          variationId: variationId ?? undefined,
-          sku: sku || null,
-          quantity,
-          productLabel
-        });
-        if (row) created.push(row);
-      }
+      const out = await insertPendingReturnsForOrder(accessToken, order, { displayOrderId: String(packId) });
+      created.push(...out.rows);
+      skipped += out.skipped;
     }
-    if (ordersList.length > 0 && created.length === 0) {
+    if (ordersList.length > 0 && created.length === 0 && skipped === 0) {
       return res.status(502).json({ error: 'Se encontró el pack pero no se pudieron cargar ítems (GET order falló o no hay order_items). Revisá la consola del servidor [ML] getOrder failed.' });
     }
-    res.status(201).json({ created: created.length, rows: created });
+    res.status(201).json({ created: created.length, skipped, rows: created });
   } catch (e) {
     console.error('[returns/add]', e);
     res.status(500).json({ error: e.message || 'Error al cargar el pack' });

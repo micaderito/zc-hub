@@ -84,6 +84,7 @@ describe('SyncComponent', () => {
   const returnRow: PendingReturnRow = {
     id: 5,
     orderId: 'ORD-99',
+    saleOrderId: null,
     itemId: 'MLA456',
     variationId: null,
     sku: 'SKU-2',

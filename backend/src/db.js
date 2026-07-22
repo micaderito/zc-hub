@@ -104,6 +104,10 @@ export async function initDb() {
     await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS reason VARCHAR(256);`);
     await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS buyer_nickname VARCHAR(256);`);
     await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS claim_date TIMESTAMPTZ;`);
+    // order_id es el nro de venta que ve el usuario (pack_id cuando la venta es de un carrito), así
+    // que NO sirve para cruzar con sync_processed_orders ni con el id que trae el webhook de orders.
+    // sale_order_id guarda el id de la orden individual justamente para ese cruce.
+    await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS sale_order_id VARCHAR(128);`);
 
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_processed_orders (
@@ -509,7 +513,7 @@ export async function getPendingReturns(limit = 20, offset = 0) {
     );
     const total = countResult.rows[0]?.total ?? 0;
     const r = await p.query(
-      `SELECT id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
+      `SELECT id, order_id AS "orderId", sale_order_id AS "saleOrderId", item_id AS "itemId", variation_id AS "variationId",
               sku, quantity, product_label AS "productLabel", reason, buyer_nickname AS "buyerNickname",
               claim_date AS "claimDate", status, created_at AS "createdAt"
        FROM sync_pending_returns
@@ -540,14 +544,15 @@ export async function insertPendingReturn(row) {
   if (!p) return null;
   try {
     const r = await p.query(
-      `INSERT INTO sync_pending_returns (claim_id, order_id, item_id, variation_id, sku, quantity, product_label, reason, buyer_nickname, claim_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
-       RETURNING id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
+      `INSERT INTO sync_pending_returns (claim_id, order_id, sale_order_id, item_id, variation_id, sku, quantity, product_label, reason, buyer_nickname, claim_date, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
+       RETURNING id, order_id AS "orderId", sale_order_id AS "saleOrderId", item_id AS "itemId", variation_id AS "variationId",
                  sku, quantity, product_label AS "productLabel", reason, buyer_nickname AS "buyerNickname",
                  claim_date AS "claimDate", status, created_at AS "createdAt"`,
       [
         row.claimId ?? null,
         row.orderId || '',
+        row.saleOrderId ?? null,
         row.itemId || '',
         row.variationId ?? null,
         row.sku ?? null,
@@ -586,14 +591,43 @@ export async function hasPendingReturnForClaimItem(claimId, itemId, variationId)
   }
 }
 
-/** Devuelve true si existe alguna devolución pendiente para la orden (por order_id). */
+/**
+ * Devuelve true si existe alguna devolución pendiente para la orden. Se busca tanto por order_id
+ * (nro de venta / pack) como por sale_order_id (orden individual) porque el webhook de orders
+ * conoce el id de la orden, mientras que las filas creadas desde un claim o desde el alta manual
+ * guardan el pack como order_id.
+ */
 export async function hasPendingReturnForOrder(orderId) {
   const p = getPool();
   if (!p || !orderId) return false;
   try {
     const r = await p.query(
-      `SELECT 1 FROM sync_pending_returns WHERE order_id = $1 AND status = 'pending' LIMIT 1`,
+      `SELECT 1 FROM sync_pending_returns
+       WHERE (order_id = $1 OR sale_order_id = $1) AND status = 'pending' LIMIT 1`,
       [String(orderId)]
+    );
+    return r.rows.length > 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Devuelve true si ya existe una fila pendiente para esta orden + ítem. Es el equivalente a
+ * hasPendingReturnForClaimItem para las devoluciones que no tienen claim asociado (p. ej. una
+ * entrega fallida, donde ML cancela la orden sin abrir reclamo).
+ */
+export async function hasPendingReturnForOrderItem(orderId, itemId, variationId) {
+  const p = getPool();
+  if (!p || !orderId || !itemId) return false;
+  try {
+    const v = variationId != null ? String(variationId) : null;
+    const r = await p.query(
+      `SELECT 1 FROM sync_pending_returns
+       WHERE (order_id = $1 OR sale_order_id = $1)
+         AND item_id = $2 AND (variation_id IS NOT DISTINCT FROM $3) AND status = 'pending'
+       LIMIT 1`,
+      [String(orderId), String(itemId), v]
     );
     return r.rows.length > 0;
   } catch (e) {
@@ -609,7 +643,7 @@ export async function getPendingReturnById(id) {
   if (!p) return null;
   try {
     const r = await p.query(
-      `SELECT id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
+      `SELECT id, order_id AS "orderId", sale_order_id AS "saleOrderId", item_id AS "itemId", variation_id AS "variationId",
               sku, quantity, product_label AS "productLabel", status
        FROM sync_pending_returns WHERE id = $1`,
       [id]

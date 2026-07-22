@@ -47,7 +47,10 @@ export interface SyncAuditResponse {
 
 export interface PendingReturnRow {
   id: number;
+  /** Nro de venta que se ve en ML (pack_id si la venta salió de un carrito). */
   orderId: string;
+  /** Id de la orden individual dentro del pack; es el que usan los webhooks de ML. */
+  saleOrderId: string | null;
   itemId: string;
   variationId: string | null;
   sku: string | null;
