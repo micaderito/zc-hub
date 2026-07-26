@@ -82,7 +82,7 @@ describe('product-draft.model', () => {
       expect(draft.variants).toEqual([]);
     });
 
-    it('inicializa common con strings vacíos, condición "new" y dimensiones en null', () => {
+    it('inicializa common con strings vacíos, condición "new" y dimensiones/stock en null', () => {
       const draft = emptyDraft();
       expect(draft.common).toEqual({
         baseName: '',
@@ -94,7 +94,8 @@ describe('product-draft.model', () => {
         lengthCm: null,
         widthCm: null,
         heightCm: null,
-        seoKeywords: ''
+        seoKeywords: '',
+        baseStock: null
       });
     });
 
@@ -106,7 +107,9 @@ describe('product-draft.model', () => {
       expect(draft.ml.attributes).toEqual([]);
       expect(draft.ml.images).toEqual([]);
       expect(draft.ml.currency).toBe('ARS');
-      expect(draft.ml.listingType).toBe('gold_special');
+      // Default premium (mayor exposición) y sin garantía.
+      expect(draft.ml.listingType).toBe('gold_pro');
+      expect(draft.ml.warrantyType).toBe('Sin garantía');
       expect(draft.ml.shippingMode).toBe('me2');
       expect(draft.ml.freeShipping).toBeFalse();
       expect(draft.ml.localPickup).toBeFalse();

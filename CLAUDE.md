@@ -26,6 +26,21 @@ sincroniza stock por webhooks y permite crear productos en ambos canales de una 
 
 ## Particularidades de la API de Mercado Libre
 
+### Categorías (crear producto)
+
+El selector de categoría vive en `crear-producto` y se apoya en `GET /api/products/categories/*`
+(ver `backend/src/routes/products.js` + `frontend/.../core/services/catalog.service.ts`).
+
+- **ML** (`category_id`, ej. `MLA388307`): hay que publicar en una **categoría HOJA**
+  (`children_categories == []`); una intermedia rompe el `POST /items`. La UI ofrece dos caminos:
+  **predictor por título** (`GET /sites/MLA/domain_discovery/search?q=…`, siempre devuelve hojas y
+  atributos pre-inferidos) y **explorador de árbol** (`GET /categories/{id}`). Al fijar la categoría
+  se traen sus atributos (`GET /categories/{id}/attributes`) y se precargan los `required`/`new_required`;
+  para atributos tipo `list` se manda `value_id` (no solo `value_name`). Sitio fijo: `MLA` (Argentina).
+- **TN** (`categories`): es un **array de IDs numéricos de categorías EXISTENTES**, NO un string de
+  nombres. Se traen con `GET /v1/{store}/categories` (árbol plano: `parent` + `subcategories`) y la UI
+  es un multi-select. Mandar nombres deja el producto sin categoría.
+
 ### Precio por variación: qué permite ML y qué no
 
 La cuenta tiene el tag `user_product_seller` (verificable vía `GET /users/me`), y las
