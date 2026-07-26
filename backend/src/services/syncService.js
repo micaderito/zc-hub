@@ -7,7 +7,7 @@ import { tokens, getMlToken, addResolution } from '../store.js';
 import { getSkuByMlItem, getSkuByTnVariant, getMlItemBySku, getTnVariantBySku } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask } from '../db.js';
+import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask, tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
 import { patchTnStock, patchTnPrice } from './conflictsService.js';
 
 /**
@@ -457,6 +457,17 @@ export async function approvePendingReturn(returnId) {
   const row = await getPendingReturnById(returnId);
   if (!row || row.status !== 'pending') return { ok: false, error: 'Devolución no encontrada o ya aprobada' };
 
+  // Si el webhook de cancelación ya restauró el stock de esta orden automáticamente (operación
+  // 'restore'), aprobar la devolución lo sumaría por segunda vez. La marca que deja este flujo es
+  // 'return_restore' justamente para no bloquearse a sí mismo cuando una orden tiene varios ítems.
+  const claimOrderId = String(row.saleOrderId || row.orderId || '');
+  if (claimOrderId && await hasOrderProcessingClaimed('mercadolibre', claimOrderId, 'restore')) {
+    return {
+      ok: false,
+      error: 'El stock de esta venta ya se había restaurado automáticamente al cancelarse la orden. Revisá el historial antes de volver a sumarlo.'
+    };
+  }
+
   let sku = (row.sku || '').trim() || null;
   if (!sku) {
     sku = getSkuByMlItem(row.itemId, row.variationId);
@@ -520,6 +531,9 @@ export async function approvePendingReturn(returnId) {
 
   if (mlRestored || tnRestored) {
     await setReturnApproved(returnId);
+    // Marca para que el webhook de cancelación no vuelva a restaurar ni recree la devolución
+    // pendiente si ML reenvía la notificación de esta orden más tarde.
+    if (claimOrderId) await tryClaimOrderProcessing('mercadolibre', claimOrderId, 'return_restore');
     return { ok: true, mlRestored, tnRestored };
   }
   return { ok: false, error: 'No se pudo restaurar el stock en ninguna plataforma', mlRestored, tnRestored };
