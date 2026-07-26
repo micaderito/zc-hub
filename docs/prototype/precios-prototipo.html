@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zona Cuaderno Hub — prototipo de Precios</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #e9ebef; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; }
+    .doc-note { max-width: 1240px; margin: 0 auto 16px; font-size: 13px; color: #5d6373; line-height: 1.5; }
+    .doc-note b { color: #1a1c2e; }
+    #zcp { max-width: 1240px; margin: 0 auto; }
+    .opt-switch { max-width: 1240px; margin: 0 auto 14px; display: flex; gap: 8px; align-items: center; }
+    .opt-switch button { font-family: inherit; font-size: 13px; padding: 9px 16px; border-radius: 10px; border: 0.5px solid rgba(20,22,40,.12); background: #fff; color: #5d6373; cursor: pointer; }
+    .opt-switch button.on { background: #5b54e6; color: #fff; border-color: transparent; font-weight: 500; }
+    .opt-switch span { font-size: 12px; color: #9aa0ad; margin-left: 6px; }
+  </style>
+</head>
+<body>
+  <div class="doc-note">
+    Prototipo de la sección <b>Precios</b> — dos opciones de UI para el mismo motor de cálculo.
+    No es funcional: es la guía visual. Usá el botón <b>Modo oscuro / Modo claro</b> abajo a la izquierda.
+    Los datos son reales (lista Punto Cero nov-2025 + planilla feb-2026).
+  </div>
+
+  <div class="opt-switch">
+    <button id="btn-a" class="on">Opción A — Planilla viva ✓ elegida</button>
+    <button id="btn-b">Opción B — Asistente (descartada)</button>
+    <span id="opt-desc">La elegida. La B queda de referencia — se conserva solo su paso de confirmación de mapeo.</span>
+  </div>
+
+  <div id="zcp" style="font-family:'Inter',sans-serif;border-radius:16px;overflow:hidden;border:0.5px solid var(--zc-bd);background:var(--zc-bg);color:var(--zc-tx);display:flex;min-height:720px">
+
+    <style>
+      #zcp{--zc-bg:#f5f6f8;--zc-surf:#ffffff;--zc-surf2:#eef0f3;--zc-bd:rgba(20,22,40,.12);--zc-bds:rgba(20,22,40,.22);--zc-tx:#1a1c2e;--zc-tx2:#5d6373;--zc-tx3:#9aa0ad;--zc-brand:#5b54e6;--zc-brandbg:#ecebfd;--zc-ml:#ffe600;--zc-mlbg:#fff7bf;--zc-mltx:#5c5400;--zc-tn:#2b8aef;--zc-tnbg:#e3eefc;--zc-tntx:#114e8e;--zc-ok:#1d9e75;--zc-okbg:#e1f5ee;--zc-warn:#ba7517;--zc-warnbg:#faeeda;--zc-err:#d04444;--zc-errbg:#fcebeb;}
+      #zcp.dark{--zc-bg:#0e1017;--zc-surf:#171a22;--zc-surf2:#1f232d;--zc-bd:rgba(255,255,255,.11);--zc-bds:rgba(255,255,255,.2);--zc-tx:#e8eaf0;--zc-tx2:#a2a8b5;--zc-tx3:#6a7180;--zc-brand:#8b85ff;--zc-brandbg:#26233f;--zc-ml:#ffe600;--zc-mlbg:#3a3600;--zc-mltx:#ffe600;--zc-tn:#67abf5;--zc-tnbg:#13314f;--zc-tntx:#9cc7f7;--zc-ok:#5dcaa5;--zc-okbg:#0f3a30;--zc-warn:#efa83a;--zc-warnbg:#3a2a0e;--zc-err:#e07a7a;--zc-errbg:#3a1414;}
+      #zcp *{box-sizing:border-box}
+      #zcp .nav-i{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;color:var(--zc-tx2);cursor:pointer;font-size:13px;border:none;background:none;width:100%;text-align:left}
+      #zcp .nav-i:hover{background:var(--zc-surf2)}
+      #zcp .nav-i.on{background:var(--zc-brandbg);color:var(--zc-brand);font-weight:500}
+      #zcp .nav-i i{font-size:17px}
+      #zcp .card{background:var(--zc-surf);border:0.5px solid var(--zc-bd);border-radius:12px}
+      #zcp .btn{font-family:inherit;font-size:12.5px;border:0.5px solid var(--zc-bd);background:var(--zc-surf);color:var(--zc-tx);border-radius:9px;padding:7px 13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+      #zcp .btn:hover{background:var(--zc-surf2)}
+      #zcp .btn.pri{background:var(--zc-brand);color:#fff;border-color:transparent}
+      #zcp .btn.pri:hover{filter:brightness(1.08)}
+      #zcp .btn-s{font-size:11px;padding:5px 10px}
+      #zcp .btn:disabled{opacity:.45;cursor:default}
+      #zcp .in,#zcp select.in{font-family:inherit;font-size:12.5px;width:100%;padding:7px 10px;border:0.5px solid var(--zc-bd);border-radius:8px;background:var(--zc-bg);color:var(--zc-tx)}
+      #zcp .lbl{font-size:11px;color:var(--zc-tx2);font-weight:500;display:flex;align-items:center;gap:6px;margin-bottom:5px}
+      #zcp .hint{font-size:10px;color:var(--zc-tx3);margin-top:4px;display:flex;align-items:center;gap:4px}
+      #zcp .badge{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;display:inline-flex;align-items:center;gap:3px}
+      #zcp .bml{background:var(--zc-mlbg);color:var(--zc-mltx)}
+      #zcp .btn2{background:var(--zc-tnbg);color:var(--zc-tntx)}
+      #zcp .bok{background:var(--zc-okbg);color:var(--zc-ok)}
+      #zcp .bwarn{background:var(--zc-warnbg);color:var(--zc-warn)}
+      #zcp .berr{background:var(--zc-errbg);color:var(--zc-err)}
+      #zcp .bbrand{background:var(--zc-brandbg);color:var(--zc-brand)}
+      #zcp .bneu{background:var(--zc-surf2);color:var(--zc-tx2)}
+      #zcp th{font-size:10px;color:var(--zc-tx3);font-weight:500;text-align:left;padding:7px 9px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+      #zcp td{font-size:12px;padding:8px 9px;border-top:0.5px solid var(--zc-bd);vertical-align:middle}
+      #zcp .num{text-align:right;font-variant-numeric:tabular-nums}
+      #zcp .opt{display:none}
+      #zcp .opt.on{display:flex;flex:1;min-width:0}
+      #zcp .thumb{width:34px;height:34px;border-radius:7px;background:var(--zc-surf2);display:flex;align-items:center;justify-content:center;color:var(--zc-tx3);flex-shrink:0}
+      #zcp .chip{display:inline-flex;align-items:center;gap:5px;background:var(--zc-surf);border:0.5px solid var(--zc-bd);border-radius:8px;padding:5px 9px;font-size:11.5px;color:var(--zc-tx2);cursor:pointer;white-space:nowrap}
+      #zcp .chip:hover{border-color:var(--zc-bds)}
+      #zcp .chip b{color:var(--zc-tx);font-weight:500;font-variant-numeric:tabular-nums}
+      #zcp .up{color:var(--zc-ok)}
+      #zcp .down{color:var(--zc-err)}
+      #zcp .g2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+      #zcp .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px}
+      #zcp .fld{margin-bottom:12px}
+      #zcp .ovr{outline:1.5px solid var(--zc-brand);outline-offset:-1.5px;border-radius:6px}
+      #zcp .cellin{font-family:inherit;font-size:12px;width:74px;padding:4px 6px;border:0.5px solid transparent;border-radius:6px;background:transparent;color:var(--zc-tx);text-align:right;font-variant-numeric:tabular-nums}
+      #zcp .cellin:hover{border-color:var(--zc-bd);background:var(--zc-bg)}
+      #zcp .cellin:focus{border-color:var(--zc-brand);background:var(--zc-bg);outline:none}
+      #zcp .step{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--zc-tx3)}
+      #zcp .step .n{width:22px;height:22px;border-radius:50%;border:0.5px solid var(--zc-bd);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+      #zcp .step.done{color:var(--zc-tx2)}
+      #zcp .step.done .n{background:var(--zc-okbg);color:var(--zc-ok);border-color:transparent}
+      #zcp .step.cur{color:var(--zc-brand);font-weight:500}
+      #zcp .step.cur .n{background:var(--zc-brand);color:#fff;border-color:transparent}
+      #zcp .rowx{background:var(--zc-surf2)}
+      #zcp .calcline{display:flex;justify-content:space-between;font-size:11.5px;padding:3px 0;color:var(--zc-tx2)}
+      #zcp .calcline b{font-weight:500;color:var(--zc-tx);font-variant-numeric:tabular-nums}
+      #zcp .calcline.tot{border-top:0.5px solid var(--zc-bd);margin-top:5px;padding-top:6px;color:var(--zc-tx);font-weight:500}
+      #zcp details summary{cursor:pointer;list-style:none}
+      #zcp details summary::-webkit-details-marker{display:none}
+    </style>
+
+    <aside style="width:172px;flex-shrink:0;background:var(--zc-surf);border-right:0.5px solid var(--zc-bd);padding:14px 10px;display:flex;flex-direction:column;gap:3px">
+      <div style="display:flex;align-items:center;gap:9px;padding:6px 10px 14px">
+        <div style="width:30px;height:30px;border-radius:9px;background:var(--zc-brand);display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0"><i class="ti ti-notebook" style="font-size:18px"></i></div>
+        <div style="line-height:1.1"><div style="font-size:13px;font-weight:500">Zona Cuaderno</div><div style="font-size:10px;color:var(--zc-tx3)">Hub de ventas</div></div>
+      </div>
+      <button class="nav-i"><i class="ti ti-layout-dashboard"></i>Inicio</button>
+      <button class="nav-i"><i class="ti ti-box"></i>Productos</button>
+      <button class="nav-i on"><i class="ti ti-tag"></i>Precios</button>
+      <button class="nav-i"><i class="ti ti-plus"></i>Crear producto</button>
+      <button class="nav-i"><i class="ti ti-alert-triangle"></i>Conflictos</button>
+      <button class="nav-i"><i class="ti ti-refresh"></i>Sincronización</button>
+      <div style="flex:1"></div>
+      <button id="zcp-th" class="nav-i"><i class="ti ti-moon"></i><span id="zcp-th-t">Modo oscuro</span></button>
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;margin-top:4px;border-top:0.5px solid var(--zc-bd)">
+        <div style="width:26px;height:26px;border-radius:50%;background:var(--zc-tnbg);color:var(--zc-tntx);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500">MD</div>
+        <div style="font-size:11px;color:var(--zc-tx2)">Mica</div>
+      </div>
+    </aside>
+
+    <!-- ══════════════════════════ OPCIÓN A — PLANILLA VIVA ══════════════════════════ -->
+    <div class="opt on" data-opt="a" style="flex-direction:column;background:var(--zc-bg)">
+
+      <div style="padding:16px 20px 0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px">
+          <div>
+            <h2 style="margin:0;font-size:18px;font-weight:500">Precios</h2>
+            <p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Del costo del proveedor al precio publicado, en una sola pasada.</p>
+          </div>
+          <div style="display:flex;gap:7px">
+            <button class="btn btn-s"><i class="ti ti-adjustments"></i>Reglas</button>
+            <button class="btn btn-s"><i class="ti ti-file-import"></i>Importar lista</button>
+          </div>
+        </div>
+
+        <!-- Selector de lista -->
+        <div class="card" style="padding:11px 14px;display:flex;align-items:center;gap:14px;margin-bottom:11px">
+          <i class="ti ti-file-typography" style="font-size:19px;color:var(--zc-brand)"></i>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px">
+              <select class="in" style="width:auto;font-weight:500;padding:4px 26px 4px 8px">
+                <option>Punto Cero — Marzo 2026</option>
+                <option>Punto Cero — Noviembre 2025</option>
+                <option>Sin lista (carga manual)</option>
+              </select>
+              <span class="badge bwarn"><i class="ti ti-sparkles" style="font-size:11px"></i>Nueva</span>
+            </div>
+            <div style="font-size:10.5px;color:var(--zc-tx3);margin-top:4px">
+              Importada hoy 09:14 desde <b style="font-weight:500;color:var(--zc-tx2)">LISTA MARZO 2026.pdf</b> · 61 códigos leídos · comparando contra Noviembre 2025
+            </div>
+          </div>
+          <div style="display:flex;gap:18px;text-align:right">
+            <div><div style="font-size:10px;color:var(--zc-tx3)">Suben</div><div style="font-size:15px;font-weight:500;color:var(--zc-ok);font-variant-numeric:tabular-nums">44</div></div>
+            <div><div style="font-size:10px;color:var(--zc-tx3)">Sin cambio</div><div style="font-size:15px;font-weight:500;font-variant-numeric:tabular-nums">9</div></div>
+            <div><div style="font-size:10px;color:var(--zc-tx3)">Sin mapear</div><div style="font-size:15px;font-weight:500;color:var(--zc-warn);font-variant-numeric:tabular-nums">8</div></div>
+          </div>
+        </div>
+
+        <!-- Barra de reglas -->
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px;flex-wrap:wrap">
+          <span style="font-size:10px;color:var(--zc-brand);text-transform:uppercase;letter-spacing:.03em;margin-right:3px;width:74px;font-weight:500">Esta compra</span>
+          <span class="chip" style="border-color:var(--zc-brand)"><i class="ti ti-discount-2" style="font-size:13px;color:var(--zc-brand)"></i>Descuentos <b>25% + 5%</b> <i class="ti ti-pencil" style="font-size:11px;color:var(--zc-brand)"></i></span>
+          <span class="chip" style="border-color:var(--zc-brand)"><i class="ti ti-trending-up" style="font-size:13px;color:var(--zc-brand)"></i>Ganancia <b>100%</b> <i class="ti ti-pencil" style="font-size:11px;color:var(--zc-brand)"></i></span>
+          <span style="font-size:10px;color:var(--zc-tx3);display:flex;align-items:center;gap:4px;margin-left:4px">
+            <i class="ti ti-info-circle" style="font-size:12px"></i>cambian según cuándo compres — se guardan con la lista
+          </span>
+          <div style="flex:1"></div>
+          <div style="position:relative">
+            <i class="ti ti-search" style="position:absolute;left:8px;top:6px;font-size:13px;color:var(--zc-tx3)"></i>
+            <input class="in" placeholder="Buscar SKU o producto…" style="width:190px;padding-left:26px;font-size:11.5px;padding-top:5px;padding-bottom:5px">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:11px;flex-wrap:wrap">
+          <span style="font-size:10px;color:var(--zc-tx3);text-transform:uppercase;letter-spacing:.03em;margin-right:3px;width:74px">Ajustes</span>
+          <span class="chip" style="opacity:.8"><i class="ti ti-percentage" style="font-size:13px"></i>Comisión ML <b>15%</b></span>
+          <span class="chip" style="opacity:.8"><i class="ti ti-stairs" style="font-size:13px"></i>Comisión fija <b>por tramo</b></span>
+          <span class="chip" style="opacity:.8"><i class="ti ti-receipt-tax" style="font-size:13px"></i>Impuestos <b>$300</b></span>
+          <span class="chip" style="opacity:.8"><i class="ti ti-truck" style="font-size:13px"></i>Envío gratis <b>&gt; $33.000</b></span>
+          <span class="chip" style="opacity:.8"><i class="ti ti-credit-card" style="font-size:13px"></i>Tarjeta <b>×1,3</b></span>
+          <span class="chip" style="opacity:.8"><i class="ti ti-arrow-bar-to-up" style="font-size:13px"></i>Redondeo <b>↑ $50</b></span>
+          <span style="font-size:10px;color:var(--zc-tx3);display:flex;align-items:center;gap:4px;margin-left:4px">
+            <i class="ti ti-lock" style="font-size:12px"></i>ya cargados —
+            <a href="#" style="color:var(--zc-brand);text-decoration:none">editar en Ajustes</a>
+          </span>
+        </div>
+      </div>
+
+      <!-- Tabla -->
+      <div style="flex:1;overflow:auto;padding:0 20px">
+        <div class="card" style="overflow:hidden">
+          <table style="width:100%;border-collapse:collapse">
+            <thead style="background:var(--zc-surf2)">
+              <tr>
+                <th style="width:30px;padding-left:12px"><input type="checkbox" checked></th>
+                <th>Producto</th>
+                <th>Código lista</th>
+                <th class="num">Bulto</th>
+                <th class="num">Costo u.</th>
+                <th class="num" style="color:var(--zc-tx3)">Transf. <span style="text-transform:none;letter-spacing:0;font-size:9px">(ref.)</span></th>
+                <th class="num" style="color:var(--zc-tntx)">Tienda Nube ↑</th>
+                <th class="num" style="color:var(--zc-mltx)">Mercado Libre ↑</th>
+                <th style="width:26px"></th>
+              </tr>
+            </thead>
+            <tbody>
+
+              <!-- fila 1 — expandible -->
+              <tr>
+                <td style="padding-left:12px"><input type="checkbox" checked></td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <div class="thumb"><i class="ti ti-notebook" style="font-size:15px"></i></div>
+                    <div style="min-width:0">
+                      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px">Mi colección A5 T/D 80hj removible</div>
+                      <div style="font-size:10px;color:var(--zc-tx3);display:flex;gap:5px;align-items:center;margin-top:1px">
+                        <span>30700</span><span>·</span>
+                        <span class="badge bml" style="font-size:9px;padding:1px 5px">ML</span>
+                        <span class="badge btn2" style="font-size:9px;padding:1px 5px">TN</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="badge bok"><i class="ti ti-link" style="font-size:10px"></i>30700</span></td>
+                <td class="num" style="color:var(--zc-tx2)">$ 78.900 <span class="up" style="font-size:10px">+12%</span></td>
+                <td class="num">$ 7.027</td>
+                <td class="num"><input class="cellin" value="14.100"></td>
+                <td class="num" style="color:var(--zc-tntx)">$ 18.350</td>
+                <td class="num"><input class="cellin ovr" value="19.900"><div style="font-size:9px;color:var(--zc-brand);margin-top:1px">manual</div></td>
+                <td><button class="btn btn-s" style="padding:3px 5px;border:none;background:none" onclick="var r=this.closest('tr').nextElementSibling;r.style.display=r.style.display==='none'?'table-row':'none';this.querySelector('i').classList.toggle('ti-chevron-down');this.querySelector('i').classList.toggle('ti-chevron-up')"><i class="ti ti-chevron-up" style="font-size:14px"></i></button></td>
+              </tr>
+              <!-- desglose -->
+              <tr class="rowx">
+                <td colspan="9" style="padding:0">
+                  <div style="padding:13px 16px 14px 51px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px">
+                    <div>
+                      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--zc-tx3);margin-bottom:6px">Costo</div>
+                      <div class="calcline"><span>Precio x bulto (lista)</span><b>$ 78.900</b></div>
+                      <div class="calcline"><span>− 25% descuento</span><b>$ 59.175</b></div>
+                      <div class="calcline"><span>− 5% adicional</span><b>$ 56.216</b></div>
+                      <div class="calcline"><span>÷ 8 unidades</span><b>$ 7.027</b></div>
+                      <div class="calcline tot"><span>Costo unitario</span><b>$ 7.027</b></div>
+                    </div>
+                    <div>
+                      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--zc-tx3);margin-bottom:6px">Tienda Nube</div>
+                      <div class="calcline"><span>+ 100% ganancia</span><b>$ 14.054</b></div>
+                      <div class="calcline"><span>Redondeo ↑ $50</span><b>$ 14.100</b></div>
+                      <div class="calcline tot" style="color:var(--zc-tx2)"><span>Transferencia <span style="font-size:9px;color:var(--zc-tx3)">referencia</span></span><b>$ 14.100</b></div>
+                      <div class="calcline" style="margin-top:6px"><span>× 1,3 tarjeta</span><b>$ 18.330</b></div>
+                      <div class="calcline"><span>Redondeo ↑ $50</span><b>$ 18.350</b></div>
+                      <div class="calcline tot"><span>Precio de lista <span class="badge btn2" style="font-size:8.5px;padding:0 4px">se publica</span></span><b>$ 18.350</b></div>
+                      <div style="font-size:10px;color:var(--zc-tx3);margin-top:7px;line-height:1.45;display:flex;gap:4px">
+                        <i class="ti ti-info-circle" style="font-size:12px;flex-shrink:0;margin-top:1px"></i>
+                        <span>Se publica un solo precio. La tienda aplica sola el descuento por transferencia.</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--zc-tx3);margin-bottom:6px">Mercado Libre</div>
+                      <div class="calcline"><span>Necesito que me ingrese</span><b>$ 14.054</b></div>
+                      <div class="calcline"><span>+ impuestos</span><b>$ 300</b></div>
+                      <div class="calcline">
+                        <span>+ comisión fija <span class="badge bneu" style="font-size:8.5px;padding:0 4px">tramo $15k–25k</span></span><b>$ 2.300</b>
+                      </div>
+                      <div class="calcline"><span>÷ (1 − 15% comisión)</span><b>$ 19.593</b></div>
+                      <div class="calcline"><span>Redondeo ↑ $50</span><b>$ 19.600</b></div>
+                      <div class="calcline tot"><span>Sugerido → <span style="color:var(--zc-brand)">tu ajuste</span></span><b>$ 19.600 → <span style="color:var(--zc-brand)">$ 19.900</span></b></div>
+                      <div style="font-size:10px;color:var(--zc-tx3);margin-top:7px;line-height:1.45">
+                        A $ 19.900 te quedan <b style="color:var(--zc-ok);font-weight:500">$ 14.315</b> netos · margen real <b style="color:var(--zc-ok);font-weight:500">103,7%</b>
+                      </div>
+                      <div style="font-size:10px;color:var(--zc-tx3);margin-top:6px;line-height:1.45;display:flex;gap:4px">
+                        <i class="ti ti-info-circle" style="font-size:12px;flex-shrink:0;margin-top:1px"></i>
+                        <span>El envío ($6.500) no entra: solo aplica arriba de $33.000.</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- fila 2 -->
+              <tr>
+                <td style="padding-left:12px"><input type="checkbox" checked></td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <div class="thumb"><i class="ti ti-file-stack" style="font-size:15px"></i></div>
+                    <div style="min-width:0">
+                      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px">Repuesto A4 rayado x 80hj 90g</div>
+                      <div style="font-size:10px;color:var(--zc-tx3);display:flex;gap:5px;align-items:center;margin-top:1px">
+                        <span>39001</span><span>·</span>
+                        <span class="badge bml" style="font-size:9px;padding:1px 5px">ML</span>
+                        <span class="badge btn2" style="font-size:9px;padding:1px 5px">TN</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="badge bok"><i class="ti ti-link" style="font-size:10px"></i>39001</span></td>
+                <td class="num" style="color:var(--zc-tx2)">$ 51.968 <span class="up" style="font-size:10px">+12%</span></td>
+                <td class="num">$ 4.628</td>
+                <td class="num"><input class="cellin" value="9.300"></td>
+                <td class="num" style="color:var(--zc-tntx)">$ 12.100</td>
+                <td class="num"><input class="cellin" value="12.650"></td>
+                <td><button class="btn btn-s" style="padding:3px 5px;border:none;background:none"><i class="ti ti-chevron-down" style="font-size:14px"></i></button></td>
+              </tr>
+
+              <!-- fila 3 — SKU renombrado, mapeo difuso -->
+              <tr>
+                <td style="padding-left:12px"><input type="checkbox" checked></td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <div class="thumb"><i class="ti ti-notebook" style="font-size:15px"></i></div>
+                    <div style="min-width:0">
+                      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px">Cuaderno A5 Tapa Dura Rosa — 30700-ROSA</div>
+                      <div style="font-size:10px;color:var(--zc-tx3);display:flex;gap:5px;align-items:center;margin-top:1px">
+                        <span>30700-ROSA</span><span>·</span>
+                        <span class="badge btn2" style="font-size:9px;padding:1px 5px">TN</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span class="badge bwarn" style="cursor:pointer"><i class="ti ti-help-circle" style="font-size:10px"></i>30700 · 87%</span>
+                  <div style="font-size:9px;color:var(--zc-tx3);margin-top:2px">sugerido — confirmar</div>
+                </td>
+                <td class="num" style="color:var(--zc-tx2)">$ 78.900 <span class="up" style="font-size:10px">+12%</span></td>
+                <td class="num">$ 7.027</td>
+                <td class="num"><input class="cellin" value="14.100"></td>
+                <td class="num" style="color:var(--zc-tntx)">$ 18.350</td>
+                <td class="num" style="color:var(--zc-tx3)">—</td>
+                <td><button class="btn btn-s" style="padding:3px 5px;border:none;background:none"><i class="ti ti-chevron-down" style="font-size:14px"></i></button></td>
+              </tr>
+
+              <!-- fila 4 — producto manual (no es de Punto Cero) -->
+              <tr>
+                <td style="padding-left:12px"><input type="checkbox" checked></td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <div class="thumb" style="background:var(--zc-brandbg);color:var(--zc-brand)"><i class="ti ti-pencil" style="font-size:15px"></i></div>
+                    <div style="min-width:0">
+                      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px">Lapicera Gel Pastel x6 — Otra marca</div>
+                      <div style="font-size:10px;color:var(--zc-tx3);display:flex;gap:5px;align-items:center;margin-top:1px">
+                        <span>GEL-PAS-6</span><span>·</span>
+                        <span class="badge bml" style="font-size:9px;padding:1px 5px">ML</span>
+                        <span class="badge btn2" style="font-size:9px;padding:1px 5px">TN</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="badge bbrand"><i class="ti ti-pencil" style="font-size:10px"></i>Costo manual</span></td>
+                <td class="num" style="color:var(--zc-tx3)">—</td>
+                <td class="num"><input class="cellin ovr" value="3.200"></td>
+                <td class="num"><input class="cellin" value="6.400"></td>
+                <td class="num" style="color:var(--zc-tntx)">$ 8.350</td>
+                <td class="num"><input class="cellin" value="9.650"></td>
+                <td><button class="btn btn-s" style="padding:3px 5px;border:none;background:none"><i class="ti ti-chevron-down" style="font-size:14px"></i></button></td>
+              </tr>
+
+              <!-- fila 5 -->
+              <tr>
+                <td style="padding-left:12px"><input type="checkbox" checked></td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <div class="thumb"><i class="ti ti-square-rounded" style="font-size:15px"></i></div>
+                    <div style="min-width:0">
+                      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px">Separadores Solapas A5</div>
+                      <div style="font-size:10px;color:var(--zc-tx3);display:flex;gap:5px;align-items:center;margin-top:1px">
+                        <span>39709</span><span>·</span>
+                        <span class="badge bml" style="font-size:9px;padding:1px 5px">ML</span>
+                        <span class="badge btn2" style="font-size:9px;padding:1px 5px">TN</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="badge bok"><i class="ti ti-link" style="font-size:10px"></i>30709</span></td>
+                <td class="num" style="color:var(--zc-tx2)">$ 11.200 <span class="up" style="font-size:10px">+12%</span></td>
+                <td class="num">$ 997</td>
+                <td class="num"><input class="cellin" value="2.000"></td>
+                <td class="num" style="color:var(--zc-tntx)">$ 2.600</td>
+                <td class="num"><input class="cellin" value="4.050"></td>
+                <td><button class="btn btn-s" style="padding:3px 5px;border:none;background:none"><i class="ti ti-chevron-down" style="font-size:14px"></i></button></td>
+              </tr>
+
+              <!-- fila 6 — sin mapear -->
+              <tr style="opacity:.72">
+                <td style="padding-left:12px"><input type="checkbox" disabled></td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <div class="thumb"><i class="ti ti-help-circle" style="font-size:15px"></i></div>
+                    <div style="min-width:0">
+                      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px">Repuesto Degradé Cuadros x40 hj</div>
+                      <div style="font-size:10px;color:var(--zc-tx3);margin-top:1px">solo en la lista — no existe en tus canales</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="badge berr"><i class="ti ti-unlink" style="font-size:10px"></i>30712</span></td>
+                <td class="num" style="color:var(--zc-tx2)">$ 30.464</td>
+                <td class="num">$ 2.712</td>
+                <td class="num" colspan="2" style="color:var(--zc-tx3);text-align:left;padding-left:14px">
+                  <button class="btn btn-s"><i class="ti ti-plus"></i>Crear producto</button>
+                </td>
+                <td class="num" style="color:var(--zc-tx3)">—</td>
+                <td></td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+        <div style="font-size:11px;color:var(--zc-tx3);padding:9px 2px 16px;display:flex;align-items:center;gap:6px">
+          <i class="ti ti-info-circle" style="font-size:13px"></i>
+          Mostrando 6 de 53 · los campos con <span style="color:var(--zc-brand)">borde violeta</span> son ajustes manuales tuyos y no se recalculan.
+        </div>
+      </div>
+
+      <!-- Barra de acción -->
+      <div style="border-top:0.5px solid var(--zc-bd);background:var(--zc-surf);padding:11px 20px;display:flex;align-items:center;gap:13px">
+        <div style="font-size:12px"><b style="font-weight:500">44 productos</b> <span style="color:var(--zc-tx2)">seleccionados</span></div>
+        <div style="height:15px;width:0.5px;background:var(--zc-bd)"></div>
+        <div style="font-size:11.5px;color:var(--zc-tx2);display:flex;align-items:center;gap:13px">
+          <span><span class="badge bml" style="font-size:9px;padding:1px 5px">ML</span> 41 cambios</span>
+          <span><span class="badge btn2" style="font-size:9px;padding:1px 5px">TN</span> 44 cambios</span>
+          <span style="color:var(--zc-tx3)">3 sin cambios</span>
+        </div>
+        <div style="flex:1"></div>
+        <button class="btn btn-s"><i class="ti ti-download"></i>Exportar CSV</button>
+        <button class="btn btn-s"><i class="ti ti-eye"></i>Ver cambios</button>
+        <button class="btn pri"><i class="ti ti-rocket"></i>Aplicar a ML y TN</button>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════ OPCIÓN B — ASISTENTE POR PASOS ══════════════════════════ -->
+    <div class="opt" data-opt="b" style="flex-direction:column;background:var(--zc-bg)">
+
+      <div style="padding:16px 20px 0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:15px">
+          <div>
+            <h2 style="margin:0;font-size:18px;font-weight:500">Actualizar precios</h2>
+            <p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Punto Cero — Marzo 2026 · importada hoy 09:14</p>
+          </div>
+          <button class="btn btn-s"><i class="ti ti-x"></i>Descartar</button>
+        </div>
+
+        <!-- Stepper -->
+        <div class="card" style="padding:12px 16px;display:flex;align-items:center;gap:12px;margin-bottom:14px">
+          <div class="step done"><span class="n"><i class="ti ti-check" style="font-size:12px"></i></span>Importar lista</div>
+          <div style="flex:1;height:0.5px;background:var(--zc-bd)"></div>
+          <div class="step done"><span class="n"><i class="ti ti-check" style="font-size:12px"></i></span>Mapear códigos</div>
+          <div style="flex:1;height:0.5px;background:var(--zc-bd)"></div>
+          <div class="step cur"><span class="n">3</span>Revisar precios</div>
+          <div style="flex:1;height:0.5px;background:var(--zc-bd)"></div>
+          <div class="step"><span class="n">4</span>Aplicar</div>
+        </div>
+      </div>
+
+      <div style="flex:1;display:flex;gap:14px;padding:0 20px;overflow:hidden;min-height:0">
+
+        <!-- Panel izq: reglas -->
+        <div style="width:238px;flex-shrink:0;overflow:auto">
+          <div class="card" style="padding:14px">
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:11px">
+              <i class="ti ti-adjustments" style="font-size:15px;color:var(--zc-brand)"></i>
+              <div style="font-size:13px;font-weight:500">Reglas de cálculo</div>
+            </div>
+
+            <div class="fld">
+              <div class="lbl"><i class="ti ti-building-store" style="font-size:12px"></i>Proveedor</div>
+              <select class="in" style="font-weight:500">
+                <option>Punto Cero</option>
+                <option>Be Positive (Agendas)</option>
+                <option>Decora tus sueños</option>
+                <option>Filgo (Casa Jujuy)</option>
+                <option>Everlast (Mochilas)</option>
+                <option>Chino</option>
+                <option>Cartucheras</option>
+              </select>
+              <div class="hint"><i class="ti ti-info-circle" style="font-size:11px"></i>Cada proveedor guarda sus propias reglas</div>
+            </div>
+
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--zc-tx3);margin:14px 0 8px">Costo</div>
+            <div class="fld"><div class="lbl">Cómo llega el costo</div>
+              <select class="in"><option>Precio por bulto (÷ cantidad)</option><option>Costo unitario directo</option><option>Precio por mayor</option></select>
+            </div>
+            <div class="fld"><div class="lbl">Descuento del proveedor</div>
+              <div style="display:flex;gap:6px">
+                <div style="position:relative;flex:1"><input class="in" value="25" style="padding-right:20px"><span style="position:absolute;right:8px;top:7px;font-size:11px;color:var(--zc-tx3)">%</span></div>
+                <div style="position:relative;flex:1"><input class="in" value="5" style="padding-right:20px"><span style="position:absolute;right:8px;top:7px;font-size:11px;color:var(--zc-tx3)">%</span></div>
+              </div>
+              <div class="hint"><i class="ti ti-info-circle" style="font-size:11px"></i>Se aplican en cadena</div>
+            </div>
+
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--zc-tx3);margin:14px 0 8px">Venta</div>
+            <div class="fld"><div class="lbl">Ganancia minorista</div>
+              <div style="position:relative"><input class="in" value="100" style="padding-right:20px"><span style="position:absolute;right:8px;top:7px;font-size:11px;color:var(--zc-tx3)">%</span></div>
+            </div>
+            <div class="fld"><div class="lbl">Recargo tarjeta</div>
+              <div style="position:relative"><input class="in" value="30" style="padding-right:20px"><span style="position:absolute;right:8px;top:7px;font-size:11px;color:var(--zc-tx3)">%</span></div>
+              <div class="hint"><i class="ti ti-credit-card" style="font-size:11px"></i>Sobre precio transferencia</div>
+            </div>
+            <div class="fld"><div class="lbl">Redondeo</div>
+              <select class="in"><option>Hacia arriba a $50</option><option>Hacia arriba a $100</option><option>Sin redondeo</option></select>
+            </div>
+
+          </div>
+
+          <!-- Bloque global de ML -->
+          <div class="card" style="padding:14px;margin-top:11px">
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px">
+              <span class="dot" style="width:11px;height:11px;border-radius:3px;background:var(--zc-ml)"></span>
+              <div style="font-size:13px;font-weight:500">Costos de Mercado Libre</div>
+            </div>
+            <div style="font-size:10px;color:var(--zc-tx3);margin-bottom:12px;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-world" style="font-size:11px"></i>Global — igual para todos los proveedores
+            </div>
+
+            <div class="fld"><div class="lbl">Comisión por vender <span class="badge bok" style="font-size:8.5px;padding:1px 5px"><i class="ti ti-cloud-download" style="font-size:9px"></i>API</span></div>
+              <div style="position:relative"><input class="in" value="15" style="padding-right:20px"><span style="position:absolute;right:8px;top:7px;font-size:11px;color:var(--zc-tx3)">%</span></div>
+              <div class="hint"><i class="ti ti-refresh" style="font-size:11px"></i>Sincronizada hoy · editable</div>
+            </div>
+
+            <div class="fld">
+              <div class="lbl">Comisión fija por tramo <span class="badge bok" style="font-size:8.5px;padding:1px 5px"><i class="ti ti-cloud-download" style="font-size:9px"></i>API</span></div>
+              <table style="width:100%;border-collapse:collapse;background:var(--zc-bg);border-radius:8px;overflow:hidden">
+                <tr><th style="padding:4px 8px;font-size:9px">Desde</th><th style="padding:4px 8px;font-size:9px">Hasta</th><th style="padding:4px 8px;font-size:9px;text-align:right">Fija</th></tr>
+                <tr><td style="padding:4px 8px;font-size:11px;border-top:none">$ 0</td><td style="padding:4px 8px;font-size:11px;border-top:none">$ 15.000</td><td style="padding:4px 8px;font-size:11px;border-top:none;text-align:right;font-variant-numeric:tabular-nums">$ 1.115</td></tr>
+                <tr><td style="padding:4px 8px;font-size:11px">$ 15.000</td><td style="padding:4px 8px;font-size:11px">$ 25.000</td><td style="padding:4px 8px;font-size:11px;text-align:right;font-variant-numeric:tabular-nums">$ 2.300</td></tr>
+                <tr><td style="padding:4px 8px;font-size:11px">$ 25.000</td><td style="padding:4px 8px;font-size:11px">$ 33.000</td><td style="padding:4px 8px;font-size:11px;text-align:right;font-variant-numeric:tabular-nums">$ 2.810</td></tr>
+                <tr><td style="padding:4px 8px;font-size:11px">$ 33.000</td><td style="padding:4px 8px;font-size:11px;color:var(--zc-tx3)">—</td><td style="padding:4px 8px;font-size:11px;text-align:right;font-variant-numeric:tabular-nums">$ 0</td></tr>
+              </table>
+              <div class="hint"><i class="ti ti-stairs" style="font-size:11px"></i>Según el precio publicado, no el producto</div>
+            </div>
+
+            <div class="fld"><div class="lbl">Impuestos por venta</div>
+              <div style="position:relative"><input class="in" value="300" style="padding-left:19px"><span style="position:absolute;left:8px;top:7px;font-size:11px;color:var(--zc-tx3)">$</span></div>
+              <div class="hint"><i class="ti ti-pencil" style="font-size:11px"></i>A mano — la API no lo sabe</div>
+            </div>
+
+            <div class="fld" style="margin-bottom:0"><div class="lbl">Envío gratis obligatorio</div>
+              <div class="g2">
+                <div style="position:relative"><input class="in" value="33.000" style="padding-left:19px"><span style="position:absolute;left:8px;top:7px;font-size:11px;color:var(--zc-tx3)">$</span></div>
+                <div style="position:relative"><input class="in" value="6.500" style="padding-left:19px"><span style="position:absolute;left:8px;top:7px;font-size:11px;color:var(--zc-tx3)">$</span></div>
+              </div>
+              <div class="hint"><i class="ti ti-truck" style="font-size:11px"></i>Umbral · costo del envío que pagás vos</div>
+            </div>
+          </div>
+
+          <!-- Alerta del despeje -->
+          <div class="card" style="padding:12px 14px;margin-top:11px;background:var(--zc-warnbg);border-color:var(--zc-warn)">
+            <div style="font-size:11.5px;color:var(--zc-warn);line-height:1.5">
+              <i class="ti ti-alert-triangle" style="font-size:13px;vertical-align:-2px"></i>
+              <b style="font-weight:500">Revisar el despeje del envío</b><br>
+              <span style="color:var(--zc-tx2)">Arriba de $33.000 tu Excel suma los $6.500 <b style="font-weight:500">después</b> de dividir por la comisión. Eso te deja <b style="font-weight:500;color:var(--zc-tx)">$1.147 menos</b> por venta. Ya pasa en 8 productos.</span>
+              <div style="display:flex;gap:6px;margin-top:9px">
+                <button class="btn btn-s" style="font-size:10.5px">Replicar Excel</button>
+                <button class="btn btn-s pri" style="font-size:10.5px">Corregir</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="padding:12px 14px;margin-top:11px;background:var(--zc-brandbg);border-color:transparent">
+            <div style="font-size:11.5px;color:var(--zc-brand);line-height:1.5">
+              <i class="ti ti-bulb" style="font-size:13px;vertical-align:-2px"></i>
+              <b style="font-weight:500">Impacto</b><br>
+              <span style="color:var(--zc-tx2)">Con estas reglas, tu margen neto promedio en ML queda en <b style="font-weight:500;color:var(--zc-tx)">98,4%</b>.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel der: revisión -->
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+
+          <!-- filtros -->
+          <div style="display:flex;gap:6px;margin-bottom:11px;flex-wrap:wrap;flex-shrink:0">
+            <span class="chip" style="background:var(--zc-brand);color:#fff;border-color:transparent">Todos <b style="color:#fff">53</b></span>
+            <span class="chip"><i class="ti ti-trending-up" style="font-size:13px;color:var(--zc-ok)"></i>Suben <b>44</b></span>
+            <span class="chip"><i class="ti ti-equal" style="font-size:13px"></i>Sin cambio <b>9</b></span>
+            <span class="chip"><i class="ti ti-alert-triangle" style="font-size:13px;color:var(--zc-warn)"></i>Revisar <b>3</b></span>
+            <span class="chip"><i class="ti ti-pencil" style="font-size:13px;color:var(--zc-brand)"></i>Manuales <b>6</b></span>
+            <div style="flex:1"></div>
+            <span class="chip"><i class="ti ti-arrows-sort" style="font-size:13px"></i>Mayor variación</span>
+          </div>
+
+          <div style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:9px;padding-bottom:4px">
+
+            <!-- card producto 1 -->
+            <div class="card" style="padding:12px 14px">
+              <div style="display:flex;align-items:center;gap:11px;margin-bottom:11px">
+                <div class="thumb" style="width:38px;height:38px"><i class="ti ti-notebook" style="font-size:17px"></i></div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12.5px;font-weight:500">Mi colección A5 T/D 80hj removible</div>
+                  <div style="font-size:10px;color:var(--zc-tx3);display:flex;gap:6px;align-items:center;margin-top:2px">
+                    <span>SKU 30700</span><span>·</span><span class="badge bok" style="font-size:9px;padding:1px 5px"><i class="ti ti-link" style="font-size:9px"></i>30700 en la lista</span>
+                  </div>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-size:10px;color:var(--zc-tx3)">Costo unitario</div>
+                  <div style="font-size:12.5px;font-weight:500;font-variant-numeric:tabular-nums">$ 6.270 <i class="ti ti-arrow-right" style="font-size:11px;color:var(--zc-tx3)"></i> $ 7.027 <span class="up" style="font-size:10px">+12%</span></div>
+                </div>
+              </div>
+
+              <div class="g3">
+                <div style="background:var(--zc-bg);border-radius:9px;padding:9px 11px">
+                  <div style="font-size:10px;color:var(--zc-tx2);margin-bottom:4px;display:flex;align-items:center;gap:4px"><span class="badge btn2" style="font-size:8.5px;padding:1px 4px">TN</span>Transferencia</div>
+                  <div style="font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">$ 14.100</div>
+                  <div style="font-size:10px;color:var(--zc-tx3);margin-top:2px">desde $ 12.600 <span class="up">+11,9%</span></div>
+                </div>
+                <div style="background:var(--zc-bg);border-radius:9px;padding:9px 11px">
+                  <div style="font-size:10px;color:var(--zc-tx2);margin-bottom:4px;display:flex;align-items:center;gap:4px"><span class="badge btn2" style="font-size:8.5px;padding:1px 4px">TN</span>Lista / tarjeta</div>
+                  <div style="font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">$ 18.350</div>
+                  <div style="font-size:10px;color:var(--zc-tx3);margin-top:2px">desde $ 16.380 <span class="up">+11,9%</span></div>
+                </div>
+                <div style="background:var(--zc-bg);border-radius:9px;padding:9px 11px;outline:1.5px solid var(--zc-brand);outline-offset:-1.5px">
+                  <div style="font-size:10px;color:var(--zc-tx2);margin-bottom:4px;display:flex;align-items:center;gap:4px"><span class="badge bml" style="font-size:8.5px;padding:1px 4px">ML</span>Publicación <span style="color:var(--zc-brand)">· editado</span></div>
+                  <div style="font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">$ 19.900</div>
+                  <div style="font-size:10px;color:var(--zc-tx3);margin-top:2px">sugerido $ 19.593 · desde $ 17.850</div>
+                </div>
+              </div>
+
+              <details style="margin-top:9px">
+                <summary style="font-size:11px;color:var(--zc-brand);display:flex;align-items:center;gap:4px">
+                  <i class="ti ti-math-function" style="font-size:12px"></i>Ver cómo se calculó
+                </summary>
+                <div style="margin-top:10px;padding-top:10px;border-top:0.5px solid var(--zc-bd);display:grid;grid-template-columns:1fr 1fr;gap:22px">
+                  <div>
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--zc-tx3);margin-bottom:5px">Del bulto al costo</div>
+                    <div class="calcline"><span>Precio x bulto</span><b>$ 78.900</b></div>
+                    <div class="calcline"><span>− 25% · − 5%</span><b>$ 56.216</b></div>
+                    <div class="calcline"><span>÷ 8 u. por bulto</span><b>$ 7.027</b></div>
+                    <div class="calcline tot"><span>Costo unitario</span><b>$ 7.027</b></div>
+                  </div>
+                  <div>
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--zc-tx3);margin-bottom:5px">A cuánto publicar en ML</div>
+                    <div class="calcline"><span>Ganancia que querés (100%)</span><b>$ 14.054</b></div>
+                    <div class="calcline"><span>+ impuestos</span><b>$ 300</b></div>
+                    <div class="calcline"><span>+ comisión fija (tramo $15k–25k)</span><b>$ 2.300</b></div>
+                    <div class="calcline"><span>÷ (1 − 15% comisión ML)</span><b>$ 19.593</b></div>
+                    <div class="calcline tot"><span>Precio sugerido</span><b>$ 19.593</b></div>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <!-- card producto 2 — a revisar -->
+            <div class="card" style="padding:12px 14px;border-color:var(--zc-warn)">
+              <div style="display:flex;align-items:center;gap:11px;margin-bottom:11px">
+                <div class="thumb" style="width:38px;height:38px;background:var(--zc-warnbg);color:var(--zc-warn)"><i class="ti ti-alert-triangle" style="font-size:17px"></i></div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12.5px;font-weight:500">Cuaderno A5 Tapa Dura Rosa</div>
+                  <div style="font-size:10px;color:var(--zc-tx3);display:flex;gap:6px;align-items:center;margin-top:2px">
+                    <span>SKU 30700-ROSA</span><span>·</span>
+                    <span class="badge bwarn" style="font-size:9px;padding:1px 5px"><i class="ti ti-help-circle" style="font-size:9px"></i>¿es 30700? · 87%</span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-s"><i class="ti ti-search"></i>Otro código</button>
+                  <button class="btn btn-s pri"><i class="ti ti-check"></i>Confirmar</button>
+                </div>
+              </div>
+              <div style="background:var(--zc-warnbg);border-radius:9px;padding:9px 11px;font-size:11.5px;color:var(--zc-warn);line-height:1.5">
+                Tu SKU <b style="font-weight:500">30700-ROSA</b> no está tal cual en la lista. Lo asocié a <b style="font-weight:500">30700 — «A5 T/Dx80hjs.Removible c/elástico»</b> porque el código base coincide.
+                Confirmalo una vez y queda recordado para las próximas listas.
+              </div>
+            </div>
+
+            <!-- card producto 3 — manual -->
+            <div class="card" style="padding:12px 14px">
+              <div style="display:flex;align-items:center;gap:11px;margin-bottom:11px">
+                <div class="thumb" style="width:38px;height:38px;background:var(--zc-brandbg);color:var(--zc-brand)"><i class="ti ti-pencil" style="font-size:17px"></i></div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12.5px;font-weight:500">Lapicera Gel Pastel x6</div>
+                  <div style="font-size:10px;color:var(--zc-tx3);display:flex;gap:6px;align-items:center;margin-top:2px">
+                    <span>SKU GEL-PAS-6</span><span>·</span><span class="badge bbrand" style="font-size:9px;padding:1px 5px"><i class="ti ti-pencil" style="font-size:9px"></i>Costo manual</span>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:7px">
+                  <span style="font-size:10px;color:var(--zc-tx2)">Costo unitario</span>
+                  <div style="position:relative"><input class="in" value="3.200" style="width:88px;padding-left:19px;text-align:right"><span style="position:absolute;left:8px;top:7px;font-size:11px;color:var(--zc-tx3)">$</span></div>
+                </div>
+              </div>
+              <div class="g3">
+                <div style="background:var(--zc-bg);border-radius:9px;padding:9px 11px">
+                  <div style="font-size:10px;color:var(--zc-tx2);margin-bottom:4px"><span class="badge btn2" style="font-size:8.5px;padding:1px 4px">TN</span> Transferencia</div>
+                  <div style="font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">$ 6.400</div>
+                </div>
+                <div style="background:var(--zc-bg);border-radius:9px;padding:9px 11px">
+                  <div style="font-size:10px;color:var(--zc-tx2);margin-bottom:4px"><span class="badge btn2" style="font-size:8.5px;padding:1px 4px">TN</span> Lista / tarjeta</div>
+                  <div style="font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">$ 8.350</div>
+                </div>
+                <div style="background:var(--zc-bg);border-radius:9px;padding:9px 11px">
+                  <div style="font-size:10px;color:var(--zc-tx2);margin-bottom:4px"><span class="badge bml" style="font-size:8.5px;padding:1px 4px">ML</span> Publicación</div>
+                  <div style="font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">$ 9.650</div>
+                </div>
+              </div>
+              <div style="font-size:10px;color:var(--zc-tx3);margin-top:8px;display:flex;align-items:center;gap:5px">
+                <i class="ti ti-info-circle" style="font-size:12px"></i>
+                No es de Punto Cero: cargás el costo a mano y el resto se calcula con las mismas reglas.
+              </div>
+            </div>
+
+            <!-- card producto 4 — sin cambio -->
+            <div class="card" style="padding:11px 14px;opacity:.75">
+              <div style="display:flex;align-items:center;gap:11px">
+                <div class="thumb" style="width:32px;height:32px"><i class="ti ti-equal" style="font-size:15px"></i></div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12px;font-weight:500">Sobres de PVC Glitter A5</div>
+                  <div style="font-size:10px;color:var(--zc-tx3);margin-top:1px">SKU 30750 · el proveedor no cambió el precio</div>
+                </div>
+                <div style="font-size:11.5px;color:var(--zc-tx2);font-variant-numeric:tabular-nums">$ 1.430 · $ 1.859 · $ 3.350</div>
+                <span class="badge bneu">Sin cambios</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Barra de acción -->
+      <div style="border-top:0.5px solid var(--zc-bd);background:var(--zc-surf);padding:11px 20px;display:flex;align-items:center;gap:13px;margin-top:14px">
+        <button class="btn btn-s"><i class="ti ti-arrow-left"></i>Volver al mapeo</button>
+        <div style="flex:1"></div>
+        <div style="font-size:11.5px;color:var(--zc-warn);display:flex;align-items:center;gap:5px">
+          <i class="ti ti-alert-triangle" style="font-size:13px"></i>3 pendientes de confirmar
+        </div>
+        <button class="btn btn-s"><i class="ti ti-download"></i>Exportar CSV</button>
+        <button class="btn pri"><i class="ti ti-arrow-right"></i>Continuar — 44 cambios</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    (function () {
+      var root = document.getElementById('zcp');
+      var thBtn = document.getElementById('zcp-th');
+      thBtn.addEventListener('click', function () {
+        root.classList.toggle('dark');
+        var dark = root.classList.contains('dark');
+        document.getElementById('zcp-th-t').textContent = dark ? 'Modo claro' : 'Modo oscuro';
+        thBtn.querySelector('i').className = dark ? 'ti ti-sun' : 'ti ti-moon';
+      });
+
+      var a = document.getElementById('btn-a'), b = document.getElementById('btn-b');
+      var desc = document.getElementById('opt-desc');
+      function show(which) {
+        root.querySelectorAll('.opt').forEach(function (o) {
+          o.classList.toggle('on', o.dataset.opt === which);
+        });
+        a.classList.toggle('on', which === 'a');
+        b.classList.toggle('on', which === 'b');
+        desc.textContent = which === 'a'
+          ? 'La elegida. Tabla densa tipo Excel, calculada y aplicable.'
+          : 'Descartada como pantalla. Se conserva solo su paso de confirmación de mapeo.';
+      }
+      a.addEventListener('click', function () { show('a'); });
+      b.addEventListener('click', function () { show('b'); });
+    })();
+  </script>
+</body>
+</html>

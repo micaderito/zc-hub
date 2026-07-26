@@ -3,7 +3,8 @@ import { syncPricesForSku, approvePendingReturn, revertSyncAudit } from '../serv
 import { getResolvedSkus, getSkuByMlItem, getMlToken, tokens } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, setSyncEnabled, getAuditLog, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, releaseOrderProcessingClaim, getPendingMlTasks, retryMlTask, waitForMlTask } from '../db.js';
+import { mlLimiterStats } from '../lib/mlLimiter.js';
+import { getSyncEnabled, setSyncEnabled, getAuditLog, getStockHistoryBySku, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, hasPendingReturnForOrderItem, releaseOrderProcessingClaim, getPendingMlTasks, getActiveMlTasks, retryMlTask, waitForMlTask } from '../db.js';
 import { onMercadoLibreOrderPaid, onTiendaNubeOrderPaid } from '../services/syncService.js';
 
 export const syncRoutes = Router();
@@ -127,13 +128,31 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
   }
 });
 
-/** Historial de sincronización. Query: limit, offset, orderId (buscar por nº venta o por id. ítem en la venta). */
+/**
+ * Historial de cambios de stock.
+ * Query: limit, offset, orderId (busca por nº venta, id. ítem o SKU), source ('venta'|'manual'|'devolucion').
+ */
 syncRoutes.get('/audit', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 100, 500);
     const offset = Number(req.query.offset) || 0;
     const search = (req.query.orderId || '').trim();
-    const { rows, total } = await getAuditLog(limit, offset, search);
+    const source = (req.query.source || '').trim();
+    const { rows, total } = await getAuditLog(limit, offset, search, source);
+    res.json({ rows, total });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Historial de stock de un producto puntual, por SKU (ambos canales juntos). */
+syncRoutes.get('/audit/by-sku/:sku', async (req, res) => {
+  const sku = (req.params.sku || '').trim();
+  if (!sku) return res.status(400).json({ error: 'sku es requerido' });
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const offset = Number(req.query.offset) || 0;
+    const { rows, total } = await getStockHistoryBySku(sku, limit, offset);
     res.json({ rows, total });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -148,6 +167,13 @@ syncRoutes.post('/audit/:id/revert', async (req, res) => {
     const row = await getAuditRowById(id);
     if (!row) return res.status(404).json({ error: 'Registro no encontrado' });
     if (row.revertedAt) return res.status(400).json({ error: 'Este registro ya fue revertido' });
+    // Revertir significa "deshacer el descuento que hizo una venta": vuelve a sumar la cantidad
+    // vendida. Un cambio manual no tiene cantidad ni orden que deshacer — se corrige volviendo a
+    // fijar el stock a mano. Sin esta guarda, revertSyncAudit fallaba igual pero con un error
+    // engañoso ("SKU o cantidad inválidos").
+    if (row.source === 'manual') {
+      return res.status(400).json({ error: 'Este cambio se hizo a mano, no viene de una venta: no se puede revertir automáticamente. Volvé a fijar el stock desde Precio y stock.' });
+    }
     const result = await revertSyncAudit(row);
     if (!result.ok) return res.status(502).json({ error: result.error || 'No se pudo revertir' });
     const updated = await setAuditReverted(id);
@@ -196,9 +222,97 @@ syncRoutes.get('/returns', async (req, res) => {
 /** Estados de devolución ML que consideramos ya cerrados (no mostrar como pendiente). */
 const ML_RETURN_CLOSED_STATUSES = ['closed', 'delivered', 'expired', 'failed', 'cancelled', 'canceled', 'not_delivered'];
 
-/** Caché del último fetch de devoluciones (evita 429 por clics seguidos en Actualizar). TTL 2 min. */
+/** Caché del último fetch de devoluciones OK (evita 429 por clics seguidos en Actualizar). TTL 2 min. */
 const RETURNS_FETCH_CACHE_TTL_MS = 2 * 60 * 1000;
 let returnsFetchCache = { at: 0, result: null };
+
+/**
+ * Caché NEGATIVO: cuánto esperar antes de reintentar tras un fetch que no pudo completarse
+ * (429/error, o ML saturado). Sin esto, cada re-montaje de la pantalla vuelve a disparar el crawl
+ * de reclamos contra un caño que ML ya tiene bloqueado, y el circuit breaker escala sin fin. El
+ * fetch de reclamos (getClaimsSearch) es de los más limitados de la API de ML, así que conviene
+ * un respiro generoso antes de volver a intentar.
+ */
+const RETURNS_FETCH_COOLDOWN_MS = 60 * 1000;
+let returnsFetchCooldownUntil = 0;
+
+/** Solo para tests: limpia el estado de caché/cooldown del fetch de devoluciones entre casos. */
+export function __resetReturnsFetchStateForTests() {
+  returnsFetchCache = { at: 0, result: null };
+  returnsFetchCooldownUntil = 0;
+}
+
+/** Resuelve el SKU de un order_item de ML: primero el mapeo en memoria, si no el ítem en ML. */
+async function resolveSkuForOrderItem(accessToken, itemId, variationId) {
+  let sku = getSkuByMlItem(itemId, variationId);
+  if (sku) return sku;
+  const item = await ml.getItem(accessToken, itemId);
+  if (item) sku = ml.extractSkuFromItem(item);
+  if (!sku && item?.variations?.length && variationId) {
+    const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
+    if (v?.seller_sku) sku = v.seller_sku;
+  }
+  return sku || null;
+}
+
+/**
+ * Agrega a sync_pending_returns un ítem por cada order_item de una orden de ML, sin duplicar.
+ * Se usa desde el alta manual por pack y desde el webhook de órdenes cuando una cancelación
+ * resulta ser una devolución en tránsito (entrega fallida), caso en el que ML no abre ningún claim.
+ *
+ * `order_id` guarda el nro de venta que ve la usuaria (pack_id si la venta es de un carrito) y
+ * `sale_order_id` el id de la orden individual, que es el que usan el webhook y sync_processed_orders.
+ * @returns {{ created: number, skipped: number, rows: object[] }}
+ */
+export async function insertPendingReturnsForOrder(accessToken, order, opts = {}) {
+  if (!hasDatabase()) return { created: 0, skipped: 0, rows: [] };
+  const items = order?.order_items ?? [];
+  if (items.length === 0) return { created: 0, skipped: 0, rows: [] };
+
+  const saleOrderId = String(order?.id ?? opts.saleOrderId ?? '');
+  const displayOrderId = String(opts.displayOrderId ?? order?.pack_id ?? order?.id ?? saleOrderId);
+  const buyerNickname = opts.buyerNickname ?? order?.buyer?.nickname ?? order?.buyer?.first_name ?? null;
+  const dedupeIds = [...new Set([saleOrderId, displayOrderId].filter(Boolean))];
+
+  let created = 0;
+  let skipped = 0;
+  const rows = [];
+  for (const oi of items) {
+    const itemId = oi?.item?.id;
+    if (!itemId) continue;
+    const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
+
+    let exists = false;
+    for (const id of dedupeIds) {
+      if (await hasPendingReturnForOrderItem(id, itemId, variationId)) {
+        exists = true;
+        break;
+      }
+    }
+    if (exists) {
+      skipped++;
+      continue;
+    }
+
+    const row = await insertPendingReturn({
+      orderId: displayOrderId,
+      saleOrderId: saleOrderId || null,
+      itemId,
+      variationId: variationId ?? undefined,
+      sku: await resolveSkuForOrderItem(accessToken, itemId, variationId),
+      quantity: oi?.quantity ?? 1,
+      productLabel: oi?.item?.title ?? null,
+      reason: opts.reason ?? null,
+      buyerNickname,
+      claimDate: opts.claimDate ?? null
+    });
+    if (row) {
+      created++;
+      rows.push(row);
+    }
+  }
+  return { created, skipped, rows };
+}
 
 /**
  * Procesa un reclamo de ML: si es devolución (return) y no está cerrada, agrega sus ítems a sync_pending_returns.
@@ -263,6 +377,7 @@ export async function processClaimToPendingReturns(accessToken, claim) {
     const row = await insertPendingReturn({
       claimId,
       orderId: displayOrderId,
+      saleOrderId: String(order.id ?? orderId),
       itemId,
       variationId: variationId ?? undefined,
       sku: sku || null,
@@ -285,6 +400,18 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
 
   if (returnsFetchCache.result && Date.now() - returnsFetchCache.at < RETURNS_FETCH_CACHE_TTL_MS) {
     return res.json({ ...returnsFetchCache.result, cached: true });
+  }
+
+  // El caño a ML está pausado (circuit breaker abierto por 429 sostenidos): NO crawlear reclamos.
+  // Pegarle ahora solo re-alimenta la tormenta y hace escalar el cooldown. Servimos el último
+  // resultado bueno si lo hay; si no, avisamos "ocupado" sin marcarlo como error (204-ish suave).
+  const stats = mlLimiterStats();
+  const mlBusy = stats.circuitLevel > 0 || stats.pausedForMs > 0;
+  if (mlBusy || Date.now() < returnsFetchCooldownUntil) {
+    if (returnsFetchCache.result) {
+      return res.json({ ...returnsFetchCache.result, cached: true, stale: true });
+    }
+    return res.json({ ok: true, skippedCrawl: true, mlBusy: true, claimsChecked: 0, created: 0, skipped: 0 });
   }
 
   try {
@@ -335,6 +462,9 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
     res.json(result);
   } catch (e) {
     console.error('returns/fetch:', e);
+    // No pudo completarse (típicamente 429): abrir un cooldown para que un re-montaje rápido no
+    // vuelva a disparar el crawl y siga alimentando la tormenta. Ver RETURNS_FETCH_COOLDOWN_MS.
+    returnsFetchCooldownUntil = Date.now() + RETURNS_FETCH_COOLDOWN_MS;
     res.status(500).json({ error: e.message || 'Error al traer devoluciones desde ML' });
   }
 });
@@ -373,41 +503,20 @@ syncRoutes.post('/returns', async (req, res) => {
     }
     console.log('[returns/add] pack/orden %s: %s órdenes', packId, ordersList.length);
     const created = [];
+    let skipped = 0;
     for (const o of ordersList) {
       const orderId = o?.id ?? o;
       if (orderId == null) continue;
       const order = await ml.getOrder(accessToken, String(orderId));
       if (!order?.order_items?.length) continue;
-      for (const oi of order.order_items) {
-        const itemId = oi?.item?.id;
-        const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
-        const quantity = oi?.quantity ?? 1;
-        const productLabel = oi?.item?.title ?? null;
-        if (!itemId) continue;
-        let sku = getSkuByMlItem(itemId, variationId);
-        if (!sku) {
-          const item = await ml.getItem(accessToken, itemId);
-          if (item) sku = ml.extractSkuFromItem(item);
-          if (!sku && item?.variations?.length && variationId) {
-            const v = item.variations.find(vr => String(vr.id ?? vr.id_plain) === String(variationId));
-            if (v?.seller_sku) sku = v.seller_sku;
-          }
-        }
-        const row = await insertPendingReturn({
-          orderId: String(packId),
-          itemId,
-          variationId: variationId ?? undefined,
-          sku: sku || null,
-          quantity,
-          productLabel
-        });
-        if (row) created.push(row);
-      }
+      const out = await insertPendingReturnsForOrder(accessToken, order, { displayOrderId: String(packId) });
+      created.push(...out.rows);
+      skipped += out.skipped;
     }
-    if (ordersList.length > 0 && created.length === 0) {
+    if (ordersList.length > 0 && created.length === 0 && skipped === 0) {
       return res.status(502).json({ error: 'Se encontró el pack pero no se pudieron cargar ítems (GET order falló o no hay order_items). Revisá la consola del servidor [ML] getOrder failed.' });
     }
-    res.status(201).json({ created: created.length, rows: created });
+    res.status(201).json({ created: created.length, skipped, rows: created });
   } catch (e) {
     console.error('[returns/add]', e);
     res.status(500).json({ error: e.message || 'Error al cargar el pack' });
@@ -437,6 +546,20 @@ syncRoutes.get('/pending-tasks', async (req, res) => {
     const offset = Number(req.query.offset) || 0;
     const { tasks, total, activeCount, failedCount } = await getPendingMlTasks(limit, offset);
     res.json({ tasks, total, activeCount, failedCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Tareas en vuelo (pending/processing) para que Precio y stock sepa qué filas están esperando
+ * al worker y no las muestre como conflicto. Devuelve [] sin DB: sin cola, nada está en vuelo.
+ */
+syncRoutes.get('/active-tasks', async (_req, res) => {
+  if (!hasDatabase()) return res.json({ tasks: [] });
+  try {
+    const tasks = await getActiveMlTasks();
+    res.json({ tasks });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

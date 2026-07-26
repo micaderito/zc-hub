@@ -4,7 +4,51 @@
       <h1>Crear producto</h1>
       <p class="subtitle">Cargá los datos comunes una vez y publicá en los dos canales.</p>
     </div>
+    <button type="button" class="zc-btn" (click)="toggleDraftsPanel()">
+      <i class="ti ti-files"></i> Mis borradores
+      @if (savedDrafts().length) { <span class="zc-badge">{{ savedDrafts().length }}</span> }
+    </button>
   </header>
+
+  @if (draftsPanelOpen()) {
+    <section class="zc-card block drafts-panel">
+      <div class="block-head">
+        <i class="ti ti-files"></i>
+        <span class="block-title">Mis borradores</span>
+        <button type="button" class="icon-btn" (click)="toggleDraftsPanel()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      @if (savedDrafts().length) {
+        @for (d of savedDrafts(); track d.id) {
+          <div class="draft-row" [class.is-current]="d.id === currentDraftId()">
+            <i class="ti ti-file-text"></i>
+            <div class="draft-info">
+              <span class="draft-name">{{ d.label }}</span>
+              <span class="hint">Guardado {{ d.savedAt | date: 'short' }}</span>
+            </div>
+            @if (d.id === currentDraftId()) {
+              <span class="zc-badge ok">editando</span>
+            } @else {
+              <button type="button" class="zc-btn small" (click)="openDraft(d.id)"><i class="ti ti-folder-open"></i> Abrir</button>
+            }
+            <button type="button" class="icon-btn" (click)="deleteDraft(d.id)" aria-label="Eliminar borrador"><i class="ti ti-trash"></i></button>
+          </div>
+        }
+      } @else {
+        <p class="muted">Todavía no guardaste ningún borrador. Usá "Guardar borrador" al final del formulario.</p>
+      }
+    </section>
+  }
+
+  @if (draftRestored()) {
+    <div class="publish-warning draft-banner">
+      <i class="ti ti-file-text"></i>
+      <span>
+        Restauramos tu borrador más reciente
+        @if (draftSavedAt()) { <span class="muted">({{ draftSavedAt()! | date: 'short' }})</span> }.
+      </span>
+      <button type="button" class="zc-btn small" (click)="startNewDraft()"><i class="ti ti-plus"></i> Empezar un producto nuevo</button>
+    </div>
+  }
 
   <div class="legend">
     <span><span class="req">*</span> obligatorio</span>
@@ -20,26 +64,20 @@
       <span class="block-note">— se comparten en ambos canales</span>
     </div>
 
-    <div class="grid-2 field">
-      <label>
-        <span class="lbl">Nombre base <span class="req">*</span></span>
-        <input class="zc-input" [(ngModel)]="draft().common.baseName" />
-      </label>
-      <label>
-        <span class="lbl">SKU <span class="req">*</span></span>
-        <input class="zc-input" [(ngModel)]="draft().common.sku" />
-        <span class="hint"><i class="ti ti-link"></i> ML: SELLER_SKU · TN: sku — es la clave que une ambos</span>
-      </label>
-    </div>
+    <label class="field">
+      <span class="lbl">Nombre base <span class="req">*</span></span>
+      <input class="zc-input" [(ngModel)]="draft().common.baseName" placeholder="Ej. Cuaderno A4 Tapa Dura" />
+      <span class="hint"><i class="ti ti-info-circle"></i> el SKU va por variante; si el producto no tiene variantes se carga abajo, en «Variantes»</span>
+    </label>
 
     <div class="grid-3 field">
       <label>
         <span class="lbl">Marca</span>
-        <input class="zc-input" [(ngModel)]="draft().common.brand" />
+        <input class="zc-input" [(ngModel)]="draft().common.brand" placeholder="Ej. Zona Cuaderno" />
       </label>
       <label>
         <span class="lbl">Código de barras (GTIN/EAN)</span>
-        <input class="zc-input" [(ngModel)]="draft().common.barcode" />
+        <input class="zc-input" [(ngModel)]="draft().common.barcode" placeholder="Ej. 7791234567890" />
       </label>
       <label>
         <span class="lbl">Condición <span class="req">*</span></span>
@@ -63,7 +101,7 @@
 
     <label class="field no-mb">
       <span class="lbl">Palabras clave / SEO</span>
-      <input class="zc-input" [(ngModel)]="draft().common.seoKeywords" />
+      <input class="zc-input" [(ngModel)]="draft().common.seoKeywords" placeholder="Ej. cuaderno, tapa dura, a4, oficina" />
     </label>
   </section>
 
@@ -105,53 +143,100 @@
       </span>
       @if (draft().ml.title.inherited) {
         <div class="inherited" (click)="makeOwn(draft().ml.title, draft().common.baseName)">
-          <span>{{ draft().common.baseName }}</span>
+          <span [class.muted]="!draft().common.baseName">{{ draft().common.baseName || 'Se toma del nombre base — clic para escribir uno propio' }}</span>
           <i class="ti ti-pencil"></i>
         </div>
       } @else {
-        <input class="zc-input is-own" [(ngModel)]="draft().ml.title.value" />
+        <input class="zc-input is-own" [(ngModel)]="draft().ml.title.value" placeholder="Ej. Cuaderno A4 Tapa Dura Premium Anillado 480g" />
         <span class="hint revert" (click)="revert(draft().ml.title)"><i class="ti ti-rotate"></i> común: {{ draft().common.baseName }}</span>
       }
     </div>
 
     <div class="grid-2 field">
-      <label>
-        <span class="lbl">Categoría ML (category_id) <span class="req">*</span></span>
+      <div class="cat-field">
+        <span class="lbl">Categoría ML <span class="req">*</span></span>
+
+        @if (draft().ml.categoryId) {
+          <div class="cat-selected">
+            <i class="ti ti-category"></i>
+            <span class="cat-selected-name">{{ draft().ml.categoryName || draft().ml.categoryId }}</span>
+            <code>{{ draft().ml.categoryId }}</code>
+            <button type="button" class="icon-btn" (click)="clearMlCategory()" aria-label="Quitar categoría"><i class="ti ti-x"></i></button>
+          </div>
+        } @else {
+          <span class="hint muted">Todavía no elegiste una categoría.</span>
+        }
+
         <div class="with-btn">
-          <input class="zc-input" [(ngModel)]="draft().ml.categoryId" />
-          <button type="button" class="zc-btn small"><i class="ti ti-wand"></i> Predecir</button>
+          <button type="button" class="zc-btn small" (click)="predictMlCategory()" [disabled]="mlPredicting()">
+            <i class="ti ti-wand"></i> Sugerir por título
+          </button>
+          <button type="button" class="zc-btn small" (click)="openMlTree()">
+            <i class="ti ti-list-tree"></i> Explorar categorías
+          </button>
         </div>
-      </label>
+
+        @if (mlPredicting()) { <span class="hint"><i class="ti ti-loader"></i> buscando categorías…</span> }
+        @if (mlPredictError()) { <span class="hint error">{{ mlPredictError() }}</span> }
+        @if (mlPredictions().length) {
+          <ul class="pred-list">
+            @for (p of mlPredictions(); track p.category_id) {
+              <li class="pred-item" (click)="applyMlPrediction(p)">
+                <span class="pred-name">{{ p.category_name }}</span>
+                <span class="pred-domain">{{ p.domain_name }}</span>
+                <code>{{ p.category_id }}</code>
+              </li>
+            }
+          </ul>
+        }
+      </div>
       <label>
         <span class="lbl">Tipo de publicación <span class="req">*</span></span>
-        <select class="zc-select" [(ngModel)]="draft().ml.listingType">
+        <select class="zc-select" [(ngModel)]="draft().ml.listingType" (ngModelChange)="onMlPriceChange()">
           <option value="gold_special">Clásica (gold_special)</option>
           <option value="gold_pro">Premium (gold_pro)</option>
           <option value="free">Gratuita (free)</option>
         </select>
+        <span class="hint">
+          <i class="ti ti-info-circle"></i>
+          define exposición y comisión: Clásica es la estándar (menor comisión); Premium mejora el
+          posicionamiento (mayor comisión); Gratuita solo aplica a categorías específicas de ML
+          (inmuebles, vehículos, empleos) — no a productos como los tuyos.
+        </span>
       </label>
     </div>
 
-    <!-- atributos de categoría (dinámicos) -->
+    <!-- características de categoría (dinámicas) -->
     <div class="field">
-      <span class="lbl">Atributos de la categoría <span class="req">*</span></span>
-      <div class="attrs">
-        @for (attr of draft().ml.attributes; track $index) {
-          <div class="attr-row">
-            <span class="attr-name">{{ attr.name || attr.id }}</span>
-            @if (attr.inherited) {
-              <span class="attr-val">{{ attr.value }} <span class="tag tag-com"><i class="ti ti-link"></i></span></span>
-            } @else {
-              <input class="zc-input attr-input" [(ngModel)]="attr.value" />
+      <span class="lbl">Características de la categoría</span>
+      @if (mlAttrsLoading()) { <span class="hint"><i class="ti ti-loader"></i> cargando características de la categoría…</span> }
+      @if (mlAttrsError()) { <span class="hint error">{{ mlAttrsError() }}</span> }
+      @if (!draft().ml.attributes.length && !mlAttrsLoading()) {
+        <span class="hint muted">Elegí una categoría para cargar sus características.</span>
+      }
+
+      @if (mlRequiredAttrs().length) {
+        <div class="attrs">
+          @for (attr of mlRequiredAttrs(); track attr) {
+            <ng-container [ngTemplateOutlet]="attrRow" [ngTemplateOutletContext]="{ attr }"></ng-container>
+          }
+        </div>
+      }
+
+      @if (mlOptionalAttrs().length) {
+        <details class="attrs-optional">
+          <summary><i class="ti ti-adjustments"></i> Más características (opcionales) · {{ mlOptionalAttrs().length }}</summary>
+          <div class="attrs">
+            @for (attr of mlOptionalAttrs(); track attr) {
+              <ng-container [ngTemplateOutlet]="attrRow" [ngTemplateOutletContext]="{ attr }"></ng-container>
             }
-            <button type="button" class="icon-btn" (click)="removeMlAttribute($index)" aria-label="Quitar"><i class="ti ti-x"></i></button>
           </div>
-        }
-      </div>
-      <div class="attrs-actions">
-        <button type="button" class="zc-btn small" (click)="addMlAttribute()"><i class="ti ti-plus"></i> Agregar atributo</button>
-        <span class="hint"><i class="ti ti-refresh"></i> se cargan según la categoría (GET /categories/{{ '{' }}id{{ '}' }}/attributes)</span>
-      </div>
+        </details>
+      }
+
+      @if (draft().ml.attributes.length) {
+        <span class="hint"><i class="ti ti-info-circle"></i> las que dejes vacías no se envían</span>
+      }
     </div>
 
     <div class="grid-2 field">
@@ -163,10 +248,12 @@
           <option>Sin garantía</option>
         </select>
       </label>
-      <label>
-        <span class="lbl">Garantía — tiempo</span>
-        <input class="zc-input" [(ngModel)]="draft().ml.warrantyTime" />
-      </label>
+      @if (draft().ml.warrantyType !== 'Sin garantía') {
+        <label>
+          <span class="lbl">Garantía — tiempo</span>
+          <input class="zc-input" [(ngModel)]="draft().ml.warrantyTime" placeholder="Ej. 90 días" />
+        </label>
+      }
     </div>
 
     <div class="field">
@@ -193,23 +280,14 @@
           <i class="ti ti-pencil"></i>
         </div>
       } @else {
-        <textarea class="zc-textarea is-own" rows="2" [(ngModel)]="draft().ml.description.value"></textarea>
+        <textarea class="zc-textarea is-own" rows="2" [(ngModel)]="draft().ml.description.value" placeholder="Describí el producto para la publicación de ML"></textarea>
         <span class="hint revert" (click)="revert(draft().ml.description)"><i class="ti ti-rotate"></i> volver a heredar</span>
       }
     </div>
 
     <div class="field no-mb">
       <span class="lbl">Imágenes <span class="tag tag-own"><i class="ti ti-pencil"></i> propias de ML</span></span>
-      <div class="thumbs">
-        @for (img of draft().ml.images; track $index) {
-          <div class="thumb">
-            <i class="ti ti-photo"></i>
-            <button type="button" class="thumb-x" (click)="removeImage('ml', $index)" aria-label="Quitar"><i class="ti ti-x"></i></button>
-          </div>
-        }
-        <button type="button" class="thumb add" (click)="addImage('ml')" aria-label="Agregar imagen"><i class="ti ti-plus"></i></button>
-      </div>
-      <span class="hint">hasta ~10 · la primera es la principal</span>
+      <ng-container [ngTemplateOutlet]="gallery" [ngTemplateOutletContext]="{ channel: 'ml', limit: mlMaxPictures() }"></ng-container>
     </div>
   </section>
 
@@ -251,48 +329,95 @@
         </span>
         @if (draft().tn.nameEs.inherited) {
           <div class="inherited" (click)="makeOwn(draft().tn.nameEs, draft().common.baseName)">
-            <span>{{ draft().common.baseName }}</span>
+            <span [class.muted]="!draft().common.baseName">{{ draft().common.baseName || 'Se toma del nombre base — clic para escribir uno propio' }}</span>
             <i class="ti ti-pencil"></i>
           </div>
         } @else {
-          <input class="zc-input is-own" [(ngModel)]="draft().tn.nameEs.value" />
+          <input class="zc-input is-own" [(ngModel)]="draft().tn.nameEs.value" placeholder="Ej. Cuaderno A4 Tapa Dura" />
           <span class="hint revert" (click)="revert(draft().tn.nameEs)"><i class="ti ti-rotate"></i> común: {{ draft().common.baseName }}</span>
         }
       </div>
       <label>
         <span class="lbl">Nombre (pt)</span>
-        <input class="zc-input" [(ngModel)]="draft().tn.namePt" />
+        <input class="zc-input" [(ngModel)]="draft().tn.namePt" placeholder="Ej. Caderno A4 Capa Dura" />
         <span class="hint"><i class="ti ti-language"></i> TN admite varios idiomas</span>
       </label>
     </div>
 
-    <div class="grid-2 field">
+    <div class="field">
       <label>
         <span class="lbl">Handle / URL</span>
-        <input class="zc-input" [(ngModel)]="draft().tn.handle" />
+        <input class="zc-input" [(ngModel)]="draft().tn.handle" placeholder="Ej. cuaderno-a4-tapa-dura" />
       </label>
-      <label>
-        <span class="lbl">Categorías TN</span>
-        <input class="zc-input" [(ngModel)]="draft().tn.categories" />
+    </div>
+
+    <div class="field">
+      <span class="lbl">Categorías TN</span>
+      @if (tnCategoriesLoading()) {
+        <span class="hint"><i class="ti ti-loader"></i> cargando categorías de la tienda…</span>
+      } @else if (tnCategoriesError()) {
+        <span class="hint error">
+          {{ tnCategoriesError() }}
+          <button type="button" class="zc-btn small" (click)="loadTnCategories()"><i class="ti ti-refresh"></i> Reintentar</button>
+        </span>
+      } @else {
+        @if (draft().tn.categories.length) {
+          <div class="cat-chips">
+            @for (id of draft().tn.categories; track id) {
+              <span class="chip">
+                {{ tnCategoryName(id) }}
+                <button type="button" class="chip-x" (click)="toggleTnCategory(id)" aria-label="Quitar"><i class="ti ti-x"></i></button>
+              </span>
+            }
+          </div>
+        }
+        <details class="cat-picker">
+          <summary><i class="ti ti-plus"></i> Elegir categorías existentes</summary>
+          <div class="cat-picker-list">
+            @for (c of tnCategories(); track c.id) {
+              <label class="cat-option">
+                <input type="checkbox" [checked]="isTnCategorySelected(c.id)" (change)="toggleTnCategory(c.id)" />
+                <span>{{ c.path }}</span>
+              </label>
+            }
+            @if (!tnCategories().length) {
+              <span class="muted">La tienda no tiene categorías. Creá una desde el panel de Tienda Nube.</span>
+            }
+          </div>
+        </details>
+        <span class="hint"><i class="ti ti-info-circle"></i> se guardan como IDs de categorías existentes; podés elegir varias</span>
+      }
+    </div>
+
+    <div class="field">
+      <div class="seo-head">
+        <span class="lbl">SEO</span>
+        <button type="button" class="zc-btn small" (click)="generateSeo()" [disabled]="seoGenerating()">
+          <i class="ti" [class.ti-sparkles]="!seoGenerating()" [class.ti-loader]="seoGenerating()"></i>
+          {{ seoGenerating() ? 'Generando…' : 'Generar con IA' }}
+        </button>
+      </div>
+      @if (seoError()) { <span class="hint error">{{ seoError() }}</span> }
+      <div class="grid-2">
+        <label>
+          <span class="lbl">SEO — título</span>
+          <input class="zc-input" [(ngModel)]="draft().tn.seoTitle" maxlength="70" placeholder="Ej. Cuaderno A4 Tapa Dura | Zona Cuaderno" />
+          <span class="hint">{{ draft().tn.seoTitle.length }}/70</span>
+        </label>
+        <label>
+          <span class="lbl">SEO — descripción</span>
+          <input class="zc-input" [(ngModel)]="draft().tn.seoDescription" maxlength="320" placeholder="Ej. Cuaderno premium tapa dura, envío a todo el país" />
+          <span class="hint">{{ draft().tn.seoDescription.length }}/320</span>
+        </label>
+      </div>
+      <label class="field no-mb">
+        <span class="lbl">Tags (etiquetas de búsqueda)</span>
+        <input class="zc-input" [(ngModel)]="draft().tn.tags" placeholder="Ej. cuaderno a4, tapa dura, escolar" />
+        <span class="hint"><i class="ti ti-search"></i> términos con los que te buscan; se generan junto al SEO</span>
       </label>
     </div>
 
     <div class="grid-2 field">
-      <label>
-        <span class="lbl">SEO — título</span>
-        <input class="zc-input" [(ngModel)]="draft().tn.seoTitle" />
-      </label>
-      <label>
-        <span class="lbl">SEO — descripción</span>
-        <input class="zc-input" [(ngModel)]="draft().tn.seoDescription" />
-      </label>
-    </div>
-
-    <div class="grid-3 field">
-      <label>
-        <span class="lbl">Tags</span>
-        <input class="zc-input" [(ngModel)]="draft().tn.tags" />
-      </label>
       <label>
         <span class="lbl">Video (URL)</span>
         <input class="zc-input" [(ngModel)]="draft().tn.videoUrl" placeholder="https://youtu.be/…" />
@@ -314,22 +439,14 @@
           <i class="ti ti-pencil"></i>
         </div>
       } @else {
-        <textarea class="zc-textarea is-own" rows="2" [(ngModel)]="draft().tn.description.value"></textarea>
+        <textarea class="zc-textarea is-own" rows="2" [(ngModel)]="draft().tn.description.value" placeholder="Describí el producto para Tienda Nube (admite HTML)"></textarea>
         <span class="hint revert" (click)="revert(draft().tn.description)"><i class="ti ti-rotate"></i> volver a heredar</span>
       }
     </div>
 
     <div class="field no-mb">
       <span class="lbl">Imágenes <span class="tag tag-own"><i class="ti ti-pencil"></i> propias de TN</span></span>
-      <div class="thumbs">
-        @for (img of draft().tn.images; track $index) {
-          <div class="thumb">
-            <i class="ti ti-photo"></i>
-            <button type="button" class="thumb-x" (click)="removeImage('tn', $index)" aria-label="Quitar"><i class="ti ti-x"></i></button>
-          </div>
-        }
-        <button type="button" class="thumb add" (click)="addImage('tn')" aria-label="Agregar imagen"><i class="ti ti-plus"></i></button>
-      </div>
+      <ng-container [ngTemplateOutlet]="gallery" [ngTemplateOutletContext]="{ channel: 'tn', limit: TN_MAX_PICTURES }"></ng-container>
     </div>
   </section>
 
@@ -338,12 +455,46 @@
     <div class="block-head">
       <i class="ti ti-layout-grid"></i>
       <span class="block-title">Variantes</span>
-      <span class="block-note">— cada combinación lleva su SKU, precio y stock por canal</span>
+      <span class="block-note">— cada combinación lleva su SKU, precio por canal y un stock único</span>
     </div>
 
     @if (!hasVariants()) {
-      <div class="empty-variants">
-        <p>Producto simple (sin variantes). Agregá un eje (tamaño, color…) para crear una matriz.</p>
+      <div class="simple-pricing">
+        <p class="muted">Producto simple (sin variantes). Cargá SKU, precio y stock, o agregá un eje para crear variantes.</p>
+        <label class="field">
+          <span class="lbl">SKU <span class="req">*</span></span>
+          <input class="zc-input" [(ngModel)]="draft().common.sku" placeholder="Ej. CUA-A4-TD" />
+          <span class="hint"><i class="ti ti-link"></i> ML: SELLER_SKU · TN: sku — es la clave que une ambos canales</span>
+        </label>
+        <div class="simple-grid">
+          <label>
+            <span class="lbl"><span class="dot dot-ml"></span> Precio ML ({{ draft().ml.currency }}) <span class="req">*</span></span>
+            <input class="zc-input" type="number" min="0" [(ngModel)]="draft().ml.basePrice" (ngModelChange)="onMlPriceChange()" />
+            @if (mlFeeLoading()) {
+              <span class="hint"><i class="ti ti-loader"></i> calculando comisión…</span>
+            }
+            @if (!mlFeeLoading() && mlFee(); as fee) {
+              <span class="hint fee-hint">
+                <i class="ti ti-receipt-2"></i>
+                Comisión ML{{ fee.percentage != null ? ' (' + fee.percentage + '%)' : '' }}:
+                {{ fee.saleFee | currency: fee.currency : 'symbol' : '1.0-0' }} · recibís
+                <strong>{{ fee.net | currency: fee.currency : 'symbol' : '1.0-0' }}</strong>
+              </span>
+            }
+            @if (!mlFeeLoading() && !mlFee() && !draft().ml.categoryId && draft().ml.basePrice) {
+              <span class="hint muted">elegí la categoría de ML para ver cuánto recibís</span>
+            }
+          </label>
+          <label>
+            <span class="lbl">◆ Precio TN <span class="req">*</span></span>
+            <input class="zc-input" type="number" min="0" [(ngModel)]="draft().tn.basePrice" />
+          </label>
+          <label>
+            <span class="lbl">Stock <span class="req">*</span></span>
+            <input class="zc-input" type="number" min="0" [(ngModel)]="draft().common.baseStock" />
+            <span class="hint">el mismo stock se manda a los dos canales</span>
+          </label>
+        </div>
         <button type="button" class="zc-btn small" (click)="addAxis()"><i class="ti ti-plus"></i> Agregar eje de variante</button>
       </div>
     } @else {
@@ -368,9 +519,8 @@
               }
               <th>SKU</th>
               <th><span class="dot dot-ml"></span> Precio</th>
-              <th><span class="dot dot-ml"></span> Stock</th>
               <th class="th-tn">◆ Precio</th>
-              <th class="th-tn">◆ Stock</th>
+              <th>Stock</th>
               <th></th>
             </tr>
           </thead>
@@ -382,16 +532,62 @@
                 }
                 <td><input class="zc-input cell mono" [(ngModel)]="v.sku" /></td>
                 <td><input class="zc-input cell" type="number" [(ngModel)]="v.ml.price" /></td>
-                <td><input class="zc-input cell" type="number" [(ngModel)]="v.ml.stock" /></td>
                 <td><input class="zc-input cell" type="number" [(ngModel)]="v.tn.price" /></td>
-                <td><input class="zc-input cell" type="number" [(ngModel)]="v.tn.stock" /></td>
+                <td><input class="zc-input cell" type="number" [(ngModel)]="v.stock" /></td>
                 <td><button type="button" class="icon-btn" (click)="removeVariant(v.id)" aria-label="Quitar variante"><i class="ti ti-trash"></i></button></td>
               </tr>
             }
           </tbody>
+          <tfoot>
+            <tr>
+              <td class="add-variant-cell" [attr.colspan]="draft().axes.length + 5">
+                <button type="button" class="add-variant-row" (click)="addVariant()">
+                  <i class="ti ti-plus"></i> Agregar variante
+                </button>
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
-      <button type="button" class="zc-btn small" (click)="addVariant()"><i class="ti ti-plus"></i> Agregar variante</button>
+
+      @if (draft().ml.images.length || draft().tn.images.length) {
+        <div class="variant-images field">
+          <span class="lbl">Fotos por variante</span>
+          <span class="hint">
+            Elegí qué fotos muestra cada variante. ML admite varias (hasta {{ mlMaxPicturesPerVar() }});
+            TN {{ tnMultiPerVariant() ? 'admite varias (1 producto por variante)' : 'admite una (1 publicación con variantes)' }}.
+          </span>
+          @for (v of draft().variants; track v.id) {
+            <div class="vimg-row">
+              <span class="vimg-label">{{ v.sku || v.values.join(' / ') || 'Variante' }}</span>
+              @if (draft().ml.images.length) {
+                <div class="vimg-group">
+                  <span class="vimg-ch"><span class="dot dot-ml"></span> ML</span>
+                  @for (img of draft().ml.images; track img.id) {
+                    <button type="button" class="vimg-thumb" [class.sel]="isVariantMlImage(v, img.id)"
+                            (click)="toggleVariantMlImage(v, img.id)" [title]="img.name">
+                      <img [src]="img.previewUrl" [alt]="img.name" />
+                      @if (isVariantMlImage(v, img.id)) { <i class="ti ti-check"></i> }
+                    </button>
+                  }
+                </div>
+              }
+              @if (draft().tn.images.length) {
+                <div class="vimg-group">
+                  <span class="vimg-ch">◆ TN</span>
+                  @for (img of draft().tn.images; track img.id) {
+                    <button type="button" class="vimg-thumb" [class.sel]="isVariantTnImage(v, img.id)"
+                            (click)="toggleVariantTnImage(v, img.id)" [title]="img.name">
+                      <img [src]="img.previewUrl" [alt]="img.name" />
+                      @if (isVariantTnImage(v, img.id)) { <i class="ti ti-check"></i> }
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
     }
   </section>
 
@@ -420,8 +616,25 @@
   }
 
   <!-- ===== Acciones ===== -->
+  <div class="publish-warning">
+    <i class="ti ti-alert-triangle"></i>
+    <span>
+      Al publicar se crean <strong>publicaciones reales y activas en ambos canales</strong>
+      (Mercado Libre y Tienda Nube). Revisá los datos antes de continuar.
+    </span>
+  </div>
   <div class="actions">
-    <button type="button" class="zc-btn">Guardar borrador</button>
+    <div class="draft-actions">
+      <button type="button" class="zc-btn" (click)="saveDraft()"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
+      @if (currentDraftId()) {
+        <button type="button" class="zc-btn" (click)="startNewDraft()" title="Empezar un producto nuevo (este borrador queda guardado)">
+          <i class="ti ti-plus"></i> Nuevo producto
+        </button>
+      }
+      @if (draftSavedAt()) {
+        <span class="hint">Guardado {{ draftSavedAt()! | date: 'short' }}</span>
+      }
+    </div>
     <button type="button" class="zc-btn primary" (click)="publish()" [disabled]="publishing()">
       <i class="ti ti-rocket"></i> {{ publishing() ? 'Publicando…' : 'Publicar en ambos' }}
     </button>
@@ -436,3 +649,116 @@
     <span class="tag tag-own"><i class="ti ti-pencil"></i> propio</span>
   }
 </ng-template>
+
+<!-- fila de característica (atributo) de ML: reutilizada por obligatorias y opcionales -->
+<ng-template #attrRow let-attr="attr">
+  <div class="attr-row">
+    <span class="attr-name">
+      {{ attr.name || attr.id }}
+      @if (attr.required) { <span class="req">*</span> }
+    </span>
+    @if (attr.inherited) {
+      <span class="attr-val">{{ attr.value }} <span class="tag tag-com"><i class="ti ti-link"></i></span></span>
+    } @else if (attr.allowedValues?.length) {
+      <!-- Cualquier atributo con valores cerrados (list, boolean Sí/No, etc.) va como desplegable. -->
+      <select class="zc-select attr-input" [ngModel]="attr.valueId ?? ''" (ngModelChange)="setMlAttributeValue(attr, $event)">
+        <option value="">{{ attr.valueType === 'boolean' ? 'Sí / No…' : 'Elegí una opción…' }}</option>
+        @for (opt of attr.allowedValues; track opt.id) {
+          <option [value]="opt.id">{{ opt.name }}</option>
+        }
+      </select>
+    } @else if (attr.valueType === 'number_unit' && attr.allowedUnits?.length) {
+      <span class="attr-unit">
+        <input class="zc-input attr-input" [(ngModel)]="attr.value" placeholder="ej. 20 {{ attr.allowedUnits![0] }}" />
+      </span>
+    } @else {
+      <input class="zc-input attr-input" [(ngModel)]="attr.value" [attr.type]="attr.valueType === 'number' ? 'number' : 'text'" />
+    }
+  </div>
+</ng-template>
+
+<!-- galería reutilizable (ML y TN): subir archivos, reordenar con drag, portada = primera -->
+<ng-template #gallery let-channel="channel" let-limit="limit">
+  <div class="gallery">
+    @for (img of images(channel); track img.id; let i = $index) {
+      <div class="gimg" [class.is-cover]="i === 0" draggable="true"
+           (dragstart)="onImageDragStart(channel, i)"
+           (dragover)="$event.preventDefault()"
+           (drop)="onImageDrop(channel, i)">
+        <img [src]="img.previewUrl" [alt]="img.name" draggable="false" />
+        @if (i === 0) { <span class="cover-badge"><i class="ti ti-star-filled"></i> Portada</span> }
+        <div class="gimg-actions">
+          @if (i !== 0) {
+            <button type="button" class="gicon" (click)="makeCover(channel, i)" title="Hacer portada" aria-label="Hacer portada"><i class="ti ti-star"></i></button>
+          }
+          <button type="button" class="gicon" (click)="removeImage(channel, i)" title="Quitar" aria-label="Quitar"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+    }
+    @if (images(channel).length < limit) {
+      <label class="gadd">
+        <input type="file" accept="image/*" multiple hidden
+               (change)="onImageFiles(channel, $any($event.target).files); $any($event.target).value = ''" />
+        <i class="ti ti-camera-plus"></i>
+        <span>Subir</span>
+      </label>
+    }
+  </div>
+  @if (uploadingImage()) { <span class="hint"><i class="ti ti-loader"></i> subiendo…</span> }
+  @if (imageError()) { <span class="hint error">{{ imageError() }}</span> }
+  <span class="hint"><i class="ti ti-arrows-move"></i> arrastrá para reordenar · la primera es la portada · {{ images(channel).length }}/{{ limit }}</span>
+</ng-template>
+
+<!-- ===== Modal: explorador de categorías de Mercado Libre ===== -->
+@if (mlTreeOpen()) {
+  <div class="cat-modal-backdrop" (click)="closeMlTree()">
+    <div class="cat-modal" (click)="$event.stopPropagation()">
+      <header class="cat-modal-head">
+        <span><i class="ti ti-list-tree"></i> Elegí una categoría de Mercado Libre</span>
+        <button type="button" class="icon-btn" (click)="closeMlTree()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </header>
+
+      <nav class="cat-breadcrumb">
+        <button type="button" class="crumb" (click)="mlTreeBreadcrumb(null)">Inicio</button>
+        @for (c of mlTreeNode()?.path_from_root ?? []; track c.id) {
+          <span class="sep">›</span>
+          <button type="button" class="crumb" (click)="mlTreeBreadcrumb(c.id)">{{ c.name }}</button>
+        }
+      </nav>
+
+      <div class="cat-modal-body">
+        @if (mlTreeLoading()) {
+          <div class="cat-loading"><i class="ti ti-loader"></i> cargando…</div>
+        } @else if (mlTreeError()) {
+          <div class="cat-error">{{ mlTreeError() }}</div>
+        } @else if (mlTreeNode()?.leaf) {
+          <div class="cat-leaf">
+            <p class="muted">Categoría hoja (publicable):</p>
+            <strong>{{ mlTreeNode()?.name }}</strong>
+            <code>{{ mlTreeNode()?.id }}</code>
+            @if (mlTreeNode()?.listing_allowed === false) {
+              <p class="hint error"><i class="ti ti-alert-triangle"></i> ML marca esta categoría como no publicable.</p>
+            }
+            <button type="button" class="zc-btn primary" (click)="selectMlCurrentNode()" [disabled]="mlTreeNode()?.listing_allowed === false">
+              <i class="ti ti-check"></i> Usar esta categoría
+            </button>
+          </div>
+        } @else {
+          <ul class="cat-children">
+            @for (c of currentMlChildren(); track c.id) {
+              <li>
+                <button type="button" class="cat-child" (click)="openMlNode(c.id)">
+                  <span>{{ c.name }}</span>
+                  <i class="ti ti-chevron-right"></i>
+                </button>
+              </li>
+            }
+            @if (!currentMlChildren().length) {
+              <li class="muted">Sin subcategorías.</li>
+            }
+          </ul>
+        }
+      </div>
+    </div>
+  </div>
+}

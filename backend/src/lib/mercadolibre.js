@@ -143,6 +143,39 @@ export async function getMe(accessToken) {
   return res.json();
 }
 
+/**
+ * Costos de publicación de ML para un precio dado (la "calculadora" oficial).
+ * GET /sites/{site}/listing_prices?price=X&listing_type_id=...&category_id=...
+ *
+ * Devuelve `sale_fee_details` con el desglose que usamos para llenar el motor de precios:
+ *   - meli_percentage_fee: comisión pura por vender (nuestro "15%")
+ *   - fixed_fee: cargo fijo por venta (nuestros tramos 1115/2300/2810/0)
+ *   - percentage_fee: comisión total (incluye el add-on de cuotas si lo hay)
+ *
+ * Endpoint público en cuanto al recurso, pero ML exige token (cerró el acceso anónimo en 2025).
+ * En Argentina conviene mandar billable_weight/logistic_type para que el fixed_fee coincida con
+ * lo que realmente se cobra; sin eso, es una aproximación (suficiente para precargar Ajustes).
+ */
+export async function getListingPrices(accessToken, { price, siteId = 'MLA', listingTypeId, categoryId, extraParams = {} } = {}) {
+  const params = new URLSearchParams({ price: String(price) });
+  if (listingTypeId) params.set('listing_type_id', listingTypeId);
+  if (categoryId) params.set('category_id', categoryId);
+  for (const [k, v] of Object.entries(extraParams)) if (v != null) params.set(k, String(v));
+
+  const res = await fetchWith429Retry(
+    `${BASE}/sites/${siteId}/listing_prices?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getListingPrices'
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error(`listing_prices ${res.status}: ${body.slice(0, 200)}`);
+    err.mlStatus = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
 /** Incluir include_attributes=all para que las variaciones traigan el array attributes (ej. SELLER_SKU). */
 export async function getItem(accessToken, itemId) {
   const url = `${BASE}/items/${itemId}?include_attributes=all`;
@@ -191,6 +224,155 @@ export async function getItems(accessToken, ids, attributes) {
     }
   }
   return out;
+}
+
+/**
+ * Crear una publicación: POST /items con el body ya armado (title, category_id, price,
+ * currency_id, available_quantity/variations, condition, listing_type_id, attributes,
+ * sale_terms, pictures, shipping…). Devuelve el ítem creado o lanza con el mensaje real de ML.
+ */
+export async function createItem(accessToken, itemBody) {
+  const res = await fetchWith429Retry(
+    `${BASE}/items`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(itemBody)
+    },
+    'createItem'
+  );
+  if (!res.ok) {
+    const errBody = await errorMessage(res);
+    console.error('[ML] createItem → HTTP %s: %s', res.status, errBody);
+    throw Object.assign(new Error(errBody || `HTTP ${res.status}`), { mlStatus: res.status });
+  }
+  return res.json();
+}
+
+/**
+ * Setea la descripción (texto plano) de un ítem: ML la maneja como recurso APARTE, no en POST /items.
+ * POST /items/{id}/description; si el ítem ya tiene descripción, cae a PUT ?api_version=2.
+ * Solo texto plano (saltos de línea con \n; sin HTML). No lanza: la publicación ya existe.
+ */
+export async function setItemDescription(accessToken, itemId, plainText) {
+  const text = String(plainText || '');
+  if (!text.trim()) return false;
+  const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+  const body = JSON.stringify({ plain_text: text });
+  let res = await fetchWith429Retry(`${BASE}/items/${itemId}/description`, { method: 'POST', headers, body }, 'setItemDescription');
+  if (res.status === 400) {
+    // Ya existía una descripción → editar con PUT.
+    res = await fetchWith429Retry(`${BASE}/items/${itemId}/description?api_version=2`, { method: 'PUT', headers, body }, 'setItemDescription:put');
+  }
+  if (!res.ok) {
+    console.warn('[ML] setItemDescription %s → HTTP %s: %s', itemId, res.status, await errorMessage(res));
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Sube una imagen binaria a ML y devuelve su `picture_id` reutilizable.
+ * POST /pictures/items/upload — multipart/form-data, campo `file`, token del vendedor.
+ * Usa el `fetch` GLOBAL (Node) con FormData/Blob nativos (node-fetch v3 no serializa bien el
+ * FormData global). Igual pasa por mlSchedule para respetar el rate limit. ML: JPG/PNG, ≤10MB.
+ */
+export async function uploadPicture(accessToken, buffer, filename, mime) {
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), filename || 'image.jpg');
+  recordMlRequest('uploadPicture');
+  const res = await mlSchedule(() =>
+    globalThis.fetch(`${BASE}/pictures/items/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` }, // el boundary lo pone FormData
+      body: form
+    })
+  );
+  if (!res.ok) {
+    const errBody = await errorMessage(res);
+    console.error('[ML] uploadPicture → HTTP %s: %s', res.status, errBody);
+    throw Object.assign(new Error(errBody || `HTTP ${res.status}`), { mlStatus: res.status });
+  }
+  const json = await res.json();
+  if (!json?.id) throw new Error('ML no devolvió picture id al subir la imagen');
+  return json.id;
+}
+
+/* ============================ Categorías ============================ */
+
+/**
+ * Categorías raíz de un sitio: GET /sites/{site}/categories → array plano [{ id, name }, ...]
+ * (solo las ~30 raíz, sin children). Es el punto de entrada para navegar el árbol.
+ * El endpoint es público, pero mandamos el token igual (es inocuo y unifica el manejo de 429).
+ */
+export async function getSiteCategories(accessToken, siteId = 'MLA') {
+  const res = await fetchWith429Retry(
+    `${BASE}/sites/${siteId}/categories`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getSiteCategories'
+  );
+  if (!res.ok) {
+    console.warn('[ML] getSiteCategories falló:', res.status, siteId);
+    return null;
+  }
+  return res.json();
+}
+
+/**
+ * Detalle de una categoría: GET /categories/{id} → { id, name, path_from_root[],
+ * children_categories[], settings, attribute_types, ... }. Se usa para navegar el árbol
+ * (siguiendo children_categories) y para saber si una categoría es HOJA
+ * (children_categories vacío) y si permite publicar (settings.listing_allowed).
+ */
+export async function getCategory(accessToken, categoryId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/categories/${categoryId}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getCategory'
+  );
+  if (!res.ok) {
+    console.warn('[ML] getCategory falló:', res.status, categoryId);
+    return null;
+  }
+  return res.json();
+}
+
+/**
+ * Atributos de una categoría: GET /categories/{id}/attributes → array de atributos con
+ * { id, name, value_type, tags: { required, new_required, ... }, values: [{ id, name }] }.
+ * Sirve para saber qué atributos son obligatorios al publicar y renderizarlos según su tipo.
+ */
+export async function getCategoryAttributes(accessToken, categoryId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/categories/${categoryId}/attributes`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getCategoryAttributes'
+  );
+  if (!res.ok) {
+    console.warn('[ML] getCategoryAttributes falló:', res.status, categoryId);
+    return null;
+  }
+  return res.json();
+}
+
+/**
+ * Predictor de categoría por título: GET /sites/{site}/domain_discovery/search?q={título}
+ * → array ordenado por confianza [{ domain_id, domain_name, category_id, category_name,
+ * attributes: [{ id, name, value_id, value_name }] }]. Siempre devuelve categorías HOJA,
+ * así evita que el usuario elija una intermedia. Para MLA funciona en español.
+ */
+export async function predictCategory(accessToken, q, siteId = 'MLA', limit = 5) {
+  const params = new URLSearchParams({ q: String(q || '').trim(), limit: String(limit) });
+  const res = await fetchWith429Retry(
+    `${BASE}/sites/${siteId}/domain_discovery/search?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'predictCategory'
+  );
+  if (!res.ok) {
+    console.warn('[ML] predictCategory falló:', res.status, q);
+    return null;
+  }
+  return res.json();
 }
 
 /** Pack (nro de venta): GET https://api.mercadolibre.com/packs/:packId → { id, orders: [{ id: orderId }, ...], shipment, status, ... }. Reintenta ante 429. */
@@ -298,6 +480,31 @@ export async function getClaimReturns(accessToken, claimId) {
     'getClaimReturns'
   );
   if (!res.ok) return null;
+  return res.json();
+}
+
+/**
+ * Envío: GET https://api.mercadolibre.com/shipments/:shipmentId → { id, status, substatus, ... }.
+ * Sirve para saber si la mercadería llegó a salir del depósito: una orden cancelada con envío en
+ * `not_delivered`/`returning_to_sender` es una devolución en tránsito (todavía no la tenemos),
+ * no una cancelación previa al despacho. Reintenta ante 429.
+ */
+export async function getShipment(accessToken, shipmentId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/shipments/${shipmentId}`,
+    { headers: { Authorization: `Bearer ${accessToken}`, 'x-format-new': 'true' } },
+    'getShipment'
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn('[ML] getShipment failed:', res.status, shipmentId, text?.slice(0, 150));
+    if (res.status === 429) {
+      const e = new Error(`ML rate limited (429) shipment ${shipmentId}`);
+      e.statusCode = 429;
+      throw e;
+    }
+    return null;
+  }
   return res.json();
 }
 

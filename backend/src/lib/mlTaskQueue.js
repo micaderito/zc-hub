@@ -10,11 +10,12 @@
  *                  no depende del valor previo, así que no necesita el GET intermedio).
  *   sku_ml       — actualiza seller_sku de un ítem/variación en ML.
  *   sku_tn       — actualiza seller_sku de una variante en Tienda Nube.
- *   price_ml     — actualiza el precio (target_price) de un ítem/variación en ML.
+ *   price_ml     — actualiza el precio (target_price) de un ítem/variación en ML y registra el
+ *                  cambio en price_audit (historial de precios del producto).
  */
 
 import { claimNextMlTask, updateMlTaskStatus, hasDatabase } from '../db.js';
-import { insertAuditLog } from '../db.js';
+import { insertAuditLog, insertPriceAudit } from '../db.js';
 import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku } from '../services/conflictsService.js';
 import { getMlToken, tokens } from '../store.js';
 import * as ml from './mercadolibre.js';
@@ -73,9 +74,27 @@ export async function processTask(task) {
       if (!ok) throw new Error('updateItemOrVariationStock devolvió false');
 
       await updateMlTaskStatus(id, 'done');
-      // Stock (valor absoluto) aplicado en ML: parchamos esa fila del snapshot in-place.
-      await patchMlStock(itemId, vid ?? null, qty).catch(e => console.error('[MLQueue] patchMlStock:', e.message));
+      // Stock (valor absoluto) aplicado en ML: parchamos esa fila del snapshot in-place. El parche
+      // devuelve el stock previo, que es lo que el historial necesita para contar el cambio.
+      const before = await patchMlStock(itemId, vid ?? null, qty).catch(e => {
+        console.error('[MLQueue] patchMlStock:', e.message);
+        return null;
+      });
       console.log(`[MLQueue] Tarea ${id} stock_ml_set: ${itemId}${vid ? '/' + vid : ''} → ${qty}`);
+
+      // Historial: solo se registra si el stock efectivamente se movió — un "sincronizar" sobre un
+      // valor que ya estaba no es un cambio y solo ensuciaría el historial.
+      if (before && before.stockBefore !== qty) {
+        await insertAuditLog({
+          source: 'manual',
+          sku: ctx?.sku || before.sku || '',
+          productLabel: 'Cambio manual',
+          productDisplay: ctx?.productDisplay ?? null,
+          updatedChannel: 'mercadolibre',
+          stockBefore: before.stockBefore,
+          stockAfter: qty,
+        }).catch(e => console.error('[MLQueue] insertAuditLog:', e.message));
+      }
 
     } else if (kind === 'sku_ml') {
       const accessToken = await getMlToken();
@@ -97,9 +116,26 @@ export async function processTask(task) {
       await ml.updateItemOrVariationPrice(accessToken, itemId, variationId || null, price);
       await updateMlTaskStatus(id, 'done');
       // Precio aplicado en ML: parchamos el snapshot in-place (en ítems legacy ML aplica el mismo
-      // precio a TODAS las variaciones del ítem, y patchMlPrice hace exactamente eso).
-      await patchMlPrice(itemId, price).catch(e => console.error('[MLQueue] patchMlPrice:', e.message));
+      // precio a TODAS las variaciones del ítem, y patchMlPrice hace exactamente eso). El parche
+      // devuelve el precio previo, que es lo que el historial necesita para contar el cambio.
+      const before = await patchMlPrice(itemId, price).catch(e => {
+        console.error('[MLQueue] patchMlPrice:', e.message);
+        return null;
+      });
       console.log(`[MLQueue] Tarea ${id} price_ml: ${itemId}${variationId ? '/' + variationId : ''} → $${price}`);
+
+      // Historial: solo se registra si el precio efectivamente se movió — reaplicar el mismo
+      // precio no es un cambio y solo ensuciaría el historial (mismo criterio que stock_ml_set).
+      if (before && before.priceBefore !== price) {
+        await insertPriceAudit({
+          sku: ctx?.sku || before.sku || '',
+          channel: 'mercadolibre',
+          priceBefore: before.priceBefore,
+          priceAfter: price,
+          source: ctx?.source || 'bulk',
+          productLabel: ctx?.productLabel ?? null,
+        }).catch(e => console.error('[MLQueue] insertPriceAudit:', e.message));
+      }
 
     } else if (kind === 'sku_tn') {
       const { access_token, store_id } = tokens.tiendanube || {};
