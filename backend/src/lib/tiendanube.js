@@ -279,6 +279,137 @@ export async function getOrder(accessToken, storeId, orderId) {
   return res.json();
 }
 
+/**
+ * Crear un producto: POST /products con el body ya armado (name, description, categories (ids),
+ * brand, variants[{price,stock,sku,...}], images, published…). Devuelve el producto creado o
+ * lanza con el texto de error de TN (que suele traer detalle de validación por campo).
+ */
+export async function createProduct(accessToken, storeId, body) {
+  const url = `${getBaseUrl(storeId)}/products`;
+  const res = await fetchTn(url, {
+    method: 'POST',
+    headers: {
+      Authentication: `bearer ${accessToken}`,
+      'User-Agent': 'ZonacuadernoSync/1.0',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 401) {
+      const err = new Error(errText);
+      err.status = 401;
+      throw err;
+    }
+    console.error('[TN] createProduct → HTTP %s: %s', res.status, errText?.slice(0, 300));
+    throw new Error(`TN createProduct: ${res.status} ${errText}`);
+  }
+  return res.json();
+}
+
+/**
+ * Sube una imagen a un producto de TN. Por archivo (base64 SIN prefijo data:) o por URL (src).
+ * POST /products/{productId}/images → { id, src, position, ... }. `position` controla el orden
+ * (position 1 = portada). Devuelve el objeto imagen creado.
+ */
+export async function createProductImage(accessToken, storeId, productId, { filename, base64, src, position }) {
+  const body = {};
+  if (src) {
+    body.src = src;
+  } else {
+    body.filename = filename || 'imagen.jpg';
+    body.attachment = base64; // base64 puro, sin "data:...;base64,"
+  }
+  if (position != null) body.position = position;
+  const url = `${getBaseUrl(storeId)}/products/${productId}/images`;
+  const res = await fetchTn(url, {
+    method: 'POST',
+    headers: {
+      Authentication: `bearer ${accessToken}`,
+      'User-Agent': 'ZonacuadernoSync/1.0',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 401) { const err = new Error(errText); err.status = 401; throw err; }
+    throw new Error(`TN createProductImage: ${res.status} ${errText}`);
+  }
+  return res.json();
+}
+
+/** Asocia una imagen (ya subida al producto) a una variante: PUT /products/{p}/variants/{v} { image_id }. */
+export async function updateVariantImage(accessToken, storeId, productId, variantId, imageId) {
+  const url = `${getBaseUrl(storeId)}/products/${productId}/variants/${variantId}`;
+  const res = await fetchTn(url, {
+    method: 'PUT',
+    headers: {
+      Authentication: `bearer ${accessToken}`,
+      'User-Agent': 'ZonacuadernoSync/1.0',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ image_id: imageId })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`TN updateVariantImage: ${res.status} ${errText}`);
+  }
+  return res.json();
+}
+
+/** Reordena una imagen ya subida: PUT /products/{p}/images/{img} { position }. position 1 = portada. */
+export async function updateProductImagePosition(accessToken, storeId, productId, imageId, position) {
+  const url = `${getBaseUrl(storeId)}/products/${productId}/images/${imageId}`;
+  const res = await fetchTn(url, {
+    method: 'PUT',
+    headers: {
+      Authentication: `bearer ${accessToken}`,
+      'User-Agent': 'ZonacuadernoSync/1.0',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ position })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`TN updateProductImagePosition: ${res.status} ${errText}`);
+  }
+  return res.json();
+}
+
+/**
+ * GET /categories con paginación: trae todas las categorías de la tienda.
+ * TN no anida el árbol: cada categoría es plana y la jerarquía se arma con `parent`
+ * (id del padre o null si es raíz) y `subcategories` (ids de las hijas directas).
+ * Rate limit 2 req/s; 429 → retry. Devuelve el array crudo (id, name {es,pt,..}, parent, subcategories).
+ */
+export async function getCategories(accessToken, storeId) {
+  const perPage = 200;
+  const all = [];
+  const headers = {
+    Authentication: `bearer ${accessToken}`,
+    'User-Agent': 'ZonacuadernoSync/1.0'
+  };
+  for (let page = 1; page <= 50; page++) {
+    const url = `${getBaseUrl(storeId)}/categories?page=${page}&per_page=${perPage}`;
+    const res = await fetchTn(url, { headers });
+    if (!res.ok) {
+      if (res.status === 401) {
+        const err = new Error(await res.text());
+        err.status = 401;
+        throw err;
+      }
+      throw new Error(`TN categories page ${page}: ${res.status}`);
+    }
+    const data = await res.json();
+    const list = toList(data);
+    all.push(...list);
+    if (list.length < perPage) break;
+  }
+  return all;
+}
+
 /** GET /products/:id — un producto con sus variants e images embebidos (para refrescar el snapshot). */
 export async function getProduct(accessToken, storeId, productId) {
   const url = `${getBaseUrl(storeId)}/products/${productId}`;

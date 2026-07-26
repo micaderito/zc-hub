@@ -41,11 +41,23 @@ export interface CommonData {
   widthCm: number | null;
   heightCm: number | null;
   seoKeywords: string;
+  /** Stock del producto SIMPLE (sin variantes). Es el mismo en ambos canales, no hay uno por canal. */
+  baseStock: number | null;
 }
 
 export interface VariantAxis {
   /** Nombre del eje, ej. "Color" o "Tamaño". */
   name: string;
+}
+
+/** Imagen del borrador: ya subida al backend (id temporal) + preview local para mostrarla. */
+export interface DraftImage {
+  /** Id temporal devuelto por POST /api/products/images. Viaja en el payload al publicar. */
+  id: string;
+  /** Nombre del archivo (para mostrar / accesibilidad). */
+  name: string;
+  /** URL para el <img> (object URL local o /api/products/images/:id). */
+  previewUrl: string;
 }
 
 export interface ProductVariant {
@@ -55,8 +67,16 @@ export interface ProductVariant {
   sku: string;
   /** Valor por eje, alineado con `axes` (ej. ["Negro", "A4"]). */
   values: string[];
-  ml: { price: number | null; stock: number | null };
-  tn: { price: number | null; promoPrice: number | null; stock: number | null };
+  /** Stock: el mismo en ambos canales (no tiene sentido tenerlo por separado). */
+  stock: number | null;
+  /** ML admite VARIAS fotos por variación (`picture_ids`); referencian ids de `ml.images`. */
+  ml: { price: number | null; pictureIds: string[] };
+  /**
+   * Fotos de la variante en TN (referencian ids de `tn.images`).
+   * - `single_with_variants`: TN solo admite UNA por variante (`image_id`) → la UI limita a 1.
+   * - `one_per_variant`: cada variante es su propio producto → admite VARIAS (galería del producto).
+   */
+  tn: { price: number | null; imageIds: string[] };
 }
 
 /** Atributo de categoría de ML (se descubren con GET /categories/{id}/attributes). */
@@ -67,6 +87,14 @@ export interface MlAttribute {
   required: boolean;
   /** true cuando el valor sale de un dato común (ej. BRAND ← marca). */
   inherited: boolean;
+  /** Tipo de valor de ML: 'list' | 'string' | 'number' | 'number_unit' | 'boolean'. */
+  valueType?: string;
+  /** Para atributos 'list': id del valor elegido (ML prefiere value_id sobre value_name). */
+  valueId?: string;
+  /** Valores permitidos (atributos 'list') para poblar un desplegable. */
+  allowedValues?: { id: string; name: string }[];
+  /** Unidades permitidas (atributos 'number_unit', ej. ["cm","mm"]). */
+  allowedUnits?: string[];
 }
 
 export interface MlListing {
@@ -83,8 +111,10 @@ export interface MlListing {
   localPickup: boolean;
   description: OverrideField<string>;
   attributes: MlAttribute[];
-  /** URLs de imágenes propias de ML. */
-  images: string[];
+  /** Galería de ML (orden = orden de fotos; la primera es la portada). */
+  images: DraftImage[];
+  /** Precio del producto SIMPLE (sin variantes). Con variantes se usa el de cada variante. */
+  basePrice: number | null;
 }
 
 export interface TnListing {
@@ -92,15 +122,18 @@ export interface TnListing {
   nameEs: OverrideField<string>;
   namePt: string;
   handle: string;
-  categories: string;
+  /** IDs de categorías EXISTENTES de la tienda (TN espera un array de ids, no nombres). */
+  categories: number[];
   seoTitle: string;
   seoDescription: string;
   tags: string;
   videoUrl: string;
   freeShipping: boolean;
   description: OverrideField<string>;
-  /** URLs de imágenes propias de TN. */
-  images: string[];
+  /** Galería de TN (orden = orden de fotos; la primera es la portada). */
+  images: DraftImage[];
+  /** Precio del producto SIMPLE (sin variantes). Con variantes se usa el de cada variante. */
+  basePrice: number | null;
 }
 
 export interface ProductDraft {
@@ -153,7 +186,8 @@ export function emptyDraft(): ProductDraft {
       lengthCm: null,
       widthCm: null,
       heightCm: null,
-      seoKeywords: ''
+      seoKeywords: '',
+      baseStock: null
     },
     axes: [],
     variants: [],
@@ -162,30 +196,32 @@ export function emptyDraft(): ProductDraft {
       title: inherited(''),
       categoryId: '',
       categoryName: '',
-      listingType: 'gold_special',
+      listingType: 'gold_pro',
       currency: 'ARS',
-      warrantyType: 'Garantía del vendedor',
-      warrantyTime: '90 días',
+      warrantyType: 'Sin garantía',
+      warrantyTime: '',
       shippingMode: 'me2',
       freeShipping: false,
       localPickup: false,
       description: inherited(''),
       attributes: [],
-      images: []
+      images: [],
+      basePrice: null
     },
     tn: {
       mappingMode: 'single_with_variants',
       nameEs: inherited(''),
       namePt: '',
       handle: '',
-      categories: '',
+      categories: [],
       seoTitle: '',
       seoDescription: '',
       tags: '',
       videoUrl: '',
       freeShipping: false,
       description: inherited(''),
-      images: []
+      images: [],
+      basePrice: null
     }
   };
 }

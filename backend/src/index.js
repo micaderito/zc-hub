@@ -17,6 +17,7 @@ import { mappingRoutes } from './routes/mapping.js';
 import { syncRoutes } from './routes/sync.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { conflictsRoutes } from './routes/conflicts.js';
+import { productRoutes } from './routes/products.js';
 import { pricingRoutes } from './routes/pricing.js';
 
 const app = express();
@@ -50,7 +51,8 @@ app.use((req, res, next) => {
 });
 app.use((req, res, next) => {
   if (req.rawBody !== undefined) return next();
-  express.json()(req, res, next);
+  // Límite alto: la creación de productos manda imágenes en base64 (crece ~33% sobre el archivo).
+  express.json({ limit: '25mb' })(req, res, next);
 });
 
 app.use('/api/auth', authRoutes);
@@ -62,6 +64,7 @@ app.use('/api/webhooks', (req, res, next) => {
 });
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/conflicts', conflictsRoutes);
+app.use('/api/products', productRoutes);
 app.use('/api/pricing', pricingRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
