@@ -20,7 +20,7 @@ import { PaginationComponent } from '../../shared/components/pagination/paginati
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 import { StockFilterTabsComponent, StockFilter } from './components/stock-filter-tabs/stock-filter-tabs.component';
 import { PairCardComponent, PairPrices } from './components/pair-card/pair-card.component';
-import { StockHistoryDialogComponent } from './components/stock-history-dialog/stock-history-dialog.component';
+import { ProductHistoryDialogComponent } from './components/product-history-dialog/product-history-dialog.component';
 
 const PAGE_SIZE = 25;
 const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
@@ -28,7 +28,7 @@ const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
-  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, StockFilterTabsComponent, PairCardComponent, StockHistoryDialogComponent],
+  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, StockFilterTabsComponent, PairCardComponent, ProductHistoryDialogComponent],
   templateUrl: './precio-stock.component.html',
   styleUrl: './precio-stock.component.scss'
 })

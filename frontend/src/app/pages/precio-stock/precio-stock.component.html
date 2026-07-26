@@ -142,8 +142,8 @@
     </zc-confirm-dialog>
   }
 
-  <!-- Historial de stock del producto (ML y TN juntos, por SKU) -->
+  <!-- Historial del producto (ML y TN juntos, por SKU) -->
   @if (historySku(); as sku) {
-    <zc-stock-history-dialog [sku]="sku" (closed)="historySku.set(null)" />
+    <zc-product-history-dialog [sku]="sku" (closed)="historySku.set(null)" />
   }
 </div>

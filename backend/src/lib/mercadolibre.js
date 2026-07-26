@@ -143,6 +143,39 @@ export async function getMe(accessToken) {
   return res.json();
 }
 
+/**
+ * Costos de publicación de ML para un precio dado (la "calculadora" oficial).
+ * GET /sites/{site}/listing_prices?price=X&listing_type_id=...&category_id=...
+ *
+ * Devuelve `sale_fee_details` con el desglose que usamos para llenar el motor de precios:
+ *   - meli_percentage_fee: comisión pura por vender (nuestro "15%")
+ *   - fixed_fee: cargo fijo por venta (nuestros tramos 1115/2300/2810/0)
+ *   - percentage_fee: comisión total (incluye el add-on de cuotas si lo hay)
+ *
+ * Endpoint público en cuanto al recurso, pero ML exige token (cerró el acceso anónimo en 2025).
+ * En Argentina conviene mandar billable_weight/logistic_type para que el fixed_fee coincida con
+ * lo que realmente se cobra; sin eso, es una aproximación (suficiente para precargar Ajustes).
+ */
+export async function getListingPrices(accessToken, { price, siteId = 'MLA', listingTypeId, categoryId, extraParams = {} } = {}) {
+  const params = new URLSearchParams({ price: String(price) });
+  if (listingTypeId) params.set('listing_type_id', listingTypeId);
+  if (categoryId) params.set('category_id', categoryId);
+  for (const [k, v] of Object.entries(extraParams)) if (v != null) params.set(k, String(v));
+
+  const res = await fetchWith429Retry(
+    `${BASE}/sites/${siteId}/listing_prices?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getListingPrices'
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error(`listing_prices ${res.status}: ${body.slice(0, 200)}`);
+    err.mlStatus = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
 /** Incluir include_attributes=all para que las variaciones traigan el array attributes (ej. SELLER_SKU). */
 export async function getItem(accessToken, itemId) {
   const url = `${BASE}/items/${itemId}?include_attributes=all`;
