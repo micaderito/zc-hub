@@ -8,7 +8,7 @@ import {
   patchTnStock,
 } from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { enqueueMlTask, getMlTaskStatus } from '../db.js';
+import { enqueueMlTask, getMlTaskStatus, insertAuditLog } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -316,7 +316,21 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
         Number(variantId),
         flooredTn
       );
-      if (tnStockOk) await patchTnStock(Number(productId), Number(variantId), flooredTn);
+      if (tnStockOk) {
+        // El parche del snapshot devuelve el stock previo: con eso registramos el cambio manual
+        // en el historial. Solo si se movió — poner el valor que ya estaba no es un cambio.
+        const before = await patchTnStock(Number(productId), Number(variantId), flooredTn);
+        if (before && before.stockBefore !== flooredTn) {
+          await insertAuditLog({
+            source: 'manual',
+            sku: before.sku || '',
+            productLabel: 'Cambio manual',
+            updatedChannel: 'tiendanube',
+            stockBefore: before.stockBefore,
+            stockAfter: flooredTn,
+          }).catch(e => console.error('[Conflicts] insertAuditLog:', e.message));
+        }
+      }
     }
 
     const triedTn = priceTNNum > 0 || (stockTNNum !== undefined && stockTNNum >= 0);

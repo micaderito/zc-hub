@@ -143,6 +143,39 @@ export async function getMe(accessToken) {
   return res.json();
 }
 
+/**
+ * Costos de publicación de ML para un precio dado (la "calculadora" oficial).
+ * GET /sites/{site}/listing_prices?price=X&listing_type_id=...&category_id=...
+ *
+ * Devuelve `sale_fee_details` con el desglose que usamos para llenar el motor de precios:
+ *   - meli_percentage_fee: comisión pura por vender (nuestro "15%")
+ *   - fixed_fee: cargo fijo por venta (nuestros tramos 1115/2300/2810/0)
+ *   - percentage_fee: comisión total (incluye el add-on de cuotas si lo hay)
+ *
+ * Endpoint público en cuanto al recurso, pero ML exige token (cerró el acceso anónimo en 2025).
+ * En Argentina conviene mandar billable_weight/logistic_type para que el fixed_fee coincida con
+ * lo que realmente se cobra; sin eso, es una aproximación (suficiente para precargar Ajustes).
+ */
+export async function getListingPrices(accessToken, { price, siteId = 'MLA', listingTypeId, categoryId, extraParams = {} } = {}) {
+  const params = new URLSearchParams({ price: String(price) });
+  if (listingTypeId) params.set('listing_type_id', listingTypeId);
+  if (categoryId) params.set('category_id', categoryId);
+  for (const [k, v] of Object.entries(extraParams)) if (v != null) params.set(k, String(v));
+
+  const res = await fetchWith429Retry(
+    `${BASE}/sites/${siteId}/listing_prices?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getListingPrices'
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error(`listing_prices ${res.status}: ${body.slice(0, 200)}`);
+    err.mlStatus = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
 /** Incluir include_attributes=all para que las variaciones traigan el array attributes (ej. SELLER_SKU). */
 export async function getItem(accessToken, itemId) {
   const url = `${BASE}/items/${itemId}?include_attributes=all`;
@@ -236,27 +269,6 @@ export async function setItemDescription(accessToken, itemId, plainText) {
     return false;
   }
   return true;
-}
-
-/**
- * Costos de publicación/venta: GET /sites/{site}/listing_prices?price=&category_id=&listing_type_id=
- * (hoy requiere token). Devuelve por tipo de publicación { sale_fee_amount, listing_fee_amount, ... }
- * para calcular cuánto recibe el vendedor. Devuelve null si falla.
- */
-export async function getListingPrices(accessToken, { price, categoryId, listingTypeId, siteId = 'MLA' }) {
-  const params = new URLSearchParams({ price: String(price) });
-  if (categoryId) params.set('category_id', categoryId);
-  if (listingTypeId) params.set('listing_type_id', listingTypeId);
-  const res = await fetchWith429Retry(
-    `${BASE}/sites/${siteId}/listing_prices?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-    'getListingPrices'
-  );
-  if (!res.ok) {
-    console.warn('[ML] getListingPrices → HTTP %s', res.status);
-    return null;
-  }
-  return res.json();
 }
 
 /**
@@ -468,6 +480,31 @@ export async function getClaimReturns(accessToken, claimId) {
     'getClaimReturns'
   );
   if (!res.ok) return null;
+  return res.json();
+}
+
+/**
+ * Envío: GET https://api.mercadolibre.com/shipments/:shipmentId → { id, status, substatus, ... }.
+ * Sirve para saber si la mercadería llegó a salir del depósito: una orden cancelada con envío en
+ * `not_delivered`/`returning_to_sender` es una devolución en tránsito (todavía no la tenemos),
+ * no una cancelación previa al despacho. Reintenta ante 429.
+ */
+export async function getShipment(accessToken, shipmentId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/shipments/${shipmentId}`,
+    { headers: { Authorization: `Bearer ${accessToken}`, 'x-format-new': 'true' } },
+    'getShipment'
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn('[ML] getShipment failed:', res.status, shipmentId, text?.slice(0, 150));
+    if (res.status === 429) {
+      const e = new Error(`ML rate limited (429) shipment ${shipmentId}`);
+      e.statusCode = 429;
+      throw e;
+    }
+    return null;
+  }
   return res.json();
 }
 

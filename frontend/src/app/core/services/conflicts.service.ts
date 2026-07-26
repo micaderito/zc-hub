@@ -17,6 +17,37 @@ export function getPairId(pair: { ml: MlRow; tn: TnRow }): string {
   return `${pair.ml.itemId}:${pair.ml.variationId ?? ''}:${pair.tn.productId}:${pair.tn.variantId}`;
 }
 
+/** Una tarea de ML todavía en cola (pending/processing), tal como la devuelve /sync/active-tasks. */
+export interface ActiveMlTask {
+  kind: string;
+  itemId: string;
+  variationId: string | null;
+}
+
+export interface ActiveTasksResponse {
+  tasks: ActiveMlTask[];
+}
+
+/** Tipos de tarea que mueven stock en ML: son las que pueden explicar un "stock distinto" transitorio. */
+const STOCK_TASK_KINDS = ['stock_ml_set', 'stock_ml'];
+
+/** Clave ítem+variación, para cruzar una tarea en cola con la fila del par que le corresponde. */
+export function getMlTaskKey(itemId: string, variationId: string | null | undefined): string {
+  return `${itemId}:${variationId ?? ''}`;
+}
+
+/**
+ * Claves de los ítems/variaciones con un cambio de STOCK todavía en cola. Solo tareas de stock:
+ * una tarea de precio en vuelo no explica que los stocks difieran, así que no debe tapar el badge.
+ */
+export function stockTaskKeys(tasks: ActiveMlTask[]): Set<string> {
+  return new Set(
+    tasks
+      .filter(t => STOCK_TASK_KINDS.includes(t.kind))
+      .map(t => getMlTaskKey(t.itemId, t.variationId))
+  );
+}
+
 export interface MlRow {
   type: 'ml';
   itemId: string;
@@ -364,5 +395,13 @@ export class ConflictsService {
     return this.http.get<{ id: number; status: string; lastError?: string | null }>(
       `${this.api.baseUrl}/conflicts/task/${taskId}`
     );
+  }
+
+  /**
+   * Tareas todavía en cola. Sirve para saber qué filas están esperando al worker: sin esto, una
+   * escritura encolada se ve idéntica a un conflicto real (el estado local se pierde al navegar).
+   */
+  getActiveTasks() {
+    return this.http.get<ActiveTasksResponse>(`${this.api.baseUrl}/sync/active-tasks`);
   }
 }

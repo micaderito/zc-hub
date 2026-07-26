@@ -23,7 +23,13 @@ const dbState = {
   auditLogs: [],
   enqueuedTasks: [],
   taskStatuses: new Map(),
+  pendingReturns: new Map(),
+  approvedReturns: [],
+  /** Claves `canal|orderId|operacion` de sync_processed_orders. */
+  orderClaims: new Set(),
 };
+
+const claimKey = (channel, orderId, op) => `${channel}|${orderId}|${op}`;
 
 const analysisState = { mappings: [] };
 
@@ -45,8 +51,15 @@ before(async () => {
     exports: {
       getSyncEnabled: async () => dbState.syncEnabled,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
-      getPendingReturnById: async () => null,
-      setReturnApproved: async () => true,
+      getPendingReturnById: async (id) => dbState.pendingReturns.get(Number(id)) ?? null,
+      setReturnApproved: async (id) => { dbState.approvedReturns.push(Number(id)); return true; },
+      hasOrderProcessingClaimed: async (channel, orderId, op) => dbState.orderClaims.has(claimKey(channel, orderId, op)),
+      tryClaimOrderProcessing: async (channel, orderId, op) => {
+        const k = claimKey(channel, orderId, op);
+        if (dbState.orderClaims.has(k)) return false;
+        dbState.orderClaims.add(k);
+        return true;
+      },
       enqueueMlTask: async (task) => {
         const id = dbState.enqueuedTasks.length + 1;
         dbState.enqueuedTasks.push({ id, ...task });
@@ -80,6 +93,9 @@ beforeEach(() => {
   dbState.auditLogs = [];
   dbState.enqueuedTasks = [];
   dbState.taskStatuses = new Map();
+  dbState.pendingReturns = new Map();
+  dbState.approvedReturns = [];
+  dbState.orderClaims = new Set();
   analysisState.mappings = [];
   Object.assign(tokens.tiendanube, { access_token: null, store_id: null });
   tnFetchState.responder = null;
@@ -268,4 +284,70 @@ test('revertSyncAudit (mercadolibre, cancelación — el movimiento original sum
 
   assert.equal(result.ok, true);
   assert.equal(dbState.enqueuedTasks[0].targetQty, -2);
+});
+
+// ─── approvePendingReturn: que el flujo manual y el automático no sumen stock dos veces ──────
+
+test('approvePendingReturn: si el webhook ya restauró esa orden, se niega en vez de sumar de nuevo', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], []);
+  dbState.pendingReturns.set(1, {
+    id: 1, orderId: '2000009999', saleOrderId: '2000017283879110',
+    itemId: 'MLA1', variationId: null, sku: 'CREANDO', quantity: 1, status: 'pending',
+  });
+  // La cancelación de esa orden ya pasó por la restauración automática.
+  dbState.orderClaims.add(claimKey('mercadolibre', '2000017283879110', 'restore'));
+
+  const result = await syncService.approvePendingReturn(1);
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /ya se había restaurado/);
+  assert.equal(dbState.enqueuedTasks.length, 0, 'no debería encolar ninguna actualización de stock');
+  assert.deepEqual(dbState.approvedReturns, [], 'la devolución debe seguir pendiente');
+});
+
+test('approvePendingReturn: el chequeo usa sale_order_id, no el nro de venta (pack)', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], []);
+  dbState.pendingReturns.set(2, {
+    id: 2, orderId: '2000009999', saleOrderId: '2000017283879110',
+    itemId: 'MLA1', variationId: null, sku: 'CREANDO', quantity: 1, status: 'pending',
+  });
+  // Claim tomado contra el pack: NO es la orden individual, así que no debe frenar la aprobación.
+  dbState.orderClaims.add(claimKey('mercadolibre', '2000009999', 'restore'));
+  dbState.taskStatuses.set(1, { status: 'done' });
+
+  const result = await syncService.approvePendingReturn(2);
+
+  assert.equal(result.ok, true);
+  assert.equal(dbState.enqueuedTasks.length, 1);
+});
+
+test('approvePendingReturn: al aprobar deja la marca return_restore para frenar al webhook', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], []);
+  dbState.pendingReturns.set(3, {
+    id: 3, orderId: '2000009999', saleOrderId: '2000017283879110',
+    itemId: 'MLA1', variationId: null, sku: 'CREANDO', quantity: 1, status: 'pending',
+  });
+  dbState.taskStatuses.set(1, { status: 'done' });
+
+  const result = await syncService.approvePendingReturn(3);
+
+  assert.equal(result.ok, true);
+  assert.ok(dbState.orderClaims.has(claimKey('mercadolibre', '2000017283879110', 'return_restore')));
+  assert.deepEqual(dbState.approvedReturns, [3]);
+});
+
+test('approvePendingReturn: una orden con dos ítems se puede aprobar dos veces (no se auto-bloquea)', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], []);
+  for (const id of [4, 5]) {
+    dbState.pendingReturns.set(id, {
+      id, orderId: '2000009999', saleOrderId: '2000017283879110',
+      itemId: 'MLA1', variationId: null, sku: 'CREANDO', quantity: 1, status: 'pending',
+    });
+  }
+  dbState.taskStatuses.set(1, { status: 'done' });
+  dbState.taskStatuses.set(2, { status: 'done' });
+
+  assert.equal((await syncService.approvePendingReturn(4)).ok, true);
+  assert.equal((await syncService.approvePendingReturn(5)).ok, true, 'la marca return_restore del primero no debe frenar al segundo');
+  assert.deepEqual(dbState.approvedReturns, [4, 5]);
 });

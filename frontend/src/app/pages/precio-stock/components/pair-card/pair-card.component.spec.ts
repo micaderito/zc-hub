@@ -52,6 +52,7 @@ describe('PairCardComponent', () => {
     displayStockML?: number;
     displayStockTN?: number;
     isPending?: boolean;
+    isStockQueued?: boolean;
     isCollapsed?: boolean;
     syncError?: string | null;
   } = {}) {
@@ -60,6 +61,7 @@ describe('PairCardComponent', () => {
     fixture.componentRef.setInput('displayStockML', overrides.displayStockML ?? 10);
     fixture.componentRef.setInput('displayStockTN', overrides.displayStockTN ?? 10);
     if ('isPending' in overrides) fixture.componentRef.setInput('isPending', overrides.isPending);
+    if ('isStockQueued' in overrides) fixture.componentRef.setInput('isStockQueued', overrides.isStockQueued);
     if ('isCollapsed' in overrides) fixture.componentRef.setInput('isCollapsed', overrides.isCollapsed);
     if ('syncError' in overrides) fixture.componentRef.setInput('syncError', overrides.syncError);
     fixture.detectChanges();
@@ -102,6 +104,41 @@ describe('PairCardComponent', () => {
     const badge = el.querySelector('.pair-header .zc-badge');
     expect(badge?.classList.contains('warn')).toBeTrue();
     expect(badge?.textContent).toContain('Stock distinto');
+  });
+
+  it('con un cambio de stock en cola, dice "Actualizándose" en vez de avisar de un conflicto falso', () => {
+    setInputs({ displayStockML: 10, displayStockTN: 3, isStockQueued: true });
+
+    const el: HTMLElement = fixture.nativeElement;
+    const badge = el.querySelector('.pair-header .zc-badge');
+    expect(badge?.classList.contains('busy')).toBeTrue();
+    expect(badge?.classList.contains('warn')).toBeFalse();
+    expect(badge?.textContent).toContain('Actualizándose');
+    expect(badge?.textContent).not.toContain('Stock distinto');
+  });
+
+  it('cuando el cambio en cola termina (o falla y sale de la cola), vuelve a mostrar el conflicto real', () => {
+    setInputs({ displayStockML: 10, displayStockTN: 3, isStockQueued: true });
+    setInputs({ displayStockML: 10, displayStockTN: 3, isStockQueued: false });
+
+    const el: HTMLElement = fixture.nativeElement;
+    const badge = el.querySelector('.pair-header .zc-badge');
+    expect(badge?.classList.contains('warn')).toBeTrue();
+    expect(badge?.textContent).toContain('Stock distinto');
+  });
+
+  it('emite showHistory sin colapsar la tarjeta (el click no debe burbujear a la cabecera)', () => {
+    setInputs();
+    const toggleSpy = jasmine.createSpy('toggleCollapse');
+    const historySpy = jasmine.createSpy('showHistory');
+    component.toggleCollapse.subscribe(toggleSpy);
+    component.showHistory.subscribe(historySpy);
+
+    const el: HTMLElement = fixture.nativeElement;
+    el.querySelector<HTMLButtonElement>('.pair-history-btn')!.click();
+
+    expect(historySpy).toHaveBeenCalled();
+    expect(toggleSpy).not.toHaveBeenCalled();
   });
 
   it('debería mostrar los stocks de cada canal en sus chips', () => {

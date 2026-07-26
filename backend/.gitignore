@@ -4,3 +4,6 @@ node_modules/
 .env.*.local
 data/
 *.log
+
+# symlinks del setup de worktree (ver memoria worktree-backend-setup)
+data

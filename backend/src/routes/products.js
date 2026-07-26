@@ -264,20 +264,21 @@ productRoutes.get('/ml/listing-prices', async (req, res) => {
   const listingTypeId = req.query.listing_type_id || undefined;
   try {
     const data = await ml.getListingPrices(accessToken, { price, categoryId, listingTypeId });
-    if (!data) return res.status(502).json({ error: 'No se pudieron traer las comisiones de ML' });
     // Con listing_type_id devuelve un objeto; sin él, un array con todos los tipos.
     const entry = Array.isArray(data) ? data.find((d) => d.listing_type_id === listingTypeId) || data[0] : data;
-    const saleFee = Number(entry?.sale_fee_amount) || 0;
-    const listingFee = Number(entry?.listing_fee_amount) || 0;
+    if (!entry) return res.status(502).json({ error: 'No se pudieron traer las comisiones de ML' });
+    const saleFee = Number(entry.sale_fee_amount) || 0;
+    const listingFee = Number(entry.listing_fee_amount) || 0;
     res.json({
-      currency_id: entry?.currency_id || 'ARS',
+      currency_id: entry.currency_id || 'ARS',
       sale_fee_amount: saleFee,
       listing_fee_amount: listingFee,
-      percentage_fee: entry?.sale_fee_details?.percentage_fee ?? null,
+      percentage_fee: entry.sale_fee_details?.percentage_fee ?? null,
       // Neto = precio − comisión de venta − costo de publicar. (No incluye el costo de envío gratis.)
       net: Math.max(0, price - saleFee - listingFee)
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    // getListingPrices lanza con .mlStatus cuando la API responde error.
+    res.status(e.mlStatus ? 502 : 500).json({ error: e.message });
   }
 });

@@ -30,6 +30,7 @@ export class AppComponent {
   readonly nav: NavItem[] = [
     { path: '/', label: 'Inicio', icon: 'ti-layout-dashboard', exact: true },
     { path: '/precio-stock', label: 'Productos', icon: 'ti-box' },
+    { path: '/precios', label: 'Precios', icon: 'ti-tag' },
     { path: '/crear', label: 'Crear producto', icon: 'ti-plus' },
     { path: '/conflictos', label: 'Conflictos', icon: 'ti-alert-triangle' },
     { path: '/sincronizacion', label: 'Sincronización', icon: 'ti-refresh' }

@@ -318,6 +318,107 @@ test('getAuditLog: error de query → { rows: [], total: 0 }', async () => {
   assert.deepEqual(await db.getAuditLog(), { rows: [], total: 0 });
 });
 
+// ─── historial: origen del cambio (venta / manual / devolución) ──────────────
+
+test('insertAuditLog: un cambio manual guarda source y anula los campos de venta', async () => {
+  let params;
+  state.responder = (sql, p) => { params = p; return { rows: [] }; };
+  await db.insertAuditLog({
+    source: 'manual',
+    sku: 'X',
+    updatedChannel: 'mercadolibre',
+    stockBefore: 5,
+    stockAfter: 2,
+  });
+  assert.equal(params[12], 'manual');
+  assert.equal(params[0], null); // channelSale: no hubo venta
+  assert.equal(params[1], null); // orderId
+  assert.equal(params[2], null); // packId
+  assert.equal(params[7], null); // quantity: no hay cantidad vendida
+  // Lo que sí cuenta el cambio:
+  assert.equal(params[9], 5);
+  assert.equal(params[10], 2);
+});
+
+test('insertAuditLog: sin source explícito la fila es de venta (retrocompatible)', async () => {
+  let params;
+  state.responder = (sql, p) => { params = p; return { rows: [] }; };
+  await db.insertAuditLog({ channelSale: 'mercadolibre', orderId: '1', updatedChannel: 'tiendanube' });
+  assert.equal(params[12], 'venta');
+  assert.equal(params[1], '1');
+});
+
+test('getAuditLog: filtra por origen', async () => {
+  let listSql, listParams;
+  state.responder = (sql, p) => {
+    if (sql.startsWith('SELECT COUNT')) return { rows: [{ total: 1 }] };
+    listSql = sql; listParams = p;
+    return { rows: [] };
+  };
+  await db.getAuditLog(10, 0, '', 'manual');
+  assert.ok(listSql.includes('source = $1'));
+  assert.equal(listParams[0], 'manual');
+});
+
+test('getAuditLog: un origen inventado se ignora en vez de filtrar por nada', async () => {
+  let listSql;
+  state.responder = (sql) => {
+    if (sql.startsWith('SELECT COUNT')) return { rows: [{ total: 0 }] };
+    listSql = sql;
+    return { rows: [] };
+  };
+  await db.getAuditLog(10, 0, '', 'cualquier-cosa');
+  assert.ok(!listSql.includes('source ='));
+});
+
+test('getAuditLog: busca también por SKU, no solo por nº de venta', async () => {
+  let listSql;
+  state.responder = (sql) => {
+    if (sql.startsWith('SELECT COUNT')) return { rows: [{ total: 0 }] };
+    listSql = sql;
+    return { rows: [] };
+  };
+  await db.getAuditLog(10, 0, 'SKU-1');
+  assert.ok(listSql.includes('sku ILIKE'));
+});
+
+test('getAuditLog: combina búsqueda y origen con AND', async () => {
+  let listSql, listParams;
+  state.responder = (sql, p) => {
+    if (sql.startsWith('SELECT COUNT')) return { rows: [{ total: 0 }] };
+    listSql = sql; listParams = p;
+    return { rows: [] };
+  };
+  await db.getAuditLog(10, 0, 'SKU-1', 'manual');
+  assert.ok(listSql.includes(' AND '));
+  assert.deepEqual(listParams.slice(0, 2), ['%SKU-1%', 'manual']);
+});
+
+// ─── getStockHistoryBySku ───────────────────────────────────────────────────
+
+test('getStockHistoryBySku: sin sku → vacío sin consultar', async () => {
+  state.responder = () => { throw new Error('no debería consultar'); };
+  assert.deepEqual(await db.getStockHistoryBySku(''), { rows: [], total: 0 });
+});
+
+test('getStockHistoryBySku: filtra por sku exacto y normaliza fechas', async () => {
+  let listParams;
+  state.responder = (sql, p) => {
+    if (sql.startsWith('SELECT COUNT')) return { rows: [{ total: 1 }] };
+    listParams = p;
+    return { rows: [{ id: 1, createdAt: new Date('2024-01-01'), revertedAt: null }] };
+  };
+  const { rows, total } = await db.getStockHistoryBySku('SKU-1', 10, 0);
+  assert.equal(total, 1);
+  assert.equal(listParams[0], 'SKU-1');
+  assert.equal(rows[0].createdAt, new Date('2024-01-01').toISOString());
+});
+
+test('getStockHistoryBySku: error de query → vacío', async () => {
+  state.responder = () => { throw new Error('boom'); };
+  assert.deepEqual(await db.getStockHistoryBySku('SKU-1'), { rows: [], total: 0 });
+});
+
 test('getAuditRowById: sin id → null sin consultar', async () => {
   assert.equal(await db.getAuditRowById(null), null);
 });

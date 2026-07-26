@@ -59,6 +59,17 @@ export async function initDb() {
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS product_display VARCHAR(1024);`);
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS notification_payload TEXT;`);
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS pack_id VARCHAR(128);`);
+    // `source` distingue de dónde vino el cambio de stock. La tabla nació asumiendo que todo
+    // cambio era consecuencia de una venta, así que las filas viejas son todas 'venta' y el
+    // DEFAULT las backfillea. Los cambios manuales (botón "sincronizar stock") no tienen orden
+    // ni canal de venta: por eso los NOT NULL de abajo se aflojan en vez de rellenarse con
+    // sentinelas vacíos, que harían pasar por "sin orden" a algo que nunca tuvo una.
+    await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'venta';`);
+    await p.query(`ALTER TABLE sync_audit ALTER COLUMN channel_sale DROP NOT NULL;`);
+    await p.query(`ALTER TABLE sync_audit ALTER COLUMN order_id DROP NOT NULL;`);
+    await p.query(`ALTER TABLE sync_audit ALTER COLUMN quantity DROP NOT NULL;`);
+    // El historial por producto filtra por SKU y ordena por fecha.
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_sync_audit_sku_created ON sync_audit (sku, created_at DESC);`);
     // Backfill una sola vez: rellena pack_id de filas viejas leyendo el pack_id real desde el JSON crudo de la orden.
     try {
       await p.query(`
@@ -93,6 +104,10 @@ export async function initDb() {
     await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS reason VARCHAR(256);`);
     await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS buyer_nickname VARCHAR(256);`);
     await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS claim_date TIMESTAMPTZ;`);
+    // order_id es el nro de venta que ve el usuario (pack_id cuando la venta es de un carrito), así
+    // que NO sirve para cruzar con sync_processed_orders ni con el id que trae el webhook de orders.
+    // sale_order_id guarda el id de la orden individual justamente para ese cruce.
+    await p.query(`ALTER TABLE sync_pending_returns ADD COLUMN IF NOT EXISTS sale_order_id VARCHAR(128);`);
 
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_processed_orders (
@@ -138,6 +153,137 @@ export async function initDb() {
     `);
     // Migración: agrega target_price a tablas ya creadas (price_ml).
     await p.query(`ALTER TABLE ml_pending_tasks ADD COLUMN IF NOT EXISTS target_price NUMERIC(15,2);`);
+
+    // ── Sección de Precios (fase 2) ─────────────────────────────────────────────
+    // Valores fijos del motor de precios: una sola fila, precargada con los del Excel y editable
+    // desde Ajustes. Ver backend/src/lib/pricing.js (DEFAULT_SETTINGS) para el significado.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS pricing_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        commission_pct NUMERIC(6,3) NOT NULL DEFAULT 15,
+        taxes NUMERIC(15,2) NOT NULL DEFAULT 300,
+        shipping_cost NUMERIC(15,2) NOT NULL DEFAULT 6500,
+        free_shipping_threshold NUMERIC(15,2) NOT NULL DEFAULT 33000,
+        card_multiplier NUMERIC(6,3) NOT NULL DEFAULT 1.3,
+        round_step INTEGER NOT NULL DEFAULT 50,
+        default_margin_pct NUMERIC(6,3) NOT NULL DEFAULT 100,
+        default_discount_1 NUMERIC(6,3) NOT NULL DEFAULT 25,
+        default_discount_2 NUMERIC(6,3) NOT NULL DEFAULT 5,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT pricing_settings_singleton CHECK (id = 1)
+      );
+    `);
+    await p.query(`INSERT INTO pricing_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`);
+
+    // Tramos de comisión fija de ML: hasta max_price (precio publicado), la fija es fixed_fee.
+    // NULL en max_price = tramo superior (sin tope). Precargados con los del Excel.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS ml_fee_tiers (
+        id SERIAL PRIMARY KEY,
+        max_price NUMERIC(15,2),
+        fixed_fee NUMERIC(15,2) NOT NULL,
+        sort_order INTEGER NOT NULL
+      );
+    `);
+    const tierCount = await p.query(`SELECT COUNT(*)::int AS n FROM ml_fee_tiers`);
+    if ((tierCount.rows[0]?.n ?? 0) === 0) {
+      await p.query(
+        `INSERT INTO ml_fee_tiers (max_price, fixed_fee, sort_order) VALUES
+           (15000, 1115, 1), (25000, 2300, 2), (33000, 2810, 3), (NULL, 0, 4)`
+      );
+    }
+
+    // Costo vigente de cada producto del hub. source='manual' (proveedores sin PDF, se carga a
+    // mano por bulto o unidad) o 'list' (viene de una lista importada — fase 3). margin_override
+    // permite ganancia propia por producto (Chino/Pagoda la varían).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS product_costs (
+        sku VARCHAR(128) PRIMARY KEY,
+        source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        bulk_price NUMERIC(15,2),
+        bulk_qty INTEGER,
+        unit_cost NUMERIC(15,2),
+        discount_1 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        discount_2 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        margin_override NUMERIC(6,3),
+        label VARCHAR(512),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Historial de cambios de PRECIO, gemela de sync_audit pero con semántica de precio: los
+    // montos son NUMERIC (no enteros) y hay uno por canal. Se mantiene aparte en vez de meter
+    // columnas de precio en sync_audit, cuyo nombre y consumidores asumen stock. El modal de
+    // historial del producto consulta las dos y las fusiona en una sola línea de tiempo.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_audit (
+        id SERIAL PRIMARY KEY,
+        sku VARCHAR(128) NOT NULL,
+        channel VARCHAR(32) NOT NULL,
+        price_before NUMERIC(15,2),
+        price_after NUMERIC(15,2) NOT NULL,
+        source VARCHAR(16) NOT NULL DEFAULT 'bulk',
+        product_label VARCHAR(512),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_price_audit_sku_created ON price_audit (sku, created_at DESC);`);
+
+    // ── Listas del proveedor y mapeo (fase 4) ──────────────────────────────────
+    // Catálogo de códigos del proveedor. Vive aparte de las listas importadas para que el mapeo
+    // SKU↔código sobreviva a cada importación nueva: cuando entra la lista de marzo, los códigos
+    // ya están mapeados y solo cambian los precios. Un código puede no tener SKU (producto que el
+    // proveedor vende y el hub no).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS supplier_codes (
+        code VARCHAR(128) PRIMARY KEY,
+        supplier VARCHAR(64) NOT NULL DEFAULT 'punto_cero',
+        description VARCHAR(512),
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_lists (
+        id SERIAL PRIMARY KEY,
+        supplier VARCHAR(64) NOT NULL DEFAULT 'punto_cero',
+        label VARCHAR(256) NOT NULL,
+        source_filename VARCHAR(512),
+        discount_1 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        discount_2 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_list_items (
+        id SERIAL PRIMARY KEY,
+        list_id INTEGER NOT NULL REFERENCES price_lists(id) ON DELETE CASCADE,
+        code VARCHAR(128) NOT NULL,
+        description VARCHAR(512),
+        unit_price NUMERIC(15,2),
+        bulk_qty INTEGER,
+        bulk_price NUMERIC(15,2)
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_price_list_items_list ON price_list_items (list_id);`);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_price_list_items_code ON price_list_items (code);`);
+
+    // El puente SKU del hub ↔ código del proveedor. Se llena UNA vez (a mano o confirmando una
+    // sugerencia) y de ahí en más no se vuelve a preguntar. Un SKU puede no tener código (producto
+    // de otra marca, con costo cargado a mano).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS sku_code_map (
+        sku VARCHAR(128) PRIMARY KEY,
+        code VARCHAR(128) NOT NULL,
+        supplier VARCHAR(64) NOT NULL DEFAULT 'punto_cero',
+        match_source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        confirmed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_sku_code_map_code ON sku_code_map (code);`);
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -295,22 +441,28 @@ export async function insertAuditLog(row) {
     const payloadStr = row.notificationPayload != null
       ? (typeof row.notificationPayload === 'string' ? row.notificationPayload : JSON.stringify(row.notificationPayload))
       : null;
+    const source = row.source || 'venta';
+    // Un cambio manual no nace de una orden: no tiene canal de venta, nº de orden ni cantidad
+    // vendida. Esos campos van NULL; el qué pasó lo cuentan stock_before/stock_after. Las filas
+    // de venta mantienen los defaults de siempre ('' y 0) para no cambiar lo ya guardado.
+    const fromSale = source !== 'manual';
     await p.query(
-      `INSERT INTO sync_audit (channel_sale, order_id, pack_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      `INSERT INTO sync_audit (channel_sale, order_id, pack_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
-        row.channelSale,
-        row.orderId || '',
-        row.packId || row.orderId || '',
+        row.channelSale ?? null,
+        fromSale ? (row.orderId || '') : null,
+        fromSale ? (row.packId || row.orderId || '') : null,
         row.saleItemId ?? null,
         row.sku || '',
         row.productLabel ?? null,
         row.productDisplay ?? null,
-        row.quantity ?? 0,
+        fromSale ? (row.quantity ?? 0) : null,
         row.updatedChannel,
         row.stockBefore ?? 0,
         row.stockAfter ?? 0,
-        payloadStr
+        payloadStr,
+        source
       ]
     );
   } catch (e) {
@@ -318,52 +470,93 @@ export async function insertAuditLog(row) {
   }
 }
 
+/** Columnas del historial, en el formato camelCase que espera el front. */
+const AUDIT_COLUMNS = `id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId",
+        sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
+        quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
+        source, created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"`;
+
+/** Orígenes válidos de un cambio de stock. Se valida en la query para no filtrar por algo inexistente. */
+export const AUDIT_SOURCES = ['venta', 'manual', 'devolucion'];
+
+function mapAuditRow(r) {
+  return {
+    ...r,
+    saleItemId: r.saleItemId ?? null,
+    createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+    revertedAt: r.revertedAt ? new Date(r.revertedAt).toISOString() : null
+  };
+}
+
 /**
- * Lista el historial de sincronización (más recientes primero).
+ * Lista el historial de cambios de stock (más recientes primero).
  * @param {number} limit
  * @param {number} offset
- * @param {string} [search] - filtrar por nº de venta (pack_id), nº de orden (order_id) o id. ítem (sale_item_id); busca en los tres.
+ * @param {string} [search] - nº de venta (pack_id), nº de orden (order_id), id. ítem (sale_item_id) o SKU; busca en los cuatro.
+ * @param {string} [source] - filtra por origen ('venta' | 'manual' | 'devolucion'); vacío = todos.
  */
-export async function getAuditLog(limit = 100, offset = 0, search = '') {
+export async function getAuditLog(limit = 100, offset = 0, search = '', source = '') {
   const p = getPool();
   if (!p) return { rows: [], total: 0 };
   try {
+    const where = [];
+    const params = [];
+
     const searchTrim = search && String(search).trim();
-    const pattern = searchTrim ? '%' + searchTrim + '%' : null;
-    const countSql = pattern
-      ? 'SELECT COUNT(*)::int AS total FROM sync_audit WHERE (order_id ILIKE $1 OR pack_id ILIKE $1 OR sale_item_id ILIKE $1)'
-      : 'SELECT COUNT(*)::int AS total FROM sync_audit';
-    const countParams = pattern ? [pattern] : [];
-    const countResult = await p.query(countSql, countParams);
+    if (searchTrim) {
+      params.push('%' + searchTrim + '%');
+      const i = params.length;
+      where.push(`(order_id ILIKE $${i} OR pack_id ILIKE $${i} OR sale_item_id ILIKE $${i} OR sku ILIKE $${i})`);
+    }
+    const sourceTrim = source && String(source).trim();
+    if (sourceTrim && AUDIT_SOURCES.includes(sourceTrim)) {
+      params.push(sourceTrim);
+      where.push(`source = $${params.length}`);
+    }
+    const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+
+    const countResult = await p.query(`SELECT COUNT(*)::int AS total FROM sync_audit${whereSql}`, params);
     const total = countResult.rows[0]?.total ?? 0;
 
-    const listSql = pattern
-      ? `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
-                quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-                created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
-         FROM sync_audit
-         WHERE (order_id ILIKE $1 OR pack_id ILIKE $1 OR sale_item_id ILIKE $1)
+    const result = await p.query(
+      `SELECT ${AUDIT_COLUMNS}
+         FROM sync_audit${whereSql}
          ORDER BY created_at DESC
-         LIMIT $2 OFFSET $3`
-      : `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
-                quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-                created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
-         FROM sync_audit
-         ORDER BY created_at DESC
-         LIMIT $1 OFFSET $2`;
-    const listParams = pattern
-      ? [pattern, Math.min(limit, 500), offset]
-      : [Math.min(limit, 500), offset];
-    const result = await p.query(listSql, listParams);
-    const rows = result.rows.map(r => ({
-      ...r,
-      saleItemId: r.saleItemId ?? null,
-      createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
-      revertedAt: r.revertedAt ? new Date(r.revertedAt).toISOString() : null
-    }));
-    return { rows, total };
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, Math.min(limit, 500), offset]
+    );
+    return { rows: result.rows.map(mapAuditRow), total };
   } catch (e) {
     console.error('getAuditLog:', e.message);
+    return { rows: [], total: 0 };
+  }
+}
+
+/**
+ * Historial de un producto puntual, por SKU (la unidad que une ML ↔ TN).
+ * Trae los cambios de ambos canales juntos, más recientes primero.
+ */
+export async function getStockHistoryBySku(sku, limit = 50, offset = 0) {
+  const p = getPool();
+  const skuTrim = sku && String(sku).trim();
+  if (!p || !skuTrim) return { rows: [], total: 0 };
+  try {
+    const countResult = await p.query(
+      'SELECT COUNT(*)::int AS total FROM sync_audit WHERE sku = $1',
+      [skuTrim]
+    );
+    const total = countResult.rows[0]?.total ?? 0;
+    const result = await p.query(
+      `SELECT ${AUDIT_COLUMNS}
+         FROM sync_audit
+         WHERE sku = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
+      [skuTrim, Math.min(limit, 200), offset]
+    );
+    return { rows: result.rows.map(mapAuditRow), total };
+  } catch (e) {
+    console.error('getStockHistoryBySku:', e.message);
     return { rows: [], total: 0 };
   }
 }
@@ -376,7 +569,7 @@ export async function getAuditRowById(id) {
     const r = await p.query(
       `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
               quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-              reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
+              source, reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
        FROM sync_audit WHERE id = $1`,
       [Number(id)]
     );
@@ -451,7 +644,7 @@ export async function getPendingReturns(limit = 20, offset = 0) {
     );
     const total = countResult.rows[0]?.total ?? 0;
     const r = await p.query(
-      `SELECT id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
+      `SELECT id, order_id AS "orderId", sale_order_id AS "saleOrderId", item_id AS "itemId", variation_id AS "variationId",
               sku, quantity, product_label AS "productLabel", reason, buyer_nickname AS "buyerNickname",
               claim_date AS "claimDate", status, created_at AS "createdAt"
        FROM sync_pending_returns
@@ -482,14 +675,15 @@ export async function insertPendingReturn(row) {
   if (!p) return null;
   try {
     const r = await p.query(
-      `INSERT INTO sync_pending_returns (claim_id, order_id, item_id, variation_id, sku, quantity, product_label, reason, buyer_nickname, claim_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
-       RETURNING id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
+      `INSERT INTO sync_pending_returns (claim_id, order_id, sale_order_id, item_id, variation_id, sku, quantity, product_label, reason, buyer_nickname, claim_date, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
+       RETURNING id, order_id AS "orderId", sale_order_id AS "saleOrderId", item_id AS "itemId", variation_id AS "variationId",
                  sku, quantity, product_label AS "productLabel", reason, buyer_nickname AS "buyerNickname",
                  claim_date AS "claimDate", status, created_at AS "createdAt"`,
       [
         row.claimId ?? null,
         row.orderId || '',
+        row.saleOrderId ?? null,
         row.itemId || '',
         row.variationId ?? null,
         row.sku ?? null,
@@ -528,14 +722,43 @@ export async function hasPendingReturnForClaimItem(claimId, itemId, variationId)
   }
 }
 
-/** Devuelve true si existe alguna devolución pendiente para la orden (por order_id). */
+/**
+ * Devuelve true si existe alguna devolución pendiente para la orden. Se busca tanto por order_id
+ * (nro de venta / pack) como por sale_order_id (orden individual) porque el webhook de orders
+ * conoce el id de la orden, mientras que las filas creadas desde un claim o desde el alta manual
+ * guardan el pack como order_id.
+ */
 export async function hasPendingReturnForOrder(orderId) {
   const p = getPool();
   if (!p || !orderId) return false;
   try {
     const r = await p.query(
-      `SELECT 1 FROM sync_pending_returns WHERE order_id = $1 AND status = 'pending' LIMIT 1`,
+      `SELECT 1 FROM sync_pending_returns
+       WHERE (order_id = $1 OR sale_order_id = $1) AND status = 'pending' LIMIT 1`,
       [String(orderId)]
+    );
+    return r.rows.length > 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Devuelve true si ya existe una fila pendiente para esta orden + ítem. Es el equivalente a
+ * hasPendingReturnForClaimItem para las devoluciones que no tienen claim asociado (p. ej. una
+ * entrega fallida, donde ML cancela la orden sin abrir reclamo).
+ */
+export async function hasPendingReturnForOrderItem(orderId, itemId, variationId) {
+  const p = getPool();
+  if (!p || !orderId || !itemId) return false;
+  try {
+    const v = variationId != null ? String(variationId) : null;
+    const r = await p.query(
+      `SELECT 1 FROM sync_pending_returns
+       WHERE (order_id = $1 OR sale_order_id = $1)
+         AND item_id = $2 AND (variation_id IS NOT DISTINCT FROM $3) AND status = 'pending'
+       LIMIT 1`,
+      [String(orderId), String(itemId), v]
     );
     return r.rows.length > 0;
   } catch (e) {
@@ -551,7 +774,7 @@ export async function getPendingReturnById(id) {
   if (!p) return null;
   try {
     const r = await p.query(
-      `SELECT id, order_id AS "orderId", item_id AS "itemId", variation_id AS "variationId",
+      `SELECT id, order_id AS "orderId", sale_order_id AS "saleOrderId", item_id AS "itemId", variation_id AS "variationId",
               sku, quantity, product_label AS "productLabel", status
        FROM sync_pending_returns WHERE id = $1`,
       [id]
@@ -713,6 +936,34 @@ export async function getPendingMlTasks(limit = 20, offset = 0) {
   }
 }
 
+/**
+ * Tareas todavía en vuelo (pending/processing), solo con lo necesario para identificar a qué
+ * ítem/variación afectan. Lo usa Precio y stock para distinguir "todavía no lo apliqué" de
+ * "los canales difieren de verdad": sin esto, una tarea encolada se ve igual que un conflicto.
+ *
+ * A diferencia de getPendingMlTasks (que pagina para la tab Cola ML), acá hacen falta TODAS:
+ * una tarea que quede fuera de la página mostraría un conflicto falso en su fila. Es una lista
+ * corta — las tareas se procesan cada 500ms — y las filas pesan tres campos.
+ *
+ * No incluye 'failed' a propósito: si la tarea falló, el canal quedó desincronizado de verdad
+ * y la fila DEBE mostrar el conflicto. El reintento vive en la tab Cola ML.
+ */
+export async function getActiveMlTasks() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT kind, item_id AS "itemId", variation_id AS "variationId"
+         FROM ml_pending_tasks
+        WHERE status IN ('pending', 'processing')`
+    );
+    return r.rows;
+  } catch (e) {
+    console.error('getActiveMlTasks:', e.message);
+    return [];
+  }
+}
+
 /** Reinicia una tarea failed para que el worker la reintente. */
 export async function retryMlTask(taskId) {
   const p = getPool();
@@ -764,4 +1015,408 @@ export async function waitForMlTask(taskId, timeoutMs = 15000, pollMs = 400) {
     await new Promise(resolve => setTimeout(resolve, pollMs));
   }
   return null;
+}
+
+// ── Sección de Precios (fase 2) ───────────────────────────────────────────────
+
+/**
+ * Devuelve los valores fijos del motor de precios (fila única) + los tramos de comisión, en el
+ * formato camelCase que consume lib/pricing.js (settings + tiers). Si no hay DB, devuelve null y
+ * el que llama usa DEFAULT_SETTINGS.
+ */
+export async function getPricingSettings() {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `SELECT commission_pct AS "commissionPct", taxes, shipping_cost AS "shippingCost",
+              free_shipping_threshold AS "freeShippingThreshold", card_multiplier AS "cardMultiplier",
+              round_step AS "roundStep", default_margin_pct AS "defaultMarginPct",
+              default_discount_1 AS "defaultDiscount1", default_discount_2 AS "defaultDiscount2",
+              updated_at AS "updatedAt"
+       FROM pricing_settings WHERE id = 1`
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    const tiersRes = await p.query(
+      `SELECT max_price AS "maxPrice", fixed_fee AS "fixedFee"
+       FROM ml_fee_tiers ORDER BY sort_order ASC`
+    );
+    const num = (v) => (v == null ? v : Number(v));
+    return {
+      commissionPct: num(row.commissionPct),
+      taxes: num(row.taxes),
+      shippingCost: num(row.shippingCost),
+      freeShippingThreshold: num(row.freeShippingThreshold),
+      cardMultiplier: num(row.cardMultiplier),
+      roundStep: num(row.roundStep),
+      defaultMarginPct: num(row.defaultMarginPct),
+      defaultDiscount1: num(row.defaultDiscount1),
+      defaultDiscount2: num(row.defaultDiscount2),
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+      tiers: tiersRes.rows.map((t) => ({
+        maxPrice: t.maxPrice == null ? Infinity : Number(t.maxPrice),
+        fixedFee: Number(t.fixedFee),
+      })),
+    };
+  } catch (e) {
+    console.error('getPricingSettings:', e.message);
+    return null;
+  }
+}
+
+/** Actualiza los valores fijos del motor. Solo pisa las claves presentes en `patch`. */
+export async function savePricingSettings(patch = {}) {
+  const p = getPool();
+  if (!p) return false;
+  const COLS = {
+    commissionPct: 'commission_pct', taxes: 'taxes', shippingCost: 'shipping_cost',
+    freeShippingThreshold: 'free_shipping_threshold', cardMultiplier: 'card_multiplier',
+    roundStep: 'round_step', defaultMarginPct: 'default_margin_pct',
+    defaultDiscount1: 'default_discount_1', defaultDiscount2: 'default_discount_2',
+  };
+  const sets = [];
+  const vals = [];
+  for (const [key, col] of Object.entries(COLS)) {
+    if (patch[key] != null && Number.isFinite(Number(patch[key]))) {
+      vals.push(Number(patch[key]));
+      sets.push(`${col} = $${vals.length}`);
+    }
+  }
+  if (sets.length === 0) return true;
+  try {
+    await p.query(`UPDATE pricing_settings SET ${sets.join(', ')}, updated_at = NOW() WHERE id = 1`, vals);
+    return true;
+  } catch (e) {
+    console.error('savePricingSettings:', e.message);
+    return false;
+  }
+}
+
+/** Reemplaza los tramos de comisión fija (borra y reinserta en una transacción). */
+export async function saveMlFeeTiers(tiers) {
+  const p = getPool();
+  if (!p || !Array.isArray(tiers) || tiers.length === 0) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM ml_fee_tiers');
+    let order = 0;
+    for (const t of tiers) {
+      order += 1;
+      const maxPrice = t.maxPrice == null || !Number.isFinite(Number(t.maxPrice)) ? null : Number(t.maxPrice);
+      await client.query(
+        `INSERT INTO ml_fee_tiers (max_price, fixed_fee, sort_order) VALUES ($1, $2, $3)`,
+        [maxPrice, Number(t.fixedFee) || 0, order]
+      );
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('saveMlFeeTiers:', e.message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+/** El costo vigente de un SKU, o null. */
+export async function getProductCost(sku) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(`${PRODUCT_COST_SELECT} WHERE sku = $1`, [sku]);
+    return r.rows[0] ? mapProductCost(r.rows[0]) : null;
+  } catch (e) {
+    console.error('getProductCost:', e.message);
+    return null;
+  }
+}
+
+/** Todos los costos cargados (para el preview). */
+export async function getAllProductCosts() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(`${PRODUCT_COST_SELECT} ORDER BY updated_at DESC`);
+    return r.rows.map(mapProductCost);
+  } catch (e) {
+    console.error('getAllProductCosts:', e.message);
+    return [];
+  }
+}
+
+const PRODUCT_COST_SELECT = `SELECT sku, source, bulk_price AS "bulkPrice", bulk_qty AS "bulkQty",
+  unit_cost AS "unitCost", discount_1 AS "discount1", discount_2 AS "discount2",
+  margin_override AS "marginOverride", label, updated_at AS "updatedAt" FROM product_costs`;
+
+function mapProductCost(row) {
+  const num = (v) => (v == null ? null : Number(v));
+  return {
+    sku: row.sku,
+    source: row.source,
+    bulkPrice: num(row.bulkPrice),
+    bulkQty: row.bulkQty == null ? null : Number(row.bulkQty),
+    unitCost: num(row.unitCost),
+    discount1: num(row.discount1),
+    discount2: num(row.discount2),
+    marginOverride: num(row.marginOverride),
+    label: row.label,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+/** Alta/edición del costo de un SKU (upsert). */
+export async function upsertProductCost(sku, data = {}) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  try {
+    await p.query(
+      `INSERT INTO product_costs (sku, source, bulk_price, bulk_qty, unit_cost, discount_1, discount_2, margin_override, label, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (sku) DO UPDATE SET
+         source = EXCLUDED.source, bulk_price = EXCLUDED.bulk_price, bulk_qty = EXCLUDED.bulk_qty,
+         unit_cost = EXCLUDED.unit_cost, discount_1 = EXCLUDED.discount_1, discount_2 = EXCLUDED.discount_2,
+         margin_override = EXCLUDED.margin_override, label = EXCLUDED.label, updated_at = NOW()`,
+      [
+        sku, data.source || 'manual', num(data.bulkPrice), num(data.bulkQty), num(data.unitCost),
+        num(data.discount1) ?? 0, num(data.discount2) ?? 0, num(data.marginOverride), data.label ?? null,
+      ]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertProductCost:', e.message);
+    return false;
+  }
+}
+
+/** Borra el costo de un SKU. */
+export async function deleteProductCost(sku) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  try {
+    await p.query('DELETE FROM product_costs WHERE sku = $1', [sku]);
+    return true;
+  } catch (e) {
+    console.error('deleteProductCost:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Registra un cambio de precio en el historial. `priceBefore` puede venir null (si el snapshot no
+ * tenía la fila); la fila se guarda igual porque el "a cuánto quedó" ya es información útil.
+ */
+export async function insertPriceAudit(row) {
+  const p = getPool();
+  if (!p || !row?.sku || row.priceAfter == null) return false;
+  try {
+    await p.query(
+      `INSERT INTO price_audit (sku, channel, price_before, price_after, source, product_label)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        row.sku,
+        row.channel,
+        row.priceBefore ?? null,
+        row.priceAfter,
+        row.source || 'bulk',
+        row.productLabel ?? null,
+      ]
+    );
+    return true;
+  } catch (e) {
+    console.error('insertPriceAudit:', e.message);
+    return false;
+  }
+}
+
+/** Historial de precios de un SKU (ambos canales), más reciente primero. */
+export async function getPriceHistoryBySku(sku, limit = 50, offset = 0) {
+  const p = getPool();
+  if (!p) return { rows: [], total: 0 };
+  try {
+    const countResult = await p.query('SELECT COUNT(*)::int AS total FROM price_audit WHERE sku = $1', [sku]);
+    const r = await p.query(
+      `SELECT id, sku, channel, price_before AS "priceBefore", price_after AS "priceAfter",
+              source, product_label AS "productLabel", created_at AS "createdAt"
+       FROM price_audit WHERE sku = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [sku, Math.min(limit, 200), offset]
+    );
+    return {
+      rows: r.rows.map((row) => ({
+        ...row,
+        priceBefore: row.priceBefore == null ? null : Number(row.priceBefore),
+        priceAfter: Number(row.priceAfter),
+        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+      })),
+      total: countResult.rows[0]?.total ?? 0,
+    };
+  } catch (e) {
+    console.error('getPriceHistoryBySku:', e.message);
+    return { rows: [], total: 0 };
+  }
+}
+
+// ── Listas del proveedor y mapeo (fase 4) ─────────────────────────────────────
+
+/**
+ * Guarda una lista importada: la lista, sus ítems, y refresca el catálogo de códigos
+ * (`supplier_codes`), todo en una transacción. Los códigos nuevos se dan de alta y los ya
+ * conocidos actualizan `last_seen_at` y su descripción.
+ */
+export async function savePriceList({ supplier = 'punto_cero', label, sourceFilename = null, discount1 = 0, discount2 = 0, items = [] }) {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const listRes = await client.query(
+      `INSERT INTO price_lists (supplier, label, source_filename, discount_1, discount_2)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [supplier, label, sourceFilename, Number(discount1) || 0, Number(discount2) || 0]
+    );
+    const listId = listRes.rows[0].id;
+
+    for (const it of items) {
+      if (!it?.code) continue;
+      await client.query(
+        `INSERT INTO price_list_items (list_id, code, description, unit_price, bulk_qty, bulk_price)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [listId, it.code, it.description ?? null, it.unitPrice ?? null, it.bulkQty ?? null, it.bulkPrice ?? null]
+      );
+      await client.query(
+        `INSERT INTO supplier_codes (code, supplier, description)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (code) DO UPDATE SET last_seen_at = NOW(),
+           description = COALESCE(EXCLUDED.description, supplier_codes.description)`,
+        [it.code, supplier, it.description ?? null]
+      );
+    }
+    await client.query('COMMIT');
+    return listId;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('savePriceList:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Listas importadas, más reciente primero. */
+export async function getPriceLists(limit = 20) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT l.id, l.supplier, l.label, l.source_filename AS "sourceFilename",
+              l.discount_1 AS "discount1", l.discount_2 AS "discount2", l.imported_at AS "importedAt",
+              (SELECT COUNT(*)::int FROM price_list_items i WHERE i.list_id = l.id) AS "itemCount"
+       FROM price_lists l ORDER BY l.imported_at DESC LIMIT $1`,
+      [Math.min(limit, 100)]
+    );
+    return r.rows.map((row) => ({
+      ...row,
+      discount1: Number(row.discount1),
+      discount2: Number(row.discount2),
+      importedAt: row.importedAt ? new Date(row.importedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getPriceLists:', e.message);
+    return [];
+  }
+}
+
+/** Ítems de una lista (o de la más reciente si no se pasa id), indexados por código. */
+export async function getPriceListItems(listId = null) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = listId
+      ? await p.query(
+          `SELECT code, description, unit_price AS "unitPrice", bulk_qty AS "bulkQty", bulk_price AS "bulkPrice"
+           FROM price_list_items WHERE list_id = $1`, [listId])
+      : await p.query(
+          `SELECT i.code, i.description, i.unit_price AS "unitPrice", i.bulk_qty AS "bulkQty", i.bulk_price AS "bulkPrice"
+           FROM price_list_items i
+           WHERE i.list_id = (SELECT id FROM price_lists ORDER BY imported_at DESC LIMIT 1)`);
+    return r.rows.map((row) => ({
+      ...row,
+      unitPrice: row.unitPrice == null ? null : Number(row.unitPrice),
+      bulkQty: row.bulkQty == null ? null : Number(row.bulkQty),
+      bulkPrice: row.bulkPrice == null ? null : Number(row.bulkPrice),
+    }));
+  } catch (e) {
+    console.error('getPriceListItems:', e.message);
+    return [];
+  }
+}
+
+/** Catálogo completo de códigos del proveedor. */
+export async function getSupplierCodes(supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT code, description, first_seen_at AS "firstSeenAt", last_seen_at AS "lastSeenAt"
+       FROM supplier_codes WHERE supplier = $1 ORDER BY code`, [supplier]);
+    return r.rows;
+  } catch (e) {
+    console.error('getSupplierCodes:', e.message);
+    return [];
+  }
+}
+
+/** Todos los mapeos SKU→código confirmados. */
+export async function getSkuCodeMap(supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT sku, code, match_source AS "matchSource", confirmed_at AS "confirmedAt"
+       FROM sku_code_map WHERE supplier = $1`, [supplier]);
+    return r.rows.map((row) => ({
+      ...row,
+      confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getSkuCodeMap:', e.message);
+    return [];
+  }
+}
+
+/** Confirma (o corrige) el mapeo de un SKU. Se hace una vez y no se vuelve a preguntar. */
+export async function upsertSkuCodeMap(sku, code, matchSource = 'manual', supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p || !sku || !code) return false;
+  try {
+    await p.query(
+      `INSERT INTO sku_code_map (sku, code, supplier, match_source, confirmed_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (sku) DO UPDATE SET code = EXCLUDED.code, supplier = EXCLUDED.supplier,
+         match_source = EXCLUDED.match_source, confirmed_at = NOW()`,
+      [sku, code, supplier, matchSource]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertSkuCodeMap:', e.message);
+    return false;
+  }
+}
+
+/** Borra el mapeo de un SKU (para rehacerlo). */
+export async function deleteSkuCodeMap(sku) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  try {
+    await p.query('DELETE FROM sku_code_map WHERE sku = $1', [sku]);
+    return true;
+  } catch (e) {
+    console.error('deleteSkuCodeMap:', e.message);
+    return false;
+  }
 }
