@@ -106,6 +106,7 @@ describe('SyncComponent', () => {
     targetSku: null,
     targetPrice: null,
     status: 'failed',
+    stuck: false,
     attempts: 2,
     lastError: 'timeout',
     createdAt: '2026-01-03T10:00:00Z',
@@ -817,11 +818,27 @@ describe('SyncComponent', () => {
     });
 
     describe('retryTask', () => {
-      it('no reintenta tareas que no están en estado "failed"', () => {
+      it('no reintenta tareas que no están fallidas ni trabadas', () => {
         fixture.detectChanges();
         component.retryTask({ ...failedTask, status: 'pending' });
 
         expect(syncServiceSpy.retryTask).not.toHaveBeenCalled();
+      });
+
+      it('no reintenta una tarea "processing" con el lock vivo (está corriendo de verdad)', () => {
+        fixture.detectChanges();
+        component.retryTask({ ...failedTask, status: 'processing', stuck: false });
+
+        expect(syncServiceSpy.retryTask).not.toHaveBeenCalled();
+      });
+
+      // Una tarea trabada quedó en 'processing' porque el worker murió a mitad de camino (deploy):
+      // el worker la recupera solo al vencer el lock, pero el botón evita esperar.
+      it('reintenta una tarea trabada aunque siga en estado "processing"', () => {
+        fixture.detectChanges();
+        component.retryTask({ ...failedTask, status: 'processing', stuck: true });
+
+        expect(syncServiceSpy.retryTask).toHaveBeenCalledWith(failedTask.id);
       });
 
       it('reintenta una tarea fallida exitosamente e invalida la query', () => {
@@ -961,19 +978,27 @@ describe('SyncComponent', () => {
 
     it('taskKindLabel() traduce todos los tipos de tarea', () => {
       expect(component.taskKindLabel('stock_ml')).toBe('Stock ML');
+      expect(component.taskKindLabel('stock_ml_set')).toBe('Stock ML');
       expect(component.taskKindLabel('sku_ml')).toBe('SKU ML');
       expect(component.taskKindLabel('sku_tn')).toBe('SKU TN');
       expect(component.taskKindLabel('price_ml')).toBe('Precio ML');
     });
 
     it('taskStatusLabel() y taskStatusChipClass() traducen todos los estados', () => {
-      expect(component.taskStatusLabel('pending')).toBe('Pendiente');
-      expect(component.taskStatusLabel('processing')).toBe('En proceso');
-      expect(component.taskStatusLabel('failed')).toBe('Falló');
+      expect(component.taskStatusLabel({ ...failedTask, status: 'pending' })).toBe('Pendiente');
+      expect(component.taskStatusLabel({ ...failedTask, status: 'processing' })).toBe('En proceso');
+      expect(component.taskStatusLabel({ ...failedTask, status: 'failed' })).toBe('Falló');
 
-      expect(component.taskStatusChipClass('pending')).toBe('task-chip pending');
-      expect(component.taskStatusChipClass('processing')).toBe('task-chip processing');
-      expect(component.taskStatusChipClass('failed')).toBe('task-chip failed');
+      expect(component.taskStatusChipClass({ ...failedTask, status: 'pending' })).toBe('task-chip pending');
+      expect(component.taskStatusChipClass({ ...failedTask, status: 'processing' })).toBe('task-chip processing');
+      expect(component.taskStatusChipClass({ ...failedTask, status: 'failed' })).toBe('task-chip failed');
+    });
+
+    it('una tarea trabada se muestra como "Trabada" y no como "En proceso"', () => {
+      const stuck: PendingMlTask = { ...failedTask, status: 'processing', stuck: true };
+
+      expect(component.taskStatusLabel(stuck)).toBe('Trabada');
+      expect(component.taskStatusChipClass(stuck)).toBe('task-chip failed');
     });
 
     it('taskChangeLabel() arma la etiqueta según el tipo de tarea', () => {

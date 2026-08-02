@@ -509,8 +509,13 @@ export class SyncComponent implements OnInit {
     this.queryClient.invalidateQueries({ queryKey: SYNC_PENDING_TASKS_QUERY_KEY });
   }
 
+  /** Se puede reintentar a mano: falló, o quedó trabada con el lock vencido. */
+  canRetryTask(task: PendingMlTask): boolean {
+    return task.status === 'failed' || task.stuck === true;
+  }
+
   retryTask(task: PendingMlTask): void {
-    if (task.status !== 'failed') return;
+    if (!this.canRetryTask(task)) return;
     this.pendingTasksError = null;
     this.retryingTaskId = task.id;
     this.sync.retryTask(task.id).subscribe({
@@ -528,6 +533,7 @@ export class SyncComponent implements OnInit {
   taskKindLabel(kind: PendingMlTask['kind']): string {
     switch (kind) {
       case 'stock_ml': return 'Stock ML';
+      case 'stock_ml_set': return 'Stock ML';
       case 'sku_ml': return 'SKU ML';
       case 'sku_tn': return 'SKU TN';
       case 'price_ml': return 'Precio ML';
@@ -535,17 +541,19 @@ export class SyncComponent implements OnInit {
     }
   }
 
-  taskStatusLabel(status: PendingMlTask['status']): string {
-    switch (status) {
+  taskStatusLabel(task: PendingMlTask): string {
+    if (task.stuck) return 'Trabada';
+    switch (task.status) {
       case 'pending': return 'Pendiente';
       case 'processing': return 'En proceso';
       case 'failed': return 'Falló';
-      default: return status;
+      default: return task.status;
     }
   }
 
-  taskStatusChipClass(status: PendingMlTask['status']): string {
-    switch (status) {
+  taskStatusChipClass(task: PendingMlTask): string {
+    if (task.stuck) return 'task-chip failed';
+    switch (task.status) {
       case 'pending': return 'task-chip pending';
       case 'processing': return 'task-chip processing';
       case 'failed': return 'task-chip failed';
@@ -558,6 +566,10 @@ export class SyncComponent implements OnInit {
       if (task.targetQty == null) return '—';
       const sign = task.targetQty > 0 ? '+' : '';
       return `${sign}${task.targetQty} u.`;
+    }
+    // stock_ml_set fija el stock a un valor absoluto (no es un delta como stock_ml).
+    if (task.kind === 'stock_ml_set') {
+      return task.targetQty != null ? `→ ${task.targetQty} u.` : '—';
     }
     if (task.kind === 'price_ml') {
       return task.targetPrice != null ? `$${task.targetPrice.toLocaleString('es-AR')}` : '—';

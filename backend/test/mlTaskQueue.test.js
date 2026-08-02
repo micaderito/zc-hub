@@ -14,7 +14,7 @@
 import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], priceAudits: [], hasDb: true };
+const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], priceAudits: [], hasDb: true, heartbeats: [] };
 // mlStockBefore / mlPriceBefore: lo que patchMlStock / patchMlPrice devuelven como estado previo
 // del snapshot (null = fila ausente).
 const patchState = { calls: [], mlStockBefore: null, mlPriceBefore: null };
@@ -35,6 +35,8 @@ before(async () => {
       claimNextMlTask: async () => dbState.claimedTask,
       updateMlTaskStatus: async (id, status, err) => { dbState.statusUpdates.push({ id, status, err }); return true; },
       hasDatabase: () => dbState.hasDb,
+      touchMlTaskLock: async (id) => { dbState.heartbeats.push(id); return true; },
+      MLTASK_HEARTBEAT_MS: 30_000,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
       insertPriceAudit: async (row) => { dbState.priceAudits.push(row); },
     },
@@ -78,6 +80,7 @@ beforeEach(() => {
   dbState.statusUpdates = [];
   dbState.auditLogs = [];
   dbState.priceAudits = [];
+  dbState.heartbeats = [];
   patchState.calls = [];
   patchState.mlStockBefore = null;
   patchState.mlPriceBefore = null;
@@ -205,6 +208,29 @@ test('stock_ml_set: updateItemOrVariationStock devuelve false (429 con reintento
   await mlTaskQueue.processTask({ id: 23, kind: 'stock_ml_set', itemId: 'MLA1', targetQty: 5, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'failed');
   assert.equal(patchState.calls.length, 0, 'si ML no aplicó el stock, no se parcha el snapshot');
+});
+
+// ─── processTask: latido del lock ──────────────────────────────────────────
+
+/**
+ * El latido es lo que hace distinguible "tarea lenta" de "worker muerto": mientras la tarea corre
+ * refresca locked_at, así claimNextMlTask puede recuperar las trabadas sin pisar una viva. Si el
+ * latido siguiera después de terminar, una tarea ya cerrada mantendría vivo un lock fantasma.
+ */
+test('el lock late mientras la tarea corre y deja de latir cuando termina', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let finishMlCall;
+  mlState.updateStockResult = new Promise(resolve => { finishMlCall = resolve; });
+
+  const running = mlTaskQueue.processTask({ id: 42, kind: 'stock_ml_set', itemId: 'MLA1', targetQty: 3, attempts: 0 });
+  t.mock.timers.tick(90_000);
+  assert.deepEqual(dbState.heartbeats, [42, 42, 42], 'un latido cada 30s sobre la tarea en curso');
+
+  finishMlCall(true);
+  await running;
+
+  t.mock.timers.tick(90_000);
+  assert.equal(dbState.heartbeats.length, 3, 'terminada la tarea, el latido se corta');
 });
 
 // ─── processTask: sku_ml ───────────────────────────────────────────────────

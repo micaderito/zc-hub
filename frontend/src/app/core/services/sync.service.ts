@@ -68,7 +68,7 @@ export interface SyncReturnsResponse {
   total: number;
 }
 
-export type MlTaskKind = 'stock_ml' | 'sku_ml' | 'sku_tn' | 'price_ml';
+export type MlTaskKind = 'stock_ml' | 'stock_ml_set' | 'sku_ml' | 'sku_tn' | 'price_ml';
 export type MlTaskStatus = 'pending' | 'processing' | 'failed';
 
 export interface PendingMlTask {
@@ -81,6 +81,12 @@ export interface PendingMlTask {
   targetSku: string | null;
   targetPrice: number | null;
   status: MlTaskStatus;
+  /**
+   * Tarea trabada: quedó en 'processing' con el lock vencido porque el worker que la tenía se
+   * cortó (un deploy a mitad de camino, típicamente). El worker la recupera solo en el próximo
+   * tick, pero la UI ofrece reintentarla a mano para no esperar.
+   */
+  stuck: boolean;
   attempts: number;
   lastError: string | null;
   createdAt: string;

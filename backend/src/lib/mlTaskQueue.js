@@ -14,7 +14,7 @@
  *                  cambio en price_audit (historial de precios del producto).
  */
 
-import { claimNextMlTask, updateMlTaskStatus, hasDatabase } from '../db.js';
+import { claimNextMlTask, updateMlTaskStatus, hasDatabase, touchMlTaskLock, MLTASK_HEARTBEAT_MS } from '../db.js';
 import { insertAuditLog, insertPriceAudit } from '../db.js';
 import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku } from '../services/conflictsService.js';
 import { getMlToken, tokens } from '../store.js';
@@ -27,6 +27,14 @@ let workerTimer = null;
 export async function processTask(task) {
   const { id, kind, itemId, variationId, targetQty, targetSku, targetPrice, attempts } = task;
   const ctx = task.contextJson ? JSON.parse(task.contextJson) : null;
+
+  // Latido: mientras la tarea corre refrescamos su lock. Así un `locked_at` viejo significa
+  // "el proceso se murió" y no "la tarea tarda", y claimNextMlTask puede recuperarla sin riesgo
+  // de pisar una tarea viva (una tarea puede tardar minutos si ML está devolviendo 429).
+  const heartbeat = setInterval(() => {
+    touchMlTaskLock(id).catch(e => console.error('[MLQueue] touchMlTaskLock:', e.message));
+  }, MLTASK_HEARTBEAT_MS);
+  heartbeat.unref?.();
 
   try {
     if (kind === 'stock_ml') {
@@ -154,6 +162,8 @@ export async function processTask(task) {
     const msg = e?.message || String(e);
     await updateMlTaskStatus(id, 'failed', msg);
     console.warn(`[MLQueue] Tarea ${id} (${kind}) falló (intento ${attempts + 1}): ${msg}`);
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
