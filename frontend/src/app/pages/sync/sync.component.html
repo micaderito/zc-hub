@@ -214,8 +214,8 @@
                 </thead>
                 <tbody>
                   @for (task of pendingTasks; track task.id) {
-                    <tr [class.row-failed]="task.status === 'failed'">
-                      <td><span [class]="taskStatusChipClass(task.status)">{{ taskStatusLabel(task.status) }}</span></td>
+                    <tr [class.row-failed]="task.status === 'failed' || task.stuck">
+                      <td><span [class]="taskStatusChipClass(task)">{{ taskStatusLabel(task) }}</span></td>
                       <td>{{ taskKindLabel(task.kind) }}</td>
                       <td><code>{{ task.itemId || '—' }}</code></td>
                       <td><code>{{ task.variationId || '—' }}</code></td>
@@ -224,7 +224,7 @@
                       <td class="cell-error">{{ task.lastError || '—' }}</td>
                       <td>{{ formatDate(task.updatedAt) }}</td>
                       <td>
-                        @if (task.status === 'failed') {
+                        @if (canRetryTask(task)) {
                           <button type="button" class="btn-secondary btn-sm" (click)="retryTask(task)" [disabled]="retryingTaskId === task.id">
                             {{ retryingTaskId === task.id ? '…' : 'Reintentar' }}
                           </button>

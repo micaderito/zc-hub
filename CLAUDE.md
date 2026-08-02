@@ -114,9 +114,35 @@ bloquee con la marca que dejó el primero.
 salió de un carrito) y `sale_order_id` = id de la orden individual, que es el que traen los webhooks
 y el que cruza con `sync_processed_orders`. Cruzar por `order_id` solo falla en ventas por pack.
 
+### Cola de tareas (`ml_pending_tasks`): locks que vencen
+
+El worker (`backend/src/lib/mlTaskQueue.js`, tick cada 500 ms) reclama una tarea y la pasa a
+`processing`. Si el proceso se muere ahí en el medio — **un deploy es el caso típico** — nadie
+vuelve a mirar esa fila: `claimNextMlTask` busca `pending`/`failed`, no `processing`. Incidente
+2026-08-02: dos `stock_ml_set` quedaron "En proceso" con `intentos = 0` y sin error, esperando
+para siempre.
+
+El lock ahora **vence**. Dos piezas que van juntas:
+
+- **Latido:** mientras la tarea corre, el worker refresca `locked_at` cada `MLTASK_HEARTBEAT_MS`
+  (30 s) vía `touchMlTaskLock`.
+- **Recuperación:** `claimNextMlTask` también toma las `processing` con `locked_at` más viejo que
+  `MLTASK_STALE_LOCK_MS` (2 min = 4 latidos perdidos), sumando un intento para que una tarea que
+  voltea al proceso una y otra vez termine en `failed` en vez de reiniciarlo en loop.
+
+El latido no es un detalle: sin él, `locked_at` viejo también podría significar "tarea lenta" —
+con ML en 429 sostenido el circuit breaker de `mlLimiter` pausa el caño hasta 5 min por intento —
+y reclamar una tarea viva **duplicaría un `stock_ml`**, que es un delta, no un valor absoluto.
+Con latido, un lock vencido solo puede significar que el proceso murió.
+
+En la UI (tab **Cola ML**) esas tareas se muestran como **Trabada** (no "En proceso") y tienen
+botón Reintentar; `retryMlTask` acepta `failed` o `processing` con lock vencido, nunca una
+`processing` viva.
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
-ML). `backend/test/mlShipmentState.test.js` cubre la regla de restauración por estado de envío, y
-`backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
+ML). `backend/test/mlShipmentState.test.js` cubre la regla de restauración por estado de envío,
+`backend/test/db.test.js` la recuperación de locks vencidos y `backend/test/mlTaskQueue.test.js`
+el latido, y `backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
 despachado, envío no consultable, caché por pack). Correr con `npm test` en `backend/`.

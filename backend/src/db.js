@@ -151,6 +151,14 @@ export async function initDb() {
       ON ml_pending_tasks(status, next_run_at)
       WHERE status IN ('pending', 'failed');
     `);
+    // Locks vencidos: tareas que quedaron en 'processing' porque el worker que las tenía se murió.
+    // claimNextMlTask las busca en cada tick, así que necesitan su propio índice — el parcial de
+    // arriba solo cubre pending/failed.
+    await p.query(`
+      CREATE INDEX IF NOT EXISTS idx_ml_pending_tasks_stale_lock
+      ON ml_pending_tasks(locked_at)
+      WHERE status = 'processing';
+    `);
     // Migración: agrega target_price a tablas ya creadas (price_ml).
     await p.query(`ALTER TABLE ml_pending_tasks ADD COLUMN IF NOT EXISTS target_price NUMERIC(15,2);`);
 
@@ -831,8 +839,28 @@ export async function enqueueMlTask({ kind, itemId, variationId = null, targetQt
 }
 
 /**
+ * Cuánto puede pasar sin latido antes de dar por muerto al worker que tenía la tarea.
+ *
+ * El worker refresca `locked_at` cada MLTASK_HEARTBEAT_MS mientras procesa (ver touchMlTaskLock),
+ * así que un `locked_at` viejo NO significa "tarea lenta" sino "el proceso se cayó" — un deploy,
+ * un OOM, un reinicio del host. Por eso el umbral puede ser corto: son ~4 latidos perdidos.
+ *
+ * Sin latido no habría forma de distinguir una tarea trabada de una legítimamente larga: con ML
+ * en 429 sostenido, el circuit breaker de mlLimiter puede pausar el caño hasta 5 min por intento,
+ * y reclamar una tarea viva duplicaría un stock_ml (que es un delta, no un valor absoluto).
+ */
+export const MLTASK_HEARTBEAT_MS = 30_000;
+export const MLTASK_STALE_LOCK_MS = 4 * MLTASK_HEARTBEAT_MS;
+
+/**
  * Reclama la próxima tarea lista para procesar.
  * Usa FOR UPDATE SKIP LOCKED para que múltiples workers no agarren la misma.
+ *
+ * Además de pending/failed, recupera las tareas que quedaron en 'processing' con el lock vencido:
+ * son las que estaba corriendo un worker que se murió (deploy a mitad de camino, típicamente).
+ * Sin esto quedaban trabadas para siempre — 'processing' no volvía a entrar nunca en esta query.
+ * La recuperación cuenta como intento (attempts + 1) para que una tarea que voltee al proceso una
+ * y otra vez termine en failed en vez de reiniciarlo en loop.
  */
 export async function claimNextMlTask() {
   const p = getPool();
@@ -842,28 +870,62 @@ export async function claimNextMlTask() {
     await client.query('BEGIN');
     const r = await client.query(
       `SELECT id, kind, item_id AS "itemId", variation_id AS "variationId",
-              target_qty AS "targetQty", target_sku AS "targetSku", target_price AS "targetPrice", context_json AS "contextJson", attempts
+              target_qty AS "targetQty", target_sku AS "targetSku", target_price AS "targetPrice",
+              context_json AS "contextJson", attempts, status
        FROM ml_pending_tasks
-       WHERE (status = 'pending' OR (status = 'failed' AND attempts < 5))
-         AND next_run_at <= NOW()
+       WHERE (
+               ((status = 'pending' OR (status = 'failed' AND attempts < 5)) AND next_run_at <= NOW())
+               OR (status = 'processing' AND attempts < 5
+                   AND locked_at IS NOT NULL AND locked_at < NOW() - ($1::int * INTERVAL '1 millisecond'))
+             )
        ORDER BY created_at ASC
        LIMIT 1
        FOR UPDATE SKIP LOCKED`,
+      [MLTASK_STALE_LOCK_MS]
     );
     const task = r.rows[0];
     if (!task) { await client.query('COMMIT'); return null; }
+    const reclaimed = task.status === 'processing';
     await client.query(
-      `UPDATE ml_pending_tasks SET status = 'processing', locked_at = NOW(), updated_at = NOW() WHERE id = $1`,
-      [task.id]
+      `UPDATE ml_pending_tasks
+       SET status = 'processing', locked_at = NOW(), updated_at = NOW(),
+           attempts = attempts + $2,
+           last_error = CASE WHEN $2 = 1 THEN 'Recuperada: el worker anterior se cortó a mitad de la tarea' ELSE last_error END
+       WHERE id = $1`,
+      [task.id, reclaimed ? 1 : 0]
     );
     await client.query('COMMIT');
-    return task;
+    if (reclaimed) {
+      console.warn(`[MLQueue] Tarea ${task.id} (${task.kind}) recuperada: lock vencido, el worker anterior no terminó.`);
+    }
+    const { status, ...claimed } = task;
+    return { ...claimed, attempts: task.attempts + (reclaimed ? 1 : 0) };
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('claimNextMlTask:', e.message);
     return null;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Latido del worker sobre la tarea que está procesando: refresca `locked_at` para que otro worker
+ * (o este mismo tras un reinicio) no la dé por abandonada mientras sigue viva. No toca `updated_at`
+ * para no mover la columna "Actualizado" que ve la usuaria en la UI cada 30s.
+ */
+export async function touchMlTaskLock(taskId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE ml_pending_tasks SET locked_at = NOW() WHERE id = $1 AND status = 'processing'`,
+      [taskId]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('touchMlTaskLock:', e.message);
+    return false;
   }
 }
 
@@ -911,17 +973,20 @@ export async function getPendingMlTasks(limit = 20, offset = 0) {
       `SELECT id, kind, item_id AS "itemId", variation_id AS "variationId",
               target_qty AS "targetQty", target_sku AS "targetSku", target_price AS "targetPrice",
               status, attempts, last_error AS "lastError",
-              created_at AS "createdAt", updated_at AS "updatedAt", next_run_at AS "nextRunAt"
+              created_at AS "createdAt", updated_at AS "updatedAt", next_run_at AS "nextRunAt",
+              (status = 'processing' AND locked_at IS NOT NULL
+               AND locked_at < NOW() - ($3::int * INTERVAL '1 millisecond')) AS "stuck"
        FROM ml_pending_tasks
        WHERE status IN ('pending', 'processing', 'failed')
        ORDER BY updated_at DESC
        LIMIT $1 OFFSET $2`,
-      [Math.min(limit, 100), offset]
+      [Math.min(limit, 100), offset, MLTASK_STALE_LOCK_MS]
     );
     return {
       tasks: r.rows.map(row => ({
         ...row,
         targetPrice: row.targetPrice != null ? Number(row.targetPrice) : null,
+        stuck: row.stuck === true,
         createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
         updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
         nextRunAt: row.nextRunAt ? new Date(row.nextRunAt).toISOString() : null,
@@ -964,16 +1029,27 @@ export async function getActiveMlTasks() {
   }
 }
 
-/** Reinicia una tarea failed para que el worker la reintente. */
+/**
+ * Reinicia una tarea para que el worker la reintente.
+ *
+ * Acepta las 'failed' y también las 'processing' con el lock vencido (trabadas por un worker que
+ * murió): el worker las recupera solo, pero el botón evita esperar el timeout. Una 'processing'
+ * con lock fresco NO se puede reintentar a mano — está corriendo de verdad y reencolarla
+ * duplicaría el cambio.
+ */
 export async function retryMlTask(taskId) {
   const p = getPool();
   if (!p) return false;
   try {
     const r = await p.query(
       `UPDATE ml_pending_tasks
-       SET status = 'pending', attempts = 0, last_error = NULL, next_run_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND status = 'failed'`,
-      [taskId]
+       SET status = 'pending', attempts = 0, last_error = NULL, next_run_at = NOW(),
+           locked_at = NULL, updated_at = NOW()
+       WHERE id = $1
+         AND (status = 'failed'
+              OR (status = 'processing' AND locked_at IS NOT NULL
+                  AND locked_at < NOW() - ($2::int * INTERVAL '1 millisecond')))`,
+      [taskId, MLTASK_STALE_LOCK_MS]
     );
     return (r.rowCount ?? 0) > 0;
   } catch (e) {
