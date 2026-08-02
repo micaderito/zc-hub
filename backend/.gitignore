@@ -5,5 +5,7 @@ node_modules/
 data/
 *.log
 
-# symlinks del setup de worktree (ver memoria worktree-backend-setup)
+# symlinks del setup de worktree (ver memoria worktree-backend-setup): como son symlinks y no
+# directorios, las reglas con barra final de arriba no los agarran.
 data
+node_modules

@@ -602,6 +602,61 @@ test('claimNextMlTask: reclama la tarea encontrada y la marca processing', async
   assert.equal(updates[0][0], 7);
 });
 
+// Locks vencidos: una tarea que quedó en 'processing' porque el worker se murió a mitad de camino
+// (un deploy, típicamente) tiene que volver a la cola sola. Antes quedaba trabada para siempre.
+test('claimNextMlTask: la query busca también tareas processing con el lock vencido', async () => {
+  let selectSql = '';
+  state.responder = (sql) => {
+    if (sql.includes('FOR UPDATE SKIP LOCKED')) { selectSql = sql; return { rows: [] }; }
+    return { rows: [], rowCount: 0 };
+  };
+  await db.claimNextMlTask();
+  assert.ok(selectSql.includes("status = 'processing'"));
+  assert.ok(selectSql.includes('locked_at <'));
+});
+
+test('claimNextMlTask: recuperar una tarea trabada cuenta como intento (attempts + 1)', async () => {
+  let updateParams = null;
+  state.responder = (sql, params) => {
+    if (sql.includes('FOR UPDATE SKIP LOCKED')) {
+      return { rows: [{ id: 7, kind: 'stock_ml', itemId: 'MLA1', variationId: null, targetQty: -1, targetSku: null, targetPrice: null, contextJson: null, attempts: 1, status: 'processing' }] };
+    }
+    if (sql.includes("SET status = 'processing'")) updateParams = params;
+    return { rows: [], rowCount: 0 };
+  };
+  const task = await db.claimNextMlTask();
+  assert.equal(updateParams[1], 1, 'debe sumar 1 intento al recuperar');
+  assert.equal(task.attempts, 2);
+  assert.equal(task.status, undefined, 'status es interno del claim, no se propaga al worker');
+});
+
+test('claimNextMlTask: una tarea pending no suma intento al reclamarse', async () => {
+  let updateParams = null;
+  state.responder = (sql, params) => {
+    if (sql.includes('FOR UPDATE SKIP LOCKED')) {
+      return { rows: [{ id: 8, kind: 'sku_ml', attempts: 0, status: 'pending' }] };
+    }
+    if (sql.includes("SET status = 'processing'")) updateParams = params;
+    return { rows: [], rowCount: 0 };
+  };
+  const task = await db.claimNextMlTask();
+  assert.equal(updateParams[1], 0);
+  assert.equal(task.attempts, 0);
+});
+
+test('touchMlTaskLock: refresca locked_at solo si la tarea sigue en processing', async () => {
+  let sqlSeen = '';
+  state.responder = (sql, params) => { sqlSeen = sql; return { rows: [], rowCount: params[0] === 1 ? 1 : 0 }; };
+  assert.equal(await db.touchMlTaskLock(1), true);
+  assert.ok(sqlSeen.includes("status = 'processing'"));
+  assert.equal(await db.touchMlTaskLock(2), false);
+});
+
+test('touchMlTaskLock: error de query → false', async () => {
+  state.responder = () => { throw new Error('boom'); };
+  assert.equal(await db.touchMlTaskLock(1), false);
+});
+
 test('claimNextMlTask: si falla la query hace ROLLBACK y devuelve null', async () => {
   let rolledBack = false;
   state.responder = (sql) => {
@@ -652,6 +707,16 @@ test('getPendingMlTasks: arma tasks con targetPrice numérico y fechas ISO', asy
   assert.equal(failedCount, 0);
   assert.equal(tasks[0].targetPrice, 150);
   assert.equal(tasks[0].nextRunAt, null);
+  assert.equal(tasks[0].stuck, false, 'sin flag de la query, la tarea no está trabada');
+});
+
+test('getPendingMlTasks: propaga el flag stuck que calcula la query (lock vencido)', async () => {
+  state.responder = (sql) => {
+    if (sql.startsWith('SELECT\n')) return { rows: [{ total: 1, activeCount: 1, failedCount: 0 }] };
+    return { rows: [{ id: 1, kind: 'stock_ml_set', status: 'processing', stuck: true, createdAt: null, updatedAt: null, nextRunAt: null }] };
+  };
+  const { tasks } = await db.getPendingMlTasks(20, 0);
+  assert.equal(tasks[0].stuck, true);
 });
 
 test('getPendingMlTasks: error de query → estructura vacía', async () => {
@@ -662,6 +727,15 @@ test('getPendingMlTasks: error de query → estructura vacía', async () => {
 test('retryMlTask: true si reinició una fila failed', async () => {
   state.responder = () => ({ rows: [], rowCount: 1 });
   assert.equal(await db.retryMlTask(1), true);
+});
+
+test('retryMlTask: acepta processing con lock vencido, no processing con lock vivo', async () => {
+  let sqlSeen = '';
+  state.responder = (sql) => { sqlSeen = sql; return { rows: [], rowCount: 1 }; };
+  await db.retryMlTask(1);
+  assert.ok(sqlSeen.includes("status = 'failed'"));
+  assert.ok(sqlSeen.includes("status = 'processing'"));
+  assert.ok(sqlSeen.includes('locked_at <'), 'solo las trabadas: el lock tiene que estar vencido');
 });
 
 test('retryMlTask: false si no había fila failed con ese id', async () => {
