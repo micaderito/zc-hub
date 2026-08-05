@@ -24,11 +24,14 @@ export class PdfTextService {
 
   private async extractPdf(file: File): Promise<string> {
     const pdfjs = await import('pdfjs-dist');
-    // El worker se sirve desde el bundle propio (sin CDN, para que ande sin internet).
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url,
-    ).toString();
+    // El worker se copia al build como asset estático (angular.json) desde node_modules, así que
+    // se sirve desde el propio dominio (sin CDN, para que ande sin internet). La referencia es
+    // relativa (sin "/" inicial) para que el navegador la resuelva contra <base href> — necesario
+    // porque en GitHub Pages la app vive en un subpath (/zc-hub/) y no en la raíz del dominio.
+    // `new URL(..., import.meta.url)` NO sirve acá: esbuild no reescribe ese import como asset (a
+    // diferencia de Vite/webpack), así que en producción quedaba apuntando al specifier del paquete
+    // literal en vez de al archivo copiado.
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.mjs', document.baseURI).toString();
 
     const buffer = await file.arrayBuffer();
     const doc = await pdfjs.getDocument({ data: buffer }).promise;
