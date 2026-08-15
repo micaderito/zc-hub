@@ -93,14 +93,13 @@ export async function persistSkuToChannels(entry) {
   return { ml: !!mlTaskId, tn: tnOk, mlTaskId: mlTaskId ?? undefined };
 }
 
-/** Descontar stock en Tienda Nube para el SKU dado. Devuelve { ok, stockBefore, stockAfter }. */
-export async function deductStockTiendaNube(sku, quantity) {
-  await ensureSkuResolved(sku, 'tn');
-  const tnVariant = getTnVariantBySku(sku);
-  if (!tnVariant?.productId || !tokens.tiendanube?.access_token) return { ok: false };
-  const { productId, variantId } = tnVariant;
-  const storeId = tokens.tiendanube.store_id;
-  const orderRes = await fetch(
+/**
+ * Lee el stock actual de una variante en TN, o null si no se pudo leer. La diferencia importa:
+ * 0 es un stock, null es "no sabemos" — y con null no se puede decidir nada sobre el stock.
+ */
+async function readTnVariantStock(productId, variantId) {
+  const storeId = tokens.tiendanube?.store_id;
+  const res = await fetch(
     `https://api.tiendanube.com/v1/${storeId}/products/${productId}/variants/${variantId}`,
     {
       headers: {
@@ -109,9 +108,20 @@ export async function deductStockTiendaNube(sku, quantity) {
       }
     }
   );
-  if (!orderRes.ok) return { ok: false };
-  const variant = await orderRes.json();
-  const stockBefore = variant.stock ?? variant.inventory_levels?.[0]?.stock ?? 0;
+  if (!res.ok) return null;
+  const variant = await res.json();
+  return variant.stock ?? variant.inventory_levels?.[0]?.stock ?? 0;
+}
+
+/** Descontar stock en Tienda Nube para el SKU dado. Devuelve { ok, stockBefore, stockAfter }. */
+export async function deductStockTiendaNube(sku, quantity) {
+  await ensureSkuResolved(sku, 'tn');
+  const tnVariant = getTnVariantBySku(sku);
+  if (!tnVariant?.productId || !tokens.tiendanube?.access_token) return { ok: false };
+  const { productId, variantId } = tnVariant;
+  const storeId = tokens.tiendanube.store_id;
+  const stockBefore = await readTnVariantStock(productId, variantId);
+  if (stockBefore == null) return { ok: false };
   const newStock = Math.max(0, stockBefore - quantity);
   const ok = await tn.updateVariantStock(
     tokens.tiendanube.access_token,
@@ -156,18 +166,8 @@ export async function restoreStockTiendaNube(sku, quantity) {
   if (!tnVariant?.productId || !tokens.tiendanube?.access_token) return { ok: false };
   const { productId, variantId } = tnVariant;
   const storeId = tokens.tiendanube.store_id;
-  const orderRes = await fetch(
-    `https://api.tiendanube.com/v1/${storeId}/products/${productId}/variants/${variantId}`,
-    {
-      headers: {
-        Authentication: `bearer ${tokens.tiendanube.access_token}`,
-        'User-Agent': 'ZonacuadernoSync/1.0'
-      }
-    }
-  );
-  if (!orderRes.ok) return { ok: false };
-  const variant = await orderRes.json();
-  const stockBefore = variant.stock ?? variant.inventory_levels?.[0]?.stock ?? 0;
+  const stockBefore = await readTnVariantStock(productId, variantId);
+  if (stockBefore == null) return { ok: false };
   const newStock = stockBefore + Math.max(0, Math.floor(quantity));
   const ok = await tn.updateVariantStock(
     tokens.tiendanube.access_token,
@@ -344,53 +344,154 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '', orderPaylo
   return results;
 }
 
-/** Orden ML cancelada: restaurar stock en TN por cada ítem. Solo si sync está activada. orderPayload = respuesta getOrder ML (opcional). */
-export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', orderPayload = null) {
+/** Clave de un ítem de orden ML (ítem + variación) para cruzar el plan del espejo con los order_items. */
+const mirrorKey = (itemId, variationId) => `${itemId}|${variationId ?? ''}`;
+
+/**
+ * Arma el espejo de una cancelación de ML: por cada ítem, cuánto stock tiene AHORA ML y cuánto TN.
+ *
+ * Los dos números son el insumo de `onMercadoLibreOrderCancelled`, que iguala TN al de ML en vez
+ * de sumarle la cantidad cancelada a ciegas. Se leen acá, antes de tocar nada, porque si falta
+ * alguno no hay espejo posible y el llamador prefiere reintentar (ML devolviendo 429 no es
+ * información sobre el stock) antes que decidir sin datos.
+ *
+ * Los ítems sin SKU o que no están en Tienda Nube se saltean: no hay nada que espejar, igual que
+ * antes no había nada que restaurar.
+ *
+ * @returns {{ ok: true, items: object[] } | { ok: false, reason: string }}
+ */
+export async function planMlCancellationMirror(orderItems, accessToken = null) {
+  const token = accessToken || await getMlToken();
+  if (!token) return { ok: false, reason: 'sin token de ML para leer el stock' };
+
+  const items = [];
+  for (const oi of orderItems ?? []) {
+    const itemId = oi?.item?.id;
+    if (!itemId) continue;
+    const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
+    const quantity = oi?.quantity ?? 1;
+
+    const item = await ml.getItem(token, itemId);
+    if (!item) return { ok: false, reason: `no se pudo leer el ítem ${itemId} en ML` };
+
+    let variation = null;
+    if (variationId && item.variations?.length) {
+      variation = item.variations.find(v => String(v.id) === String(variationId)) ?? null;
+      if (!variation) return { ok: false, reason: `la variación ${variationId} ya no está en el ítem ${itemId}` };
+    }
+    const mlStock = (variation ? variation.available_quantity : item.available_quantity) ?? null;
+    if (mlStock == null) return { ok: false, reason: `el ítem ${itemId} no informa stock en ML` };
+
+    const sku = getSkuByMlItem(itemId, variationId)
+      || (variation?.seller_sku ? String(variation.seller_sku).trim() : null)
+      || (oi?.item?.seller_sku ? String(oi.item.seller_sku).trim() : null)
+      || ml.extractSkuFromItem(item);
+    if (!sku) {
+      console.warn('[Sync] Espejo: ítem %s de la orden cancelada no tiene SKU, se saltea.', itemId);
+      continue;
+    }
+
+    await ensureSkuResolved(sku, 'tn');
+    const tnVariant = getTnVariantBySku(sku);
+    if (!tnVariant?.productId || !tokens.tiendanube?.access_token) {
+      console.warn('[Sync] Espejo: SKU %s no está vinculado en Tienda Nube, se saltea.', sku);
+      continue;
+    }
+    const tnStock = await readTnVariantStock(tnVariant.productId, tnVariant.variantId);
+    if (tnStock == null) return { ok: false, reason: `no se pudo leer el stock de ${sku} en Tienda Nube` };
+
+    items.push({
+      itemId,
+      variationId,
+      quantity,
+      sku,
+      mlStock,
+      tnStock,
+      productId: tnVariant.productId,
+      variantId: tnVariant.variantId,
+    });
+  }
+  return { ok: true, items };
+}
+
+/**
+ * Orden ML cancelada: iguala el stock de Tienda Nube al que tiene Mercado Libre (espejo).
+ *
+ * ML es la fuente de verdad de su propio stock. Si devolvió la unidad a la publicación, TN tiene
+ * que quedar en ese mismo número; si NO la devolvió —la cancelaste vos porque el producto no
+ * estaba, la mercadería nunca volvió— sumar en TN inventa stock que no existe y desalinea los dos
+ * canales. Por eso el espejo solo escribe cuando ML efectivamente sumó de su lado, y los ítems
+ * donde no lo hizo se devuelven con `mlNotRestored` para que el llamador los deje como devolución
+ * pendiente de confirmar (así, además, la usuaria se entera).
+ *
+ * @param {object} plan - salida de planMlCancellationMirror, con los dos stocks ya leídos.
+ */
+export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', orderPayload = null, plan = null) {
   const enabled = await getSyncEnabled();
   if (!enabled) return [];
+  if (!plan?.ok) {
+    console.warn('[Sync] ML cancelación %s: sin espejo de stock, no se toca Tienda Nube.', orderId);
+    return [];
+  }
   const realOrderId = resolveMlOrderId(orderPayload, orderId);
   const packId = resolveMlPackId(orderPayload, orderId);
+  const planByKey = new Map(plan.items.map(p => [mirrorKey(p.itemId, p.variationId), p]));
   const results = [];
+
   for (const oi of orderItems) {
     const itemId = oi?.item?.id;
-    const variationId = oi?.item?.variation_id ?? oi?.variation_id;
-    const quantity = oi?.quantity ?? 1;
     if (!itemId) continue;
-    let sku = getSkuByMlItem(itemId, variationId);
-    if (!sku) {
-      const accessToken = await getMlToken();
-      if (accessToken) {
-        const item = await ml.getItem(accessToken, itemId);
-        sku = item ? ml.extractSkuFromItem(item) : null;
-        if (item?.variations?.length && variationId) {
-          const v = item.variations.find(vr => String(vr.id) === String(variationId));
-          if (v?.seller_sku) sku = v.seller_sku;
-        }
-      }
+    const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
+    const planned = planByKey.get(mirrorKey(itemId, variationId));
+    if (!planned) continue;
+    const { sku, quantity, mlStock, tnStock } = planned;
+
+    if (mlStock <= tnStock) {
+      console.warn(
+        '[Sync] ML cancelación %s: SKU %s — ML quedó en %s y TN en %s. ML no sumó stock de su lado, no se toca TN.',
+        orderId, sku, mlStock, tnStock
+      );
+      results.push({ itemId, variationId, sku, quantity, ok: false, mlNotRestored: true, mlStock, tnStock });
+      continue;
     }
-    if (sku) {
-      const out = await restoreStockTiendaNube(sku, quantity);
-      results.push({ itemId, variationId, sku, quantity, ...out });
-      if (out.ok && out.stockBefore !== undefined) {
-        const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== ''
-          ? String(oi.id)
-          : null;
-        await insertAuditLog({
-          channelSale: 'mercadolibre',
-          orderId: realOrderId,
-          packId,
-          saleItemId,
-          sku,
-          productLabel: 'Cancelación ML',
-          productDisplay: mlOrderItemDisplay(oi),
-          quantity,
-          updatedChannel: 'tiendanube',
-          stockBefore: out.stockBefore,
-          stockAfter: out.stockAfter ?? out.stockBefore + quantity,
-          notificationPayload: orderPayload
-        });
-      }
+
+    // updateVariantStock lanza si TN rechaza: lo contenemos por ítem para que un producto que
+    // falla no se lleve puestos a los demás (ni al alta de las devoluciones pendientes de abajo).
+    let ok = false;
+    try {
+      ok = await tn.updateVariantStock(
+        tokens.tiendanube.access_token,
+        tokens.tiendanube.store_id,
+        planned.productId,
+        planned.variantId,
+        mlStock
+      );
+    } catch (e) {
+      console.error('[Sync] ML cancelación %s: SKU %s — error escribiendo stock en TN: %s', orderId, sku, e.message);
     }
+    results.push({ itemId, variationId, sku, quantity, ok, mlStock, tnStock, stockBefore: tnStock, stockAfter: mlStock });
+    if (!ok) {
+      console.warn('[Sync] ML cancelación %s: SKU %s — no se pudo escribir el stock en Tienda Nube.', orderId, sku);
+      continue;
+    }
+    await patchTnStock(planned.productId, planned.variantId, mlStock)
+      .catch(e => console.error('[Sync] patchTnStock:', e.message));
+
+    const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null;
+    await insertAuditLog({
+      channelSale: 'mercadolibre',
+      orderId: realOrderId,
+      packId,
+      saleItemId,
+      sku,
+      productLabel: 'Cancelación ML',
+      productDisplay: mlOrderItemDisplay(oi),
+      quantity,
+      updatedChannel: 'tiendanube',
+      stockBefore: tnStock,
+      stockAfter: mlStock,
+      notificationPayload: orderPayload
+    });
   }
   return results;
 }

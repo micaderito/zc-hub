@@ -125,6 +125,7 @@ describe('SyncComponent', () => {
       'fetchReturnsFromMl',
       'addReturnsFromOrder',
       'approveReturn',
+      'dismissReturn',
       'getPendingTasks',
       'retryTask',
       'registerWebhooks'
@@ -141,6 +142,7 @@ describe('SyncComponent', () => {
     syncServiceSpy.reprocessOrder.and.returnValue(of({ ok: true, orderId: 'ORD-1', itemsSynced: 1 }));
     syncServiceSpy.addReturnsFromOrder.and.returnValue(of({ created: 0, rows: [] }));
     syncServiceSpy.approveReturn.and.returnValue(of({ ok: true, mlRestored: true, tnRestored: true }));
+    syncServiceSpy.dismissReturn.and.returnValue(of({ ok: true }));
     syncServiceSpy.retryTask.and.returnValue(of({ ok: true }));
     syncServiceSpy.registerWebhooks.and.returnValue(of({ ok: true, registered: 0, created: [] }));
 
@@ -739,6 +741,30 @@ describe('SyncComponent', () => {
       expect(component.approvingId).toBeNull();
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['sync', 'returns'] });
       expect(syncServiceSpy.getAudit).toHaveBeenCalled();
+    });
+
+    it('dismissReturn() saca la fila de la lista sin tocar el historial de stock', () => {
+      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
+      fixture.detectChanges();
+      spyOn(queryClient, 'invalidateQueries').and.callThrough();
+      syncServiceSpy.getAudit.calls.reset();
+
+      component.dismissReturn(returnRow);
+
+      expect(syncServiceSpy.dismissReturn).toHaveBeenCalledWith(returnRow.id);
+      expect(component.dismissingId).toBeNull();
+      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['sync', 'returns'] });
+      expect(syncServiceSpy.getAudit).not.toHaveBeenCalled();
+    });
+
+    it('dismissReturn() maneja el error', () => {
+      syncServiceSpy.dismissReturn.and.returnValue(throwError(() => ({ error: { error: 'No se pudo descartar' } })));
+      fixture.detectChanges();
+
+      component.dismissReturn(returnRow);
+
+      expect(component.fetchResult).toBe('No se pudo descartar');
+      expect(component.dismissingId).toBeNull();
     });
 
     it('approveReturn() maneja el error', () => {

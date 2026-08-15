@@ -8,10 +8,12 @@ import {
   onMercadoLibreOrderPaid,
   onMercadoLibreOrderCancelled,
   onTiendaNubeOrderPaid,
-  onTiendaNubeOrderCancelled
+  onTiendaNubeOrderCancelled,
+  planMlCancellationMirror
 } from '../services/syncService.js';
 import { processClaimToPendingReturns, insertPendingReturnsForOrder } from './sync.js';
 import { isSafeToAutoRestore, getShipmentIdFromOrder } from '../lib/mlShipmentState.js';
+import { needsManualReview } from '../lib/mlCancelReason.js';
 
 export const webhookRoutes = Router();
 
@@ -66,9 +68,32 @@ const shipmentCache = new Map();
 const SHIPMENT_CACHE_TTL_MS = 10 * 60 * 1000;
 const SHIPMENT_CACHE_MAX = 200;
 
+/**
+ * SKUs que ya se espejaron en esta tanda de cancelaciones, por pack (`packId|sku` → timestamp).
+ *
+ * Cuando ML cancela un carrito entero devuelve el stock de TODAS sus órdenes de una, así que el
+ * espejo de la primera orden ya deja TN en el número final. Las órdenes siguientes del mismo pack
+ * encuentran TN == ML y, sin esta marca, cada una parecería "ML no devolvió el stock" y abriría
+ * una devolución pendiente de más (11 órdenes en un pack, en el incidente de 2026-07-21).
+ */
+const mirroredPackSkus = new Map();
+const MIRRORED_PACK_TTL_MS = 10 * 60 * 1000;
+
+function markPackSkuMirrored(packKey, sku) {
+  if (!packKey || !sku) return;
+  if (mirroredPackSkus.size >= SHIPMENT_CACHE_MAX) mirroredPackSkus.clear();
+  mirroredPackSkus.set(`${packKey}|${sku}`, Date.now());
+}
+
+function wasPackSkuMirrored(packKey, sku) {
+  const at = mirroredPackSkus.get(`${packKey}|${sku}`);
+  return at != null && Date.now() - at < MIRRORED_PACK_TTL_MS;
+}
+
 /** Solo para tests: limpia el caché de envíos y la cola de reintentos entre casos. */
 export function __resetShipmentCacheForTests() {
   shipmentCache.clear();
+  mirroredPackSkus.clear();
   pendingMlOrderIds.length = 0;
 }
 
@@ -107,9 +132,9 @@ async function evaluateCancelledOrderShipment(accessToken, order) {
 }
 
 /**
- * Cuántas veces reintentar la consulta del envío antes de resignarse y dejar la devolución
- * pendiente. Con el worker corriendo cada minuto, son ~3 minutos de margen para que ML se
- * recupere de una tanda de 429.
+ * Cuántas veces reintentar las consultas a ML de una orden cancelada (el envío y el stock del
+ * ítem) antes de resignarse y dejar la devolución pendiente. Con el worker corriendo cada minuto,
+ * son ~3 minutos de margen para que ML se recupere de una tanda de 429.
  */
 const SHIPMENT_LOOKUP_MAX_ATTEMPTS = 3;
 
@@ -172,6 +197,29 @@ async function processMlOrderPayload(order, orderId, attempt = 0) {
     } catch (e) {
       console.warn('[Webhook ML] Error consultando claims para orden %s:', effectiveOrderId, e?.message);
     }
+    // Cancelación pedida por el vendedor (típicamente "no tengo stock"): ML deja su stock como
+    // está, porque la unidad no existe. Restaurar en TN la inventaría, así que va a confirmación
+    // manual — y de paso queda a la vista en Devoluciones pendientes.
+    const review = needsManualReview(order);
+    if (review.manual) {
+      // La marca hace de idempotencia: ML manda varias notificaciones por la misma orden, y sin
+      // esto una devolución ya descartada volvería a aparecer con la siguiente. El alta de filas
+      // pendientes sola no alcanza, porque descartar deja la fila fuera de ese chequeo.
+      const claimedReview = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'manual_review');
+      if (!claimedReview) {
+        console.log('[Webhook ML] Orden %s ya estaba marcada para revisión manual.', effectiveOrderId);
+        return;
+      }
+      const out = await insertPendingReturnsForOrder(accessToken, order, {
+        displayOrderId: packId ?? effectiveOrderId,
+        reason: `Cancelada en ML — ${review.reason}`
+      });
+      console.log(
+        '[Webhook ML] Orden %s %s. NO se restaura stock automáticamente; queda para confirmar (created=%s, skipped=%s).',
+        effectiveOrderId, review.reason, out.created, out.skipped
+      );
+      return;
+    }
     // Una entrega fallida NO abre ningún claim en ML: la orden se cancela y el paquete vuelve al
     // vendedor. Los chequeos de arriba no la detectan, así que miramos el envío: si la mercadería
     // llegó a salir, todavía no la tenemos → devolución pendiente de confirmar, sin tocar stock.
@@ -199,13 +247,59 @@ async function processMlOrderPayload(order, orderId, attempt = 0) {
       return;
     }
     console.log('[Webhook ML] Orden %s cancelada antes del despacho (%s). Restauración automática habilitada.', effectiveOrderId, decision.reason);
+
+    // Espejo: TN se iguala al stock que tiene ML, no se le suma la cantidad a ciegas. Necesitamos
+    // los dos números antes de tocar nada; si ML no contesta, se reintenta igual que el envío.
+    const mirror = await planMlCancellationMirror(items, accessToken);
+    if (!mirror.ok && attempt < SHIPMENT_LOOKUP_MAX_ATTEMPTS) {
+      enqueuePendingMlOrder(effectiveOrderId, Date.now(), attempt + 1);
+      console.log(
+        '[Webhook ML] Orden %s cancelada: %s. Reintento %s/%s en 1 min, sin tocar stock todavía.',
+        effectiveOrderId, mirror.reason, attempt + 1, SHIPMENT_LOOKUP_MAX_ATTEMPTS
+      );
+      return;
+    }
+    if (!mirror.ok) {
+      const out = await insertPendingReturnsForOrder(accessToken, order, {
+        displayOrderId: packId ?? effectiveOrderId,
+        reason: `Cancelada en ML — no se pudo verificar el stock (${mirror.reason})`
+      });
+      console.log(
+        '[Webhook ML] Orden %s cancelada: %s. NO se restaura stock; queda para confirmar (created=%s, skipped=%s).',
+        effectiveOrderId, mirror.reason, out.created, out.skipped
+      );
+      return;
+    }
+
     const claimed = await tryClaimOrderProcessing('mercadolibre', effectiveOrderId, 'restore');
     if (!claimed) {
       console.log('[Webhook ML] Orden %s ya se restauró stock (idempotencia).', effectiveOrderId);
       return;
     }
-    await onMercadoLibreOrderCancelled(items, effectiveOrderId, order);
-    console.log('[Webhook ML] Orden %s cancelación registrada y stock restaurado.', effectiveOrderId);
+    const results = await onMercadoLibreOrderCancelled(items, effectiveOrderId, order, mirror);
+    console.log('[Webhook ML] Orden %s cancelación registrada y stock espejado desde ML.', effectiveOrderId);
+
+    const packKey = packId ?? effectiveOrderId;
+    for (const r of results) {
+      if (r.ok) markPackSkuMirrored(packKey, r.sku);
+    }
+
+    // Ítems donde ML no devolvió la unidad a su publicación: no se tocó TN, y quedan para que la
+    // usuaria confirme si la mercadería está o no (aprobar suma en los dos canales, descartar no
+    // toca nada). Sin esto, un ítem así se perdía en un warning del log. Los SKUs que ya espejó
+    // otra orden del mismo pack no son un aviso: TN ya quedó en el número final de ML.
+    const notRestored = results.filter(r => r.mlNotRestored && !wasPackSkuMirrored(packKey, r.sku));
+    if (notRestored.length > 0) {
+      const out = await insertPendingReturnsForOrder(accessToken, order, {
+        displayOrderId: packId ?? effectiveOrderId,
+        reason: 'Cancelada en ML — ML no devolvió el stock a la publicación',
+        only: notRestored.map(r => ({ itemId: r.itemId, variationId: r.variationId }))
+      });
+      console.log(
+        '[Webhook ML] Orden %s: %s ítem(s) sin restaurar en ML quedan para confirmar (created=%s, skipped=%s).',
+        effectiveOrderId, notRestored.length, out.created, out.skipped
+      );
+    }
     return;
   }
 
