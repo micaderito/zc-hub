@@ -114,6 +114,46 @@ bloquee con la marca que dejó el primero.
 salió de un carrito) y `sale_order_id` = id de la orden individual, que es el que traen los webhooks
 y el que cruza con `sync_processed_orders`. Cruzar por `order_id` solo falla en ventas por pack.
 
+Cada fila pendiente tiene dos salidas, porque no todas terminan en una restauración:
+**Restaurar stock** (aprobar) suma en ML y en TN, y **Descartar** (`status = 'dismissed'`) la saca
+de la lista sin tocar nada. Sin la segunda, una cancelación por falta de stock quedaría pendiente
+para siempre y la lista dejaría de servir como aviso.
+
+### Cancelación de ML: el stock de TN se espeja contra ML, no se suma a ciegas
+
+En una venta de ML, ML descuenta su propio stock y el hub descuenta el de TN. La contracara
+—cancelación → el hub le suma a TN— asumía que ML **siempre** devuelve la unidad a la publicación,
+y no es así. Incidente 2026-08-11: la venta se canceló desde ML con motivo "no tengo stock"; ML
+dejó su stock en 2 (correcto, la unidad no existía) y el hub dejó TN en 3, con stock real 2.
+
+Dos cambios, en este orden:
+
+1. **El motivo de la cancelación decide primero.** `needsManualReview`
+   (`backend/src/lib/mlCancelReason.js`) lee `cancel_detail`: si la pidió el vendedor
+   (`requested_by: seller`) o el motivo dice "sin stock", NO se restaura nada — queda como
+   devolución pendiente para confirmar a mano. Sin `cancel_detail` (pago rechazado, timeout: la
+   mayoría) sigue el camino automático, que igual verifica contra ML.
+2. **El espejo.** `planMlCancellationMirror` (`syncService.js`) lee, antes de tocar nada, el
+   `available_quantity` real del ítem/variación en ML y el stock de la variante en TN.
+   `onMercadoLibreOrderCancelled` iguala TN al número de ML — nunca `TN + cantidad`. Si ML no sumó
+   de su lado (`mlStock <= tnStock`), no se escribe nada y ese ítem sale marcado `mlNotRestored`,
+   lo que deja una devolución pendiente **solo para ese ítem** (`insertPendingReturnsForOrder` con
+   `only`). Como es un valor absoluto y no un delta, aplicarlo dos veces da lo mismo.
+
+Si ML o TN no contestan, no hay espejo posible: la orden se reencola con el mismo contador que la
+consulta del envío (`SHIPMENT_LOOKUP_MAX_ATTEMPTS`) y recién agotados los reintentos queda como
+devolución pendiente. Un 429 no es información sobre el stock.
+
+Dos detalles que evitan avisos de más:
+
+- **Packs:** ML devuelve el stock de todas las órdenes del carrito de una, así que el espejo de la
+  primera orden ya deja TN en el número final y las siguientes encuentran TN == ML. Eso NO es "ML
+  no devolvió el stock": `mirroredPackSkus` (webhooks.js) recuerda por 10 min qué SKUs ya espejó
+  cada pack.
+- **Notificaciones repetidas:** ML manda varias por la misma orden. La revisión manual deja la
+  marca `manual_review` en `sync_processed_orders`, porque descartar una devolución la saca del
+  chequeo de duplicados y sin la marca volvería a aparecer con la próxima notificación.
+
 ### Cola de tareas (`ml_pending_tasks`): locks que vencen
 
 El worker (`backend/src/lib/mlTaskQueue.js`, tick cada 500 ms) reclama una tarea y la pasa a
@@ -143,6 +183,10 @@ botón Reintentar; `retryMlTask` acepta `failed` o `processing` con lock vencido
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
 ML). `backend/test/mlShipmentState.test.js` cubre la regla de restauración por estado de envío,
-`backend/test/db.test.js` la recuperación de locks vencidos y `backend/test/mlTaskQueue.test.js`
-el latido, y `backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
-despachado, envío no consultable, caché por pack). Correr con `npm test` en `backend/`.
+`backend/test/mlCancelReason.test.js` qué motivos de cancelación van a revisión manual,
+`backend/test/syncService.test.js` el espejo de stock (ML devolvió / ML no devolvió / sin plan /
+por variación), `backend/test/db.test.js` la recuperación de locks vencidos y
+`backend/test/mlTaskQueue.test.js` el latido, y `backend/test/routesWebhooks.test.js` el flujo
+completo de cancelación (entrega fallida, envío despachado, envío no consultable, caché por pack,
+cancelación del vendedor, reintento del espejo). Correr con `npm test` en `backend/`
+(necesita Node ≥ 22: con Node 20 el mockeo de módulos de `node:test` rompe el import de `pg`).
