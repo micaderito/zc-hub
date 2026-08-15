@@ -31,7 +31,7 @@ describe('AppComponent', () => {
   it('expone los items de navegación principales', () => {
     const fixture = TestBed.createComponent(AppComponent);
     const paths = fixture.componentInstance.nav.map(i => i.path);
-    expect(paths).toEqual(['/', '/precio-stock', '/precios', '/crear', '/conflictos', '/sincronizacion']);
+    expect(paths).toEqual(['/', '/precio-stock', '/precios', '/deposito', '/crear', '/conflictos', '/sincronizacion']);
   });
 
   it('muestra el banner de error global cuando GlobalErrorService tiene un mensaje', () => {
