@@ -18,23 +18,37 @@ import { injectQuery, keepPreviousData } from '@tanstack/angular-query-experimen
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
+import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { StockFilterTabsComponent, StockFilter } from './components/stock-filter-tabs/stock-filter-tabs.component';
 import { PairCardComponent, PairPrices } from './components/pair-card/pair-card.component';
 import { ProductHistoryDialogComponent } from './components/product-history-dialog/product-history-dialog.component';
+import { PacksTabComponent } from './components/packs-tab/packs-tab.component';
 
 const PAGE_SIZE = 25;
 const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
 
+type SubTab = 'stock' | 'packs';
+
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
-  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, StockFilterTabsComponent, PairCardComponent, ProductHistoryDialogComponent],
+  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, TabsComponent, StockFilterTabsComponent, PairCardComponent, ProductHistoryDialogComponent, PacksTabComponent],
   templateUrl: './precio-stock.component.html',
   styleUrl: './precio-stock.component.scss'
 })
 export class PrecioStockComponent {
   private readonly conflicts = inject(ConflictsService);
   private readonly destroyRef = inject(DestroyRef);
+
+  readonly activeSubTab = signal<SubTab>('stock');
+  readonly subTabs: TabDef[] = [
+    { key: 'stock', label: 'Precio y stock' },
+    { key: 'packs', label: 'Packs' },
+  ];
+
+  onSubTabChange(key: string): void {
+    this.activeSubTab.set(key as SubTab);
+  }
 
   readonly currentPage = signal(1);
   readonly stockFilter = signal<StockFilter>('all');

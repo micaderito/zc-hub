@@ -6,5 +6,6 @@ export const routes: Routes = [
   { path: 'precio-stock', loadComponent: () => import('./pages/precio-stock/precio-stock.component').then(m => m.PrecioStockComponent) },
   { path: 'precios', loadComponent: () => import('./pages/precios/precios.component').then(m => m.PreciosComponent) },
   { path: 'crear', loadComponent: () => import('./pages/crear-producto/crear-producto.component').then(m => m.CrearProductoComponent) },
+  { path: 'alertas', loadComponent: () => import('./pages/alertas/alertas.component').then(m => m.AlertasComponent) },
   { path: 'sincronizacion', loadComponent: () => import('./pages/sync/sync.component').then(m => m.SyncComponent) }
 ];

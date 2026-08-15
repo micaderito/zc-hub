@@ -18,6 +18,12 @@
               title="Ver historial de stock" aria-label="Ver historial de stock">
         <i class="ti ti-history" aria-hidden="true"></i>
       </button>
+      @if (alertSku) {
+        <a class="pair-history-btn" routerLink="/alertas" [queryParams]="{ tab: 'reglas', sku: alertSku }"
+           (click)="$event.stopPropagation()" title="Configurar alerta de stock" aria-label="Configurar alerta de stock">
+          <i class="ti ti-bell" aria-hidden="true"></i>
+        </a>
+      }
       <i class="ti collapse-icon" [class.ti-chevron-up]="!isCollapsed()" [class.ti-chevron-down]="isCollapsed()" aria-hidden="true"></i>
     </div>
   </div>

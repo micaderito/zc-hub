@@ -128,9 +128,19 @@
                   </div>
                   <div class="return-card-right">
                     <span class="qty-badge">× {{ row.quantity }} u.</span>
-                    <button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId === row.id">
+                    <button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId === row.id || dismissingId === row.id">
                       <i class="ti ti-check" aria-hidden="true"></i>
                       {{ approvingId === row.id ? 'Restaurando…' : 'Restaurar stock' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-dismiss"
+                      title="Sacar de la lista sin tocar stock (la unidad no volvió)"
+                      (click)="dismissReturn(row)"
+                      [disabled]="approvingId === row.id || dismissingId === row.id"
+                    >
+                      <i class="ti ti-x" aria-hidden="true"></i>
+                      {{ dismissingId === row.id ? 'Descartando…' : 'Descartar' }}
                     </button>
                   </div>
                 </div>

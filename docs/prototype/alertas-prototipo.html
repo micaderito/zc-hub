@@ -1,0 +1,1246 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zona Cuaderno Hub — prototipo de Alertas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #e9ebef; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; }
+    .doc-note { max-width: 1300px; margin: 0 auto 16px; font-size: 13px; color: #5d6373; line-height: 1.55; }
+    .doc-note b { color: #1a1c2e; }
+    #zcp { max-width: 1300px; margin: 0 auto; }
+    .opt-switch { max-width: 1300px; margin: 0 auto 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .opt-switch button { font-family: inherit; font-size: 13px; padding: 9px 16px; border-radius: 10px; border: 0.5px solid rgba(20,22,40,.12); background: #fff; color: #5d6373; cursor: pointer; }
+    .opt-switch button.on { background: #5b54e6; color: #fff; border-color: transparent; font-weight: 500; }
+    .opt-switch span { font-size: 12px; color: #9aa0ad; margin-left: 6px; }
+  </style>
+</head>
+<body>
+  <div class="doc-note">
+    Prototipo de <b>Alertas de stock</b>. No es funcional, pero sí se navega: el <b>menú lateral</b>
+    alterna entre Alertas y Productos, las <b>pestañas</b> cambian de vista, los <b>buscadores</b> filtran de
+    verdad, el botón <b>✎</b> de Reglas edita en la misma fila y la <b>campanita</b> abre el cajón.
+    Modo claro / oscuro con el botón abajo a la izquierda.
+  </div>
+
+  <div class="opt-switch">
+    <button id="btn-b" class="on">Diseño elegido ✓</button>
+    <button id="btn-a">Opción A — descartada</button>
+    <span id="opt-desc">Centro de alertas con cajón lateral, lista agrupada por pack y packs administrados desde Productos.</span>
+  </div>
+
+  <div id="zcp">
+
+    <style>
+      #zcp{--zc-bg:#f5f6f8;--zc-surf:#ffffff;--zc-surf2:#eef0f3;--zc-bd:rgba(20,22,40,.12);--zc-bds:rgba(20,22,40,.22);--zc-tx:#1a1c2e;--zc-tx2:#5d6373;--zc-tx3:#9aa0ad;--zc-brand:#5b54e6;--zc-brandbg:#ecebfd;--zc-ml:#ffe600;--zc-mlbg:#fff7bf;--zc-mltx:#5c5400;--zc-tn:#2b8aef;--zc-tnbg:#e3eefc;--zc-tntx:#114e8e;--zc-ok:#1d9e75;--zc-okbg:#e1f5ee;--zc-warn:#ba7517;--zc-warnbg:#faeeda;--zc-err:#d04444;--zc-errbg:#fcebeb;--zc-pop:0 8px 28px rgba(20,22,40,.12);
+        font-family:'Inter',sans-serif;border-radius:16px;overflow:hidden;border:0.5px solid var(--zc-bd);background:var(--zc-bg);color:var(--zc-tx);display:flex;min-height:780px;position:relative}
+      #zcp.dark{--zc-bg:#0e1017;--zc-surf:#171a22;--zc-surf2:#1f232d;--zc-bd:rgba(255,255,255,.11);--zc-bds:rgba(255,255,255,.2);--zc-tx:#e8eaf0;--zc-tx2:#a2a8b5;--zc-tx3:#6a7180;--zc-brand:#8b85ff;--zc-brandbg:#26233f;--zc-ml:#ffe600;--zc-mlbg:#3a3600;--zc-mltx:#ffe600;--zc-tn:#67abf5;--zc-tnbg:#13314f;--zc-tntx:#9cc7f7;--zc-ok:#5dcaa5;--zc-okbg:#0f3a30;--zc-warn:#efa83a;--zc-warnbg:#3a2a0e;--zc-err:#e07a7a;--zc-errbg:#3a1414;--zc-pop:0 8px 28px rgba(0,0,0,.5)}
+      #zcp *{box-sizing:border-box}
+
+      /* ── primitivas (mismo molde que el prototipo de Precios) ── */
+      #zcp .nav-i{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;color:var(--zc-tx2);cursor:pointer;font-size:13px;border:none;background:none;width:100%;text-align:left;font-family:inherit}
+      #zcp .nav-i:hover{background:var(--zc-surf2)}
+      #zcp .nav-i.on{background:var(--zc-brandbg);color:var(--zc-brand);font-weight:500}
+      #zcp .nav-i i{font-size:17px}
+      #zcp .card{background:var(--zc-surf);border:0.5px solid var(--zc-bd);border-radius:12px}
+      #zcp .btn{font-family:inherit;font-size:12.5px;border:0.5px solid var(--zc-bd);background:var(--zc-surf);color:var(--zc-tx);border-radius:9px;padding:7px 13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+      #zcp .btn:hover{background:var(--zc-surf2)}
+      #zcp .btn.pri{background:var(--zc-brand);color:#fff;border-color:transparent}
+      #zcp .btn.pri:hover{filter:brightness(1.08)}
+      #zcp .btn-s{font-size:11px;padding:5px 10px}
+      #zcp .btn:disabled{opacity:.45;cursor:default}
+      #zcp .in,#zcp select.in{font-family:inherit;font-size:12.5px;width:100%;padding:7px 10px;border:0.5px solid var(--zc-bd);border-radius:8px;background:var(--zc-bg);color:var(--zc-tx)}
+      #zcp .in:focus{outline:none;border-color:var(--zc-brand)}
+      #zcp .lbl{font-size:11px;color:var(--zc-tx2);font-weight:500;display:flex;align-items:center;gap:6px;margin-bottom:5px}
+      #zcp .hint{font-size:10px;color:var(--zc-tx3);margin-top:4px;display:flex;align-items:center;gap:4px}
+      #zcp .badge{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+      #zcp .bml{background:var(--zc-mlbg);color:var(--zc-mltx)}
+      #zcp .btn2{background:var(--zc-tnbg);color:var(--zc-tntx)}
+      #zcp .bok{background:var(--zc-okbg);color:var(--zc-ok)}
+      #zcp .bwarn{background:var(--zc-warnbg);color:var(--zc-warn)}
+      #zcp .berr{background:var(--zc-errbg);color:var(--zc-err)}
+      #zcp .bbrand{background:var(--zc-brandbg);color:var(--zc-brand)}
+      #zcp .bneu{background:var(--zc-surf2);color:var(--zc-tx2)}
+      #zcp table{width:100%;border-collapse:collapse}
+      #zcp th{font-size:10px;color:var(--zc-tx3);font-weight:500;text-align:left;padding:7px 9px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+      #zcp td{font-size:12px;padding:8px 9px;border-top:0.5px solid var(--zc-bd);vertical-align:middle}
+      #zcp .num{text-align:right;font-variant-numeric:tabular-nums}
+      #zcp .thumb{width:32px;height:32px;border-radius:7px;background:var(--zc-surf2);display:flex;align-items:center;justify-content:center;color:var(--zc-tx3);flex-shrink:0}
+      #zcp .prod{display:flex;align-items:center;gap:10px;min-width:0}
+      #zcp .pname{font-size:12px;line-height:1.25}
+      #zcp .psku{font-size:10px;color:var(--zc-tx3);font-variant-numeric:tabular-nums}
+      #zcp .dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+      #zcp .stk{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--zc-tx2)}
+      #zcp .stk b{color:var(--zc-tx);font-weight:500}
+      #zcp .muted{opacity:.55}
+      #zcp .note{font-size:10.5px;color:var(--zc-tx3);display:flex;align-items:center;gap:5px}
+      #zcp input[type=checkbox]{accent-color:var(--zc-brand);width:14px;height:14px;cursor:pointer}
+      #zcp .cellin{font-family:inherit;font-size:12px;width:52px;padding:4px 6px;border:0.5px solid var(--zc-bd);border-radius:7px;background:var(--zc-bg);color:var(--zc-tx);text-align:right;font-variant-numeric:tabular-nums}
+      #zcp .cellin:focus{border-color:var(--zc-brand);outline:none}
+
+      /* ── mecánica del prototipo ── */
+      #zcp .opt{display:none}
+      #zcp .opt.on{display:flex;flex:1;min-width:0}
+      #zcp .scr{display:none}
+      #zcp .scr.on{display:flex;flex:1;flex-direction:column;min-width:0}
+      #zcp .main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--zc-bg)}
+      #zcp aside{width:186px;flex-shrink:0;background:var(--zc-surf);border-right:0.5px solid var(--zc-bd);padding:14px 10px;display:flex;flex-direction:column;gap:3px}
+      #zcp .brand{display:flex;align-items:center;gap:9px;padding:6px 10px 14px}
+      #zcp .brand .mark{width:30px;height:30px;border-radius:9px;background:var(--zc-brand);display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
+      #zcp .userchip{display:flex;align-items:center;gap:8px;padding:9px 12px;margin-top:4px;border-top:0.5px solid var(--zc-bd)}
+      #zcp .userchip .av{width:26px;height:26px;border-radius:50%;background:var(--zc-tnbg);color:var(--zc-tntx);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500}
+
+      #zcp .tabbar{display:flex;gap:4px;border-bottom:0.5px solid var(--zc-bd);padding:0 20px}
+      #zcp .tab{font-family:inherit;font-size:12.5px;background:none;border:none;border-bottom:2px solid transparent;color:var(--zc-tx2);padding:9px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;margin-bottom:-0.5px}
+      #zcp .tab:hover{color:var(--zc-tx)}
+      #zcp .tab.on{color:var(--zc-brand);border-bottom-color:var(--zc-brand);font-weight:500}
+      #zcp .tab .n{font-size:10px;padding:1px 6px;border-radius:20px;background:var(--zc-surf2);color:var(--zc-tx2);font-variant-numeric:tabular-nums}
+      #zcp .tab.on .n{background:var(--zc-brandbg);color:var(--zc-brand)}
+      #zcp .pane{display:none}
+      #zcp .pane.on{display:block;flex:1;overflow:auto}
+
+      /* buscador + segmentado */
+      #zcp .srch{position:relative;flex:1;max-width:290px}
+      #zcp .srch i{position:absolute;left:9px;top:7px;font-size:14px;color:var(--zc-tx3)}
+      #zcp .srch input{padding-left:29px;padding-top:6px;padding-bottom:6px;font-size:11.5px}
+      #zcp .seg{display:inline-flex;border:0.5px solid var(--zc-bd);border-radius:9px;overflow:hidden;background:var(--zc-surf)}
+      #zcp .seg button{font-family:inherit;font-size:11px;padding:6px 11px;border:none;background:none;color:var(--zc-tx2);cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+      #zcp .seg button.on{background:var(--zc-brandbg);color:var(--zc-brand);font-weight:500}
+
+      /* tabla agrupada por pack */
+      #zcp tr.grp td{background:var(--zc-surf2);padding:8px 9px;border-top:0.5px solid var(--zc-bd)}
+      #zcp .grp-h{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+      #zcp .grp-h .gname{font-size:12px;font-weight:500}
+      #zcp .flat tr.grp,#zcp .flat tr.grp-only{display:none}
+      #zcp .packcol{display:none}
+      #zcp .flat .packcol{display:table-cell}
+      #zcp tr.hidden{display:none}
+      #zcp .pchip{font-size:10px;padding:2px 7px;border-radius:7px;background:var(--zc-surf2);color:var(--zc-tx2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+      #zcp .flat .pchip{background:var(--zc-bg)}
+      #zcp .unit{font-size:10px;color:var(--zc-tx3);margin-left:5px}
+
+      /* edición en la misma fila (Reglas) */
+      #zcp .edit{display:none}
+      #zcp tr.editing td .edit{display:inline-flex;align-items:center;gap:5px}
+      /* gana por especificidad sobre `.view.acts`, que necesita su propio display:flex */
+      #zcp tr.editing td .view{display:none}
+      #zcp td .view.acts{display:flex;gap:5px}
+      #zcp tr.editing{background:var(--zc-brandbg)}
+      #zcp tr.hit td{box-shadow:inset 0 0 0 1.5px var(--zc-brand)}
+      #zcp .iconbtn{background:none;border:0.5px solid var(--zc-bd);border-radius:7px;padding:4px 7px;cursor:pointer;color:var(--zc-tx2);font-family:inherit;font-size:11px}
+      #zcp .iconbtn:hover{border-color:var(--zc-bds);color:var(--zc-tx);background:var(--zc-surf)}
+      #zcp .iconbtn.danger:hover{color:var(--zc-err);border-color:var(--zc-err)}
+
+      /* campana + burbuja */
+      #zcp .bell{position:relative;background:none;border:none;color:var(--zc-tx2);cursor:pointer;padding:6px;border-radius:9px;display:inline-flex;font-family:inherit}
+      #zcp .bell:hover{background:var(--zc-surf2);color:var(--zc-tx)}
+      #zcp .bell i{font-size:19px}
+
+      /* bandeja */
+      #zcp .ntf{display:flex;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer}
+      #zcp .ntf:hover{background:var(--zc-surf2)}
+      #zcp .ntf.un{background:var(--zc-brandbg)}
+      #zcp .ntf .ub{width:7px;height:7px;border-radius:50%;background:var(--zc-brand);flex-shrink:0;margin-top:13px}
+      #zcp .ntf .ub.off{background:transparent}
+      #zcp .ntf-t{font-size:12px;line-height:1.35}
+      #zcp .ntf-m{font-size:10.5px;color:var(--zc-tx3);margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+      #zcp .daysep{font-size:10px;color:var(--zc-tx3);text-transform:uppercase;letter-spacing:.03em;padding:10px 12px 5px}
+      #zcp .act{display:flex;gap:4px;margin-top:6px}
+      #zcp .act button{font-family:inherit;font-size:10.5px;background:none;border:0.5px solid var(--zc-bd);color:var(--zc-tx2);border-radius:7px;padding:3px 8px;cursor:pointer}
+      #zcp .act button:hover{background:var(--zc-surf);border-color:var(--zc-bds);color:var(--zc-tx)}
+
+      /* cajón lateral */
+      #zcp .scrim{position:absolute;inset:0;background:rgba(10,12,20,.34);z-index:25}
+      #zcp .scrim.hid,#zcp .drawer.hid{display:none}
+      #zcp .drawer{position:absolute;top:0;right:0;bottom:0;width:404px;background:var(--zc-surf);border-left:0.5px solid var(--zc-bd);box-shadow:var(--zc-pop);z-index:26;display:flex;flex-direction:column}
+      #zcp .drawer-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:0.5px solid var(--zc-bd)}
+      #zcp .drawer-b{flex:1;overflow:auto;padding:6px 8px}
+      #zcp .drawer-f{padding:10px 14px;border-top:0.5px solid var(--zc-bd);background:var(--zc-bg);display:flex;gap:8px;align-items:center}
+
+      /* filas de producto sueltas (Productos) + popover de umbral */
+      #zcp .prow{display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:0.5px solid var(--zc-bd);position:relative}
+      #zcp .prow:first-child{border-top:none}
+      #zcp .bell-row{background:none;border:0.5px solid var(--zc-bd);border-radius:8px;padding:5px 8px;cursor:pointer;color:var(--zc-tx3);display:inline-flex;align-items:center;gap:5px;font-size:11px;font-family:inherit;font-variant-numeric:tabular-nums}
+      #zcp .bell-row:hover{border-color:var(--zc-bds);color:var(--zc-tx2)}
+      #zcp .bell-row.set{color:var(--zc-brand);border-color:var(--zc-brand);background:var(--zc-brandbg)}
+      #zcp .thpop{position:absolute;top:44px;right:14px;width:266px;background:var(--zc-surf);border:0.5px solid var(--zc-bd);border-radius:12px;box-shadow:var(--zc-pop);z-index:15;padding:13px}
+      #zcp .thpop.hid,#zcp .pop.hid{display:none}
+      #zcp .qty{width:56px;text-align:center;font-variant-numeric:tabular-nums}
+      #zcp .pop{position:absolute;top:46px;right:16px;width:392px;background:var(--zc-surf);border:0.5px solid var(--zc-bd);border-radius:12px;box-shadow:var(--zc-pop);z-index:20;overflow:hidden}
+      #zcp .pop-h{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:0.5px solid var(--zc-bd)}
+      #zcp .pop-f{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-top:0.5px solid var(--zc-bd);background:var(--zc-bg)}
+      #zcp .lnk{font-size:11.5px;color:var(--zc-brand);text-decoration:none;cursor:pointer;background:none;border:none;font-family:inherit;padding:4px 6px;border-radius:7px}
+      #zcp .lnk:hover{background:var(--zc-brandbg)}
+      #zcp .topbar{height:50px;flex-shrink:0;background:var(--zc-surf);border-bottom:0.5px solid var(--zc-bd);display:flex;align-items:center;gap:12px;padding:0 20px;position:relative;z-index:5}
+
+      /* pack: tarjeta de administración */
+      #zcp .packhead{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer}
+      #zcp .packbody{border-top:0.5px solid var(--zc-bd);display:none}
+      #zcp .packcard.open .packbody{display:block}
+      #zcp .packcard.open .caret{transform:rotate(90deg)}
+      #zcp .caret{transition:transform .15s ease;color:var(--zc-tx3)}
+    </style>
+
+
+    <!-- ══════════════════════════════════════════════════════════════════════════════
+         DISEÑO ELEGIDO — centro de alertas + cajón lateral + packs
+         ══════════════════════════════════════════════════════════════════════════════ -->
+    <div class="opt on" data-opt="b">
+
+      <aside>
+        <div class="brand">
+          <div class="mark"><i class="ti ti-notebook" style="font-size:18px"></i></div>
+          <div style="line-height:1.1"><div style="font-size:13px;font-weight:500">Zona Cuaderno</div><div style="font-size:10px;color:var(--zc-tx3)">Hub de ventas</div></div>
+        </div>
+        <button class="nav-i"><i class="ti ti-layout-dashboard"></i>Inicio</button>
+        <button class="nav-i" data-go="b:productos"><i class="ti ti-box"></i>Productos</button>
+        <button class="nav-i"><i class="ti ti-tag"></i>Precios</button>
+        <button class="nav-i"><i class="ti ti-plus"></i>Crear producto</button>
+        <button class="nav-i on" data-go="b:alertas">
+          <i class="ti ti-bell"></i>Alertas
+          <span style="flex:1"></span>
+          <span class="badge berr" style="font-size:9.5px;padding:1px 6px">3</span>
+        </button>
+        <button class="nav-i"><i class="ti ti-alert-triangle"></i>Conflictos</button>
+        <button class="nav-i"><i class="ti ti-refresh"></i>Sincronización</button>
+        <div style="flex:1"></div>
+        <button class="nav-i" data-drawer="open">
+          <i class="ti ti-bell-ringing"></i>Notificaciones
+          <span style="flex:1"></span>
+          <span class="badge berr" style="font-size:9.5px;padding:1px 6px">3</span>
+        </button>
+        <button class="nav-i" data-th><i class="ti ti-moon"></i><span data-th-t>Modo oscuro</span></button>
+        <div class="userchip"><div class="av">MD</div><div style="font-size:11px;color:var(--zc-tx2)">Mica</div></div>
+      </aside>
+
+      <div class="main">
+
+        <!-- ══════════ Pantalla: Alertas ══════════ -->
+        <div class="scr on" data-scr="b:alertas">
+          <div style="padding:16px 20px 12px;display:flex;align-items:flex-end;justify-content:space-between">
+            <div>
+              <h2 style="margin:0;font-size:18px;font-weight:500">Alertas</h2>
+              <p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Todo en un lugar: qué reponer, qué avisó y qué estás vigilando.</p>
+            </div>
+            <button class="btn btn-s" data-drawer="open"><i class="ti ti-bell-ringing"></i>3 sin leer</button>
+          </div>
+
+          <div class="tabbar" data-tabs="b-sec">
+            <button class="tab on" data-tab="b-sec:reponer">Para reponer <span class="n">8</span></button>
+            <button class="tab" data-tab="b-sec:notif">Notificaciones <span class="n">3</span></button>
+            <button class="tab" data-tab="b-sec:reglas">Reglas <span class="n">12</span></button>
+          </div>
+
+          <!-- ── Para reponer ── -->
+          <div class="pane on" data-pane="b-sec:reponer" style="padding:14px 20px 20px">
+
+            <div class="card" style="padding:12px 15px;display:flex;align-items:center;gap:16px;margin-bottom:11px">
+              <i class="ti ti-shopping-cart" style="font-size:20px;color:var(--zc-brand)"></i>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500">Pedido de agosto</div>
+                <div style="font-size:10.5px;color:var(--zc-tx3);margin-top:3px">Desde el último pedido — 12 de julio · 34 días · 8 productos avisaron</div>
+              </div>
+              <div style="display:flex;gap:20px;text-align:right">
+                <div><div style="font-size:10px;color:var(--zc-tx3)">Siguen bajos</div><div style="font-size:16px;font-weight:500;color:var(--zc-warn);font-variant-numeric:tabular-nums">6</div></div>
+                <div><div style="font-size:10px;color:var(--zc-tx3)">Sin stock</div><div style="font-size:16px;font-weight:500;color:var(--zc-err);font-variant-numeric:tabular-nums">1</div></div>
+                <div><div style="font-size:10px;color:var(--zc-tx3)">Packs a pedir</div><div style="font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">5</div></div>
+              </div>
+              <select class="in" style="width:auto;font-size:11.5px;padding:5px 26px 5px 9px">
+                <option>Desde el último pedido</option>
+                <option>Últimos 30 días</option>
+                <option>Todo</option>
+              </select>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px;flex-wrap:wrap">
+              <div class="srch">
+                <i class="ti ti-search"></i>
+                <input class="in" placeholder="Buscar producto, SKU o pack…" data-filter="rep">
+              </div>
+              <div class="seg" data-seg="rep">
+                <button class="on" data-view="pack"><i class="ti ti-stack-2" style="font-size:13px"></i>Por pack</button>
+                <button data-view="flat"><i class="ti ti-list" style="font-size:13px"></i>Lista plana</button>
+              </div>
+              <span class="note" data-count="rep"></span>
+            </div>
+
+            <div class="card" style="overflow:hidden" id="rep-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:28px"><input type="checkbox" checked></th>
+                    <th>Producto</th>
+                    <th class="packcol">Pack</th>
+                    <th class="num">Stock hoy</th>
+                    <th class="num">Umbral</th>
+                    <th>Avisó</th>
+                    <th>Estado</th>
+                    <th class="num" style="width:132px">A pedir</th>
+                  </tr>
+                </thead>
+                <tbody id="rep-body">
+
+                  <!-- ── Pack surtido ── -->
+                  <tr class="grp">
+                    <td colspan="8">
+                      <div class="grp-h">
+                        <i class="ti ti-stack-2" style="font-size:15px;color:var(--zc-brand)"></i>
+                        <span class="gname">Cuadernos inteligentes</span>
+                        <span class="badge bneu">pack de 8 u.</span>
+                        <span class="badge bbrand"><i class="ti ti-arrows-shuffle" style="font-size:10px"></i>surtido</span>
+                        <span class="psku">3 de 5 modelos avisaron</span>
+                        <span style="flex:1"></span>
+                        <span class="psku">total del pack</span>
+                        <span style="font-size:12px;font-weight:500;font-variant-numeric:tabular-nums">2 packs · 16 u.</span>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr class="grp-only" data-txt="pack surtido mezcla cuadernos inteligentes" data-stock="99">
+                    <td><input type="checkbox" checked></td>
+                    <td colspan="5">
+                      <div class="prod">
+                        <div class="thumb" style="background:var(--zc-brandbg);color:var(--zc-brand)"><i class="ti ti-arrows-shuffle" style="font-size:15px"></i></div>
+                        <div><div class="pname">Pack surtido</div><div class="psku">la mezcla la arma el proveedor</div></div>
+                      </div>
+                    </td>
+                    <td><span class="badge bbrand">del pack</span></td>
+                    <td class="num"><input class="cellin" value="2"><span class="unit">packs · 16 u.</span></td>
+                  </tr>
+                  <tr data-txt="cuaderno exito 19x23 tapa dura ce-1923-td cuadernos inteligentes" data-stock="1">
+                    <td><input type="checkbox" checked></td>
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div><div><div class="pname">Cuaderno Éxito 19×23 tapa dura</div><div class="psku">CE-1923-TD</div></div></div></td>
+                    <td class="packcol"><span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Cuadernos inteligentes</span></td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>1</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>1</b></span></td>
+                    <td class="num">3</td>
+                    <td><div style="font-size:11.5px">hoy 09:42</div><div class="psku">1 vez</div></td>
+                    <td><span class="badge bwarn">Sigue bajo</span></td>
+                    <td class="num"><input class="cellin" value="0"><span class="unit">packs</span></td>
+                  </tr>
+                  <tr data-txt="cuaderno rivadavia 16x21 flexible cr-1621-tf cuadernos inteligentes" data-stock="2">
+                    <td><input type="checkbox" checked></td>
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div><div><div class="pname">Cuaderno Rivadavia 16×21 flexible</div><div class="psku">CR-1621-TF</div></div></div></td>
+                    <td class="packcol"><span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Cuadernos inteligentes</span></td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>2</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>5</b></span></td>
+                    <td class="num">3</td>
+                    <td><div style="font-size:11.5px">9 ago</div><div class="psku">1 vez</div></td>
+                    <td><span class="badge bwarn">Sigue bajo</span></td>
+                    <td class="num"><input class="cellin" value="0"><span class="unit">packs</span></td>
+                  </tr>
+                  <tr data-txt="cuaderno exito 16x21 flexible ce-1621-tf cuadernos inteligentes" data-stock="3">
+                    <td><input type="checkbox" checked></td>
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div><div><div class="pname">Cuaderno Éxito 16×21 flexible</div><div class="psku">CE-1621-TF</div></div></div></td>
+                    <td class="packcol"><span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Cuadernos inteligentes</span></td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>3</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>3</b></span></td>
+                    <td class="num">4</td>
+                    <td><div style="font-size:11.5px">2 ago</div><div class="psku">1 vez</div></td>
+                    <td><span class="badge bwarn">Sigue bajo</span></td>
+                    <td class="num"><input class="cellin" value="0"><span class="unit">packs</span></td>
+                  </tr>
+
+                  <!-- ── Pack por modelo ── -->
+                  <tr class="grp">
+                    <td colspan="8">
+                      <div class="grp-h">
+                        <i class="ti ti-stack-2" style="font-size:15px;color:var(--zc-brand)"></i>
+                        <span class="gname">Repuestos A4 ×480</span>
+                        <span class="badge bneu">pack de 8 u.</span>
+                        <span class="badge bneu"><i class="ti ti-equal" style="font-size:10px"></i>un modelo por pack</span>
+                        <span class="psku">2 de 3 modelos avisaron</span>
+                        <span style="flex:1"></span>
+                        <span class="psku">total del pack</span>
+                        <span style="font-size:12px;font-weight:500;font-variant-numeric:tabular-nums">2 packs · 16 u.</span>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-txt="repuesto a4 rayado 480 ra4-r480 repuestos a4" data-stock="2">
+                    <td><input type="checkbox" checked></td>
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Repuesto A4 rayado ×480 hojas</div><div class="psku">RA4-R480</div></div></div></td>
+                    <td class="packcol"><span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Repuestos A4 ×480</span></td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>2</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>2</b></span></td>
+                    <td class="num">5</td>
+                    <td><div style="font-size:11.5px">21 jul</div><div class="psku">3 veces</div></td>
+                    <td><span class="badge bwarn">Sigue bajo</span></td>
+                    <td class="num"><input class="cellin" value="1"><span class="unit">pack · 8 u.</span></td>
+                  </tr>
+                  <tr data-txt="repuesto a4 cuadriculado 480 ra4-c480 repuestos a4" data-stock="3">
+                    <td><input type="checkbox" checked></td>
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Repuesto A4 cuadriculado ×480</div><div class="psku">RA4-C480</div></div></div></td>
+                    <td class="packcol"><span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Repuestos A4 ×480</span></td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>3</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>3</b></span></td>
+                    <td class="num">5</td>
+                    <td><div style="font-size:11.5px">4 ago</div><div class="psku">2 veces</div></td>
+                    <td><span class="badge bwarn">Sigue bajo</span></td>
+                    <td class="num"><input class="cellin" value="1"><span class="unit">pack · 8 u.</span></td>
+                  </tr>
+
+                  <tr class="grp">
+                    <td colspan="8">
+                      <div class="grp-h">
+                        <i class="ti ti-stack-2" style="font-size:15px;color:var(--zc-brand)"></i>
+                        <span class="gname">Repuestos A5 ×300</span>
+                        <span class="badge bneu">pack de 6 u.</span>
+                        <span class="badge bneu"><i class="ti ti-equal" style="font-size:10px"></i>un modelo por pack</span>
+                        <span class="psku">1 de 2 modelos avisó</span>
+                        <span style="flex:1"></span>
+                        <span class="psku">total del pack</span>
+                        <span style="font-size:12px;font-weight:500;font-variant-numeric:tabular-nums">1 pack · 6 u.</span>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-txt="repuesto a5 cuadriculado 300 ra5-c300 repuestos a5" data-stock="3">
+                    <td><input type="checkbox" checked></td>
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Repuesto A5 cuadriculado ×300</div><div class="psku">RA5-C300</div></div></div></td>
+                    <td class="packcol"><span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Repuestos A5 ×300</span></td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>4</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>3</b></span></td>
+                    <td class="num">4</td>
+                    <td><div style="font-size:11.5px">17 jul</div><div class="psku">2 veces</div></td>
+                    <td><span class="badge bwarn">Sigue bajo</span></td>
+                    <td class="num"><input class="cellin" value="1"><span class="unit">pack · 6 u.</span></td>
+                  </tr>
+
+                  <!-- ── Sin pack ── -->
+                  <tr class="grp">
+                    <td colspan="8">
+                      <div class="grp-h">
+                        <i class="ti ti-package-off" style="font-size:15px;color:var(--zc-tx3)"></i>
+                        <span class="gname" style="color:var(--zc-tx2)">Sin pack</span>
+                        <span class="psku">se piden por unidad</span>
+                        <span style="flex:1"></span>
+                        <span style="font-size:12px;font-weight:500;font-variant-numeric:tabular-nums">4 u.</span>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr data-txt="carpeta n3 negra 2 anillos cn3-neg sin pack" data-stock="0">
+                    <td><input type="checkbox" checked></td>
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Carpeta N°3 negra 2 anillos</div><div class="psku">CN3-NEG</div></div></div></td>
+                    <td class="packcol"><span class="psku">—</span></td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>0</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>0</b></span></td>
+                    <td class="num">2</td>
+                    <td><div style="font-size:11.5px">28 jul</div><div class="psku">5 veces</div></td>
+                    <td><span class="badge berr"><i class="ti ti-alert-circle" style="font-size:11px"></i>Sin stock</span></td>
+                    <td class="num"><input class="cellin" value="4"><span class="unit">u.</span></td>
+                  </tr>
+                  <tr class="muted" data-txt="block el nene a4 liso ben-a4-l sin pack" data-stock="6">
+                    <td><input type="checkbox"></td>
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div><div><div class="pname">Block El Nene A4 liso</div><div class="psku">BEN-A4-L</div></div></div></td>
+                    <td class="packcol"><span class="psku">—</span></td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>6</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>6</b></span></td>
+                    <td class="num">4</td>
+                    <td><div style="font-size:11.5px">15 jul</div><div class="psku">1 vez</div></td>
+                    <td><span class="badge bok"><i class="ti ti-check" style="font-size:11px"></i>Ya repuesto</span></td>
+                    <td class="num"><input class="cellin" value="0"><span class="unit">u.</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:12px;margin-top:11px;flex-wrap:wrap">
+              <div class="note"><i class="ti ti-info-circle" style="font-size:13px"></i>Las cantidades vienen sugeridas; el tamaño de cada pack se configura en <b style="font-weight:500;color:var(--zc-tx2)">Productos → Packs</b>.</div>
+              <div style="flex:1"></div>
+              <span style="font-size:11.5px;color:var(--zc-tx2)"><b style="font-weight:500;font-variant-numeric:tabular-nums">5</b> packs + <b style="font-weight:500;font-variant-numeric:tabular-nums">4</b> u. sueltas · <b style="font-weight:500;font-variant-numeric:tabular-nums">42</b> unidades</span>
+              <button class="btn btn-s"><i class="ti ti-copy"></i>Copiar lista</button>
+              <button class="btn btn-s"><i class="ti ti-download"></i>Exportar CSV</button>
+              <button class="btn pri btn-s"><i class="ti ti-checkbox"></i>Marcar pedido como hecho</button>
+            </div>
+          </div>
+
+          <!-- ── Notificaciones ── -->
+          <div class="pane" data-pane="b-sec:notif" style="padding:14px 20px 20px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px">
+              <button class="btn btn-s" style="border-color:var(--zc-brand);color:var(--zc-brand)">Sin leer <span style="font-variant-numeric:tabular-nums">3</span></button>
+              <button class="btn btn-s">Todas</button>
+              <div style="flex:1"></div>
+              <button class="btn btn-s"><i class="ti ti-checks"></i>Marcar todas como leídas</button>
+            </div>
+            <div class="card" style="padding:6px">
+              <div class="daysep">Hoy</div>
+              <div class="ntf un">
+                <div class="ub"></div>
+                <div class="thumb"><i class="ti ti-file-stack" style="font-size:15px"></i></div>
+                <div style="min-width:0;flex:1">
+                  <div class="ntf-t">Quedan <b style="font-weight:600">0</b> de <b style="font-weight:500">Carpeta N°3 negra 2 anillos</b></div>
+                  <div class="ntf-m"><span class="psku">CN3-NEG</span> · <span class="stk"><span class="dot" style="background:var(--zc-ml)"></span>0</span><span class="stk"><span class="dot" style="background:var(--zc-tn)"></span>0</span> · umbral 2 · hace 20 min</div>
+                  <div class="act"><button>Marcar leída</button><button>Ir al producto</button><button>Silenciar 7 días</button></div>
+                </div>
+              </div>
+              <div class="ntf un">
+                <div class="ub"></div>
+                <div class="thumb"><i class="ti ti-notebook" style="font-size:15px"></i></div>
+                <div style="min-width:0;flex:1">
+                  <div class="ntf-t">Quedan <b style="font-weight:600">1</b> de <b style="font-weight:500">Cuaderno Éxito 19×23 tapa dura</b></div>
+                  <div class="ntf-m"><span class="pchip"><i class="ti ti-stack-2" style="font-size:10px"></i>Cuadernos inteligentes</span> · umbral 3 · 09:42</div>
+                  <div class="act"><button>Marcar leída</button><button>Ir al producto</button><button>Silenciar 7 días</button></div>
+                </div>
+              </div>
+              <div class="daysep">Ayer</div>
+              <div class="ntf un">
+                <div class="ub"></div>
+                <div class="thumb"><i class="ti ti-file-stack" style="font-size:15px"></i></div>
+                <div style="min-width:0;flex:1">
+                  <div class="ntf-t">Quedan <b style="font-weight:600">2</b> de <b style="font-weight:500">Repuesto A4 rayado ×480</b></div>
+                  <div class="ntf-m"><span class="pchip"><i class="ti ti-stack-2" style="font-size:10px"></i>Repuestos A4 ×480</span> · umbral 5 · 17:05</div>
+                  <div class="act"><button>Marcar leída</button><button>Ir al producto</button><button>Silenciar 7 días</button></div>
+                </div>
+              </div>
+              <div class="daysep">9 de agosto</div>
+              <div class="ntf">
+                <div class="ub off"></div>
+                <div class="thumb"><i class="ti ti-notebook" style="font-size:15px"></i></div>
+                <div style="min-width:0;flex:1">
+                  <div class="ntf-t">Quedan <b style="font-weight:600">2</b> de <b style="font-weight:500">Cuaderno Rivadavia 16×21 flexible</b></div>
+                  <div class="ntf-m"><span class="pchip"><i class="ti ti-stack-2" style="font-size:10px"></i>Cuadernos inteligentes</span> · umbral 3 · 11:20</div>
+                </div>
+              </div>
+              <div class="ntf">
+                <div class="ub off"></div>
+                <div class="thumb"><i class="ti ti-file-stack" style="font-size:15px"></i></div>
+                <div style="min-width:0;flex:1">
+                  <div class="ntf-t">Quedan <b style="font-weight:600">3</b> de <b style="font-weight:500">Repuesto A4 cuadriculado ×480</b></div>
+                  <div class="ntf-m"><span class="pchip"><i class="ti ti-stack-2" style="font-size:10px"></i>Repuestos A4 ×480</span> · umbral 5 · 4 ago 08:11</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Reglas ── -->
+          <div class="pane" data-pane="b-sec:reglas" style="padding:14px 20px 20px">
+
+            <div class="card" style="padding:13px 15px;margin-bottom:12px;display:flex;align-items:flex-end;gap:12px">
+              <div style="flex:1">
+                <div class="lbl"><i class="ti ti-search" style="font-size:13px"></i>Vigilar un producto nuevo</div>
+                <input class="in" placeholder="Buscar por título o SKU…">
+              </div>
+              <div style="width:130px">
+                <div class="lbl">Avisar con ≤</div>
+                <div style="display:flex;align-items:center;gap:5px">
+                  <button class="btn btn-s" style="padding:6px 9px">−</button>
+                  <input class="in" value="4" style="text-align:center;font-variant-numeric:tabular-nums">
+                  <button class="btn btn-s" style="padding:6px 9px">+</button>
+                </div>
+              </div>
+              <button class="btn pri"><i class="ti ti-plus"></i>Agregar</button>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px;flex-wrap:wrap">
+              <div class="srch">
+                <i class="ti ti-search"></i>
+                <input class="in" placeholder="Buscar una regla para editarla…" data-filter="reg">
+              </div>
+              <span class="note" data-count="reg"></span>
+              <div style="flex:1"></div>
+              <div class="note"><i class="ti ti-pencil" style="font-size:13px"></i>El botón ✎ edita el umbral y el pack en la misma fila.</div>
+            </div>
+
+            <div class="card" style="overflow:hidden">
+              <table>
+                <thead><tr><th>Producto</th><th>Pack</th><th class="num">Stock hoy</th><th class="num">Avisar con ≤</th><th>Estado</th><th style="width:96px"></th></tr></thead>
+                <tbody id="reg-body">
+
+                  <tr data-txt="repuesto a4 rayado 480 ra4-r480 repuestos a4">
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Repuesto A4 rayado ×480 hojas</div><div class="psku">RA4-R480</div></div></div></td>
+                    <td>
+                      <span class="view pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Repuestos A4 ×480</span>
+                      <span class="edit"><select class="in" style="font-size:11.5px;padding:4px 22px 4px 7px;width:auto"><option>Repuestos A4 ×480</option><option>Repuestos A5 ×300</option><option>Cuadernos inteligentes</option><option>Sin pack</option></select></span>
+                    </td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>2</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>2</b></span></td>
+                    <td class="num">
+                      <span class="view" style="font-variant-numeric:tabular-nums">5</span>
+                      <span class="edit"><button class="iconbtn">−</button><input class="cellin" value="5" style="width:44px;text-align:center"><button class="iconbtn">+</button></span>
+                    </td>
+                    <td><span class="badge bwarn"><i class="ti ti-bell-ringing" style="font-size:11px"></i>Disparada</span></td>
+                    <td>
+                      <span class="view acts"><button class="iconbtn" data-edit="on" title="Editar"><i class="ti ti-pencil"></i></button><button class="iconbtn danger" title="Quitar"><i class="ti ti-trash"></i></button></span>
+                      <span class="edit" style="gap:5px"><button class="iconbtn" data-edit="off">Cancelar</button><button class="btn pri btn-s" data-edit="off">Guardar</button></span>
+                    </td>
+                  </tr>
+
+                  <tr data-txt="cuaderno exito 19x23 tapa dura ce-1923-td cuadernos inteligentes">
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div><div><div class="pname">Cuaderno Éxito 19×23 tapa dura</div><div class="psku">CE-1923-TD</div></div></div></td>
+                    <td>
+                      <span class="view pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Cuadernos inteligentes</span>
+                      <span class="edit"><select class="in" style="font-size:11.5px;padding:4px 22px 4px 7px;width:auto"><option>Cuadernos inteligentes</option><option>Repuestos A4 ×480</option><option>Sin pack</option></select></span>
+                    </td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>1</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>1</b></span></td>
+                    <td class="num">
+                      <span class="view" style="font-variant-numeric:tabular-nums">3</span>
+                      <span class="edit"><button class="iconbtn">−</button><input class="cellin" value="3" style="width:44px;text-align:center"><button class="iconbtn">+</button></span>
+                    </td>
+                    <td><span class="badge bwarn"><i class="ti ti-bell-ringing" style="font-size:11px"></i>Disparada</span></td>
+                    <td>
+                      <span class="view acts"><button class="iconbtn" data-edit="on" title="Editar"><i class="ti ti-pencil"></i></button><button class="iconbtn danger" title="Quitar"><i class="ti ti-trash"></i></button></span>
+                      <span class="edit" style="gap:5px"><button class="iconbtn" data-edit="off">Cancelar</button><button class="btn pri btn-s" data-edit="off">Guardar</button></span>
+                    </td>
+                  </tr>
+
+                  <tr data-txt="cuaderno rivadavia 16x21 flexible cr-1621-tf cuadernos inteligentes">
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div><div><div class="pname">Cuaderno Rivadavia 16×21 flexible</div><div class="psku">CR-1621-TF</div></div></div></td>
+                    <td>
+                      <span class="view pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Cuadernos inteligentes</span>
+                      <span class="edit"><select class="in" style="font-size:11.5px;padding:4px 22px 4px 7px;width:auto"><option>Cuadernos inteligentes</option><option>Sin pack</option></select></span>
+                    </td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>2</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>5</b></span></td>
+                    <td class="num">
+                      <span class="view" style="font-variant-numeric:tabular-nums">3</span>
+                      <span class="edit"><button class="iconbtn">−</button><input class="cellin" value="3" style="width:44px;text-align:center"><button class="iconbtn">+</button></span>
+                    </td>
+                    <td><span class="badge bwarn"><i class="ti ti-bell-ringing" style="font-size:11px"></i>Disparada</span></td>
+                    <td>
+                      <span class="view acts"><button class="iconbtn" data-edit="on" title="Editar"><i class="ti ti-pencil"></i></button><button class="iconbtn danger" title="Quitar"><i class="ti ti-trash"></i></button></span>
+                      <span class="edit" style="gap:5px"><button class="iconbtn" data-edit="off">Cancelar</button><button class="btn pri btn-s" data-edit="off">Guardar</button></span>
+                    </td>
+                  </tr>
+
+                  <tr data-txt="repuesto a5 cuadriculado 300 ra5-c300 repuestos a5">
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Repuesto A5 cuadriculado ×300</div><div class="psku">RA5-C300</div></div></div></td>
+                    <td>
+                      <span class="view pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Repuestos A5 ×300</span>
+                      <span class="edit"><select class="in" style="font-size:11.5px;padding:4px 22px 4px 7px;width:auto"><option>Repuestos A5 ×300</option><option>Sin pack</option></select></span>
+                    </td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>4</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>3</b></span></td>
+                    <td class="num">
+                      <span class="view" style="font-variant-numeric:tabular-nums">4</span>
+                      <span class="edit"><button class="iconbtn">−</button><input class="cellin" value="4" style="width:44px;text-align:center"><button class="iconbtn">+</button></span>
+                    </td>
+                    <td><span class="badge bwarn"><i class="ti ti-bell-ringing" style="font-size:11px"></i>Disparada</span></td>
+                    <td>
+                      <span class="view acts"><button class="iconbtn" data-edit="on" title="Editar"><i class="ti ti-pencil"></i></button><button class="iconbtn danger" title="Quitar"><i class="ti ti-trash"></i></button></span>
+                      <span class="edit" style="gap:5px"><button class="iconbtn" data-edit="off">Cancelar</button><button class="btn pri btn-s" data-edit="off">Guardar</button></span>
+                    </td>
+                  </tr>
+
+                  <tr data-txt="block el nene a4 liso ben-a4-l sin pack">
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div><div><div class="pname">Block El Nene A4 liso</div><div class="psku">BEN-A4-L</div></div></div></td>
+                    <td>
+                      <span class="view psku">—</span>
+                      <span class="edit"><select class="in" style="font-size:11.5px;padding:4px 22px 4px 7px;width:auto"><option>Sin pack</option><option>Cuadernos inteligentes</option></select></span>
+                    </td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>6</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>6</b></span></td>
+                    <td class="num">
+                      <span class="view" style="font-variant-numeric:tabular-nums">4</span>
+                      <span class="edit"><button class="iconbtn">−</button><input class="cellin" value="4" style="width:44px;text-align:center"><button class="iconbtn">+</button></span>
+                    </td>
+                    <td><span class="badge bok">Ok</span></td>
+                    <td>
+                      <span class="view acts"><button class="iconbtn" data-edit="on" title="Editar"><i class="ti ti-pencil"></i></button><button class="iconbtn danger" title="Quitar"><i class="ti ti-trash"></i></button></span>
+                      <span class="edit" style="gap:5px"><button class="iconbtn" data-edit="off">Cancelar</button><button class="btn pri btn-s" data-edit="off">Guardar</button></span>
+                    </td>
+                  </tr>
+
+                  <tr data-txt="separadores a4 6 colores sep-a4-6 sin pack">
+                    <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Separadores A4 ×6 colores</div><div class="psku">SEP-A4-6</div></div></div></td>
+                    <td>
+                      <span class="view psku">—</span>
+                      <span class="edit"><select class="in" style="font-size:11.5px;padding:4px 22px 4px 7px;width:auto"><option>Sin pack</option><option>Repuestos A4 ×480</option></select></span>
+                    </td>
+                    <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>22</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>22</b></span></td>
+                    <td class="num">
+                      <span class="view" style="font-variant-numeric:tabular-nums">6</span>
+                      <span class="edit"><button class="iconbtn">−</button><input class="cellin" value="6" style="width:44px;text-align:center"><button class="iconbtn">+</button></span>
+                    </td>
+                    <td><span class="badge bneu"><i class="ti ti-bell-off" style="font-size:11px"></i>Silenciada 5 d</span></td>
+                    <td>
+                      <span class="view acts"><button class="iconbtn" data-edit="on" title="Editar"><i class="ti ti-pencil"></i></button><button class="iconbtn danger" title="Quitar"><i class="ti ti-trash"></i></button></span>
+                      <span class="edit" style="gap:5px"><button class="iconbtn" data-edit="off">Cancelar</button><button class="btn pri btn-s" data-edit="off">Guardar</button></span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="note" style="margin-top:10px"><i class="ti ti-info-circle" style="font-size:13px"></i>Se avisa cuando el <b style="font-weight:500;color:var(--zc-tx2)">menor</b> de los dos canales llega al umbral. Solo avisan los productos de esta lista.</div>
+          </div>
+        </div>
+
+        <!-- ══════════ Pantalla: Productos (con la pestaña Packs) ══════════ -->
+        <div class="scr" data-scr="b:productos">
+          <div style="padding:16px 20px 12px">
+            <h2 style="margin:0;font-size:18px;font-weight:500">Productos</h2>
+            <p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">El stock de los dos canales y los packs con los que le comprás al proveedor.</p>
+          </div>
+
+          <div class="tabbar" data-tabs="b-prod">
+            <button class="tab on" data-tab="b-prod:stock">Precio y stock</button>
+            <button class="tab" data-tab="b-prod:packs">Packs <span class="n">4</span></button>
+          </div>
+
+          <!-- Precio y stock -->
+          <div class="pane on" data-pane="b-prod:stock" style="padding:14px 20px 20px">
+            <div class="card" style="overflow:visible;position:relative">
+              <div class="prow">
+                <div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div>
+                <div style="flex:1;min-width:0"><div class="pname">Repuesto A4 rayado ×480 hojas</div><div class="psku">RA4-R480</div></div>
+                <span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Repuestos A4 ×480</span>
+                <span class="badge bml"><span class="dot" style="background:var(--zc-ml)"></span>ML 2</span>
+                <span class="badge btn2"><i class="ti ti-shopping-bag" style="font-size:11px"></i>TN 2</span>
+                <button class="bell-row set" data-pop="b-th1"><i class="ti ti-bell"></i>≤ 5</button>
+              </div>
+              <div class="thpop hid" id="b-th1">
+                <div style="font-size:12.5px;font-weight:500;margin-bottom:9px">Avisarme cuando queden</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <button class="btn btn-s" style="padding:5px 9px">−</button>
+                  <input class="in qty" value="5">
+                  <button class="btn btn-s" style="padding:5px 9px">+</button>
+                  <span style="font-size:11.5px;color:var(--zc-tx2)">unidades o menos</span>
+                </div>
+                <div class="hint"><i class="ti ti-info-circle" style="font-size:11px"></i>Se mira el canal más bajo (hoy: ML 2 · TN 2)</div>
+                <div style="display:flex;gap:7px;margin-top:11px">
+                  <button class="btn btn-s" style="color:var(--zc-err)"><i class="ti ti-trash"></i>Quitar</button>
+                  <div style="flex:1"></div>
+                  <button class="btn pri btn-s">Guardar</button>
+                </div>
+              </div>
+
+              <div class="prow">
+                <div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div>
+                <div style="flex:1;min-width:0"><div class="pname">Cuaderno Éxito 19×23 tapa dura</div><div class="psku">CE-1923-TD</div></div>
+                <span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Cuadernos inteligentes</span>
+                <span class="badge bml"><span class="dot" style="background:var(--zc-ml)"></span>ML 1</span>
+                <span class="badge btn2"><i class="ti ti-shopping-bag" style="font-size:11px"></i>TN 1</span>
+                <button class="bell-row set"><i class="ti ti-bell"></i>≤ 3</button>
+              </div>
+              <div class="prow">
+                <div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div>
+                <div style="flex:1;min-width:0"><div class="pname">Cuaderno Gloria 16×21 tapa dura</div><div class="psku">CG-1621-TD</div></div>
+                <span class="pchip"><i class="ti ti-stack-2" style="font-size:11px"></i>Cuadernos inteligentes</span>
+                <span class="badge bml"><span class="dot" style="background:var(--zc-ml)"></span>ML 14</span>
+                <span class="badge btn2"><i class="ti ti-shopping-bag" style="font-size:11px"></i>TN 14</span>
+                <button class="bell-row set"><i class="ti ti-bell"></i>≤ 4</button>
+              </div>
+              <div class="prow">
+                <div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div>
+                <div style="flex:1;min-width:0"><div class="pname">Separadores A4 ×6 colores</div><div class="psku">SEP-A4-6</div></div>
+                <span class="psku" style="opacity:.7">sin pack</span>
+                <span class="badge bml"><span class="dot" style="background:var(--zc-ml)"></span>ML 22</span>
+                <span class="badge btn2"><i class="ti ti-shopping-bag" style="font-size:11px"></i>TN 22</span>
+                <button class="bell-row set" style="color:var(--zc-tx3);border-color:var(--zc-bd);background:none"><i class="ti ti-bell-off"></i>≤ 6</button>
+              </div>
+              <div class="prow">
+                <div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div>
+                <div style="flex:1;min-width:0"><div class="pname">Carpeta N°3 negra 2 anillos</div><div class="psku">CN3-NEG</div></div>
+                <span class="psku" style="opacity:.7">sin pack</span>
+                <span class="badge bml"><span class="dot" style="background:var(--zc-ml)"></span>ML 0</span>
+                <span class="badge btn2"><i class="ti ti-shopping-bag" style="font-size:11px"></i>TN 0</span>
+                <button class="bell-row set"><i class="ti ti-bell"></i>≤ 2</button>
+              </div>
+            </div>
+            <div class="note" style="margin-top:10px"><i class="ti ti-pointer" style="font-size:13px"></i>Tocá <b style="font-weight:500;color:var(--zc-brand)">≤ 5</b> en la primera fila para ver el popover del umbral.</div>
+          </div>
+
+          <!-- Packs -->
+          <div class="pane" data-pane="b-prod:packs" style="padding:14px 20px 20px">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px">
+              <div class="srch">
+                <i class="ti ti-search"></i>
+                <input class="in" placeholder="Buscar un pack…">
+              </div>
+              <div class="note"><i class="ti ti-info-circle" style="font-size:13px"></i>El pack es la unidad con la que le comprás al proveedor. No todos los productos tienen uno.</div>
+              <div style="flex:1"></div>
+              <button class="btn pri btn-s"><i class="ti ti-plus"></i>Nuevo pack</button>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:9px">
+
+              <div class="card packcard open">
+                <div class="packhead" data-pack-toggle>
+                  <i class="ti ti-chevron-right caret" style="font-size:15px"></i>
+                  <i class="ti ti-stack-2" style="font-size:18px;color:var(--zc-brand)"></i>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500">Cuadernos inteligentes</div>
+                    <div class="psku" style="margin-top:2px">5 modelos · 33 unidades en stock</div>
+                  </div>
+                  <div style="text-align:right">
+                    <div style="font-size:10px;color:var(--zc-tx3)">Unidades por pack</div>
+                    <input class="cellin" value="8" style="width:50px;margin-top:3px">
+                  </div>
+                  <span class="badge bbrand" style="margin-left:10px"><i class="ti ti-arrows-shuffle" style="font-size:10px"></i>surtido</span>
+                  <button class="iconbtn danger" title="Eliminar pack"><i class="ti ti-trash"></i></button>
+                </div>
+                <div class="packbody">
+                  <table>
+                    <thead><tr><th>Modelo</th><th class="num">Stock hoy</th><th class="num">Alerta</th><th style="width:40px"></th></tr></thead>
+                    <tbody>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-notebook" style="font-size:14px"></i></div><div><div class="pname">Cuaderno Éxito 19×23 tapa dura</div><div class="psku">CE-1923-TD</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>1</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>1</b></span></td>
+                        <td class="num"><span class="badge bwarn">≤ 3</span></td>
+                        <td><button class="iconbtn" title="Sacar del pack"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-notebook" style="font-size:14px"></i></div><div><div class="pname">Cuaderno Rivadavia 16×21 flexible</div><div class="psku">CR-1621-TF</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>2</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>5</b></span></td>
+                        <td class="num"><span class="badge bwarn">≤ 3</span></td>
+                        <td><button class="iconbtn" title="Sacar del pack"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-notebook" style="font-size:14px"></i></div><div><div class="pname">Cuaderno Éxito 16×21 flexible</div><div class="psku">CE-1621-TF</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>3</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>3</b></span></td>
+                        <td class="num"><span class="badge bwarn">≤ 4</span></td>
+                        <td><button class="iconbtn" title="Sacar del pack"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-notebook" style="font-size:14px"></i></div><div><div class="pname">Cuaderno Gloria 16×21 tapa dura</div><div class="psku">CG-1621-TD</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>14</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>14</b></span></td>
+                        <td class="num"><span class="badge bok">≤ 4</span></td>
+                        <td><button class="iconbtn" title="Sacar del pack"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-notebook" style="font-size:14px"></i></div><div><div class="pname">Cuaderno Rivadavia 19×23 tapa dura</div><div class="psku">CR-1923-TD</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>9</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>9</b></span></td>
+                        <td class="num"><span class="badge bok">≤ 4</span></td>
+                        <td><button class="iconbtn" title="Sacar del pack"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div style="padding:9px 11px;border-top:0.5px solid var(--zc-bd)">
+                    <button class="btn btn-s"><i class="ti ti-plus"></i>Agregar producto al pack</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card packcard">
+                <div class="packhead" data-pack-toggle>
+                  <i class="ti ti-chevron-right caret" style="font-size:15px"></i>
+                  <i class="ti ti-stack-2" style="font-size:18px;color:var(--zc-brand)"></i>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500">Repuestos A4 ×480</div>
+                    <div class="psku" style="margin-top:2px">3 modelos · 14 unidades en stock</div>
+                  </div>
+                  <div style="text-align:right">
+                    <div style="font-size:10px;color:var(--zc-tx3)">Unidades por pack</div>
+                    <input class="cellin" value="8" style="width:50px;margin-top:3px">
+                  </div>
+                  <span class="badge bneu" style="margin-left:10px"><i class="ti ti-equal" style="font-size:10px"></i>un modelo por pack</span>
+                  <button class="iconbtn danger" title="Eliminar pack"><i class="ti ti-trash"></i></button>
+                </div>
+                <div class="packbody">
+                  <table>
+                    <thead><tr><th>Modelo</th><th class="num">Stock hoy</th><th class="num">Alerta</th><th style="width:40px"></th></tr></thead>
+                    <tbody>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-file-stack" style="font-size:14px"></i></div><div><div class="pname">Repuesto A4 rayado ×480 hojas</div><div class="psku">RA4-R480</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>2</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>2</b></span></td>
+                        <td class="num"><span class="badge bwarn">≤ 5</span></td>
+                        <td><button class="iconbtn"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-file-stack" style="font-size:14px"></i></div><div><div class="pname">Repuesto A4 cuadriculado ×480</div><div class="psku">RA4-C480</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>3</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>3</b></span></td>
+                        <td class="num"><span class="badge bwarn">≤ 5</span></td>
+                        <td><button class="iconbtn"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-file-stack" style="font-size:14px"></i></div><div><div class="pname">Repuesto A4 liso ×480 hojas</div><div class="psku">RA4-L480</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>9</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>9</b></span></td>
+                        <td class="num"><span class="badge bok">≤ 4</span></td>
+                        <td><button class="iconbtn"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div style="padding:9px 11px;border-top:0.5px solid var(--zc-bd)">
+                    <button class="btn btn-s"><i class="ti ti-plus"></i>Agregar producto al pack</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card packcard">
+                <div class="packhead" data-pack-toggle>
+                  <i class="ti ti-chevron-right caret" style="font-size:15px"></i>
+                  <i class="ti ti-stack-2" style="font-size:18px;color:var(--zc-brand)"></i>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500">Repuestos A5 ×300</div>
+                    <div class="psku" style="margin-top:2px">2 modelos · 15 unidades en stock</div>
+                  </div>
+                  <div style="text-align:right">
+                    <div style="font-size:10px;color:var(--zc-tx3)">Unidades por pack</div>
+                    <input class="cellin" value="6" style="width:50px;margin-top:3px">
+                  </div>
+                  <span class="badge bneu" style="margin-left:10px"><i class="ti ti-equal" style="font-size:10px"></i>un modelo por pack</span>
+                  <button class="iconbtn danger" title="Eliminar pack"><i class="ti ti-trash"></i></button>
+                </div>
+                <div class="packbody">
+                  <table>
+                    <thead><tr><th>Modelo</th><th class="num">Stock hoy</th><th class="num">Alerta</th><th style="width:40px"></th></tr></thead>
+                    <tbody>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-file-stack" style="font-size:14px"></i></div><div><div class="pname">Repuesto A5 cuadriculado ×300</div><div class="psku">RA5-C300</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>4</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>3</b></span></td>
+                        <td class="num"><span class="badge bwarn">≤ 4</span></td>
+                        <td><button class="iconbtn"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-file-stack" style="font-size:14px"></i></div><div><div class="pname">Repuesto A5 rayado ×300</div><div class="psku">RA5-R300</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>11</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>11</b></span></td>
+                        <td class="num"><span class="badge bok">≤ 4</span></td>
+                        <td><button class="iconbtn"><i class="ti ti-x"></i></button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div style="padding:9px 11px;border-top:0.5px solid var(--zc-bd)">
+                    <button class="btn btn-s"><i class="ti ti-plus"></i>Agregar producto al pack</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card packcard">
+                <div class="packhead" data-pack-toggle>
+                  <i class="ti ti-chevron-right caret" style="font-size:15px"></i>
+                  <i class="ti ti-package-off" style="font-size:18px;color:var(--zc-tx3)"></i>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500;color:var(--zc-tx2)">Sin pack</div>
+                    <div class="psku" style="margin-top:2px">2 productos · se piden por unidad suelta</div>
+                  </div>
+                </div>
+                <div class="packbody">
+                  <table>
+                    <thead><tr><th>Producto</th><th class="num">Stock hoy</th><th class="num">Alerta</th><th style="width:120px"></th></tr></thead>
+                    <tbody>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-file-stack" style="font-size:14px"></i></div><div><div class="pname">Carpeta N°3 negra 2 anillos</div><div class="psku">CN3-NEG</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>0</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>0</b></span></td>
+                        <td class="num"><span class="badge berr">≤ 2</span></td>
+                        <td><button class="iconbtn"><i class="ti ti-stack-2"></i> Poner en un pack</button></td>
+                      </tr>
+                      <tr>
+                        <td><div class="prod"><div class="thumb" style="width:28px;height:28px"><i class="ti ti-file-stack" style="font-size:14px"></i></div><div><div class="pname">Separadores A4 ×6 colores</div><div class="psku">SEP-A4-6</div></div></div></td>
+                        <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>22</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>22</b></span></td>
+                        <td class="num"><span class="badge bneu">≤ 6</span></td>
+                        <td><button class="iconbtn"><i class="ti ti-stack-2"></i> Poner en un pack</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Cajón lateral de notificaciones -->
+      <div class="scrim hid" data-drawer="close"></div>
+      <div class="drawer hid">
+        <div class="drawer-h">
+          <div>
+            <div style="font-size:14px;font-weight:500">Notificaciones</div>
+            <div style="font-size:10.5px;color:var(--zc-tx3);margin-top:2px">3 sin leer</div>
+          </div>
+          <button class="bell" data-drawer="close" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="drawer-b">
+          <div class="daysep">Hoy</div>
+          <div class="ntf un">
+            <div class="ub"></div>
+            <div class="thumb"><i class="ti ti-file-stack" style="font-size:15px"></i></div>
+            <div style="min-width:0;flex:1">
+              <div class="ntf-t">Quedan <b style="font-weight:600">0</b> de <b style="font-weight:500">Carpeta N°3 negra 2 anillos</b></div>
+              <div class="ntf-m"><span class="psku">CN3-NEG · sin pack</span> · umbral 2 · hace 20 min</div>
+              <div class="act"><button>Marcar leída</button><button>Ir al producto</button><button>Silenciar 7 días</button></div>
+            </div>
+          </div>
+          <div class="ntf un">
+            <div class="ub"></div>
+            <div class="thumb"><i class="ti ti-notebook" style="font-size:15px"></i></div>
+            <div style="min-width:0;flex:1">
+              <div class="ntf-t">Quedan <b style="font-weight:600">1</b> de <b style="font-weight:500">Cuaderno Éxito 19×23 tapa dura</b></div>
+              <div class="ntf-m"><span class="pchip"><i class="ti ti-stack-2" style="font-size:10px"></i>Cuadernos inteligentes</span> · umbral 3 · 09:42</div>
+              <div class="act"><button>Marcar leída</button><button>Ir al producto</button><button>Silenciar 7 días</button></div>
+            </div>
+          </div>
+          <div class="daysep">Ayer</div>
+          <div class="ntf un">
+            <div class="ub"></div>
+            <div class="thumb"><i class="ti ti-file-stack" style="font-size:15px"></i></div>
+            <div style="min-width:0;flex:1">
+              <div class="ntf-t">Quedan <b style="font-weight:600">2</b> de <b style="font-weight:500">Repuesto A4 rayado ×480</b></div>
+              <div class="ntf-m"><span class="pchip"><i class="ti ti-stack-2" style="font-size:10px"></i>Repuestos A4 ×480</span> · umbral 5 · 17:05</div>
+              <div class="act"><button>Marcar leída</button><button>Ir al producto</button><button>Silenciar 7 días</button></div>
+            </div>
+          </div>
+          <div class="daysep">9 de agosto</div>
+          <div class="ntf">
+            <div class="ub off"></div>
+            <div class="thumb"><i class="ti ti-notebook" style="font-size:15px"></i></div>
+            <div style="min-width:0;flex:1">
+              <div class="ntf-t">Quedan <b style="font-weight:600">2</b> de <b style="font-weight:500">Cuaderno Rivadavia 16×21 flexible</b></div>
+              <div class="ntf-m"><span class="pchip"><i class="ti ti-stack-2" style="font-size:10px"></i>Cuadernos inteligentes</span> · umbral 3 · 11:20</div>
+            </div>
+          </div>
+        </div>
+        <div class="drawer-f">
+          <button class="btn btn-s"><i class="ti ti-checks"></i>Marcar todas como leídas</button>
+          <div style="flex:1"></div>
+          <button class="btn btn-s" data-go="b:alertas" style="color:var(--zc-brand)">Ver lista para reponer <i class="ti ti-arrow-right"></i></button>
+        </div>
+      </div>
+
+    </div>
+
+
+    <!-- ══════════════════════════════════════════════════════════════════════════════
+         OPCIÓN A — DESCARTADA. Queda como referencia; no tiene packs, buscador
+         ni edición en la fila.
+         ══════════════════════════════════════════════════════════════════════════════ -->
+    <div class="opt" data-opt="a">
+
+      <aside>
+        <div class="brand">
+          <div class="mark"><i class="ti ti-notebook" style="font-size:18px"></i></div>
+          <div style="line-height:1.1"><div style="font-size:13px;font-weight:500">Zona Cuaderno</div><div style="font-size:10px;color:var(--zc-tx3)">Hub de ventas</div></div>
+        </div>
+        <button class="nav-i"><i class="ti ti-layout-dashboard"></i>Inicio</button>
+        <button class="nav-i"><i class="ti ti-box"></i>Productos</button>
+        <button class="nav-i"><i class="ti ti-tag"></i>Precios</button>
+        <button class="nav-i"><i class="ti ti-plus"></i>Crear producto</button>
+        <button class="nav-i on"><i class="ti ti-bell"></i>Alertas</button>
+        <button class="nav-i"><i class="ti ti-alert-triangle"></i>Conflictos</button>
+        <button class="nav-i"><i class="ti ti-refresh"></i>Sincronización</button>
+        <div style="flex:1"></div>
+        <button class="nav-i" data-th><i class="ti ti-moon"></i><span data-th-t>Modo oscuro</span></button>
+        <div class="userchip"><div class="av">MD</div><div style="font-size:11px;color:var(--zc-tx2)">Mica</div></div>
+      </aside>
+
+      <div class="main">
+        <div class="topbar">
+          <div style="font-size:13.5px;font-weight:500">Alertas</div>
+          <div style="flex:1"></div>
+          <button class="bell" data-pop="a-pop" aria-label="Notificaciones">
+            <i class="ti ti-bell"></i>
+            <span class="badge berr" style="position:absolute;top:2px;right:1px;font-size:9px;padding:0 5px">3</span>
+          </button>
+        </div>
+
+        <div class="pop hid" id="a-pop">
+          <div class="pop-h">
+            <div style="font-size:13px;font-weight:500">Notificaciones</div>
+            <span class="badge bbrand">3 sin leer</span>
+          </div>
+          <div style="max-height:300px;overflow:auto;padding:6px">
+            <div class="ntf un">
+              <div class="ub"></div>
+              <div class="thumb"><i class="ti ti-file-stack" style="font-size:15px"></i></div>
+              <div style="min-width:0;flex:1">
+                <div class="ntf-t">Quedan <b style="font-weight:600">0</b> de <b style="font-weight:500">Carpeta N°3 negra 2 anillos</b></div>
+                <div class="ntf-m"><span class="psku">CN3-NEG</span> · umbral 2 · hace 20 min</div>
+              </div>
+            </div>
+            <div class="ntf un">
+              <div class="ub"></div>
+              <div class="thumb"><i class="ti ti-notebook" style="font-size:15px"></i></div>
+              <div style="min-width:0;flex:1">
+                <div class="ntf-t">Quedan <b style="font-weight:600">1</b> de <b style="font-weight:500">Cuaderno Éxito 19×23 tapa dura</b></div>
+                <div class="ntf-m"><span class="psku">CE-1923-TD</span> · umbral 3 · hoy 09:42</div>
+              </div>
+            </div>
+            <div class="ntf un">
+              <div class="ub"></div>
+              <div class="thumb"><i class="ti ti-file-stack" style="font-size:15px"></i></div>
+              <div style="min-width:0;flex:1">
+                <div class="ntf-t">Quedan <b style="font-weight:600">2</b> de <b style="font-weight:500">Repuesto A4 rayado ×480</b></div>
+                <div class="ntf-m"><span class="psku">RA4-R480</span> · umbral 5 · ayer 17:05</div>
+              </div>
+            </div>
+          </div>
+          <div class="pop-f">
+            <button class="lnk">Marcar todas como leídas</button>
+            <button class="lnk" style="font-weight:500">Ver lista para reponer <i class="ti ti-arrow-right" style="font-size:12px"></i></button>
+          </div>
+        </div>
+
+        <div style="padding:16px 20px 12px">
+          <h2 style="margin:0;font-size:18px;font-weight:500">Alertas</h2>
+          <p style="margin:3px 0 0;font-size:12px;color:var(--zc-tx2)">Descartada: el umbral se ponía desde la fila de Productos y los avisos vivían en esta barra superior.</p>
+        </div>
+        <div style="padding:0 20px 20px">
+          <div class="card" style="overflow:hidden">
+            <table>
+              <thead><tr><th style="width:28px"><input type="checkbox" checked></th><th>Producto</th><th class="num">Stock hoy</th><th class="num">Umbral</th><th>Avisó</th><th>Estado</th><th class="num">A pedir</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><input type="checkbox" checked></td>
+                  <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Carpeta N°3 negra 2 anillos</div><div class="psku">CN3-NEG</div></div></div></td>
+                  <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>0</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>0</b></span></td>
+                  <td class="num">2</td><td><div style="font-size:11.5px">28 jul</div><div class="psku">5 veces</div></td>
+                  <td><span class="badge berr">Sin stock</span></td><td class="num"><input class="cellin" value="4"></td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" checked></td>
+                  <td><div class="prod"><div class="thumb"><i class="ti ti-notebook" style="font-size:16px"></i></div><div><div class="pname">Cuaderno Éxito 19×23 tapa dura</div><div class="psku">CE-1923-TD</div></div></div></td>
+                  <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>1</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>1</b></span></td>
+                  <td class="num">3</td><td><div style="font-size:11.5px">hoy 09:42</div><div class="psku">1 vez</div></td>
+                  <td><span class="badge bwarn">Sigue bajo</span></td><td class="num"><input class="cellin" value="5"></td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" checked></td>
+                  <td><div class="prod"><div class="thumb"><i class="ti ti-file-stack" style="font-size:16px"></i></div><div><div class="pname">Repuesto A4 rayado ×480 hojas</div><div class="psku">RA4-R480</div></div></div></td>
+                  <td class="num"><span class="stk"><span class="dot" style="background:var(--zc-ml)"></span><b>2</b></span> <span class="stk"><span class="dot" style="background:var(--zc-tn)"></span><b>2</b></span></td>
+                  <td class="num">5</td><td><div style="font-size:11.5px">21 jul</div><div class="psku">3 veces</div></td>
+                  <td><span class="badge bwarn">Sigue bajo</span></td><td class="num"><input class="cellin" value="8"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    (function () {
+      var root = document.getElementById('zcp');
+
+      /* modo claro / oscuro */
+      root.querySelectorAll('[data-th]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          root.classList.toggle('dark');
+          var dark = root.classList.contains('dark');
+          root.querySelectorAll('[data-th-t]').forEach(function (t) { t.textContent = dark ? 'Modo claro' : 'Modo oscuro'; });
+          root.querySelectorAll('[data-th] i').forEach(function (i) { i.className = dark ? 'ti ti-sun' : 'ti ti-moon'; });
+        });
+      });
+
+      function closeFloating() { root.querySelectorAll('.pop, .thpop').forEach(function (p) { p.classList.add('hid'); }); }
+      function closeDrawer() { root.querySelectorAll('.drawer, .scrim').forEach(function (d) { d.classList.add('hid'); }); }
+
+      /* navegación entre pantallas: data-go="b:productos" */
+      root.querySelectorAll('[data-go]').forEach(function (btn) {
+        btn.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var target = btn.dataset.go, opt = target.split(':')[0];
+          var pane = root.querySelector('.opt[data-opt="' + opt + '"]');
+          pane.querySelectorAll('.scr').forEach(function (s) { s.classList.toggle('on', s.dataset.scr === target); });
+          pane.querySelectorAll('aside .nav-i[data-go]').forEach(function (n) { n.classList.toggle('on', n.dataset.go === target); });
+          closeFloating(); closeDrawer();
+        });
+      });
+
+      /* pestañas */
+      root.querySelectorAll('[data-tab]').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          var key = tab.dataset.tab, group = key.split(':')[0];
+          root.querySelectorAll('[data-tabs="' + group + '"] .tab').forEach(function (t) { t.classList.toggle('on', t === tab); });
+          root.querySelectorAll('[data-pane^="' + group + ':"]').forEach(function (p) { p.classList.toggle('on', p.dataset.pane === key); });
+        });
+      });
+
+      /* popovers */
+      root.querySelectorAll('[data-pop]').forEach(function (btn) {
+        btn.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var el = document.getElementById(btn.dataset.pop);
+          var wasHidden = el.classList.contains('hid');
+          closeFloating();
+          if (wasHidden) el.classList.remove('hid');
+        });
+      });
+      root.querySelectorAll('.pop, .thpop').forEach(function (p) { p.addEventListener('click', function (ev) { ev.stopPropagation(); }); });
+      root.addEventListener('click', closeFloating);
+
+      /* cajón lateral */
+      root.querySelectorAll('[data-drawer]').forEach(function (btn) {
+        btn.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          if (btn.dataset.drawer === 'open') root.querySelectorAll('.drawer, .scrim').forEach(function (d) { d.classList.remove('hid'); });
+          else closeDrawer();
+        });
+      });
+
+      /* packs: abrir / cerrar la tarjeta */
+      root.querySelectorAll('[data-pack-toggle]').forEach(function (h) {
+        h.addEventListener('click', function (ev) {
+          if (ev.target.closest('input, button')) return;
+          h.parentElement.classList.toggle('open');
+        });
+      });
+
+      /* Para reponer: por pack / lista plana (la plana se ordena por urgencia) */
+      var repWrap = document.getElementById('rep-wrap');
+      var repBody = document.getElementById('rep-body');
+      Array.prototype.forEach.call(repBody.rows, function (r, i) { r.dataset.i = i; });
+      function setView(view) {
+        repWrap.classList.toggle('flat', view === 'flat');
+        var rows = Array.prototype.slice.call(repBody.rows);
+        rows.sort(function (a, b) {
+          if (view === 'flat') return (+a.dataset.stock || 0) - (+b.dataset.stock || 0);
+          return (+a.dataset.i) - (+b.dataset.i);
+        });
+        rows.forEach(function (r) { repBody.appendChild(r); });
+      }
+      root.querySelectorAll('[data-seg="rep"] button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          root.querySelectorAll('[data-seg="rep"] button').forEach(function (o) { o.classList.toggle('on', o === b); });
+          setView(b.dataset.view);
+        });
+      });
+
+      /* buscadores: filtran filas y, en Reglas, abren la única coincidencia para editar */
+      function filterTable(bodyId, q, opts) {
+        var body = document.getElementById(bodyId);
+        var rows = Array.prototype.slice.call(body.rows);
+        var needle = q.trim().toLowerCase();
+        var matches = [];
+        rows.forEach(function (r) {
+          r.classList.remove('hit');
+          if (r.classList.contains('grp')) { r.classList.toggle('hidden', !!needle); return; }
+          var hit = !needle || (r.dataset.txt || '').indexOf(needle) !== -1;
+          r.classList.toggle('hidden', !hit);
+          if (hit && needle) matches.push(r);
+        });
+        if (opts && opts.editOnSingle) {
+          rows.forEach(function (r) { r.classList.remove('editing'); });
+          if (matches.length === 1) {
+            matches[0].classList.add('editing', 'hit');
+            matches[0].scrollIntoView({ block: 'nearest' });
+          }
+        }
+        return needle ? matches.length : null;
+      }
+      root.querySelectorAll('[data-filter]').forEach(function (inp) {
+        var key = inp.dataset.filter;
+        var bodyId = key === 'rep' ? 'rep-body' : 'reg-body';
+        var out = root.querySelector('[data-count="' + key + '"]');
+        inp.addEventListener('input', function () {
+          var n = filterTable(bodyId, inp.value, { editOnSingle: key === 'reg' });
+          if (n === null) { out.textContent = ''; return; }
+          out.textContent = n === 0 ? 'Sin coincidencias'
+            : n === 1 ? '1 coincidencia' + (key === 'reg' ? ' — abierta para editar' : '')
+            : n + ' coincidencias';
+        });
+      });
+
+      /* Reglas: editar en la misma fila */
+      root.querySelectorAll('[data-edit]').forEach(function (btn) {
+        btn.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var tr = btn.closest('tr');
+          if (btn.dataset.edit === 'on') {
+            root.querySelectorAll('#reg-body tr').forEach(function (r) { r.classList.remove('editing'); });
+            tr.classList.add('editing');
+          } else {
+            tr.classList.remove('editing', 'hit');
+          }
+        });
+      });
+
+      /* switch de opciones */
+      var a = document.getElementById('btn-a'), b = document.getElementById('btn-b');
+      var desc = document.getElementById('opt-desc');
+      function show(which) {
+        root.querySelectorAll('.opt').forEach(function (o) { o.classList.toggle('on', o.dataset.opt === which); });
+        a.classList.toggle('on', which === 'a');
+        b.classList.toggle('on', which === 'b');
+        desc.textContent = which === 'b'
+          ? 'Centro de alertas con cajón lateral, lista agrupada por pack y packs administrados desde Productos.'
+          : 'Descartada. Queda como referencia: no tiene packs, ni buscador, ni edición en la fila.';
+        closeFloating(); closeDrawer();
+      }
+      a.addEventListener('click', function () { show('a'); });
+      b.addEventListener('click', function () { show('b'); });
+    })();
+  </script>
+</body>
+</html>
