@@ -215,6 +215,24 @@ En la UI (tab **Cola ML**) esas tareas se muestran como **Trabada** (no "En proc
 botón Reintentar; `retryMlTask` acepta `failed` o `processing` con lock vencido, nunca una
 `processing` viva.
 
+### Depósito Marañón: stock aparte de ML/TN
+
+Sección (`/deposito`, tabla `deposito_stock`) para llevar el stock físico guardado en el depósito
+Marañón — aparte del publicado en los canales. No es un espejo de nada: se carga y edita a mano.
+
+Cada fila es `item_type = 'producto'` (vinculada a un SKU real del catálogo, con autocomplete que
+reusa `GET /api/mapping/sources/{mercadolibre,tiendanube}` — los mismos endpoints que ya alimentan
+el picker de mapeo) o `'embalaje'` (insumos sin canal — rollos de burbupack, cartón corrugado — que
+nunca fueron ni van a ser un producto publicado, por eso `sku` es `NULL`). La ruta valida que un
+`producto` tenga SKU y que un `embalaje` no lo tenga.
+
+Los dos insumos de embalaje se precargan en `initDb()`, pero **solo si la tabla está vacía**
+(mismo patrón que `ml_fee_tiers`): así una fila borrada a mano porque se dejó de comprar ese
+insumo no resucita en cada reinicio del backend.
+
+El ajuste rápido de cantidad (`PATCH /:id/ajustar`, botones +/-1 de la tabla) es un delta sobre el
+valor guardado, no pisa un valor absoluto — evita que dos clics simultáneos se pisen entre sí.
+
 ### Historial: el movimiento de LOS DOS canales
 
 El hub solo escribe el canal espejo (vende ML → descuenta TN), así que el historial contaba media
@@ -256,9 +274,11 @@ ML). `backend/test/mlShipmentState.test.js` cubre la regla de restauración por 
 `backend/test/mlCancelReason.test.js` qué motivos de cancelación van a revisión manual,
 `backend/test/syncService.test.js` el espejo de stock (ML devolvió / ML no devolvió / sin plan /
 por variación) y la atribución/encolado del reintento del historial, `backend/test/db.test.js` la
-recuperación de locks vencidos, `backend/test/mlTaskQueue.test.js` el latido y `stock_probe`, y
+recuperación de locks vencidos, `backend/test/mlTaskQueue.test.js` el latido y `stock_probe`,
 `backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
-despachado, envío no consultable, caché por pack, cancelación del vendedor, reintento del espejo).
-El historial de los dos canales está cubierto además en `backend/test/conflictsService.test.js`
-(diff + eco + 429/5xx que no tocan el snapshot). Correr con `npm test` en `backend/`
+despachado, envío no consultable, caché por pack, cancelación del vendedor, reintento del espejo),
+y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
+ajuste rápido de cantidad, filas inexistentes). El historial de los dos canales está cubierto
+además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no tocan el snapshot).
+Correr con `npm test` en `backend/`
 (necesita Node ≥ 22: con Node 20 el mockeo de módulos de `node:test` rompe el import de `pg`).
