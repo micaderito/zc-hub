@@ -652,6 +652,12 @@
         background: var(--brand-bg);
         color: var(--brand);
       }
+
+      // Cambio hecho desde el panel de ML/TN, sin pasar por el hub.
+      &.externo {
+        background: var(--warn-bg);
+        color: var(--warn);
+      }
     }
 
     .meta-date { color: var(--text-3); }

@@ -7,8 +7,8 @@ import { tokens, getMlToken, addResolution } from '../store.js';
 import { getSkuByMlItem, getSkuByTnVariant, getMlItemBySku, getTnVariantBySku } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask, tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
-import { patchTnStock, patchTnPrice } from './conflictsService.js';
+import { getSyncEnabled, insertAuditLog, attributeStockChangeToSale, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask, tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
+import { patchTnStock, patchTnPrice, refreshMlItemInSnapshot, refreshTnProductInSnapshot } from './conflictsService.js';
 
 /**
  * El mapeo SKU↔canal (`store.js`) vive solo en memoria y se llena al correr el análisis de
@@ -53,6 +53,53 @@ function tnOrderItemDisplay(item) {
   const variant = item?.variant_name || item?.variant || item?.option || '';
   if (!name && !variant) return null;
   return variant ? `${name} · ${variant}` : name;
+}
+
+/**
+ * Registra en el historial el movimiento que hizo el canal DONDE se vendió.
+ *
+ * El hub solo escribe el canal espejo (vende ML → descuenta TN), así que hasta acá el historial
+ * contaba media historia. Este paso completa la otra mitad, que es la que permite ver si los dos
+ * canales quedaron en el mismo número o se desincronizaron.
+ *
+ * Son dos pasos a propósito:
+ *   1) refrescar el ítem/producto en el snapshot → el diff anota el cambio real de stock que hizo
+ *      la plataforma (ver `recordStockChanges` en conflictsService). Es un valor OBSERVADO, no el
+ *      que suponemos: si ML descontó otra cosa, se ve.
+ *   2) atribuirlo a esta venta → la fila deja de ser un "cambio externo" y pasa a decir "Venta ML".
+ * Separarlos hace que dé igual el orden de llegada: si el webhook del ítem ya había registrado el
+ * cambio, el refresh no encuentra diferencia y el paso 2 igual reetiqueta la fila que ya existía.
+ *
+ * Cuesta 1 GET por ítem vendido. Es el precio de tener el dato observado en vez de inventado, y las
+ * ventas son pocas comparadas con el crawl del catálogo.
+ */
+async function recordMlSideMovement({ itemId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay }) {
+  try {
+    const accessToken = await getMlToken();
+    if (accessToken && itemId) await refreshMlItemInSnapshot(accessToken, itemId);
+  } catch (e) {
+    console.error('[Sync] refreshMlItemInSnapshot:', e.message);
+  }
+  await attributeStockChangeToSale({
+    channel: 'mercadolibre',
+    channelSale: 'mercadolibre',
+    sku, delta, orderId, packId, saleItemId, productLabel, productDisplay,
+  }).catch(e => console.error('[Sync] attributeStockChangeToSale ML:', e.message));
+}
+
+/** Igual que recordMlSideMovement pero del lado de Tienda Nube (ver ahí el porqué de los dos pasos). */
+async function recordTnSideMovement({ productId, sku, delta, orderId, saleItemId, productLabel, productDisplay }) {
+  try {
+    const { access_token, store_id } = tokens.tiendanube || {};
+    if (access_token && productId != null) await refreshTnProductInSnapshot(access_token, store_id, productId);
+  } catch (e) {
+    console.error('[Sync] refreshTnProductInSnapshot:', e.message);
+  }
+  await attributeStockChangeToSale({
+    channel: 'tiendanube',
+    channelSale: 'tiendanube',
+    sku, delta, orderId, packId: orderId, saleItemId, productLabel, productDisplay,
+  }).catch(e => console.error('[Sync] attributeStockChangeToSale TN:', e.message));
 }
 
 /**
@@ -279,6 +326,18 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
     if (!out.ok) {
       console.warn('[Sync] ML orden %s: ítem %s SKU=%s — descuento en TN falló (variante no en TN o API).', orderId, itemId, sku);
     }
+    // El descuento que hizo ML se registra pase lo que pase con TN: si el espejo falló, el
+    // historial tiene que mostrar el movimiento de ML solo — esa es la desincronización.
+    await recordMlSideMovement({
+      itemId,
+      sku,
+      delta: -quantity,
+      orderId: realOrderId,
+      packId,
+      saleItemId: variationId ? `${itemId}:${variationId}` : String(itemId),
+      productLabel: 'Venta ML',
+      productDisplay: mlOrderItemDisplay(oi),
+    });
     if (out.ok && out.stockBefore !== undefined) {
       const saleItemId = saleOrderId != null ? String(saleOrderId) : (orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null);
       await insertAuditLog({
@@ -335,6 +394,16 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '', orderPaylo
     };
     const out = await deductStockMercadoLibre(sku, quantity, auditCtx);
     results.push({ variantId, sku, quantity, ...out });
+    // El descuento que hizo TN (el canal donde se vendió) es el otro lado del historial.
+    await recordTnSideMovement({
+      productId,
+      sku,
+      delta: -quantity,
+      orderId: String(orderId),
+      saleItemId,
+      productLabel: 'Venta TN',
+      productDisplay: tnOrderItemDisplay(item),
+    });
     if (out.ok) {
       console.log('[Sync] TN orden %s: SKU %s encolado en ML (taskId %s)', orderId, sku, out.taskId);
     } else {
@@ -371,6 +440,18 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
     if (sku) {
       const out = await restoreStockTiendaNube(sku, quantity);
       results.push({ itemId, variationId, sku, quantity, ...out });
+      // Si ML devolvió el stock a la publicación al cancelar, queda registrado; si no lo devolvió,
+      // el diff no encuentra nada y no se inventa una fila.
+      await recordMlSideMovement({
+        itemId,
+        sku,
+        delta: quantity,
+        orderId: realOrderId,
+        packId,
+        saleItemId: variationId ? `${itemId}:${variationId}` : String(itemId),
+        productLabel: 'Cancelación ML',
+        productDisplay: mlOrderItemDisplay(oi),
+      });
       if (out.ok && out.stockBefore !== undefined) {
         const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== ''
           ? String(oi.id)
@@ -421,6 +502,17 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
     };
     const out = await restoreStockMercadoLibre(sku, quantity, auditCtx);
     results.push({ variantId, sku, quantity, ...out });
+    // TN restituye el stock al cancelar solo si la orden se canceló con reposición; si no lo hizo,
+    // el diff no encuentra nada y no se registra nada.
+    await recordTnSideMovement({
+      productId,
+      sku,
+      delta: quantity,
+      orderId: String(orderId),
+      saleItemId,
+      productLabel: 'Cancelación TN',
+      productDisplay: tnOrderItemDisplay(item),
+    });
     if (out.ok) {
       console.log('[Sync] TN cancelación %s: SKU %s encolado en ML (taskId %s)', orderId, sku, out.taskId);
     }

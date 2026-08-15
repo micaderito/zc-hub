@@ -320,7 +320,7 @@
               } @else {
                 <i class="ti ti-history" aria-hidden="true"></i>
                 <p>Aún no hay registros.</p>
-                <p class="hint">Acá aparece cada cambio de stock: los que hace una venta y los que hacés a mano desde Precio y stock.</p>
+                <p class="hint">Acá aparece cada cambio de stock: los que hace una venta, los que hacés a mano desde Precio y stock y los que detectamos en ML o TN.</p>
               }
             </div>
           } @else {
@@ -330,7 +330,7 @@
                   <div class="audit-main">
                     <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
                     <div class="audit-meta">
-                      <span class="source-tag" [class.manual]="row.source === 'manual'">{{ auditSourceLabel(row.source) }}</span>
+                      <span class="source-tag" [class.manual]="row.source === 'manual'" [class.externo]="row.source === 'externo'">{{ auditSourceLabel(row.source) }}</span>
                       <code>{{ row.sku }}</code>
                       @if (row.packId || row.orderId) {
                         <span>Pack <code>{{ row.packId || row.orderId }}</code></span>
@@ -348,6 +348,17 @@
                     @if (row.productLabel) {
                       <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
                     }
+                    <!-- Una venta deja DOS filas: la del canal donde se vendió y la del espejo que
+                         escribe el hub. Sin este badge las dos dirían "Venta ML" sin decir dónde
+                         se movió el stock. -->
+                    <span class="zc-badge" [class.ml]="row.updatedChannel === 'mercadolibre'"
+                          [class.tn]="row.updatedChannel === 'tiendanube'"
+                          [title]="row.actor === 'plataforma' ? 'Movimiento hecho por la plataforma' : 'Escrito por el hub'">
+                      {{ row.updatedChannel === 'mercadolibre' ? 'ML' : 'TN' }}
+                      @if (row.actor === 'plataforma') {
+                        <i class="ti ti-cloud-down" aria-hidden="true"></i>
+                      }
+                    </span>
                     <div class="stock-diff">
                       <span class="stock-before">{{ row.stockBefore }}</span>
                       <i class="ti ti-arrow-right" aria-hidden="true"></i>

@@ -9,8 +9,10 @@
  *    tienen el fallback de (1)) decidan si el SKU está resuelto o no.
  *
  * Mockeamos:
- * - '../src/db.js' (getSyncEnabled, insertAuditLog, enqueueMlTask, waitForMlTask) — no hay Postgres real.
- * - '../src/services/conflictsService.js' (getAnalysis) — ensureSkuResolved lo importa dinámicamente.
+ * - '../src/db.js' (getSyncEnabled, insertAuditLog, attributeStockChangeToSale, enqueueMlTask,
+ *   waitForMlTask) — no hay Postgres real.
+ * - '../src/services/conflictsService.js' (getAnalysis, refresh*InSnapshot) — ensureSkuResolved lo
+ *   importa dinámicamente; los refresh los usa el registro del lado del canal donde se vendió.
  * - global fetch + 'node-fetch' — deductStockTiendaNube/restoreStockTiendaNube pegan directo a la
  *   API de TN (fetch global para el GET, tiendanube.js/node-fetch para el PUT vía updateVariant*).
  */
@@ -27,7 +29,13 @@ const dbState = {
   approvedReturns: [],
   /** Claves `canal|orderId|operacion` de sync_processed_orders. */
   orderClaims: new Set(),
+  /** Llamadas a attributeStockChangeToSale (el paso que le pone "Venta ML"/"Venta TN" al movimiento del canal). */
+  attributions: [],
+  attributionMatches: true,
 };
+
+/** Refrescos de snapshot que dispara el registro del lado del canal donde se vendió. */
+const snapshotState = { mlRefreshes: [], tnRefreshes: [] };
 
 const claimKey = (channel, orderId, op) => `${channel}|${orderId}|${op}`;
 
@@ -51,6 +59,10 @@ before(async () => {
     exports: {
       getSyncEnabled: async () => dbState.syncEnabled,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
+      attributeStockChangeToSale: async (args) => {
+        dbState.attributions.push(args);
+        return dbState.attributionMatches;
+      },
       getPendingReturnById: async (id) => dbState.pendingReturns.get(Number(id)) ?? null,
       setReturnApproved: async (id) => { dbState.approvedReturns.push(Number(id)); return true; },
       hasOrderProcessingClaimed: async (channel, orderId, op) => dbState.orderClaims.has(claimKey(channel, orderId, op)),
@@ -78,6 +90,8 @@ before(async () => {
       getAnalysis: async () => ({ mappings: analysisState.mappings }),
       patchTnStock: async () => {},
       patchTnPrice: async () => {},
+      refreshMlItemInSnapshot: async (...a) => { snapshotState.mlRefreshes.push(a); },
+      refreshTnProductInSnapshot: async (...a) => { snapshotState.tnRefreshes.push(a); },
     },
   });
   mock.module('node-fetch', { exports: { default: (url, opts) => Promise.resolve(tnFetchState.responder(url, opts)) } });
@@ -96,6 +110,10 @@ beforeEach(() => {
   dbState.pendingReturns = new Map();
   dbState.approvedReturns = [];
   dbState.orderClaims = new Set();
+  dbState.attributions = [];
+  dbState.attributionMatches = true;
+  snapshotState.mlRefreshes = [];
+  snapshotState.tnRefreshes = [];
   analysisState.mappings = [];
   Object.assign(tokens.tiendanube, { access_token: null, store_id: null });
   tnFetchState.responder = null;
@@ -350,4 +368,60 @@ test('approvePendingReturn: una orden con dos ítems se puede aprobar dos veces 
   assert.equal((await syncService.approvePendingReturn(4)).ok, true);
   assert.equal((await syncService.approvePendingReturn(5)).ok, true, 'la marca return_restore del primero no debe frenar al segundo');
   assert.deepEqual(dbState.approvedReturns, [4, 5]);
+});
+
+// ─── El otro lado del historial: el movimiento que hace el canal donde se vendió ──────────────
+
+test('onTiendaNubeOrderPaid: refresca el producto en TN y atribuye ese movimiento a la venta', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], [{ sku: 'CREANDO', productId: 1, variantId: 42 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-tok', store_id: 7 });
+
+  await syncService.onTiendaNubeOrderPaid(
+    [{ variant_id: 42, quantity: 2, product_id: 1, name: 'Cuaderno', variant_name: 'A4' }],
+    '102',
+    null
+  );
+
+  assert.deepEqual(snapshotState.tnRefreshes, [['tn-tok', 7, 1]], 'baja el producto para ver el stock real');
+  assert.equal(dbState.attributions.length, 1);
+  const attr = dbState.attributions[0];
+  assert.equal(attr.channel, 'tiendanube');
+  assert.equal(attr.sku, 'CREANDO');
+  assert.equal(attr.delta, -2, 'la venta descontó 2 en TN');
+  assert.equal(attr.productLabel, 'Venta TN');
+  assert.equal(attr.orderId, '102');
+});
+
+test('onTiendaNubeOrderCancelled: atribuye la restitución con delta positivo', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], [{ sku: 'CREANDO', productId: 1, variantId: 42 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-tok', store_id: 7 });
+
+  await syncService.onTiendaNubeOrderCancelled([{ variant_id: 42, quantity: 3, product_id: 1 }], '102', null);
+
+  assert.equal(dbState.attributions.length, 1);
+  assert.equal(dbState.attributions[0].delta, 3);
+  assert.equal(dbState.attributions[0].productLabel, 'Cancelación TN');
+});
+
+test('onMercadoLibreOrderPaid: registra el movimiento de ML aunque el descuento en TN falle', async () => {
+  // Sin el SKU resuelto del lado TN, deductStockTiendaNube devuelve { ok: false } y antes no
+  // quedaba rastro de la venta. El lado ML —el que sí se movió— tiene que quedar registrado igual:
+  // esa fila sola en el historial es la desincronización.
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1', variationId: '10' }], []);
+
+  const results = await syncService.onMercadoLibreOrderPaid(
+    [{ item: { id: 'MLA1', variation_id: '10', seller_sku: 'CREANDO', title: 'Cuaderno' }, quantity: 1 }],
+    '900',
+    { id: '900', pack_id: '900' }
+  );
+
+  assert.equal(results[0].ok, false, 'el espejo en TN no se pudo hacer');
+  assert.deepEqual(dbState.auditLogs, [], 'no hay fila del lado TN porque no se descontó nada');
+  assert.equal(dbState.attributions.length, 1, 'pero sí se registra el lado ML');
+  const attr = dbState.attributions[0];
+  assert.equal(attr.channel, 'mercadolibre');
+  assert.equal(attr.sku, 'CREANDO');
+  assert.equal(attr.delta, -1);
+  assert.equal(attr.productLabel, 'Venta ML');
+  assert.equal(attr.packId, '900');
 });

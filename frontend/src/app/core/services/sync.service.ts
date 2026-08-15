@@ -9,16 +9,28 @@ export interface SyncConfig {
 
 /**
  * De dónde salió un cambio de stock. 'venta' y 'devolucion' los produce la sincronización
- * automática; 'manual' es alguien tocando el stock desde Precio y stock.
+ * automática; 'manual' es alguien tocando el stock desde Precio y stock; 'externo' es un cambio
+ * que detectamos en ML o TN y que no corresponde a ninguna venta ni a nada que haya hecho el hub
+ * (típicamente lo editaron desde el panel del canal).
  */
-export type AuditSource = 'venta' | 'manual' | 'devolucion';
+export type AuditSource = 'venta' | 'manual' | 'devolucion' | 'externo';
+
+/**
+ * Quién movió el stock: 'hub' lo escribió la app (el descuento espejo de una venta, una devolución,
+ * un cambio manual); 'plataforma' lo hizo ML o TN por su cuenta y nosotros lo detectamos. Una venta
+ * deja las dos filas —la del canal donde se vendió y la del espejo—, y ahí es donde se ve si los
+ * dos canales quedaron en el mismo número.
+ */
+export type AuditActor = 'hub' | 'plataforma';
 
 export interface SyncAuditRow {
   id: number;
   source: AuditSource;
+  actor?: AuditActor;
   /**
-   * Los campos de venta van en null cuando source es 'manual': un cambio a mano no tiene canal de
-   * venta, ni orden, ni cantidad vendida. Lo que pasó lo cuentan stockBefore/stockAfter.
+   * Los campos de venta van en null cuando source es 'manual' o 'externo': un cambio a mano (o
+   * hecho desde el panel del canal) no tiene canal de venta, ni orden, ni cantidad vendida. Lo que
+   * pasó lo cuentan stockBefore/stockAfter.
    */
   channelSale: 'mercadolibre' | 'tiendanube' | null;
   /** Id. de la orden individual (ML: order.id; TN: order id). */

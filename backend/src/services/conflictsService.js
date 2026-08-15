@@ -18,7 +18,8 @@
 
 import { tokens, getMlToken, tryRefreshMlToken, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import { setResolutionFromAnalysis } from '../store.js';
-import { hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot, invalidateAnalysisCache } from '../db.js';
+import { hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot, invalidateAnalysisCache, insertAuditLog } from '../db.js';
+import { rememberStockWrite, consumeStockEcho, mlStockEchoKey, tnStockEchoKey, __resetStockEchoesForTests } from '../lib/stockEcho.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -265,6 +266,8 @@ export function __resetSnapshotCacheForTests() {
   memSnapshot = null;
   crawlInFlight = null;
 }
+
+export { __resetStockEchoesForTests };
 
 /** Baja TODO el catálogo de ML y TN y devuelve las filas crudas (sin computar el análisis). */
 async function fetchRawRows() {
@@ -547,6 +550,9 @@ export function patchMlPrice(itemId, price) {
  * sin avisar, pero un GET por cada write es justo lo que dispara los 429 que evitamos.
  */
 export function patchMlStock(itemId, variationId, stock) {
+  // El eco se anota YA, antes de esperar el lock del snapshot: si el webhook `items` de ML llega
+  // mientras el parche espera, el diff tiene que poder reconocer que este cambio lo hicimos nosotros.
+  rememberStockWrite(mlStockEchoKey(itemId, variationId), stock);
   let before = null;
   return patchSnapshot((data) => {
     let changed = false;
@@ -594,6 +600,7 @@ export function patchTnPrice(productId, variantId, price, applyAll = false) {
 
 /** Stock TN: por variante. Devuelve `{ stockBefore, sku }` previo al parche (ver patchMlStock). */
 export function patchTnStock(productId, variantId, stock) {
+  rememberStockWrite(tnStockEchoKey(productId, variantId), stock); // ver patchMlStock
   let before = null;
   return patchSnapshot((data) => {
     let changed = false;
@@ -622,9 +629,60 @@ export function patchTnSku(productId, variantId, sku) {
 }
 
 /**
+ * Guarda en el historial los cambios de stock que trajo un refresh, salvo los que escribió el hub.
+ *
+ * Entran como `source: 'externo'` / `actor: 'plataforma'`: acá solo sabemos que el stock del canal
+ * cambió, no por qué. Si el cambio es el descuento de una venta, el flujo de la orden lo reetiqueta
+ * después con `attributeStockChangeToSale` (ver db.js).
+ *
+ * Las filas sin SKU se saltean: el historial se lee por SKU (es lo que une ML ↔ TN), así que un
+ * cambio en un producto sin SKU no se podría mostrar en ningún lado.
+ */
+async function recordStockChanges(channel, changes) {
+  for (const c of changes) {
+    if (!c.sku) continue;
+    if (consumeStockEcho(c.echoKey, c.stockAfter)) continue;
+    await insertAuditLog({
+      source: 'externo',
+      actor: 'plataforma',
+      sku: c.sku,
+      productLabel: channel === 'mercadolibre' ? 'Cambio en ML' : 'Cambio en TN',
+      productDisplay: c.productDisplay,
+      updatedChannel: channel,
+      stockBefore: c.stockBefore,
+      stockAfter: c.stockAfter,
+    }).catch((e) => console.error('[Analysis] recordStockChanges insertAuditLog:', e.message));
+  }
+}
+
+/** Cambios de stock entre las filas viejas del snapshot y las que acaba de traer el canal. */
+function diffStockRows(oldRows, newRows, keyOf, echoKeyOf, displayOf) {
+  const byKey = new Map(oldRows.map((r) => [keyOf(r), r]));
+  const changes = [];
+  for (const r of newRows) {
+    const old = byKey.get(keyOf(r));
+    // Sin fila vieja no hay cambio que contar: es una variante nueva (o el primer crawl del ítem),
+    // no un movimiento de stock.
+    if (!old || old.stock === r.stock) continue;
+    changes.push({
+      sku: r.sku || old.sku || null,
+      echoKey: echoKeyOf(r),
+      productDisplay: displayOf(r),
+      stockBefore: old.stock,
+      stockAfter: r.stock,
+    });
+  }
+  return changes;
+}
+
+/**
  * Webhook `items` de ML: re-baja UN ítem (1 request) y reemplaza sus filas en el snapshot.
  * Si el ítem ya no existe/está inactivo, quita sus filas. Recomendación oficial de ML: mantener
  * el catálogo con notificaciones de `items` en vez de re-bajarlo entero.
+ *
+ * De paso registra en el historial los cambios de stock que traiga: así queda anotado el descuento
+ * que hace ML por su cuenta al vender (y cualquier edición hecha desde el panel de ML), que es el
+ * lado que faltaba para poder comparar los dos canales.
  */
 export async function refreshMlItemInSnapshot(accessToken, itemId) {
   if (!itemId) return;
@@ -636,19 +694,29 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
     return;
   }
   const newRows = item && item.id ? flattenMlItems([item]) : [];
+  let changes = [];
   await patchSnapshot((data) => {
     const before = data.mlRows.length;
+    const oldRows = data.mlRows.filter((r) => r.itemId === itemId);
+    changes = diffStockRows(
+      oldRows,
+      newRows,
+      (r) => String(r.variationId ?? ''),
+      (r) => mlStockEchoKey(r.itemId, r.variationId),
+      (r) => [r.title, r.variationName].filter(Boolean).join(' | ') || null,
+    );
     data.mlRows = data.mlRows.filter((r) => r.itemId !== itemId);
     data.mlRows.push(...newRows);
     return data.mlRows.length !== before || newRows.length > 0;
   });
+  await recordStockChanges('mercadolibre', changes);
 }
 
 /**
  * Webhook `product/*` de TN: re-baja UN producto (1 request) y reemplaza sus filas en el snapshot.
  * Si el producto ya no existe (deleted / 404), quita sus filas. Análogo a `refreshMlItemInSnapshot`
  * (topic `items` de ML): mantiene el catálogo fresco cuando editan un producto por fuera de la app,
- * sin re-bajarlo entero.
+ * sin re-bajarlo entero, y registra en el historial los cambios de stock que traiga.
  */
 export async function refreshTnProductInSnapshot(accessToken, storeId, productId) {
   if (productId == null) return;
@@ -664,10 +732,20 @@ export async function refreshTnProductInSnapshot(accessToken, storeId, productId
     ? [{ ...product, variants: product.variants ?? [], images: Array.isArray(product.images) ? product.images : [] }]
     : [];
   const newRows = flattenTnVariants(withVariants);
+  let changes = [];
   await patchSnapshot((data) => {
     const before = data.tnRows.length;
+    const oldRows = data.tnRows.filter((r) => String(r.productId) === String(productId));
+    changes = diffStockRows(
+      oldRows,
+      newRows,
+      (r) => String(r.variantId ?? ''),
+      (r) => tnStockEchoKey(r.productId, r.variantId),
+      (r) => [r.productName, r.variantName].filter(Boolean).join(' · ') || null,
+    );
     data.tnRows = data.tnRows.filter((r) => String(r.productId) !== String(productId));
     data.tnRows.push(...newRows);
     return data.tnRows.length !== before || newRows.length > 0;
   });
+  await recordStockChanges('tiendanube', changes);
 }
