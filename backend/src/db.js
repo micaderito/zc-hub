@@ -839,6 +839,29 @@ export async function getPendingReturnById(id) {
 }
 
 /**
+ * Marca una devolución como descartada: sale de la lista sin tocar stock.
+ *
+ * Existe porque no toda fila pendiente termina en una restauración. Una cancelación por falta de
+ * stock deja la unidad donde estaba (en ningún lado), así que la única acción correcta es sacarla
+ * de la lista; sin esto quedaría pendiente para siempre y la lista dejaría de servir como aviso.
+ * @returns {boolean} true si había una fila pendiente con ese id.
+ */
+export async function setReturnDismissed(id) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE sync_pending_returns SET status = 'dismissed' WHERE id = $1 AND status = 'pending'`,
+      [id]
+    );
+    return r.rowCount > 0;
+  } catch (e) {
+    console.error('setReturnDismissed:', e.message);
+    return false;
+  }
+}
+
+/**
  * Marca una devolución como aprobada (restaurada).
  */
 export async function setReturnApproved(id) {

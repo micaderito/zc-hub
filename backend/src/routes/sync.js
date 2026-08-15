@@ -4,7 +4,7 @@ import { getResolvedSkus, getSkuByMlItem, getMlToken, tokens } from '../store.js
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { mlLimiterStats } from '../lib/mlLimiter.js';
-import { getSyncEnabled, setSyncEnabled, getAuditLog, getStockHistoryBySku, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, hasPendingReturnForOrderItem, releaseOrderProcessingClaim, getPendingMlTasks, getActiveMlTasks, retryMlTask, waitForMlTask } from '../db.js';
+import { getSyncEnabled, setSyncEnabled, getAuditLog, getStockHistoryBySku, getAuditRowById, setAuditReverted, hasDatabase, getPendingReturns, insertPendingReturn, hasPendingReturnForClaimItem, hasPendingReturnForOrderItem, setReturnDismissed, releaseOrderProcessingClaim, getPendingMlTasks, getActiveMlTasks, retryMlTask, waitForMlTask } from '../db.js';
 import { onMercadoLibreOrderPaid, onTiendaNubeOrderPaid } from '../services/syncService.js';
 
 export const syncRoutes = Router();
@@ -268,12 +268,20 @@ async function resolveSkuForOrderItem(accessToken, itemId, variationId) {
  *
  * `order_id` guarda el nro de venta que ve la usuaria (pack_id si la venta es de un carrito) y
  * `sale_order_id` el id de la orden individual, que es el que usan el webhook y sync_processed_orders.
+ *
+ * `opts.only` (lista de `{ itemId, variationId }`) limita el alta a esos ítems: una cancelación
+ * puede restaurar bien la mayoría de los ítems y dejar solo uno sin confirmar.
  * @returns {{ created: number, skipped: number, rows: object[] }}
  */
 export async function insertPendingReturnsForOrder(accessToken, order, opts = {}) {
   if (!hasDatabase()) return { created: 0, skipped: 0, rows: [] };
   const items = order?.order_items ?? [];
   if (items.length === 0) return { created: 0, skipped: 0, rows: [] };
+
+  const itemKey = (itemId, variationId) => `${itemId}|${variationId ?? ''}`;
+  const only = Array.isArray(opts.only)
+    ? new Set(opts.only.map(k => itemKey(k.itemId, k.variationId)))
+    : null;
 
   const saleOrderId = String(order?.id ?? opts.saleOrderId ?? '');
   const displayOrderId = String(opts.displayOrderId ?? order?.pack_id ?? order?.id ?? saleOrderId);
@@ -287,6 +295,7 @@ export async function insertPendingReturnsForOrder(accessToken, order, opts = {}
     const itemId = oi?.item?.id;
     if (!itemId) continue;
     const variationId = oi?.item?.variation_id ?? oi?.variation_id ?? null;
+    if (only && !only.has(itemKey(itemId, variationId))) continue;
 
     let exists = false;
     for (const id of dedupeIds) {
@@ -535,6 +544,20 @@ syncRoutes.post('/returns/:id/approve', async (req, res) => {
       return res.status(400).json({ error: result.error || 'No se pudo aprobar', mlRestored: result.mlRestored, tnRestored: result.tnRestored });
     }
     res.json({ ok: true, mlRestored: result.mlRestored, tnRestored: result.tnRestored });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Descartar una devolución: sale de la lista sin mover stock (la mercadería no volvió ni va a volver). */
+syncRoutes.post('/returns/:id/dismiss', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  if (!hasDatabase()) return res.status(503).json({ error: 'Base de datos no configurada' });
+  try {
+    const ok = await setReturnDismissed(id);
+    if (!ok) return res.status(400).json({ error: 'Devolución no encontrada o ya resuelta' });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
