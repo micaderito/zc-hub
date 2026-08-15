@@ -38,6 +38,23 @@ function parseMlResourceId(resource) {
   return match ? match[1] : null;
 }
 
+/**
+ * ML migró las notificaciones de reclamos a un modelo con subtópicos: el topic pasó a ser
+ * `post_purchase` y lo que antes era `topic: 'claims' | 'claims_actions'` ahora viaja en el
+ * array `actions` (ej. `{ topic: 'post_purchase', actions: ['claims'] }`). Confirmado con logs
+ * reales de producción — el topic legacy `claims`/`claims_actions` ya no llega. Se acepta el
+ * legacy igual por si ML lo reactiva para alguna app. Las notificaciones de `claims_actions`
+ * (resource terminado en `/actions-history`, sin id de claim parseable) se descartan solas más
+ * abajo por `parseMlResourceId`, así que no hace falta filtrarlas acá.
+ */
+function isClaimsNotification(topic, actions) {
+  if (topic === 'claims' || topic === 'claims_actions') return true;
+  if (topic === 'post_purchase' && Array.isArray(actions)) {
+    return actions.includes('claims') || actions.includes('claims_actions');
+  }
+  return false;
+}
+
 /** Cola de órdenes ML que no se pudieron obtener por 429; se procesan en background sin devolver 503 (evita loop). */
 const pendingMlOrderIds = [];
 const PENDING_ORDER_MAX = 50;
@@ -359,9 +376,9 @@ pendingMlOrderInterval.unref?.();
 webhookRoutes.post('/mercadolibre', async (req, res) => {
   const body = req.body || {};
   console.log('[Webhook ML] Notificación recibida, body:', JSON.stringify(body));
-  const { topic, resource } = body;
+  const { topic, resource, actions } = body;
 
-  if (topic === 'claims' || topic === 'claims_actions') {
+  if (isClaimsNotification(topic, actions)) {
     res.status(200).send();
     const claimId = parseMlResourceId(resource);
     if (!claimId) return;
@@ -371,8 +388,7 @@ webhookRoutes.post('/mercadolibre', async (req, res) => {
     try {
       const claim = await ml.getClaim(accessToken, claimId);
       if (!claim) return;
-      const type = (claim.type || '').toLowerCase();
-      if (type !== 'return') return;
+      if (!ml.claimHasReturn(claim)) return;
       const out = await processClaimToPendingReturns(accessToken, claim);
       if (out.created > 0 || out.skipped > 0) {
         console.log('[Webhook ML] Devolución claim %s agregada a pendientes: created=%s, skipped=%s', claimId, out.created, out.skipped);
