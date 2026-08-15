@@ -35,7 +35,7 @@ const dbState = {
 };
 
 /** Refrescos de snapshot que dispara el registro del lado del canal donde se vendió. */
-const snapshotState = { mlRefreshes: [], tnRefreshes: [] };
+const snapshotState = { mlRefreshes: [], tnRefreshes: [], mlRefreshOk: true, tnRefreshOk: true };
 
 const claimKey = (channel, orderId, op) => `${channel}|${orderId}|${op}`;
 
@@ -90,8 +90,8 @@ before(async () => {
       getAnalysis: async () => ({ mappings: analysisState.mappings }),
       patchTnStock: async () => {},
       patchTnPrice: async () => {},
-      refreshMlItemInSnapshot: async (...a) => { snapshotState.mlRefreshes.push(a); },
-      refreshTnProductInSnapshot: async (...a) => { snapshotState.tnRefreshes.push(a); },
+      refreshMlItemInSnapshot: async (...a) => { snapshotState.mlRefreshes.push(a); return { ok: snapshotState.mlRefreshOk }; },
+      refreshTnProductInSnapshot: async (...a) => { snapshotState.tnRefreshes.push(a); return { ok: snapshotState.tnRefreshOk }; },
     },
   });
   mock.module('node-fetch', { exports: { default: (url, opts) => Promise.resolve(tnFetchState.responder(url, opts)) } });
@@ -114,6 +114,8 @@ beforeEach(() => {
   dbState.attributionMatches = true;
   snapshotState.mlRefreshes = [];
   snapshotState.tnRefreshes = [];
+  snapshotState.mlRefreshOk = true;
+  snapshotState.tnRefreshOk = true;
   analysisState.mappings = [];
   Object.assign(tokens.tiendanube, { access_token: null, store_id: null });
   tnFetchState.responder = null;
@@ -424,4 +426,52 @@ test('onMercadoLibreOrderPaid: registra el movimiento de ML aunque el descuento 
   assert.equal(attr.delta, -1);
   assert.equal(attr.productLabel, 'Venta ML');
   assert.equal(attr.packId, '900');
+});
+
+test('si no se puede leer el canal (429 de ML), el movimiento queda encolado para reintentar', async () => {
+  // Un 429 sostenido no puede dejar la venta sin registrar: sería un agujero justo en el dato que
+  // sirve para detectar inconsistencias.
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1', variationId: '10' }], []);
+  snapshotState.mlRefreshOk = false;
+  dbState.attributionMatches = false; // tampoco había una fila previa del webhook `items`
+
+  await syncService.onMercadoLibreOrderPaid(
+    [{ item: { id: 'MLA1', variation_id: '10', seller_sku: 'CREANDO', title: 'Cuaderno' }, quantity: 1 }],
+    '900',
+    { id: '900', pack_id: '900' }
+  );
+
+  const probe = dbState.enqueuedTasks.find((t) => t.kind === 'stock_probe');
+  assert.ok(probe, 'debe encolar la relectura');
+  assert.equal(probe.itemId, 'MLA1');
+  const ctx = JSON.parse(probe.contextJson);
+  assert.equal(ctx.probe.channel, 'mercadolibre');
+  assert.equal(ctx.probe.sku, 'CREANDO');
+  assert.equal(ctx.probe.delta, -1);
+});
+
+test('si la lectura falló pero el webhook del canal ya había registrado el movimiento, no se encola nada', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1', variationId: '10' }], []);
+  snapshotState.mlRefreshOk = false;
+  dbState.attributionMatches = true; // la fila 'externo' ya existía y se atribuyó
+
+  await syncService.onMercadoLibreOrderPaid(
+    [{ item: { id: 'MLA1', variation_id: '10', seller_sku: 'CREANDO', title: 'Cuaderno' }, quantity: 1 }],
+    '900',
+    { id: '900', pack_id: '900' }
+  );
+
+  assert.equal(dbState.enqueuedTasks.filter((t) => t.kind === 'stock_probe').length, 0);
+});
+
+test('lectura OK: no se encola ninguna relectura', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1', variationId: '10' }], []);
+
+  await syncService.onMercadoLibreOrderPaid(
+    [{ item: { id: 'MLA1', variation_id: '10', seller_sku: 'CREANDO', title: 'Cuaderno' }, quantity: 1 }],
+    '900',
+    { id: '900', pack_id: '900' }
+  );
+
+  assert.equal(dbState.enqueuedTasks.filter((t) => t.kind === 'stock_probe').length, 0);
 });

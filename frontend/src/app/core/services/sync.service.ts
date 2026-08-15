@@ -80,7 +80,12 @@ export interface SyncReturnsResponse {
   total: number;
 }
 
-export type MlTaskKind = 'stock_ml' | 'stock_ml_set' | 'sku_ml' | 'sku_tn' | 'price_ml';
+/**
+ * `stock_probe` es la única que no escribe nada en el canal: relee el stock del canal donde se
+ * vendió para registrar en el historial lo que hizo la plataforma, cuando esa lectura falló en el
+ * momento de la venta (429 de ML, TN caído).
+ */
+export type MlTaskKind = 'stock_ml' | 'stock_ml_set' | 'sku_ml' | 'sku_tn' | 'price_ml' | 'stock_probe';
 export type MlTaskStatus = 'pending' | 'processing' | 'failed';
 
 export interface PendingMlTask {

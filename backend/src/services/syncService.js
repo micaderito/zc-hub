@@ -74,32 +74,69 @@ function tnOrderItemDisplay(item) {
  * ventas son pocas comparadas con el crawl del catálogo.
  */
 async function recordMlSideMovement({ itemId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay }) {
+  let refreshed = { ok: false };
   try {
     const accessToken = await getMlToken();
-    if (accessToken && itemId) await refreshMlItemInSnapshot(accessToken, itemId);
+    if (accessToken && itemId) refreshed = await refreshMlItemInSnapshot(accessToken, itemId);
   } catch (e) {
     console.error('[Sync] refreshMlItemInSnapshot:', e.message);
   }
-  await attributeStockChangeToSale({
-    channel: 'mercadolibre',
-    channelSale: 'mercadolibre',
+  await finishSideMovement(refreshed, {
+    channel: 'mercadolibre', probeId: itemId,
     sku, delta, orderId, packId, saleItemId, productLabel, productDisplay,
-  }).catch(e => console.error('[Sync] attributeStockChangeToSale ML:', e.message));
+  });
 }
 
 /** Igual que recordMlSideMovement pero del lado de Tienda Nube (ver ahí el porqué de los dos pasos). */
 async function recordTnSideMovement({ productId, sku, delta, orderId, saleItemId, productLabel, productDisplay }) {
+  let refreshed = { ok: false };
   try {
     const { access_token, store_id } = tokens.tiendanube || {};
-    if (access_token && productId != null) await refreshTnProductInSnapshot(access_token, store_id, productId);
+    if (access_token && productId != null) refreshed = await refreshTnProductInSnapshot(access_token, store_id, productId);
   } catch (e) {
     console.error('[Sync] refreshTnProductInSnapshot:', e.message);
   }
-  await attributeStockChangeToSale({
-    channel: 'tiendanube',
-    channelSale: 'tiendanube',
+  await finishSideMovement(refreshed, {
+    channel: 'tiendanube', probeId: productId,
     sku, delta, orderId, packId: orderId, saleItemId, productLabel, productDisplay,
-  }).catch(e => console.error('[Sync] attributeStockChangeToSale TN:', e.message));
+  });
+}
+
+/**
+ * Atribuye el movimiento a la venta y, si la lectura del canal falló, deja el reintento encolado.
+ *
+ * Un 429 sostenido de ML (o una caída de TN) no puede significar "esta venta no quedó registrada":
+ * sería un agujero silencioso justo en la información que sirve para detectar inconsistencias. La
+ * tarea `stock_probe` reintenta la lectura con el backoff de la cola (10s, 40s, 90s…) y, agotados
+ * los 5 intentos, queda visible en la tab "Cola ML" con botón Reintentar.
+ *
+ * Se intenta atribuir SIEMPRE, incluso si la lectura falló: el webhook `items`/`product/updated`
+ * del canal puede haber registrado el movimiento antes, y en ese caso ya no hace falta reintentar.
+ */
+async function finishSideMovement(refreshed, ctx) {
+  const { channel, probeId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay } = ctx;
+  const attributed = await attributeStockChangeToSale({
+    channel, channelSale: channel,
+    sku, delta, orderId, packId, saleItemId, productLabel, productDisplay,
+  }).catch(e => {
+    console.error(`[Sync] attributeStockChangeToSale ${channel}:`, e.message);
+    return false;
+  });
+
+  if (refreshed?.ok || attributed || probeId == null) return;
+
+  const taskId = await enqueueMlTask({
+    kind: 'stock_probe',
+    itemId: String(probeId),
+    contextJson: JSON.stringify({
+      probe: { channel, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay },
+    }),
+    idempotencyKey: `stock_probe:${channel}:${orderId ?? ''}:${sku}:${delta}`,
+  });
+  console.warn(
+    '[Sync] No se pudo leer el stock en %s para el SKU %s (venta %s). Encolado para reintentar (taskId %s).',
+    channel, sku, orderId, taskId
+  );
 }
 
 /**

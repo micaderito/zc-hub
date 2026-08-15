@@ -541,6 +541,7 @@ export class SyncComponent implements OnInit {
       case 'sku_ml': return 'SKU ML';
       case 'sku_tn': return 'SKU TN';
       case 'price_ml': return 'Precio ML';
+      case 'stock_probe': return 'Releer stock';
       default: return kind;
     }
   }
@@ -578,6 +579,8 @@ export class SyncComponent implements OnInit {
     if (task.kind === 'price_ml') {
       return task.targetPrice != null ? `$${task.targetPrice.toLocaleString('es-AR')}` : '—';
     }
+    // stock_probe no cambia nada: solo lee para completar el historial.
+    if (task.kind === 'stock_probe') return 'Solo lectura';
     return task.targetSku ? `SKU → ${task.targetSku}` : '—';
   }
 }

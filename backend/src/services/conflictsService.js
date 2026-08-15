@@ -683,9 +683,13 @@ function diffStockRows(oldRows, newRows, keyOf, echoKeyOf, displayOf) {
  * De paso registra en el historial los cambios de stock que traiga: así queda anotado el descuento
  * que hace ML por su cuenta al vender (y cualquier edición hecha desde el panel de ML), que es el
  * lado que faltaba para poder comparar los dos canales.
+ *
+ * @returns {Promise<{ ok: boolean }>} ok=false si no se pudo leer el ítem (429 agotado, 5xx, red).
+ *   Quien necesite que el dato quede sí o sí —el registro del historial de una venta— lo reencola
+ *   para reintentar; el webhook, que es best-effort, puede ignorarlo.
  */
 export async function refreshMlItemInSnapshot(accessToken, itemId) {
-  if (!itemId) return;
+  if (!itemId) return { ok: false };
   let item = null;
   try {
     const res = await ml.getItemOrStatus(accessToken, itemId);
@@ -694,12 +698,12 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
     // toca el snapshot (ni se registra nada en el historial) — ver el porqué en getItemOrStatus.
     // Solo un 404 real confirma que el ítem se borró y hay que sacarlo del catálogo.
     if (!item && res.status !== 404) {
-      console.warn(`[Analysis] refreshMlItemInSnapshot: GET ${itemId} devolvió ${res.status}, no se toca el snapshot (lo reintentará el próximo webhook o crawl).`);
-      return;
+      console.warn(`[Analysis] refreshMlItemInSnapshot: GET ${itemId} devolvió ${res.status}, no se toca el snapshot (se reintenta).`);
+      return { ok: false };
     }
   } catch (e) {
     console.error('[Analysis] refreshMlItemInSnapshot getItem falló:', e.message);
-    return;
+    return { ok: false };
   }
   const newRows = item && item.id ? flattenMlItems([item]) : [];
   let changes = [];
@@ -718,6 +722,7 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
     return data.mlRows.length !== before || newRows.length > 0;
   });
   await recordStockChanges('mercadolibre', changes);
+  return { ok: true };
 }
 
 /**
@@ -725,16 +730,20 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
  * Si el producto ya no existe (deleted / 404), quita sus filas. Análogo a `refreshMlItemInSnapshot`
  * (topic `items` de ML): mantiene el catálogo fresco cuando editan un producto por fuera de la app,
  * sin re-bajarlo entero, y registra en el historial los cambios de stock que traiga.
+ *
+ * @returns {Promise<{ ok: boolean }>} ok=false si no se pudo leer el producto (429 agotado, 5xx,
+ *   red). getProduct ya distingue el 404 real (devuelve null → el producto se borró) de una falla
+ *   transitoria (lanza), así que acá solo hay que propagar cuál de las dos fue.
  */
 export async function refreshTnProductInSnapshot(accessToken, storeId, productId) {
-  if (productId == null) return;
+  if (productId == null) return { ok: false };
   let product = null;
   try {
     product = await tn.getProduct(accessToken, storeId, productId);
   } catch (e) {
     if (e.status === 401) setTnTokenKnownInvalid(true);
     console.error('[Analysis] refreshTnProductInSnapshot getProduct falló:', e.message);
-    return;
+    return { ok: false };
   }
   const withVariants = product && product.id
     ? [{ ...product, variants: product.variants ?? [], images: Array.isArray(product.images) ? product.images : [] }]
@@ -756,4 +765,5 @@ export async function refreshTnProductInSnapshot(accessToken, storeId, productId
     return data.tnRows.length !== before || newRows.length > 0;
   });
   await recordStockChanges('tiendanube', changes);
+  return { ok: true };
 }

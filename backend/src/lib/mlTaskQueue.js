@@ -12,11 +12,15 @@
  *   sku_tn       — actualiza seller_sku de una variante en Tienda Nube.
  *   price_ml     — actualiza el precio (target_price) de un ítem/variación en ML y registra el
  *                  cambio en price_audit (historial de precios del producto).
+ *   stock_probe  — LEE el stock real del canal donde se vendió y registra ese movimiento en el
+ *                  historial. No escribe nada: es el reintento del "¿qué hizo la plataforma?"
+ *                  cuando el GET del momento de la venta falló (429 agotado, 5xx). Ver
+ *                  recordMlSideMovement/recordTnSideMovement en syncService.js.
  */
 
 import { claimNextMlTask, updateMlTaskStatus, hasDatabase, touchMlTaskLock, MLTASK_HEARTBEAT_MS } from '../db.js';
-import { insertAuditLog, insertPriceAudit } from '../db.js';
-import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku } from '../services/conflictsService.js';
+import { insertAuditLog, insertPriceAudit, attributeStockChangeToSale } from '../db.js';
+import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku, refreshMlItemInSnapshot, refreshTnProductInSnapshot } from '../services/conflictsService.js';
 import { getMlToken, tokens } from '../store.js';
 import * as ml from './mercadolibre.js';
 import * as tn from './tiendanube.js';
@@ -144,6 +148,45 @@ export async function processTask(task) {
           productLabel: ctx?.productLabel ?? null,
         }).catch(e => console.error('[MLQueue] insertPriceAudit:', e.message));
       }
+
+    } else if (kind === 'stock_probe') {
+      // Reintento de la lectura del canal donde se vendió. `itemId` es el ítem de ML o el producto
+      // de TN según ctx.channel; el resto del contexto es lo necesario para atribuir el movimiento
+      // a su venta.
+      const c = ctx?.probe;
+      if (!c) throw new Error('stock_probe sin contexto');
+
+      let refreshed;
+      if (c.channel === 'mercadolibre') {
+        const accessToken = await getMlToken();
+        if (!accessToken) throw new Error('Sin token ML');
+        refreshed = await refreshMlItemInSnapshot(accessToken, itemId);
+      } else {
+        const { access_token, store_id } = tokens.tiendanube || {};
+        if (!access_token) throw new Error('Sin token TN');
+        refreshed = await refreshTnProductInSnapshot(access_token, store_id, itemId);
+      }
+      // Si la lectura volvió a fallar, la tarea falla y la cola la reintenta con backoff. Que no
+      // haya nada que atribuir NO es un error: significa que el canal no movió stock por esta
+      // venta, y eso es justamente lo que el historial tiene que poder mostrar.
+      if (!refreshed?.ok) throw new Error(`No se pudo leer el stock en ${c.channel}`);
+
+      await updateMlTaskStatus(id, 'done');
+      const attributed = await attributeStockChangeToSale({
+        channel: c.channel,
+        channelSale: c.channel,
+        sku: c.sku,
+        delta: c.delta,
+        orderId: c.orderId,
+        packId: c.packId,
+        saleItemId: c.saleItemId,
+        productLabel: c.productLabel,
+        productDisplay: c.productDisplay,
+      }).catch(e => {
+        console.error('[MLQueue] stock_probe attributeStockChangeToSale:', e.message);
+        return false;
+      });
+      console.log(`[MLQueue] Tarea ${id} stock_probe: ${c.channel} ${itemId} SKU ${c.sku} → ${attributed ? 'movimiento atribuido a la venta' : 'sin movimiento que atribuir'}`);
 
     } else if (kind === 'sku_tn') {
       const { access_token, store_id } = tokens.tiendanube || {};
