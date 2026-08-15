@@ -214,6 +214,14 @@ export class SyncService {
     );
   }
 
+  /** Descartar devolución: sale de la lista sin tocar stock (la unidad no volvió ni va a volver). */
+  dismissReturn(id: number) {
+    return this.http.post<{ ok: boolean }>(
+      `${this.api.baseUrl}/sync/returns/${id}/dismiss`,
+      {}
+    );
+  }
+
   /** Listar tareas de actualización de ML pendientes / en proceso / fallidas, paginadas. */
   getPendingTasks(limit = 20, offset = 0) {
     const params = { limit: String(limit), offset: String(offset) };

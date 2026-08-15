@@ -1,5 +1,5 @@
 /**
- * Tests de syncService.js: los dos bugs de esta sesión.
+ * Tests de syncService.js.
  *
  * 1) ensureSkuResolved: si el mapeo SKU→canal (store.js) está vacío (ej. tras reiniciar el
  *    backend, antes de visitar Conflictos/Precio y Stock), las funciones de descuento/restauración
@@ -7,12 +7,15 @@
  * 2) onTiendaNubeOrderPaid / onTiendaNubeOrderCancelled ya no cortan antes de tiempo con un chequeo
  *    redundante de getMlItemBySku — dejan que deductStockMercadoLibre/restoreStockMercadoLibre (que
  *    tienen el fallback de (1)) decidan si el SKU está resuelto o no.
+ * 3) El espejo de una cancelación de ML: TN se iguala al stock real de ML en vez de sumarle la
+ *    cantidad cancelada a ciegas (incidente 2026-08-11, ver CLAUDE.md).
  *
  * Mockeamos:
  * - '../src/db.js' (getSyncEnabled, insertAuditLog, attributeStockChangeToSale, enqueueMlTask,
  *   waitForMlTask) — no hay Postgres real.
  * - '../src/services/conflictsService.js' (getAnalysis, refresh*InSnapshot) — ensureSkuResolved lo
  *   importa dinámicamente; los refresh los usa el registro del lado del canal donde se vendió.
+ * - '../src/lib/mercadolibre.js' (getItem) — el espejo de cancelación lee el stock de la publicación.
  * - global fetch + 'node-fetch' — deductStockTiendaNube/restoreStockTiendaNube pegan directo a la
  *   API de TN (fetch global para el GET, tiendanube.js/node-fetch para el PUT vía updateVariant*).
  */
@@ -52,6 +55,14 @@ function makeRes({ status = 200, json = null } = {}) {
 }
 
 const tnFetchState = { responder: null };
+
+/**
+ * Ítems de ML por id, para el espejo de cancelaciones (planMlCancellationMirror lee el stock real
+ * de la publicación). Se mockea el módulo entero y no node-fetch porque store.js importa
+ * mercadolibre.js de forma estática: para cuando corre mock.module('node-fetch'), ese módulo ya
+ * quedó instanciado con el fetch real — y los tests terminarían pegándole a la API de verdad.
+ */
+const mlState = { items: {} };
 
 let syncService;
 before(async () => {
@@ -94,6 +105,12 @@ before(async () => {
       refreshTnProductInSnapshot: async (...a) => { snapshotState.tnRefreshes.push(a); return { ok: snapshotState.tnRefreshOk }; },
     },
   });
+  mock.module('../src/lib/mercadolibre.js', {
+    exports: {
+      getItem: async (_token, itemId) => mlState.items[itemId] ?? null,
+      extractSkuFromItem: (item) => item?.seller_sku ?? null,
+    },
+  });
   mock.module('node-fetch', { exports: { default: (url, opts) => Promise.resolve(tnFetchState.responder(url, opts)) } });
   // deductStockTiendaNube/restoreStockTiendaNube usan el fetch global (no node-fetch) para el GET previo.
   mock.method(globalThis, 'fetch', (url, opts) => Promise.resolve(tnFetchState.responder(url, opts)));
@@ -117,8 +134,10 @@ beforeEach(() => {
   snapshotState.mlRefreshOk = true;
   snapshotState.tnRefreshOk = true;
   analysisState.mappings = [];
+  Object.assign(tokens.mercadolibre, { access_token: null, user_id: null });
   Object.assign(tokens.tiendanube, { access_token: null, store_id: null });
   tnFetchState.responder = null;
+  mlState.items = {};
 });
 
 // ─── ensureSkuResolved (fallback cuando el mapeo en memoria está vacío) ───────
@@ -474,4 +493,166 @@ test('lectura OK: no se encola ninguna relectura', async () => {
   );
 
   assert.equal(dbState.enqueuedTasks.filter((t) => t.kind === 'stock_probe').length, 0);
+});
+
+// ─── Espejo de cancelación ML: TN se iguala a ML, no suma a ciegas ───────────
+
+/** Responder de TN: GET devuelve el stock pedido, PUT registra lo que se escribió. */
+function tnResponder(stock, puts) {
+  return (url, opts) => {
+    if (!opts?.method || opts.method === 'GET') return makeRes({ json: { stock } });
+    puts.push(JSON.parse(opts.body));
+    return makeRes({ status: 200, json: {} });
+  };
+}
+
+const cancelledItems = [{ item: { id: 'MLA1' }, quantity: 1 }];
+
+test('espejo: ML devolvió la unidad (ML 3, TN 2) → TN queda en 3, el número de ML', async () => {
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 3, seller_sku: 'LLUVIA' } };
+  const puts = [];
+  tnFetchState.responder = tnResponder(2, puts);
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  assert.equal(plan.ok, true);
+  assert.deepEqual(
+    plan.items.map(i => ({ sku: i.sku, mlStock: i.mlStock, tnStock: i.tnStock })),
+    [{ sku: 'LLUVIA', mlStock: 3, tnStock: 2 }]
+  );
+
+  const results = await syncService.onMercadoLibreOrderCancelled(cancelledItems, '557', null, plan);
+
+  assert.equal(results[0].ok, true);
+  assert.deepEqual(puts, [{ stock: 3 }], 'TN se fija al stock de ML, no se le suma la cantidad');
+  assert.equal(dbState.auditLogs.length, 1);
+  assert.equal(dbState.auditLogs[0].stockBefore, 2);
+  assert.equal(dbState.auditLogs[0].stockAfter, 3);
+});
+
+test('espejo: cuando ML devolvió la unidad, también se registra y atribuye el lado ML del historial', async () => {
+  // La fila que arma insertAuditLog más arriba es la del espejo en TN; el otro lado —lo que hizo
+  // ML por su cuenta al cancelar— lo cubre recordMlSideMovement (refresca el ítem y atribuye).
+  // Necesita su propio token ML (getMlToken lee tokens.mercadolibre, no el que recibió el plan).
+  Object.assign(tokens.mercadolibre, { access_token: 'ml-tok', user_id: 1 });
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 3, seller_sku: 'LLUVIA' } };
+  tnFetchState.responder = tnResponder(2, []);
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  await syncService.onMercadoLibreOrderCancelled(cancelledItems, '557', null, plan);
+
+  assert.deepEqual(snapshotState.mlRefreshes[0], ['ml-tok', 'MLA1']);
+  assert.equal(dbState.attributions.length, 1);
+  assert.equal(dbState.attributions[0].delta, 1, 'la cantidad cancelada, no la diferencia mlStock-tnStock');
+  assert.equal(dbState.attributions[0].productLabel, 'Cancelación ML');
+});
+
+test('espejo: si falla la escritura en TN, el lado ML del historial se registra igual', async () => {
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 3, seller_sku: 'LLUVIA' } };
+  // El GET (lectura previa, para el plan) responde bien; el PUT (la escritura del espejo) falla.
+  tnFetchState.responder = (url, opts) => (!opts?.method || opts.method === 'GET')
+    ? makeRes({ json: { stock: 2 } })
+    : makeRes({ status: 500, json: {} });
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  const results = await syncService.onMercadoLibreOrderCancelled(cancelledItems, '557', null, plan);
+
+  assert.equal(results[0].ok, false, 'el espejo en TN falló');
+  assert.equal(dbState.attributions.length, 1, 'pero ML sí restauró, y eso queda registrado');
+});
+
+test('espejo: ML NO devolvió la unidad (ML 2, TN 2) → no se toca TN y queda para confirmar a mano', async () => {
+  // El incidente 2026-08-11: la venta se canceló porque no había stock. ML dejó su 2 y el hub
+  // sumaba en TN igual, dejándolo en 3 contra 2 de ML, con stock real 2.
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 2, seller_sku: 'LLUVIA' } };
+  const puts = [];
+  tnFetchState.responder = tnResponder(2, puts);
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  const results = await syncService.onMercadoLibreOrderCancelled(cancelledItems, '557', null, plan);
+
+  assert.equal(results[0].mlNotRestored, true);
+  assert.equal(results[0].ok, false);
+  assert.deepEqual(puts, [], 'no se escribe nada en TN');
+  assert.deepEqual(dbState.auditLogs, [], 'y no se registra un movimiento que no ocurrió');
+});
+
+test('espejo: sin plan (no se pudo leer ML o TN) no se toca Tienda Nube', async () => {
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 3, seller_sku: 'LLUVIA' } };
+  const puts = [];
+  tnFetchState.responder = tnResponder(2, puts);
+
+  const results = await syncService.onMercadoLibreOrderCancelled(cancelledItems, '557', null, { ok: false, reason: 'x' });
+
+  assert.deepEqual(results, []);
+  assert.deepEqual(puts, []);
+});
+
+test('planMlCancellationMirror: si ML no devuelve el ítem, no hay espejo (el llamador reintenta)', async () => {
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = {}; // getItem → null (429 agotado, ítem borrado, etc.)
+  tnFetchState.responder = tnResponder(2, []);
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  assert.equal(plan.ok, false);
+  assert.match(plan.reason, /no se pudo leer el ítem MLA1/);
+});
+
+test('planMlCancellationMirror: si TN no responde el stock tampoco hay espejo', async () => {
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 3, seller_sku: 'LLUVIA' } };
+  tnFetchState.responder = () => makeRes({ status: 500, json: {} });
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  assert.equal(plan.ok, false);
+  assert.match(plan.reason, /Tienda Nube/);
+});
+
+test('planMlCancellationMirror: SKU que no está en Tienda Nube se saltea, no rompe el espejo', async () => {
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], []);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 3, seller_sku: 'LLUVIA' } };
+  tnFetchState.responder = tnResponder(2, []);
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  assert.equal(plan.ok, true);
+  assert.deepEqual(plan.items, []);
+});
+
+test('espejo con variaciones: lee el stock de la variación vendida, no el del ítem', async () => {
+  setResolutionFromAnalysis(
+    [{ sku: 'LLUVIA-A', itemId: 'MLA1', variationId: '111' }],
+    [{ sku: 'LLUVIA-A', productId: 10, variantId: 20 }]
+  );
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = {
+    MLA1: {
+      id: 'MLA1',
+      available_quantity: 99,
+      variations: [
+        { id: 111, available_quantity: 4, seller_sku: 'LLUVIA-A' },
+        { id: 222, available_quantity: 7, seller_sku: 'LLUVIA-B' },
+      ],
+    },
+  };
+  const puts = [];
+  tnFetchState.responder = tnResponder(3, puts);
+
+  const items = [{ item: { id: 'MLA1', variation_id: 111 }, quantity: 1 }];
+  const plan = await syncService.planMlCancellationMirror(items, 'ml-tok');
+  assert.equal(plan.items[0].mlStock, 4);
+
+  await syncService.onMercadoLibreOrderCancelled(items, '558', null, plan);
+  assert.deepEqual(puts, [{ stock: 4 }]);
 });

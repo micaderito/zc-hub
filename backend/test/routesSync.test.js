@@ -23,6 +23,8 @@ const dbState = {
   insertedReturns: [],
   hasPendingReturnForClaimItem: false,
   hasPendingReturnForOrderItem: false,
+  dismissedReturns: [],
+  dismissResult: true,
   pendingTasks: { tasks: [], total: 0, activeCount: 0, failedCount: 0 },
   activeTasks: [],
   retryResult: true,
@@ -62,6 +64,7 @@ let app;
 let server;
 let baseUrl;
 let resetReturnsFetchState;
+let insertPendingReturnsForOrder;
 
 before(async () => {
   mock.module('../src/services/syncService.js', {
@@ -128,6 +131,7 @@ before(async () => {
       insertPendingReturn: async (row) => { const r = { id: dbState.insertedReturns.length + 1, ...row }; dbState.insertedReturns.push(r); return r; },
       hasPendingReturnForClaimItem: async () => dbState.hasPendingReturnForClaimItem,
       hasPendingReturnForOrderItem: async () => dbState.hasPendingReturnForOrderItem,
+      setReturnDismissed: async (id) => { dbState.dismissedReturns.push(id); return dbState.dismissResult; },
       releaseOrderProcessingClaim: async (...args) => { dbState.releaseCalls.push(args); return true; },
       getPendingMlTasks: async () => dbState.pendingTasks,
       getActiveMlTasks: async () => dbState.activeTasks,
@@ -139,6 +143,7 @@ before(async () => {
   const syncModule = await import('../src/routes/sync.js');
   const { syncRoutes } = syncModule;
   resetReturnsFetchState = syncModule.__resetReturnsFetchStateForTests;
+  insertPendingReturnsForOrder = syncModule.insertPendingReturnsForOrder;
   app = express();
   app.use(express.json());
   app.use('/api/sync', syncRoutes);
@@ -161,6 +166,8 @@ beforeEach(() => {
   dbState.insertedReturns = [];
   dbState.hasPendingReturnForClaimItem = false;
   dbState.hasPendingReturnForOrderItem = false;
+  dbState.dismissedReturns = [];
+  dbState.dismissResult = true;
   dbState.pendingTasks = { tasks: [], total: 0, activeCount: 0, failedCount: 0 };
   dbState.retryResult = true;
   dbState.waitForMlTaskResult = null;
@@ -499,6 +506,42 @@ test('POST /returns/:id/approve: aprueba con éxito', async () => {
 test('POST /returns/:id/approve: falla → 400 con detalle', async () => {
   syncServiceState.approveResult = { ok: false, error: 'no se pudo', mlRestored: false, tnRestored: false };
   const res = await fetch(`${baseUrl}/returns/1/approve`, { method: 'POST' });
+  assert.equal(res.status, 400);
+});
+
+test('insertPendingReturnsForOrder: `only` limita el alta a los ítems que no se pudieron restaurar', async () => {
+  const order = {
+    id: 2000017283879110,
+    pack_id: 2000009999,
+    order_items: [
+      { item: { id: 'MLA1', title: 'Cuaderno' }, quantity: 1 },
+      { item: { id: 'MLA2', title: 'Lápiz' }, quantity: 2 },
+    ],
+  };
+
+  const out = await insertPendingReturnsForOrder('ml-tok', order, {
+    reason: 'ML no devolvió el stock',
+    only: [{ itemId: 'MLA2', variationId: null }],
+  });
+
+  assert.equal(out.created, 1);
+  assert.deepEqual(dbState.insertedReturns.map(r => r.itemId), ['MLA2']);
+});
+
+test('POST /returns/:id/dismiss: saca la fila de la lista sin mover stock', async () => {
+  const res = await fetch(`${baseUrl}/returns/7/dismiss`, { method: 'POST' });
+  assert.equal(res.status, 200);
+  assert.deepEqual(dbState.dismissedReturns, [7]);
+});
+
+test('POST /returns/:id/dismiss: si ya no está pendiente → 400', async () => {
+  dbState.dismissResult = false;
+  const res = await fetch(`${baseUrl}/returns/7/dismiss`, { method: 'POST' });
+  assert.equal(res.status, 400);
+});
+
+test('POST /returns/:id/dismiss: id inválido → 400', async () => {
+  const res = await fetch(`${baseUrl}/returns/abc/dismiss`, { method: 'POST' });
   assert.equal(res.status, 400);
 });
 

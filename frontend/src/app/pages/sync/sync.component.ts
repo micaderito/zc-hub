@@ -83,6 +83,7 @@ export class SyncComponent implements OnInit {
   addingReturn = false;
   fetchResult: string | null = null;
   approvingId: number | null = null;
+  dismissingId: number | null = null;
 
   registeringWebhooks = false;
   webhooksResult: string | null = null;
@@ -478,6 +479,21 @@ export class SyncComponent implements OnInit {
       error: (e) => {
         this.fetchResult = e.error?.error || e.message || 'Error al restaurar stock.';
         this.approvingId = null;
+      }
+    });
+  }
+
+  /** Descartar: la unidad no volvió ni va a volver (ej. cancelaste la venta por falta de stock). */
+  dismissReturn(row: PendingReturnRow): void {
+    this.dismissingId = row.id;
+    this.sync.dismissReturn(row.id).subscribe({
+      next: () => {
+        this.dismissingId = null;
+        this.queryClient.invalidateQueries({ queryKey: SYNC_RETURNS_QUERY_KEY });
+      },
+      error: (e) => {
+        this.fetchResult = e.error?.error || e.message || 'Error al descartar la devolución.';
+        this.dismissingId = null;
       }
     });
   }

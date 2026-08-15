@@ -46,8 +46,12 @@ const tnState = { order: null };
 const syncServiceState = {
   onMlPaidResults: [],
   onMlCancelledResults: [],
+  onMlCancelledCalls: [],
   onTnPaidCalls: [],
   onTnCancelledCalls: [],
+  /** Lo que devuelve planMlCancellationMirror: los stocks leídos de ML y TN para el espejo. */
+  mirrorPlan: { ok: true, items: [] },
+  mirrorCalls: 0,
 };
 
 const syncRouteState = { processClaimResult: { created: 0, skipped: 0 }, pendingReturnCalls: [] };
@@ -104,7 +108,14 @@ before(async () => {
   mock.module('../src/services/syncService.js', {
     exports: {
       onMercadoLibreOrderPaid: async () => syncServiceState.onMlPaidResults,
-      onMercadoLibreOrderCancelled: async () => syncServiceState.onMlCancelledResults,
+      onMercadoLibreOrderCancelled: async (...args) => {
+        syncServiceState.onMlCancelledCalls.push(args);
+        return syncServiceState.onMlCancelledResults;
+      },
+      planMlCancellationMirror: async () => {
+        syncServiceState.mirrorCalls++;
+        return syncServiceState.mirrorPlan;
+      },
       onTiendaNubeOrderPaid: async (...args) => { syncServiceState.onTnPaidCalls.push(args); return []; },
       onTiendaNubeOrderCancelled: async (...args) => { syncServiceState.onTnCancelledCalls.push(args); return []; },
     },
@@ -156,6 +167,9 @@ beforeEach(() => {
   tnState.order = null;
   syncServiceState.onMlPaidResults = [];
   syncServiceState.onMlCancelledResults = [];
+  syncServiceState.onMlCancelledCalls = [];
+  syncServiceState.mirrorPlan = { ok: true, items: [] };
+  syncServiceState.mirrorCalls = 0;
   syncServiceState.onTnPaidCalls = [];
   syncServiceState.onTnCancelledCalls = [];
   syncRouteState.processClaimResult = { created: 0, skipped: 0 };
@@ -352,6 +366,108 @@ test('topic orders: orden cancelada sin envío asociado restaura sola (no hay pa
   assert.ok(dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'restore'));
   assert.equal(syncRouteState.pendingReturnCalls.length, 0);
   assert.equal(mlState.getShipmentCalls.length, 0, 'no hay envío que consultar');
+});
+
+// ─── Cancelaciones que NO pueden restaurar solas: motivo y espejo contra ML ───
+
+test('topic orders: cancelada por el vendedor (sin stock) no restaura y queda para confirmar', async () => {
+  // Incidente 2026-08-11: ML no devuelve la unidad a la publicación cuando la cancelás vos por
+  // falta de stock, así que sumarla en TN desalinea los canales.
+  mlState.order = {
+    id: 570, status: 'cancelled', shipping: { id: 99010 },
+    cancel_detail: { group: 'seller', code: 'out_of_stock', description: 'No tengo stock', requested_by: 'seller' },
+    order_items: [{ item: { id: 'MLA1' }, quantity: 1 }],
+  };
+  mlState.shipment = { id: 99010, status: 'ready_to_ship' };
+  dbState.hasProcessed = true;
+
+  const res = await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/570' });
+
+  assert.equal(res.status, 200);
+  assert.ok(!dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'restore'));
+  assert.equal(syncRouteState.pendingReturnCalls.length, 1);
+  assert.match(syncRouteState.pendingReturnCalls[0].opts.reason, /vendedor/);
+  assert.equal(mlState.getShipmentCalls.length, 0, 'el motivo ya decide: no hace falta consultar el envío');
+  assert.equal(syncServiceState.mirrorCalls, 0);
+  assert.ok(
+    dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'manual_review'),
+    'deja marca para que otra notificación de la misma orden no recree la pendiente'
+  );
+});
+
+test('topic orders: si la orden ya se marcó para revisión manual, no se recrea la pendiente', async () => {
+  mlState.order = {
+    id: 573, status: 'cancelled',
+    cancel_detail: { requested_by: 'seller', description: 'No tengo stock' },
+    order_items: [{ item: { id: 'MLA1' }, quantity: 1 }],
+  };
+  dbState.hasProcessed = true;
+  dbState.claimed = false; // la marca manual_review ya existe (p. ej. la usuaria la descartó)
+
+  await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/573' });
+
+  assert.equal(syncRouteState.pendingReturnCalls.length, 0);
+});
+
+test('topic orders: si no se puede leer el stock de ML, reintenta antes de decidir', async () => {
+  mlState.order = {
+    id: 571, status: 'cancelled', shipping: { id: 99011 },
+    order_items: [{ item: { id: 'MLA1' }, quantity: 1 }],
+  };
+  mlState.shipment = { id: 99011, status: 'ready_to_ship' };
+  dbState.hasProcessed = true;
+  syncServiceState.mirrorPlan = { ok: false, reason: 'no se pudo leer el ítem MLA1 en ML' };
+
+  await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/571' });
+
+  assert.ok(!dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'restore'));
+  assert.equal(syncRouteState.pendingReturnCalls.length, 0, 'un ML que no contesta no es motivo para trabajo manual');
+
+  // Agotados los reintentos, no puede quedar en el limbo: se registra para revisar a mano.
+  for (let i = 0; i < 3; i++) await processNextPendingMlOrder();
+  assert.equal(syncRouteState.pendingReturnCalls.length, 1);
+  assert.match(syncRouteState.pendingReturnCalls[0].opts.reason, /no se pudo verificar el stock/);
+});
+
+test('topic orders: los ítems donde ML no devolvió stock quedan pendientes, los otros no', async () => {
+  mlState.order = {
+    id: 572, status: 'cancelled', shipping: { id: 99012 },
+    order_items: [{ item: { id: 'MLA1' }, quantity: 1 }, { item: { id: 'MLA2' }, quantity: 1 }],
+  };
+  mlState.shipment = { id: 99012, status: 'ready_to_ship' };
+  dbState.hasProcessed = true;
+  syncServiceState.onMlCancelledResults = [
+    { itemId: 'MLA1', variationId: null, ok: true },
+    { itemId: 'MLA2', variationId: null, ok: false, mlNotRestored: true },
+  ];
+
+  await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/572' });
+
+  assert.ok(dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'restore'));
+  assert.equal(syncServiceState.onMlCancelledCalls[0][3].ok, true, 'el espejo se le pasa a syncService');
+  assert.equal(syncRouteState.pendingReturnCalls.length, 1);
+  assert.deepEqual(syncRouteState.pendingReturnCalls[0].opts.only, [{ itemId: 'MLA2', variationId: null }]);
+});
+
+test('topic orders: en un pack, el SKU que ya espejó la primera orden no abre pendientes de más', async () => {
+  // ML devuelve el stock de todas las órdenes del pack de una: la primera orden deja TN en el
+  // número final y las siguientes encuentran TN == ML, que no es "ML no devolvió el stock".
+  const orderPack = (id) => ({
+    id, status: 'cancelled', pack_id: 2000009999, shipping: { id: 99013 },
+    order_items: [{ item: { id: 'MLA1' }, quantity: 1 }],
+  });
+  mlState.shipment = { id: 99013, status: 'ready_to_ship' };
+  dbState.hasProcessed = true;
+
+  mlState.order = orderPack(580);
+  syncServiceState.onMlCancelledResults = [{ itemId: 'MLA1', variationId: null, sku: 'LLUVIA', ok: true }];
+  await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/580' });
+
+  mlState.order = orderPack(581);
+  syncServiceState.onMlCancelledResults = [{ itemId: 'MLA1', variationId: null, sku: 'LLUVIA', ok: false, mlNotRestored: true }];
+  await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/581' });
+
+  assert.equal(syncRouteState.pendingReturnCalls.length, 0);
 });
 
 test('topic orders: la devolución pendiente se guarda contra el pack, no contra la orden suelta', async () => {
