@@ -77,6 +77,11 @@ before(async () => {
       getOrdersSearch: async () => mlState.ordersSearchResult,
       getClaim: async () => mlState.claim,
       getClaimsSearch: async () => ({ data: [] }),
+      claimHasReturn: (claim) => {
+        if (!claim) return false;
+        if (Array.isArray(claim.related_entities) && claim.related_entities.includes('return')) return true;
+        return (claim.type || '').toLowerCase() === 'return';
+      },
       getShipment: async (_tok, id) => {
         mlState.getShipmentCalls.push(String(id));
         if (mlState.getShipmentError) throw mlState.getShipmentError;
@@ -548,6 +553,45 @@ test('topic claims: claim tipo return procesa devoluciones pendientes', async ()
 test('topic claims: claim que no es return se ignora', async () => {
   mlState.claim = { id: 2, type: 'mediations' };
   const res = await postJson('/mercadolibre', { topic: 'claims', resource: '/claims/2' });
+  assert.equal(res.status, 200);
+});
+
+// ML migró el topic de reclamos a 'post_purchase' con subtópicos en `actions` (confirmado con
+// logs reales de producción); estos tests cubren que el hub reconoce el formato nuevo.
+
+test('topic post_purchase con actions=[claims]: procesa igual que el topic legacy claims', async () => {
+  mlState.claim = { id: 3, type: 'return' };
+  syncRouteState.processClaimResult = { created: 1, skipped: 0 };
+  const res = await postJson('/mercadolibre', {
+    topic: 'post_purchase',
+    resource: '/post-purchase/v1/claims/3',
+    actions: ['claims'],
+  });
+  assert.equal(res.status, 200);
+});
+
+test('topic post_purchase con actions=[claims_actions] y resource de historial: no hay claimId parseable, no hace nada', async () => {
+  const res = await postJson('/mercadolibre', {
+    topic: 'post_purchase',
+    resource: '/post-purchase/v1/claims/3/actions-history',
+    actions: ['claims_actions'],
+  });
+  assert.equal(res.status, 200);
+});
+
+test('topic post_purchase con actions vacío/ausente: se ignora (no es notificación de reclamos)', async () => {
+  const res = await postJson('/mercadolibre', { topic: 'post_purchase', resource: '/post-purchase/v1/claims/3' });
+  assert.equal(res.status, 200);
+});
+
+test('topic post_purchase: claim con type=mediations pero related_entities incluye return, procesa devoluciones', async () => {
+  mlState.claim = { id: 4, type: 'mediations', related_entities: ['return'] };
+  syncRouteState.processClaimResult = { created: 1, skipped: 0 };
+  const res = await postJson('/mercadolibre', {
+    topic: 'post_purchase',
+    resource: '/post-purchase/v1/claims/4',
+    actions: ['claims'],
+  });
   assert.equal(res.status, 200);
 });
 

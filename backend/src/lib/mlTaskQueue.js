@@ -182,6 +182,7 @@ export async function processTask(task) {
         saleItemId: c.saleItemId,
         productLabel: c.productLabel,
         productDisplay: c.productDisplay,
+        source: c.source,
       }).catch(e => {
         console.error('[MLQueue] stock_probe attributeStockChangeToSale:', e.message);
         return false;

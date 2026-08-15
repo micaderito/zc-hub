@@ -73,7 +73,7 @@ function tnOrderItemDisplay(item) {
  * Cuesta 1 GET por ítem vendido. Es el precio de tener el dato observado en vez de inventado, y las
  * ventas son pocas comparadas con el crawl del catálogo.
  */
-async function recordMlSideMovement({ itemId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay }) {
+async function recordMlSideMovement({ itemId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source }) {
   let refreshed = { ok: false };
   try {
     const accessToken = await getMlToken();
@@ -83,12 +83,12 @@ async function recordMlSideMovement({ itemId, sku, delta, orderId, packId, saleI
   }
   await finishSideMovement(refreshed, {
     channel: 'mercadolibre', probeId: itemId,
-    sku, delta, orderId, packId, saleItemId, productLabel, productDisplay,
+    sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source,
   });
 }
 
 /** Igual que recordMlSideMovement pero del lado de Tienda Nube (ver ahí el porqué de los dos pasos). */
-async function recordTnSideMovement({ productId, sku, delta, orderId, saleItemId, productLabel, productDisplay }) {
+async function recordTnSideMovement({ productId, sku, delta, orderId, saleItemId, productLabel, productDisplay, source }) {
   let refreshed = { ok: false };
   try {
     const { access_token, store_id } = tokens.tiendanube || {};
@@ -98,7 +98,7 @@ async function recordTnSideMovement({ productId, sku, delta, orderId, saleItemId
   }
   await finishSideMovement(refreshed, {
     channel: 'tiendanube', probeId: productId,
-    sku, delta, orderId, packId: orderId, saleItemId, productLabel, productDisplay,
+    sku, delta, orderId, packId: orderId, saleItemId, productLabel, productDisplay, source,
   });
 }
 
@@ -114,10 +114,10 @@ async function recordTnSideMovement({ productId, sku, delta, orderId, saleItemId
  * del canal puede haber registrado el movimiento antes, y en ese caso ya no hace falta reintentar.
  */
 async function finishSideMovement(refreshed, ctx) {
-  const { channel, probeId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay } = ctx;
+  const { channel, probeId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source } = ctx;
   const attributed = await attributeStockChangeToSale({
     channel, channelSale: channel,
-    sku, delta, orderId, packId, saleItemId, productLabel, productDisplay,
+    sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source,
   }).catch(e => {
     console.error(`[Sync] attributeStockChangeToSale ${channel}:`, e.message);
     return false;
@@ -129,7 +129,7 @@ async function finishSideMovement(refreshed, ctx) {
     kind: 'stock_probe',
     itemId: String(probeId),
     contextJson: JSON.stringify({
-      probe: { channel, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay },
+      probe: { channel, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source },
     }),
     idempotencyKey: `stock_probe:${channel}:${orderId ?? ''}:${sku}:${delta}`,
   });
@@ -571,6 +571,7 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
       saleItemId: variationId ? `${itemId}:${variationId}` : String(itemId),
       productLabel: 'Cancelación ML',
       productDisplay: mlOrderItemDisplay(oi),
+      source: 'devolucion',
     });
 
     // updateVariantStock lanza si TN rechaza: lo contenemos por ítem para que un producto que
@@ -597,6 +598,7 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
 
     const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null;
     await insertAuditLog({
+      source: 'devolucion',
       channelSale: 'mercadolibre',
       orderId: realOrderId,
       packId,
@@ -628,6 +630,7 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
     const productId = item.product_id ?? item.productId;
     const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
     const auditCtx = {
+      source: 'devolucion',
       channelSale: 'tiendanube',
       orderId: String(orderId),
       saleItemId,
@@ -650,6 +653,7 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
       saleItemId,
       productLabel: 'Cancelación TN',
       productDisplay: tnOrderItemDisplay(item),
+      source: 'devolucion',
     });
     if (out.ok) {
       console.log('[Sync] TN cancelación %s: SKU %s encolado en ML (taskId %s)', orderId, sku, out.taskId);
@@ -722,6 +726,7 @@ export async function approvePendingReturn(returnId) {
   try {
     const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
     const auditCtx = {
+      source: 'devolucion',
       channelSale: 'mercadolibre',
       orderId: String(row.orderId),
       saleItemId,
@@ -743,6 +748,7 @@ export async function approvePendingReturn(returnId) {
     if (outTn.ok && outTn.stockBefore !== undefined) {
       const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
       await insertAuditLog({
+        source: 'devolucion',
         channelSale: 'mercadolibre',
         orderId: String(row.orderId),
         saleItemId,

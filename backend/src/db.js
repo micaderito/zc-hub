@@ -24,11 +24,44 @@ function getPool() {
 const SYNC_ENABLED_KEY = 'stock_sync_enabled';
 const ANALYSIS_CACHE_KEY = 'conflicts_analysis_cache';
 
+/**
+ * Corre un backfill de datos una única vez, para siempre: a diferencia de `CREATE TABLE IF NOT
+ * EXISTS`/`ALTER ... ADD COLUMN IF NOT EXISTS` (que Postgres resuelve solo con un chequeo barato
+ * de catálogo), un backfill de datos (UPDATE/INSERT sobre filas existentes) no tiene ese IF NOT
+ * EXISTS gratis — sin este registro, se re-ejecutaría en cada arranque del backend para siempre.
+ * `schema_migrations` guarda qué id ya corrió; todo en una transacción para que el backfill y su
+ * marca queden atómicos (si el backfill falla, no se marca como aplicado y se reintenta en el
+ * próximo arranque).
+ */
+async function runOnceMigration(p, id, fn) {
+  const client = await p.connect();
+  try {
+    const done = await client.query('SELECT 1 FROM schema_migrations WHERE id = $1', [id]);
+    if (done.rows.length > 0) return;
+    await client.query('BEGIN');
+    await fn(client);
+    await client.query('INSERT INTO schema_migrations (id) VALUES ($1)', [id]);
+    await client.query('COMMIT');
+    console.log('DB init: migración "%s" aplicada.', id);
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('DB init: migración "%s" falló, se reintenta en el próximo arranque:', id, e.message);
+  } finally {
+    client.release();
+  }
+}
+
 /** Crea las tablas si no existen. */
 export async function initDb() {
   const p = getPool();
   if (!p) return false;
   try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id VARCHAR(128) PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_settings (
         key VARCHAR(64) PRIMARY KEY,
@@ -78,18 +111,29 @@ export async function initDb() {
     await p.query(`ALTER TABLE sync_audit ALTER COLUMN quantity DROP NOT NULL;`);
     // El historial por producto filtra por SKU y ordena por fecha.
     await p.query(`CREATE INDEX IF NOT EXISTS idx_sync_audit_sku_created ON sync_audit (sku, created_at DESC);`);
-    // Backfill una sola vez: rellena pack_id de filas viejas leyendo el pack_id real desde el JSON crudo de la orden.
-    try {
-      await p.query(`
+    // Backfill: rellena pack_id de filas viejas leyendo el pack_id real desde el JSON crudo de la orden.
+    await runOnceMigration(p, '2026-08_backfill_pack_id', async (client) => {
+      await client.query(`
         UPDATE sync_audit
         SET pack_id = (notification_payload::jsonb ->> 'pack_id')
         WHERE pack_id IS NULL
           AND notification_payload IS NOT NULL
           AND (notification_payload::jsonb ->> 'pack_id') IS NOT NULL
       `);
-    } catch (e) {
-      console.error('DB init: backfill pack_id error:', e.message);
-    }
+    });
+
+    // Backfill: hasta el fix de 2026-08-12 ninguna restauración de stock por cancelación/devolución
+    // le ponía source='devolucion' a su fila (quedaban con el default 'venta'), así que el filtro
+    // "Devoluciones" del Historial no mostraba nada de lo que ya había pasado. Re-etiqueta esas
+    // filas viejas por su product_label.
+    await runOnceMigration(p, '2026-08-12_backfill_source_devolucion', async (client) => {
+      await client.query(`
+        UPDATE sync_audit
+        SET source = 'devolucion'
+        WHERE source = 'venta'
+          AND product_label IN ('Cancelación ML', 'Cancelación TN', 'Devolución aprobada')
+      `);
+    });
 
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_pending_returns (
