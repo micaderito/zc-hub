@@ -53,6 +53,13 @@ before(async () => {
   mock.module('../src/services/conflictsService.js', {
     exports: { invalidateSnapshot: async () => { storeState.invalidateSnapshotCalls = (storeState.invalidateSnapshotCalls || 0) + 1; } },
   });
+  // Este archivo testea las conexiones OAuth ML/TN, no el login del hub: se deja pasar todo.
+  mock.module('../src/middleware/requireAuth.js', {
+    exports: {
+      requireAuth: (req, _res, next) => { req.user = { id: 1, username: 'test' }; next(); },
+      invalidateAuthUserCache: () => {},
+    },
+  });
 
   const { authRoutes } = await import('../src/routes/auth.js');
   app = express();

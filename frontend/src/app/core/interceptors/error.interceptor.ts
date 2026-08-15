@@ -22,7 +22,9 @@ export function errorInterceptor(req: HttpRequest<unknown>, next: HttpHandlerFn)
   const globalError = inject(GlobalErrorService);
   return next(req).pipe(
     catchError((err: HttpErrorResponse) => {
-      globalError.show(getErrorMessage(err));
+      // El 401 ya lo maneja authInterceptor (limpia la sesión y manda a /login) — mostrar acá
+      // además un banner "Error 401" quedaría colgado encima de la pantalla de login.
+      if (err.status !== 401) globalError.show(getErrorMessage(err));
       return throwError(() => err);
     })
   );

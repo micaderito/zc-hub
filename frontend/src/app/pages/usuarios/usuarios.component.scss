@@ -1,0 +1,120 @@
+:host {
+  display: block;
+  padding: 18px 20px 90px;
+}
+
+.us-page { max-width: 900px; margin: 0 auto; }
+
+.us-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 14px;
+  gap: 12px;
+
+  h1 { margin: 0; font-size: 18px; font-weight: 500; }
+  p { margin: 3px 0 0; font-size: 12px; color: var(--text-2); }
+}
+.us-head-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* Botones */
+.btn {
+  font: inherit;
+  font-size: 12.5px;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 7px 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  &:hover { background: var(--surface-2); }
+  &.pri { background: var(--brand); color: var(--brand-contrast); border-color: transparent; }
+  &.pri:hover { filter: brightness(1.08); }
+  &:disabled { opacity: 0.45; cursor: default; }
+}
+.icon-btn {
+  border: none; background: none; color: var(--text-2); cursor: pointer;
+  padding: 4px; border-radius: 6px; font-size: 15px; line-height: 1;
+  &:hover { background: var(--surface-2); color: var(--text); }
+  &.danger:hover { color: var(--err); }
+  &:disabled { opacity: 0.35; cursor: default; }
+}
+
+.us-error {
+  background: var(--err-bg); color: var(--err); border-radius: 8px;
+  padding: 9px 12px; font-size: 12px; margin-bottom: 11px;
+  &.inline { margin: 0; padding: 5px 9px; }
+}
+.us-msg { color: var(--text-2); font-size: 13px; }
+
+/* Empty */
+.us-empty {
+  text-align: center; padding: 46px 20px; color: var(--text-2);
+  border: 1px dashed var(--border); border-radius: 12px; background: var(--surface);
+  i { font-size: 30px; color: var(--text-3); }
+  p { margin: 8px 0 14px; font-size: 13px; }
+}
+
+/* Tabla */
+.us-table-wrap { border: 0.5px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); overflow-x: auto; }
+.us-table {
+  width: 100%; border-collapse: collapse;
+  thead { background: var(--surface-2); }
+  th {
+    font-size: 10px; color: var(--text-3); font-weight: 500; text-align: left;
+    padding: 8px 10px; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+  }
+  td { font-size: 12px; padding: 9px 10px; border-top: 0.5px solid var(--border); vertical-align: middle; }
+  .col-actions { width: 100px; text-align: right; white-space: nowrap; }
+  .muted { color: var(--text-2); }
+}
+
+.user-handle { font-variant-numeric: tabular-nums; font-weight: 500; }
+
+.badge {
+  font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 6px;
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  &.ok { background: var(--ok-bg); color: var(--ok); }
+  &.off { background: var(--surface-2); color: var(--text-2); }
+}
+
+/* Modal (alta/edición) */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(10, 12, 20, 0.5);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+}
+.modal {
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: 14px;
+  width: 100%; max-width: 560px; max-height: 88vh; display: flex; flex-direction: column;
+  &.narrow { max-width: 400px; }
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 15px 18px; border-bottom: 0.5px solid var(--border);
+  h2 { margin: 0; font-size: 15px; font-weight: 500; }
+}
+.modal-body { padding: 16px 18px; overflow-y: auto; }
+.modal-foot {
+  display: flex; align-items: center; gap: 9px;
+  padding: 12px 18px; border-top: 0.5px solid var(--border);
+}
+
+.fld {
+  display: flex; flex-direction: column; gap: 5px;
+  font-size: 11px; color: var(--text-2); font-weight: 500; margin-bottom: 11px;
+  input {
+    font: inherit; font-size: 12.5px; padding: 7px 10px;
+    border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+  }
+}
+
+.fld-check {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--text-2); margin-bottom: 4px; cursor: pointer;
+  input { margin: 0; }
+}
+
+.spacer { flex: 1; }

@@ -1,0 +1,113 @@
+<div class="shell" [class.sidebar-collapsed]="collapsed()">
+  <aside class="sidebar">
+    <a routerLink="/" class="brand">
+      <img class="brand-logo" src="logo.png" alt="Zona Cuaderno" />
+      @if (!collapsed()) {
+        <span class="brand-text">
+          <span class="brand-name">Zona Cuaderno</span>
+          <span class="brand-sub">Hub de ventas</span>
+        </span>
+      }
+    </a>
+
+    <nav class="nav">
+      @for (item of nav; track item.path) {
+        <a
+          [routerLink]="item.path"
+          routerLinkActive="active"
+          [routerLinkActiveOptions]="{ exact: !!item.exact }"
+          class="nav-item"
+          [title]="collapsed() ? item.label : ''"
+        >
+          <i class="ti {{ item.icon }}"></i>
+          @if (!collapsed()) {
+            <span>{{ item.label }}</span>
+          }
+        </a>
+      }
+    </nav>
+
+    <div class="sidebar-foot">
+      <button
+        type="button"
+        class="nav-item theme-toggle"
+        (click)="theme.toggle()"
+        [title]="collapsed() ? (theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro') : ''"
+      >
+        <i class="ti" [class.ti-moon]="theme.theme() === 'light'" [class.ti-sun]="theme.theme() === 'dark'"></i>
+        @if (!collapsed()) {
+          <span>{{ theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro' }}</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="user-chip"
+        (click)="openPasswordModal()"
+        [title]="collapsed() ? (session.user()?.displayName || session.user()?.username || '') + ' — Cambiar contraseña' : 'Cambiar contraseña'"
+      >
+        <span class="avatar">{{ userInitials() }}</span>
+        @if (!collapsed()) {
+          <span class="user-name">{{ session.user()?.displayName || session.user()?.username }}</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="nav-item logout-btn"
+        (click)="logout()"
+        [title]="collapsed() ? 'Cerrar sesión' : ''"
+      >
+        <i class="ti ti-logout"></i>
+        @if (!collapsed()) {
+          <span>Cerrar sesión</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="nav-item collapse-toggle"
+        (click)="toggleSidebar()"
+        [title]="collapsed() ? 'Expandir panel' : 'Colapsar panel'"
+        aria-label="Colapsar panel"
+      >
+        <i class="ti" [class.ti-layout-sidebar-left-collapse]="!collapsed()" [class.ti-layout-sidebar-left-expand]="collapsed()"></i>
+        @if (!collapsed()) {
+          <span>Colapsar panel</span>
+        }
+      </button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <router-outlet />
+  </main>
+</div>
+
+<!-- ══════════════ Modal: cambiar mi contraseña ══════════════ -->
+@if (showPasswordModal()) {
+  <div class="modal-backdrop" (click)="showPasswordModal.set(false)">
+    <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>Cambiar mi contraseña</h2>
+        <button type="button" class="icon-btn" (click)="showPasswordModal.set(false)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label class="fld">Contraseña actual
+          <input type="password" autocomplete="current-password" [ngModel]="currentPassword()" (ngModelChange)="currentPassword.set($event)" />
+        </label>
+        <label class="fld">Contraseña nueva
+          <input type="password" autocomplete="new-password" [ngModel]="newPassword()" (ngModelChange)="newPassword.set($event)" />
+        </label>
+        <label class="fld">Repetir contraseña nueva
+          <input type="password" autocomplete="new-password" [ngModel]="newPasswordRepeat()" (ngModelChange)="newPasswordRepeat.set($event)" />
+        </label>
+      </div>
+      <div class="modal-foot">
+        @if (passwordError()) { <span class="modal-error inline">{{ passwordError() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="zc-btn" (click)="showPasswordModal.set(false)">Cancelar</button>
+        <button type="button" class="zc-btn primary" [disabled]="passwordSaving()" (click)="savePassword()">
+          {{ passwordSaving() ? 'Guardando…' : 'Guardar' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

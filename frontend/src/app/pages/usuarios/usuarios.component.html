@@ -1,0 +1,125 @@
+<div class="us-page">
+  <header class="us-head">
+    <div>
+      <h1>Usuarios</h1>
+      <p>Quién puede entrar al hub. Sin roles: cualquier usuario ve y hace todo.</p>
+    </div>
+    <div class="us-head-actions">
+      <button type="button" class="btn pri" (click)="openCreate()">
+        <i class="ti ti-user-plus"></i> Nuevo usuario
+      </button>
+    </div>
+  </header>
+
+  @if (errorMsg()) {
+    <div class="us-error">{{ errorMsg() }}</div>
+  }
+
+  @if (itemsQuery.isLoading()) {
+    <p class="us-msg">Cargando…</p>
+  } @else if (items().length === 0) {
+    <div class="us-empty">
+      <i class="ti ti-users"></i>
+      <p>Todavía no hay usuarios cargados.</p>
+      <button type="button" class="btn pri" (click)="openCreate()"><i class="ti ti-user-plus"></i> Crear el primero</button>
+    </div>
+  } @else {
+    <div class="us-table-wrap">
+      <table class="us-table">
+        <thead>
+          <tr>
+            <th>Usuario</th>
+            <th>Nombre</th>
+            <th>Estado</th>
+            <th>Último ingreso</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (item of items(); track item.id) {
+            <tr>
+              <td><span class="user-handle">{{ item.username }}</span></td>
+              <td>{{ item.displayName || '—' }}</td>
+              <td>
+                @if (item.activo) {
+                  <span class="badge ok"><i class="ti ti-circle-check"></i> Activo</span>
+                } @else {
+                  <span class="badge off"><i class="ti ti-circle-minus"></i> Desactivado</span>
+                }
+              </td>
+              <td class="muted">{{ item.lastLoginAt ? (item.lastLoginAt | date: 'short') : 'Nunca' }}</td>
+              <td class="col-actions">
+                <button type="button" class="icon-btn" (click)="cerrarSesiones(item)" [disabled]="closingSessionsId() === item.id" title="Cerrar sesiones en todos lados">
+                  <i class="ti ti-lock-square"></i>
+                </button>
+                <button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar">
+                  <i class="ti ti-pencil"></i>
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn danger"
+                  (click)="confirmDelete(item)"
+                  [disabled]="item.id === currentUserId()"
+                  [title]="item.id === currentUserId() ? 'No podés borrarte a vos misma' : 'Borrar'"
+                >
+                  <i class="ti ti-trash"></i>
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>
+
+<!-- ══════════════ Modal: alta/edición ══════════════ -->
+@if (showForm()) {
+  <div class="modal-backdrop" (click)="showForm.set(false)">
+    <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>{{ form().id != null ? 'Editar usuario' : 'Nuevo usuario' }}</h2>
+        <button type="button" class="icon-btn" (click)="showForm.set(false)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label class="fld">Usuario
+          <input type="text" autocomplete="off" [ngModel]="form().username" (ngModelChange)="updateForm('username', $event)" placeholder="Ej: mica" />
+        </label>
+
+        <label class="fld">Nombre (opcional)
+          <input type="text" [ngModel]="form().displayName" (ngModelChange)="updateForm('displayName', $event)" placeholder="Ej: Mica" />
+        </label>
+
+        <label class="fld">{{ form().id != null ? 'Nueva contraseña (dejar vacío para no cambiarla)' : 'Contraseña' }}
+          <input type="password" autocomplete="new-password" [ngModel]="form().password" (ngModelChange)="updateForm('password', $event)" />
+        </label>
+
+        @if (form().id != null) {
+          <label class="fld-check">
+            <input type="checkbox" [ngModel]="form().activo" (ngModelChange)="updateForm('activo', $event)" [disabled]="form().id === currentUserId()" />
+            <span>Activo{{ form().id === currentUserId() ? ' (no podés desactivarte a vos misma)' : '' }}</span>
+          </label>
+        }
+      </div>
+      <div class="modal-foot">
+        @if (errorMsg()) { <span class="us-error inline">{{ errorMsg() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="showForm.set(false)">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="saving()" (click)="save()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══════════════ Confirmar borrado ══════════════ -->
+@if (deletingItem(); as item) {
+  <zc-confirm-dialog
+    title="Borrar usuario"
+    [message]="'¿Borrar a ' + item.username + '? No se puede deshacer.'"
+    confirmLabel="Borrar"
+    variant="danger"
+    icon="ti-trash"
+    (confirmed)="doDelete()"
+    (cancelled)="deletingItem.set(null)"
+  />
+}

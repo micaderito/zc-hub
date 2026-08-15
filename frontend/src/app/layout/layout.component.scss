@@ -1,0 +1,343 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+.shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+// ── Sidebar ──────────────────────────────────────────────────────────────────
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 0.5px solid var(--border);
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  height: 100%;
+  overflow: hidden;
+  transition: width 0.22s ease;
+}
+
+.sidebar-collapsed .sidebar {
+  width: 60px;
+  padding: 1rem 0.5rem;
+
+  .brand {
+    padding: 0.4rem 0 1rem;
+    justify-content: center;
+  }
+
+  .nav-item {
+    justify-content: center;
+    padding: 0.6rem;
+  }
+
+  .user-chip {
+    justify-content: center;
+    padding: 0.6rem 0;
+  }
+
+  .collapse-toggle {
+    justify-content: center;
+    padding: 0.6rem;
+  }
+}
+
+// ── Brand / Logo ─────────────────────────────────────────────────────────────
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.5rem 1rem;
+  text-decoration: none;
+  color: var(--text);
+  flex-shrink: 0;
+
+  .brand-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .brand-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .brand-sub {
+    font-size: 0.7rem;
+    color: var(--text-3);
+  }
+}
+
+// ── Nav ───────────────────────────────────────────────────────────────────────
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 0.85rem;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+
+  i { font-size: 1.1rem; flex-shrink: 0; }
+
+  &:hover { background: var(--surface-2); }
+
+  &.active {
+    background: var(--brand-bg);
+    color: var(--brand);
+    font-weight: 500;
+  }
+}
+
+// ── Footer ────────────────────────────────────────────────────────────────────
+
+.sidebar-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  margin-top: 0.25rem;
+  border-top: 0.5px solid var(--border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 0;
+  background: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+
+  &:hover { background: var(--surface-2); }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--tn-bg);
+    color: var(--tn-text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  .user-name {
+    font-size: 0.8rem;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.logout-btn {
+  color: var(--err);
+  &:hover { background: var(--err-bg); }
+}
+
+.collapse-toggle {
+  color: var(--text-3);
+  &:hover { color: var(--text-2); }
+}
+
+// ── Content ───────────────────────────────────────────────────────────────────
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: 1.75rem 2rem;
+  max-width: 1180px;
+  overflow-y: auto;
+}
+
+@media (max-width: 1023px) {
+  .content {
+    padding: 1.5rem 1.25rem;
+  }
+}
+
+// ── Mobile ────────────────────────────────────────────────────────────────────
+
+@media (max-width: 760px) {
+  /* En mobile el scroll es del documento, no del contenedor */
+  :host {
+    height: auto;
+    overflow: visible;
+  }
+
+  .shell {
+    flex-direction: column;
+    overflow: visible;
+    min-height: auto;
+    height: auto;
+  }
+
+  .sidebar {
+    width: 100% !important;
+    height: auto;
+    overflow: visible;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    padding: 0 0.5rem;
+    gap: 0;
+    border-right: none;
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  .brand {
+    padding: 0.5rem 0.5rem 0.5rem 0.25rem;
+    flex-shrink: 0;
+
+    .brand-text {
+      display: none;
+    }
+  }
+
+  .nav {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    flex: 1;
+    gap: 0;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  .nav-item {
+    flex-shrink: 0;
+    padding: 0.55rem 0.6rem;
+    border-radius: var(--radius-sm);
+
+    span {
+      display: none;
+    }
+
+    i {
+      font-size: 1.3rem;
+    }
+  }
+
+  .sidebar-foot {
+    margin-top: 0;
+    flex-direction: row;
+    flex-shrink: 0;
+    gap: 0;
+
+    .user-chip {
+      display: none;
+    }
+
+    .theme-toggle,
+    .logout-btn {
+      padding: 0.55rem 0.6rem;
+
+      span {
+        display: none;
+      }
+    }
+  }
+
+  .content {
+    overflow-y: visible;
+    padding: 1rem 0.9rem;
+  }
+}
+
+// ── Modal: cambiar mi contraseña ────────────────────────────────────────────
+// Mismo patrón visual que los modales de alta/edición de las páginas (deposito, precios, etc.),
+// duplicado acá porque no hay un componente de modal compartido en el repo.
+
+.icon-btn {
+  border: none; background: none; color: var(--text-2); cursor: pointer;
+  padding: 4px; border-radius: 6px; font-size: 15px; line-height: 1;
+  &:hover { background: var(--surface-2); color: var(--text); }
+}
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(10, 12, 20, 0.5);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+}
+.modal {
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: 14px;
+  width: 100%; max-width: 560px; max-height: 88vh; display: flex; flex-direction: column;
+  &.narrow { max-width: 400px; }
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 15px 18px; border-bottom: 0.5px solid var(--border);
+  h2 { margin: 0; font-size: 15px; font-weight: 500; }
+}
+.modal-body { padding: 16px 18px; overflow-y: auto; }
+.modal-foot {
+  display: flex; align-items: center; gap: 9px;
+  padding: 12px 18px; border-top: 0.5px solid var(--border);
+}
+.modal-error {
+  background: var(--err-bg); color: var(--err); border-radius: 8px; font-size: 12px;
+  &.inline { padding: 5px 9px; }
+}
+
+.fld {
+  display: flex; flex-direction: column; gap: 5px;
+  font-size: 11px; color: var(--text-2); font-weight: 500; margin-bottom: 11px;
+  input {
+    font: inherit; font-size: 12.5px; padding: 7px 10px;
+    border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+  }
+}
+
+.spacer { flex: 1; }

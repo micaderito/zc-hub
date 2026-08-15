@@ -1,0 +1,80 @@
+:host {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg);
+}
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 1.5rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 340px;
+  padding: 2rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.login-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: contain;
+  margin-bottom: 0.75rem;
+}
+
+h1 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.login-sub {
+  font-size: 0.8rem;
+  color: var(--text-3);
+  margin: 0.25rem 0 1.5rem;
+}
+
+.fld {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-2);
+  margin-bottom: 0.9rem;
+}
+
+.login-error {
+  width: 100%;
+  font-size: 0.78rem;
+  color: var(--err);
+  background: var(--err-bg);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+  margin: 0 0 0.9rem;
+}
+
+.login-submit {
+  width: 100%;
+  justify-content: center;
+  margin-top: 0.25rem;
+}
+
+@keyframes zc-spin {
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: zc-spin 0.7s linear infinite;
+}
