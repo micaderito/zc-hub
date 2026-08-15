@@ -7,8 +7,8 @@ import { tokens, getMlToken, addResolution } from '../store.js';
 import { getSkuByMlItem, getSkuByTnVariant, getMlItemBySku, getTnVariantBySku } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, insertAuditLog, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask, tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
-import { patchTnStock, patchTnPrice } from './conflictsService.js';
+import { getSyncEnabled, insertAuditLog, attributeStockChangeToSale, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask, tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
+import { patchTnStock, patchTnPrice, refreshMlItemInSnapshot, refreshTnProductInSnapshot } from './conflictsService.js';
 
 /**
  * El mapeo SKU↔canal (`store.js`) vive solo en memoria y se llena al correr el análisis de
@@ -53,6 +53,90 @@ function tnOrderItemDisplay(item) {
   const variant = item?.variant_name || item?.variant || item?.option || '';
   if (!name && !variant) return null;
   return variant ? `${name} · ${variant}` : name;
+}
+
+/**
+ * Registra en el historial el movimiento que hizo el canal DONDE se vendió.
+ *
+ * El hub solo escribe el canal espejo (vende ML → descuenta TN), así que hasta acá el historial
+ * contaba media historia. Este paso completa la otra mitad, que es la que permite ver si los dos
+ * canales quedaron en el mismo número o se desincronizaron.
+ *
+ * Son dos pasos a propósito:
+ *   1) refrescar el ítem/producto en el snapshot → el diff anota el cambio real de stock que hizo
+ *      la plataforma (ver `recordStockChanges` en conflictsService). Es un valor OBSERVADO, no el
+ *      que suponemos: si ML descontó otra cosa, se ve.
+ *   2) atribuirlo a esta venta → la fila deja de ser un "cambio externo" y pasa a decir "Venta ML".
+ * Separarlos hace que dé igual el orden de llegada: si el webhook del ítem ya había registrado el
+ * cambio, el refresh no encuentra diferencia y el paso 2 igual reetiqueta la fila que ya existía.
+ *
+ * Cuesta 1 GET por ítem vendido. Es el precio de tener el dato observado en vez de inventado, y las
+ * ventas son pocas comparadas con el crawl del catálogo.
+ */
+async function recordMlSideMovement({ itemId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source }) {
+  let refreshed = { ok: false };
+  try {
+    const accessToken = await getMlToken();
+    if (accessToken && itemId) refreshed = await refreshMlItemInSnapshot(accessToken, itemId);
+  } catch (e) {
+    console.error('[Sync] refreshMlItemInSnapshot:', e.message);
+  }
+  await finishSideMovement(refreshed, {
+    channel: 'mercadolibre', probeId: itemId,
+    sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source,
+  });
+}
+
+/** Igual que recordMlSideMovement pero del lado de Tienda Nube (ver ahí el porqué de los dos pasos). */
+async function recordTnSideMovement({ productId, sku, delta, orderId, saleItemId, productLabel, productDisplay, source }) {
+  let refreshed = { ok: false };
+  try {
+    const { access_token, store_id } = tokens.tiendanube || {};
+    if (access_token && productId != null) refreshed = await refreshTnProductInSnapshot(access_token, store_id, productId);
+  } catch (e) {
+    console.error('[Sync] refreshTnProductInSnapshot:', e.message);
+  }
+  await finishSideMovement(refreshed, {
+    channel: 'tiendanube', probeId: productId,
+    sku, delta, orderId, packId: orderId, saleItemId, productLabel, productDisplay, source,
+  });
+}
+
+/**
+ * Atribuye el movimiento a la venta y, si la lectura del canal falló, deja el reintento encolado.
+ *
+ * Un 429 sostenido de ML (o una caída de TN) no puede significar "esta venta no quedó registrada":
+ * sería un agujero silencioso justo en la información que sirve para detectar inconsistencias. La
+ * tarea `stock_probe` reintenta la lectura con el backoff de la cola (10s, 40s, 90s…) y, agotados
+ * los 5 intentos, queda visible en la tab "Cola ML" con botón Reintentar.
+ *
+ * Se intenta atribuir SIEMPRE, incluso si la lectura falló: el webhook `items`/`product/updated`
+ * del canal puede haber registrado el movimiento antes, y en ese caso ya no hace falta reintentar.
+ */
+async function finishSideMovement(refreshed, ctx) {
+  const { channel, probeId, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source } = ctx;
+  const attributed = await attributeStockChangeToSale({
+    channel, channelSale: channel,
+    sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source,
+  }).catch(e => {
+    console.error(`[Sync] attributeStockChangeToSale ${channel}:`, e.message);
+    return false;
+  });
+
+  if (refreshed?.ok || attributed || probeId == null) return;
+
+  const taskId = await enqueueMlTask({
+    kind: 'stock_probe',
+    itemId: String(probeId),
+    contextJson: JSON.stringify({
+      probe: { channel, sku, delta, orderId, packId, saleItemId, productLabel, productDisplay, source },
+    }),
+    idempotencyKey: `stock_probe:${channel}:${orderId ?? ''}:${sku}:${delta}`,
+  });
+  console.warn(
+    '[Sync] No se pudo leer el stock en %s para el SKU %s (venta %s). Encolado para reintentar (taskId %s).',
+    channel, sku, orderId, taskId
+  );
 }
 
 /**
@@ -279,6 +363,18 @@ export async function onMercadoLibreOrderPaid(orderItems, orderId = '', orderPay
     if (!out.ok) {
       console.warn('[Sync] ML orden %s: ítem %s SKU=%s — descuento en TN falló (variante no en TN o API).', orderId, itemId, sku);
     }
+    // El descuento que hizo ML se registra pase lo que pase con TN: si el espejo falló, el
+    // historial tiene que mostrar el movimiento de ML solo — esa es la desincronización.
+    await recordMlSideMovement({
+      itemId,
+      sku,
+      delta: -quantity,
+      orderId: realOrderId,
+      packId,
+      saleItemId: variationId ? `${itemId}:${variationId}` : String(itemId),
+      productLabel: 'Venta ML',
+      productDisplay: mlOrderItemDisplay(oi),
+    });
     if (out.ok && out.stockBefore !== undefined) {
       const saleItemId = saleOrderId != null ? String(saleOrderId) : (orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null);
       await insertAuditLog({
@@ -335,6 +431,16 @@ export async function onTiendaNubeOrderPaid(orderItems, orderId = '', orderPaylo
     };
     const out = await deductStockMercadoLibre(sku, quantity, auditCtx);
     results.push({ variantId, sku, quantity, ...out });
+    // El descuento que hizo TN (el canal donde se vendió) es el otro lado del historial.
+    await recordTnSideMovement({
+      productId,
+      sku,
+      delta: -quantity,
+      orderId: String(orderId),
+      saleItemId,
+      productLabel: 'Venta TN',
+      productDisplay: tnOrderItemDisplay(item),
+    });
     if (out.ok) {
       console.log('[Sync] TN orden %s: SKU %s encolado en ML (taskId %s)', orderId, sku, out.taskId);
     } else {
@@ -454,6 +560,19 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
       results.push({ itemId, variationId, sku, quantity, ok: false, mlNotRestored: true, mlStock, tnStock });
       continue;
     }
+    // Llegar hasta acá ya confirma que ML restauró de su lado (mlStock > tnStock, chequeado
+    // arriba): se registra ese movimiento independientemente de si el espejo en TN sale bien.
+    await recordMlSideMovement({
+      itemId,
+      sku,
+      delta: quantity,
+      orderId: realOrderId,
+      packId,
+      saleItemId: variationId ? `${itemId}:${variationId}` : String(itemId),
+      productLabel: 'Cancelación ML',
+      productDisplay: mlOrderItemDisplay(oi),
+      source: 'devolucion',
+    });
 
     // updateVariantStock lanza si TN rechaza: lo contenemos por ítem para que un producto que
     // falla no se lleve puestos a los demás (ni al alta de las devoluciones pendientes de abajo).
@@ -479,6 +598,7 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
 
     const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null;
     await insertAuditLog({
+      source: 'devolucion',
       channelSale: 'mercadolibre',
       orderId: realOrderId,
       packId,
@@ -510,6 +630,7 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
     const productId = item.product_id ?? item.productId;
     const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
     const auditCtx = {
+      source: 'devolucion',
       channelSale: 'tiendanube',
       orderId: String(orderId),
       saleItemId,
@@ -522,6 +643,18 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
     };
     const out = await restoreStockMercadoLibre(sku, quantity, auditCtx);
     results.push({ variantId, sku, quantity, ...out });
+    // TN restituye el stock al cancelar solo si la orden se canceló con reposición; si no lo hizo,
+    // el diff no encuentra nada y no se registra nada.
+    await recordTnSideMovement({
+      productId,
+      sku,
+      delta: quantity,
+      orderId: String(orderId),
+      saleItemId,
+      productLabel: 'Cancelación TN',
+      productDisplay: tnOrderItemDisplay(item),
+      source: 'devolucion',
+    });
     if (out.ok) {
       console.log('[Sync] TN cancelación %s: SKU %s encolado en ML (taskId %s)', orderId, sku, out.taskId);
     }
@@ -593,6 +726,7 @@ export async function approvePendingReturn(returnId) {
   try {
     const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
     const auditCtx = {
+      source: 'devolucion',
       channelSale: 'mercadolibre',
       orderId: String(row.orderId),
       saleItemId,
@@ -614,6 +748,7 @@ export async function approvePendingReturn(returnId) {
     if (outTn.ok && outTn.stockBefore !== undefined) {
       const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
       await insertAuditLog({
+        source: 'devolucion',
         channelSale: 'mercadolibre',
         orderId: String(row.orderId),
         saleItemId,

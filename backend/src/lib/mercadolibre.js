@@ -188,6 +188,27 @@ export async function getItem(accessToken, itemId) {
   return res.json();
 }
 
+/**
+ * Como getItem, pero sin colapsar el error a `null`: expone el status HTTP.
+ *
+ * `getItem` ya reintenta 429 con backoff y circuit breaker (`fetchWith429Retry`), pero si se
+ * agotan los reintentos devuelve `null` igual que si el ítem no existiera (404) — y para quien
+ * refresca el snapshot (`refreshMlItemInSnapshot`) esas dos cosas son MUY distintas: un 404 real
+ * dice "el ítem se borró, sacalo del catálogo"; un 429 agotado no dice nada sobre el ítem, solo que
+ * ML no contestó. Tratarlos igual borraba filas del snapshot (y, en el historial, podía marcar un
+ * producto como desincronizado) por una falla transitoria de la API, no un cambio real.
+ */
+export async function getItemOrStatus(accessToken, itemId) {
+  const url = `${BASE}/items/${itemId}?include_attributes=all`;
+  const res = await fetchWith429Retry(
+    url,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getItem'
+  );
+  if (!res.ok) return { item: null, status: res.status };
+  return { item: await res.json(), status: res.status };
+}
+
 /** ML permite pedir como máximo 20 ítems por llamada al multiget. */
 const MULTIGET_MAX_IDS = 20;
 
@@ -462,6 +483,7 @@ export async function getClaimsSearch(accessToken, params = {}) {
   if (params.resource_id) q.set('resource_id', params.resource_id);
   if (params.player_role) q.set('player_role', params.player_role);
   if (params.player_user_id != null) q.set('player_user_id', params.player_user_id);
+  if (params.range) q.set('range', params.range);
   const url = `${BASE}/post-purchase/v1/claims/search?${q.toString()}`;
   const res = await fetchWith429Retry(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 'getClaimsSearch');
   if (!res.ok) {
@@ -470,6 +492,18 @@ export async function getClaimsSearch(accessToken, params = {}) {
     return null;
   }
   return res.json();
+}
+
+/**
+ * Un reclamo tiene una devolución asociada si `related_entities` incluye `"return"` (así lo
+ * indica la doc de ML: es el campo que hay que mirar, no `type`). `type === 'return'` se
+ * mantiene como respaldo porque la doc es inconsistente entre versiones, pero por sí solo pierde
+ * devoluciones que llegan como `type: 'mediations'` (p. ej. producto defectuoso).
+ */
+export function claimHasReturn(claim) {
+  if (!claim) return false;
+  if (Array.isArray(claim.related_entities) && claim.related_entities.includes('return')) return true;
+  return (claim.type || '').toLowerCase() === 'return';
 }
 
 /** Detalle de devoluciones de un reclamo. Devuelve info de envío y puede incluir ítems. Reintenta ante 429. */

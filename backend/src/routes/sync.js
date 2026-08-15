@@ -130,7 +130,7 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
 
 /**
  * Historial de cambios de stock.
- * Query: limit, offset, orderId (busca por nº venta, id. ítem o SKU), source ('venta'|'manual'|'devolucion').
+ * Query: limit, offset, orderId (busca por nº venta, id. ítem o SKU), source ('venta'|'manual'|'devolucion'|'externo').
  */
 syncRoutes.get('/audit', async (req, res) => {
   try {
@@ -173,6 +173,13 @@ syncRoutes.post('/audit/:id/revert', async (req, res) => {
     // engañoso ("SKU o cantidad inválidos").
     if (row.source === 'manual') {
       return res.status(400).json({ error: 'Este cambio se hizo a mano, no viene de una venta: no se puede revertir automáticamente. Volvé a fijar el stock desde Precio y stock.' });
+    }
+    // Las filas con actor 'plataforma' no las escribió el hub: son el movimiento que hizo ML o TN
+    // por su cuenta, que registramos para poder comparar los dos canales. "Revertir" acá no
+    // desharía nada en el canal —solo escribiría un stock nuevo por encima del que puso ML/TN—, así
+    // que se corrige a mano desde Precio y stock, viendo los dos números.
+    if (row.actor === 'plataforma') {
+      return res.status(400).json({ error: 'Este movimiento lo hizo la plataforma (no el hub): se registra para poder comparar los dos canales, pero no se puede revertir desde acá. Corregí el stock desde Precio y stock.' });
     }
     const result = await revertSyncAudit(row);
     if (!result.ok) return res.status(502).json({ error: result.error || 'No se pudo revertir' });
@@ -219,8 +226,14 @@ syncRoutes.get('/returns', async (req, res) => {
   }
 });
 
-/** Estados de devolución ML que consideramos ya cerrados (no mostrar como pendiente). */
-const ML_RETURN_CLOSED_STATUSES = ['closed', 'delivered', 'expired', 'failed', 'cancelled', 'canceled', 'not_delivered'];
+/**
+ * Estados de devolución ML en los que no hay nada que restaurar (la devolución se canceló o
+ * nunca llegó a existir). OJO: `delivered` (mercadería en manos del vendedor) y `expired` (ML
+ * cerró la devolución sola al vencer el plazo de revisión) NO van acá a propósito — son
+ * justamente los estados en los que corresponde restaurar stock. Antes estaban en esta lista y
+ * eso hacía que la devolución se descartara en el momento exacto en que había que actuar.
+ */
+const ML_RETURN_CLOSED_STATUSES = ['cancelled', 'canceled'];
 
 /** Caché del último fetch de devoluciones OK (evita 429 por clics seguidos en Actualizar). TTL 2 min. */
 const RETURNS_FETCH_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -401,7 +414,14 @@ export async function processClaimToPendingReturns(accessToken, claim) {
   return { created, skipped };
 }
 
-/** Traer devoluciones desde ML: reclamos tipo "return" (por type en API o en código). Incluimos todo lo que no esté explícitamente cerrado. */
+/**
+ * Cuántos días hacia atrás mira el fetch manual de devoluciones. La doc de ML pide acotar
+ * `claims/search` (además de player_role+player_user_id) para no generar consultas costosas;
+ * un rango de fecha además evita re-crawlear todo el historial en cada clic de "Actualizar".
+ */
+const RETURNS_FETCH_LOOKBACK_DAYS = 45;
+
+/** Traer devoluciones desde ML: reclamos con devolución asociada (ver claimHasReturn), sin importar si ya están cerrados — `delivered`/`expired` son justo los estados en los que hay que actuar. */
 syncRoutes.post('/returns/fetch', async (_, res) => {
   const accessToken = await getMlToken();
   if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
@@ -428,39 +448,28 @@ syncRoutes.post('/returns/fetch', async (_, res) => {
     if (!userId) {
       return res.status(400).json({ error: 'Falta user_id de ML (reconectá Mercado Libre).' });
     }
-    // ML: player_role+player_user_id obligatorios; type=return (devoluciones); status=opened para listar solo abiertas.
+    // ML: player_role+player_user_id obligatorios. Sin filtrar por status: un status=opened
+    // excluye reclamos ya cerrados, que es justo donde vive una devolución que ya llegó
+    // (return.status=delivered) o que ML cerró sola al vencer el plazo (expired).
+    const from = new Date(Date.now() - RETURNS_FETCH_LOOKBACK_DAYS * 24 * 3600 * 1000).toISOString().replace('Z', '-0000');
+    const to = new Date(Date.now() + 60 * 60 * 1000).toISOString().replace('Z', '-0000');
+    const range = `date_created:after:${from},before:${to}`;
+
     let claims = [];
-    let requestedWithTypeReturn = false;
-    for (const useType of [true, false]) {
-      let collected = [];
-      for (let offset = 0; offset < 100; offset += 50) {
-        const params = { limit: 50, offset, player_role: 'respondent', player_user_id: userId, status: 'opened' };
-        if (useType) {
-          params.type = 'return';
-          requestedWithTypeReturn = true;
-        }
-        const searchRes = await ml.getClaimsSearch(accessToken, params);
-        const page = searchRes?.data ?? searchRes?.results ?? [];
-        if (page.length === 0) break;
-        collected = collected.concat(page);
-        if (page.length < 50) break;
-      }
-      if (collected.length > 0) {
-        claims = collected;
-        break;
-      }
-      requestedWithTypeReturn = false;
+    for (let offset = 0; offset < 500; offset += 50) {
+      const searchRes = await ml.getClaimsSearch(accessToken, { limit: 50, offset, player_role: 'respondent', player_user_id: userId, range });
+      const page = searchRes?.data ?? searchRes?.results ?? [];
+      if (page.length === 0) break;
+      claims = claims.concat(page);
+      if (page.length < 50) break;
     }
-    const returnClaims = claims.filter((c) => (c.type || '').toLowerCase() === 'return');
-    const listToUse = requestedWithTypeReturn
-      ? claims
-      : (returnClaims.length > 0 ? returnClaims : claims.filter((c) => (c.type || '').toLowerCase() === 'return'));
-    console.log('[returns/fetch] claims total=%s, con type=return en request=%s, procesando=%s', claims.length, requestedWithTypeReturn, listToUse.length);
+    const returnClaims = claims.filter((c) => ml.claimHasReturn(c));
+    console.log('[returns/fetch] claims en los últimos %sd=%s, con devolución asociada=%s', RETURNS_FETCH_LOOKBACK_DAYS, claims.length, returnClaims.length);
 
     let created = 0;
     let skipped = 0;
 
-    for (const claim of listToUse) {
+    for (const claim of returnClaims) {
       const out = await processClaimToPendingReturns(accessToken, claim);
       created += out.created;
       skipped += out.skipped;

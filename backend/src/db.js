@@ -24,11 +24,44 @@ function getPool() {
 const SYNC_ENABLED_KEY = 'stock_sync_enabled';
 const ANALYSIS_CACHE_KEY = 'conflicts_analysis_cache';
 
+/**
+ * Corre un backfill de datos una única vez, para siempre: a diferencia de `CREATE TABLE IF NOT
+ * EXISTS`/`ALTER ... ADD COLUMN IF NOT EXISTS` (que Postgres resuelve solo con un chequeo barato
+ * de catálogo), un backfill de datos (UPDATE/INSERT sobre filas existentes) no tiene ese IF NOT
+ * EXISTS gratis — sin este registro, se re-ejecutaría en cada arranque del backend para siempre.
+ * `schema_migrations` guarda qué id ya corrió; todo en una transacción para que el backfill y su
+ * marca queden atómicos (si el backfill falla, no se marca como aplicado y se reintenta en el
+ * próximo arranque).
+ */
+async function runOnceMigration(p, id, fn) {
+  const client = await p.connect();
+  try {
+    const done = await client.query('SELECT 1 FROM schema_migrations WHERE id = $1', [id]);
+    if (done.rows.length > 0) return;
+    await client.query('BEGIN');
+    await fn(client);
+    await client.query('INSERT INTO schema_migrations (id) VALUES ($1)', [id]);
+    await client.query('COMMIT');
+    console.log('DB init: migración "%s" aplicada.', id);
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('DB init: migración "%s" falló, se reintenta en el próximo arranque:', id, e.message);
+  } finally {
+    client.release();
+  }
+}
+
 /** Crea las tablas si no existen. */
 export async function initDb() {
   const p = getPool();
   if (!p) return false;
   try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id VARCHAR(128) PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_settings (
         key VARCHAR(64) PRIMARY KEY,
@@ -65,23 +98,42 @@ export async function initDb() {
     // ni canal de venta: por eso los NOT NULL de abajo se aflojan en vez de rellenarse con
     // sentinelas vacíos, que harían pasar por "sin orden" a algo que nunca tuvo una.
     await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'venta';`);
+    // `actor` = quién movió el stock. 'hub' es lo que escribió la app (el descuento espejo de una
+    // venta, una devolución aprobada, un cambio manual); 'plataforma' es lo que hizo ML o TN por su
+    // cuenta y nosotros detectamos al refrescar el ítem (el descuento de la venta en el canal donde
+    // se vendió, o una edición desde el panel del canal). Las filas viejas son todas del hub, así
+    // que el DEFAULT las backfillea. Se separa de `source` porque son preguntas distintas: `source`
+    // dice POR QUÉ cambió el stock (venta/devolución/manual/externo) y `actor` QUIÉN lo cambió; una
+    // venta tiene las dos filas —la del canal (plataforma) y la del espejo (hub)— con el mismo source.
+    await p.query(`ALTER TABLE sync_audit ADD COLUMN IF NOT EXISTS actor VARCHAR(16) NOT NULL DEFAULT 'hub';`);
     await p.query(`ALTER TABLE sync_audit ALTER COLUMN channel_sale DROP NOT NULL;`);
     await p.query(`ALTER TABLE sync_audit ALTER COLUMN order_id DROP NOT NULL;`);
     await p.query(`ALTER TABLE sync_audit ALTER COLUMN quantity DROP NOT NULL;`);
     // El historial por producto filtra por SKU y ordena por fecha.
     await p.query(`CREATE INDEX IF NOT EXISTS idx_sync_audit_sku_created ON sync_audit (sku, created_at DESC);`);
-    // Backfill una sola vez: rellena pack_id de filas viejas leyendo el pack_id real desde el JSON crudo de la orden.
-    try {
-      await p.query(`
+    // Backfill: rellena pack_id de filas viejas leyendo el pack_id real desde el JSON crudo de la orden.
+    await runOnceMigration(p, '2026-08_backfill_pack_id', async (client) => {
+      await client.query(`
         UPDATE sync_audit
         SET pack_id = (notification_payload::jsonb ->> 'pack_id')
         WHERE pack_id IS NULL
           AND notification_payload IS NOT NULL
           AND (notification_payload::jsonb ->> 'pack_id') IS NOT NULL
       `);
-    } catch (e) {
-      console.error('DB init: backfill pack_id error:', e.message);
-    }
+    });
+
+    // Backfill: hasta el fix de 2026-08-12 ninguna restauración de stock por cancelación/devolución
+    // le ponía source='devolucion' a su fila (quedaban con el default 'venta'), así que el filtro
+    // "Devoluciones" del Historial no mostraba nada de lo que ya había pasado. Re-etiqueta esas
+    // filas viejas por su product_label.
+    await runOnceMigration(p, '2026-08-12_backfill_source_devolucion', async (client) => {
+      await client.query(`
+        UPDATE sync_audit
+        SET source = 'devolucion'
+        WHERE source = 'venta'
+          AND product_label IN ('Cancelación ML', 'Cancelación TN', 'Devolución aprobada')
+      `);
+    });
 
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_pending_returns (
@@ -470,6 +522,7 @@ export async function releaseOrderProcessingClaim(channelSale, orderId, operatio
  * productLabel = estado/acción que afecta el stock: "Venta ML", "Venta TN", "Cancelación ML", "Cancelación TN", "Devolución aprobada".
  * productDisplay = descripción y variante del producto (nombre + variante); no usar productLabel para el nombre del producto.
  * notificationPayload = JSON crudo de la orden (respuesta getOrder ML/TN) para auditoría.
+ * actor = 'hub' (lo escribió la app) | 'plataforma' (lo hizo ML/TN y lo detectamos al refrescar).
  */
 export async function insertAuditLog(row) {
   const p = getPool();
@@ -479,13 +532,14 @@ export async function insertAuditLog(row) {
       ? (typeof row.notificationPayload === 'string' ? row.notificationPayload : JSON.stringify(row.notificationPayload))
       : null;
     const source = row.source || 'venta';
-    // Un cambio manual no nace de una orden: no tiene canal de venta, nº de orden ni cantidad
-    // vendida. Esos campos van NULL; el qué pasó lo cuentan stock_before/stock_after. Las filas
-    // de venta mantienen los defaults de siempre ('' y 0) para no cambiar lo ya guardado.
-    const fromSale = source !== 'manual';
+    // Un cambio manual (o uno externo, hecho desde el panel del canal) no nace de una orden: no
+    // tiene canal de venta, nº de orden ni cantidad vendida. Esos campos van NULL; el qué pasó lo
+    // cuentan stock_before/stock_after. Las filas de venta mantienen los defaults de siempre ('' y
+    // 0) para no cambiar lo ya guardado.
+    const fromSale = source === 'venta' || source === 'devolucion';
     await p.query(
-      `INSERT INTO sync_audit (channel_sale, order_id, pack_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload, source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      `INSERT INTO sync_audit (channel_sale, order_id, pack_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload, source, actor)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         row.channelSale ?? null,
         fromSale ? (row.orderId || '') : null,
@@ -499,7 +553,8 @@ export async function insertAuditLog(row) {
         row.stockBefore ?? 0,
         row.stockAfter ?? 0,
         payloadStr,
-        source
+        source,
+        row.actor === 'plataforma' ? 'plataforma' : 'hub'
       ]
     );
   } catch (e) {
@@ -507,14 +562,84 @@ export async function insertAuditLog(row) {
   }
 }
 
+/**
+ * Le pone nombre y venta a un cambio de stock que ya habíamos detectado en el canal.
+ *
+ * Cuando ML o TN descuentan stock por una venta suya, el cambio entra al historial como 'externo'
+ * (lo vio el diff del snapshot, que no sabe por qué cambió). Después, al procesar la orden, este
+ * update lo reconoce: misma plataforma, mismo SKU y una diferencia de stock igual a la cantidad
+ * vendida, dentro de la última media hora. Hacerlo en dos pasos —detectar y después atribuir— es
+ * lo que hace que dé igual quién llegue primero, si el webhook del ítem o el de la orden.
+ *
+ * Si NO matchea, la fila queda como 'externo' a propósito: un movimiento de stock en el canal que
+ * no se corresponde con ninguna venta conocida es justamente lo que hay que poder ver.
+ *
+ * @param {object} args - { channel, sku, delta, channelSale, orderId, packId?, saleItemId?, productLabel, productDisplay?, source? }
+ *   delta = stockAfter - stockBefore esperado (negativo si la venta descontó, positivo si se restauró).
+ * @returns {Promise<boolean>} true si encontró una fila y la atribuyó.
+ */
+export async function attributeStockChangeToSale(args) {
+  const p = getPool();
+  const sku = args?.sku && String(args.sku).trim();
+  const delta = Number(args?.delta);
+  if (!p || !sku || !Number.isFinite(delta) || delta === 0) return false;
+  try {
+    const r = await p.query(
+      `UPDATE sync_audit
+          SET source = $1,
+              product_label = $2,
+              product_display = COALESCE($3, product_display),
+              channel_sale = $4,
+              order_id = $5,
+              pack_id = $6,
+              sale_item_id = $7,
+              quantity = $8
+        WHERE id = (
+          SELECT id FROM sync_audit
+           WHERE source = 'externo'
+             AND actor = 'plataforma'
+             AND updated_channel = $9
+             AND sku = $10
+             AND (stock_after - stock_before) = $11
+             AND created_at > NOW() - make_interval(mins => $12)
+           ORDER BY created_at DESC
+           LIMIT 1
+        )
+        RETURNING id`,
+      [
+        args.source || 'venta',
+        args.productLabel ?? null,
+        args.productDisplay ?? null,
+        args.channelSale ?? null,
+        args.orderId != null ? String(args.orderId) : '',
+        args.packId != null ? String(args.packId) : (args.orderId != null ? String(args.orderId) : ''),
+        args.saleItemId ?? null,
+        Math.abs(delta),
+        args.channel,
+        sku,
+        delta,
+        Number(args.withinMinutes) > 0 ? Number(args.withinMinutes) : 30,
+      ]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('attributeStockChangeToSale:', e.message);
+    return false;
+  }
+}
+
 /** Columnas del historial, en el formato camelCase que espera el front. */
 const AUDIT_COLUMNS = `id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId",
         sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
         quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-        source, created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"`;
+        source, actor, created_at AS "createdAt", reverted_at AS "revertedAt", notification_payload AS "notificationPayload"`;
 
-/** Orígenes válidos de un cambio de stock. Se valida en la query para no filtrar por algo inexistente. */
-export const AUDIT_SOURCES = ['venta', 'manual', 'devolucion'];
+/**
+ * Orígenes válidos de un cambio de stock. Se valida en la query para no filtrar por algo inexistente.
+ * 'externo' = cambio detectado en ML/TN que no corresponde a ninguna venta ni escritura del hub
+ * (típicamente lo editaron desde el panel del canal).
+ */
+export const AUDIT_SOURCES = ['venta', 'manual', 'devolucion', 'externo'];
 
 function mapAuditRow(r) {
   return {
@@ -606,7 +731,7 @@ export async function getAuditRowById(id) {
     const r = await p.query(
       `SELECT id, channel_sale AS "channelSale", order_id AS "orderId", pack_id AS "packId", sale_item_id AS "saleItemId", sku, product_label AS "productLabel", product_display AS "productDisplay",
               quantity, updated_channel AS "updatedChannel", stock_before AS "stockBefore", stock_after AS "stockAfter",
-              source, reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
+              source, actor, reverted_at AS "revertedAt", notification_payload AS "notificationPayload"
        FROM sync_audit WHERE id = $1`,
       [Number(id)]
     );
