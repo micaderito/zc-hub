@@ -5,6 +5,7 @@ import * as tn from '../lib/tiendanube.js';
 import { publishProduct } from '../services/productPublish.js';
 import { saveImage, getImage, removeImage } from '../services/imageStore.js';
 import { generateSeo, isLlmConfigured } from '../lib/llm.js';
+import { listPacksWithStock, savePack, removePack, assignSkuPack } from '../services/packsService.js';
 
 export const productRoutes = Router();
 
@@ -280,5 +281,70 @@ productRoutes.get('/ml/listing-prices', async (req, res) => {
   } catch (e) {
     // getListingPrices lanza con .mlStatus cuando la API responde error.
     res.status(e.mlStatus ? 502 : 500).json({ error: e.message });
+  }
+});
+
+/* ============================ Packs (fase 5) ============================ */
+
+/** Todos los packs con sus productos, stock de hoy y umbral de alerta de cada uno. */
+productRoutes.get('/packs', async (_req, res) => {
+  try {
+    res.json({ packs: await listPacksWithStock() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Alta de un pack. Body: { name, unitCount?, mode? } (mode: 'assorted' | 'single'). */
+productRoutes.post('/packs', async (req, res) => {
+  const name = (req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name requerido' });
+  try {
+    const id = await savePack({ name, unitCount: req.body?.unitCount, mode: req.body?.mode });
+    if (!id) return res.status(500).json({ error: 'No se pudo crear el pack' });
+    res.json({ ok: true, id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Edición de un pack existente. */
+productRoutes.put('/packs/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const name = (req.body?.name || '').trim();
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+  if (!name) return res.status(400).json({ error: 'name requerido' });
+  try {
+    const saved = await savePack({ id, name, unitCount: req.body?.unitCount, mode: req.body?.mode });
+    if (!saved) return res.status(500).json({ error: 'No se pudo guardar el pack' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Borra un pack. Sus SKUs quedan "sin pack"; no toca reglas de alerta ni historial. */
+productRoutes.delete('/packs/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+  try {
+    await removePack(id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Mueve un SKU a un pack, o lo saca. Body: { packId: number | null }. */
+productRoutes.put('/packs/sku/:sku', async (req, res) => {
+  const sku = (req.params.sku || '').trim();
+  if (!sku) return res.status(400).json({ error: 'sku requerido' });
+  const packId = req.body?.packId;
+  if (packId != null && !Number.isFinite(Number(packId))) return res.status(400).json({ error: 'packId inválido' });
+  try {
+    await assignSkuPack(sku, packId == null ? null : Number(packId));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });

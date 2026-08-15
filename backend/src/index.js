@@ -19,6 +19,7 @@ import { webhookRoutes } from './routes/webhooks.js';
 import { conflictsRoutes } from './routes/conflicts.js';
 import { productRoutes } from './routes/products.js';
 import { pricingRoutes } from './routes/pricing.js';
+import { alertsRoutes } from './routes/alerts.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -66,6 +67,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/conflicts', conflictsRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/pricing', pricingRoutes);
+app.use('/api/alerts', alertsRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 // Por si Railway (u otro) hace health check en la raíz

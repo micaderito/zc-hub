@@ -4,13 +4,19 @@
       <h1>Precio y stock</h1>
       <p class="subtitle">Solo aparecen productos que coinciden por SKU en ML y TN. Actualizá precios por canal y sincronizá el stock en ambos con un solo valor.</p>
     </div>
-    @if (analysis() && !loading()) {
+    @if (analysis() && !loading() && activeSubTab() === 'stock') {
       <button type="button" class="btn-refresh zc-btn" (click)="refreshAnalysis()" [disabled]="busy()" [title]="busy() ? 'Actualizando…' : 'Actualizar lista'">
         <i class="ti ti-refresh" [class.spinning]="busy()" aria-hidden="true"></i>
         {{ busy() ? 'Actualizando…' : 'Actualizar' }}
       </button>
     }
   </div>
+
+  <zc-tabs [tabs]="subTabs" [activeKey]="activeSubTab()" (tabChange)="onSubTabChange($event)" />
+
+  @if (activeSubTab() === 'packs') {
+    <zc-packs-tab />
+  } @else {
 
   @if (error()) {
     <div class="alert error">{{ error() }}</div>
@@ -112,6 +118,8 @@
       }
     </div>
   }
+
+  } <!-- @else de activeSubTab() === 'packs' -->
 
   <!-- Confirmación Mercado Libre: no permite precio por variación en ítems legacy -->
   @if (confirmPriceAllML(); as c) {

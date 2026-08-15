@@ -292,6 +292,71 @@ export async function initDb() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_sku_code_map_code ON sku_code_map (code);`);
 
+    // ── Alertas de stock (fase 5) ────────────────────────────────────────────────
+    // Una alerta por SKU: la usuaria elige a mano qué producto vigilar y con qué umbral — nunca hay
+    // default global (ver CLAUDE.md). `state` guarda si la regla está disparada, para no repetir el
+    // aviso mientras el stock siga bajo (histéresis): solo se inserta una notificación en la
+    // transición ok→triggered; al subir estrictamente por encima del umbral vuelve a 'ok'.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS stock_alerts (
+        sku VARCHAR(128) PRIMARY KEY,
+        threshold INTEGER NOT NULL,
+        product_label VARCHAR(512),
+        state VARCHAR(16) NOT NULL DEFAULT 'ok',
+        muted_until TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Una fila por aviso disparado (no por regla): la lista "Para reponer" agrupa estas filas por
+    // SKU desde una fecha de corte. Nada se borra al cerrar un período (ver stock_alerts_last_order_at
+    // más abajo, en sync_settings): el historial completo sigue disponible eligiendo "Todo".
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS stock_notifications (
+        id SERIAL PRIMARY KEY,
+        sku VARCHAR(128) NOT NULL,
+        product_label VARCHAR(512),
+        threshold INTEGER NOT NULL,
+        stock_ml INTEGER,
+        stock_tn INTEGER,
+        stock_effective INTEGER NOT NULL,
+        read_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Contador de la campanita: solo interesan las no leídas, siempre ordenadas por fecha.
+    await p.query(`
+      CREATE INDEX IF NOT EXISTS idx_stock_notifications_unread
+      ON stock_notifications (created_at DESC) WHERE read_at IS NULL;
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_stock_notifications_sku_created ON stock_notifications (sku, created_at DESC);`);
+
+    // ── Packs: la unidad de compra al proveedor (fase 5) ────────────────────────
+    // Un pack agrupa SKUs que se compran juntos al proveedor: "assorted" (surtido, la mezcla la
+    // arma el proveedor) o "single" (N unidades del mismo modelo). No todos los productos tienen
+    // pack — sin fila en pack_skus, el SKU se pide suelto. La alerta sigue siendo siempre por
+    // producto; el pack solo agrupa y suma para el pedido.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS product_packs (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(256) NOT NULL,
+        unit_count INTEGER NOT NULL DEFAULT 8,
+        mode VARCHAR(16) NOT NULL DEFAULT 'assorted',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Un SKU pertenece a lo sumo a un pack (PK = sku). Puente aparte de stock_alerts porque el pack
+    // es del PRODUCTO: vale igual para un SKU que no tiene ninguna alerta configurada.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS pack_skus (
+        sku VARCHAR(128) PRIMARY KEY,
+        pack_id INTEGER NOT NULL REFERENCES product_packs(id) ON DELETE CASCADE
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_pack_skus_pack ON pack_skus (pack_id);`);
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -1516,6 +1581,367 @@ export async function deleteSkuCodeMap(sku) {
     return true;
   } catch (e) {
     console.error('deleteSkuCodeMap:', e.message);
+    return false;
+  }
+}
+
+// ── Alertas de stock (fase 5) ─────────────────────────────────────────────────
+
+const STOCK_ALERT_SELECT = `SELECT sku, threshold, product_label AS "productLabel", state,
+  muted_until AS "mutedUntil", created_at AS "createdAt", updated_at AS "updatedAt" FROM stock_alerts`;
+
+function mapStockAlert(row) {
+  return {
+    sku: row.sku,
+    threshold: Number(row.threshold),
+    productLabel: row.productLabel,
+    state: row.state,
+    mutedUntil: row.mutedUntil ? new Date(row.mutedUntil).toISOString() : null,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+export async function listStockAlerts() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(`${STOCK_ALERT_SELECT} ORDER BY updated_at DESC`);
+    return r.rows.map(mapStockAlert);
+  } catch (e) {
+    console.error('listStockAlerts:', e.message);
+    return [];
+  }
+}
+
+export async function getStockAlert(sku) {
+  const p = getPool();
+  if (!p || !sku) return null;
+  try {
+    const r = await p.query(`${STOCK_ALERT_SELECT} WHERE sku = $1`, [sku]);
+    return r.rows[0] ? mapStockAlert(r.rows[0]) : null;
+  } catch (e) {
+    console.error('getStockAlert:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Alta/edición de una regla. En un alta nueva arranca en 'ok' (default de la columna); en una
+ * edición NO toca `state` a propósito, para que evaluateStockAlerts decida en la próxima pasada
+ * si hay que notificar según el umbral nuevo, en vez de resetear a ciegas una regla ya disparada.
+ */
+export async function upsertStockAlert(sku, { threshold, productLabel } = {}) {
+  const p = getPool();
+  if (!p || !sku || !Number.isFinite(Number(threshold))) return false;
+  try {
+    await p.query(
+      `INSERT INTO stock_alerts (sku, threshold, product_label, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (sku) DO UPDATE SET
+         threshold = EXCLUDED.threshold, product_label = EXCLUDED.product_label, updated_at = NOW()`,
+      [sku, Number(threshold), productLabel ?? null]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertStockAlert:', e.message);
+    return false;
+  }
+}
+
+/** Borra una regla (no toca el historial de notificaciones ni el pack del SKU). */
+export async function deleteStockAlert(sku) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  try {
+    await p.query('DELETE FROM stock_alerts WHERE sku = $1', [sku]);
+    return true;
+  } catch (e) {
+    console.error('deleteStockAlert:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Cambia el estado de una regla. Con `expectedState`, el UPDATE es condicional (mismo patrón que
+ * tryClaimOrderProcessing): solo un caller concurrente gana la transición, así dos evaluaciones en
+ * simultáneo (ej. dos webhooks seguidos) no insertan la misma notificación dos veces.
+ */
+export async function setStockAlertState(sku, state, { expectedState } = {}) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  try {
+    const params = [state, sku];
+    let sql = 'UPDATE stock_alerts SET state = $1, updated_at = NOW() WHERE sku = $2';
+    if (expectedState) {
+      params.push(expectedState);
+      sql += ' AND state = $3';
+    }
+    sql += ' RETURNING 1';
+    const r = await p.query(sql, params);
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('setStockAlertState:', e.message);
+    return false;
+  }
+}
+
+/** "Silenciar N días": no dispara notificación aunque cruce el umbral, hasta esa fecha. */
+export async function muteStockAlert(sku, days) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  const n = Math.max(1, Number(days) || 7);
+  try {
+    await p.query(
+      `UPDATE stock_alerts SET muted_until = NOW() + ($1 * INTERVAL '1 day'), updated_at = NOW() WHERE sku = $2`,
+      [n, sku]
+    );
+    return true;
+  } catch (e) {
+    console.error('muteStockAlert:', e.message);
+    return false;
+  }
+}
+
+const NOTIFICATION_SELECT = `SELECT id, sku, product_label AS "productLabel", threshold,
+  stock_ml AS "stockMl", stock_tn AS "stockTn", stock_effective AS "stockEffective",
+  read_at AS "readAt", created_at AS "createdAt" FROM stock_notifications`;
+
+function mapNotification(row) {
+  return {
+    id: row.id,
+    sku: row.sku,
+    productLabel: row.productLabel,
+    threshold: Number(row.threshold),
+    stockMl: row.stockMl == null ? null : Number(row.stockMl),
+    stockTn: row.stockTn == null ? null : Number(row.stockTn),
+    stockEffective: Number(row.stockEffective),
+    readAt: row.readAt ? new Date(row.readAt).toISOString() : null,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+  };
+}
+
+/** Inserta un aviso disparado. `stockEffective` es min(ML, TN) al momento del disparo. */
+export async function insertStockNotification(row) {
+  const p = getPool();
+  if (!p || !row?.sku || row.stockEffective == null) return false;
+  try {
+    await p.query(
+      `INSERT INTO stock_notifications (sku, product_label, threshold, stock_ml, stock_tn, stock_effective)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [row.sku, row.productLabel ?? null, row.threshold, row.stockMl ?? null, row.stockTn ?? null, row.stockEffective]
+    );
+    return true;
+  } catch (e) {
+    console.error('insertStockNotification:', e.message);
+    return false;
+  }
+}
+
+/** Bandeja de notificaciones, más reciente primero. */
+export async function listStockNotifications({ unreadOnly = false, limit = 50, offset = 0 } = {}) {
+  const p = getPool();
+  if (!p) return { rows: [], total: 0 };
+  try {
+    const where = unreadOnly ? 'WHERE read_at IS NULL' : '';
+    const countResult = await p.query(`SELECT COUNT(*)::int AS total FROM stock_notifications ${where}`);
+    const r = await p.query(
+      `${NOTIFICATION_SELECT} ${where} ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [Math.min(limit, 200), offset]
+    );
+    return { rows: r.rows.map(mapNotification), total: countResult.rows[0]?.total ?? 0 };
+  } catch (e) {
+    console.error('listStockNotifications:', e.message);
+    return { rows: [], total: 0 };
+  }
+}
+
+/** Para el contador de la campanita. */
+export async function countUnreadNotifications() {
+  const p = getPool();
+  if (!p) return 0;
+  try {
+    const r = await p.query('SELECT COUNT(*)::int AS n FROM stock_notifications WHERE read_at IS NULL');
+    return r.rows[0]?.n ?? 0;
+  } catch (e) {
+    console.error('countUnreadNotifications:', e.message);
+    return 0;
+  }
+}
+
+/** Marca leídas por id, o todas con `{ all: true }`. */
+export async function markNotificationsRead({ ids, all = false } = {}) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    if (all) {
+      await p.query('UPDATE stock_notifications SET read_at = NOW() WHERE read_at IS NULL');
+    } else if (Array.isArray(ids) && ids.length) {
+      await p.query(
+        'UPDATE stock_notifications SET read_at = NOW() WHERE id = ANY($1::int[]) AND read_at IS NULL',
+        [ids.map(Number)]
+      );
+    }
+    return true;
+  } catch (e) {
+    console.error('markNotificationsRead:', e.message);
+    return false;
+  }
+}
+
+const RESTOCK_CUTOFF_KEY = 'stock_alerts_last_order_at';
+
+/** Fecha desde la que cuenta "Para reponer" (null = sin cerrar nunca un pedido, cuenta desde el principio). */
+export async function getRestockCutoff() {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query('SELECT value FROM sync_settings WHERE key = $1', [RESTOCK_CUTOFF_KEY]);
+    return r.rows[0]?.value || null;
+  } catch (e) {
+    console.error('getRestockCutoff:', e.message);
+    return null;
+  }
+}
+
+/** "Marcar pedido como hecho": corta el período desde ahora (o desde el valor que se pase). */
+export async function setRestockCutoff(iso = new Date().toISOString()) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `INSERT INTO sync_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      [RESTOCK_CUTOFF_KEY, iso]
+    );
+    return true;
+  } catch (e) {
+    console.error('setRestockCutoff:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Candidatos a reponer: una fila por SKU con el primer disparo desde `since`, cuántas veces avisó
+ * y el último umbral/etiqueta vistos (por si cambiaron entre medio). `since` en `null` trae todo
+ * el historial (período "Todo").
+ */
+export async function listRestockCandidates(since) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT sku,
+              (array_agg(product_label ORDER BY created_at DESC))[1] AS "productLabel",
+              MIN(created_at) AS "firstTriggeredAt",
+              COUNT(*)::int AS "timesTriggered",
+              (array_agg(threshold ORDER BY created_at DESC))[1] AS "threshold"
+       FROM stock_notifications
+       WHERE created_at >= $1
+       GROUP BY sku
+       ORDER BY "firstTriggeredAt" ASC`,
+      [since || new Date(0).toISOString()]
+    );
+    return r.rows.map((row) => ({
+      sku: row.sku,
+      productLabel: row.productLabel,
+      firstTriggeredAt: row.firstTriggeredAt ? new Date(row.firstTriggeredAt).toISOString() : null,
+      timesTriggered: row.timesTriggered,
+      threshold: Number(row.threshold),
+    }));
+  } catch (e) {
+    console.error('listRestockCandidates:', e.message);
+    return [];
+  }
+}
+
+// ── Packs: la unidad de compra al proveedor (fase 5) ──────────────────────────
+
+/** Todos los packs, con la lista de SKUs que agrupa cada uno. */
+export async function listPacks() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const packs = await p.query(
+      `SELECT id, name, unit_count AS "unitCount", mode, created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM product_packs ORDER BY name ASC`
+    );
+    const skuRows = await p.query('SELECT sku, pack_id AS "packId" FROM pack_skus');
+    const bySku = new Map();
+    for (const row of skuRows.rows) {
+      if (!bySku.has(row.packId)) bySku.set(row.packId, []);
+      bySku.get(row.packId).push(row.sku);
+    }
+    return packs.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      unitCount: Number(row.unitCount),
+      mode: row.mode,
+      skus: bySku.get(row.id) || [],
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('listPacks:', e.message);
+    return [];
+  }
+}
+
+/** Alta/edición de un pack. Sin `id`, crea uno nuevo y devuelve su id (o `null` si falló). */
+export async function upsertPack({ id, name, unitCount, mode } = {}) {
+  const p = getPool();
+  if (!p || !name) return null;
+  const units = Math.max(1, Number(unitCount) || 8);
+  const packMode = mode === 'single' ? 'single' : 'assorted';
+  try {
+    if (id) {
+      const r = await p.query(
+        `UPDATE product_packs SET name = $1, unit_count = $2, mode = $3, updated_at = NOW()
+         WHERE id = $4 RETURNING id`,
+        [name, units, packMode, id]
+      );
+      return r.rows[0]?.id ?? null;
+    }
+    const r = await p.query(
+      `INSERT INTO product_packs (name, unit_count, mode) VALUES ($1, $2, $3) RETURNING id`,
+      [name, units, packMode]
+    );
+    return r.rows[0]?.id ?? null;
+  } catch (e) {
+    console.error('upsertPack:', e.message);
+    return null;
+  }
+}
+
+/** Borra un pack; sus SKUs quedan "sin pack" (ON DELETE CASCADE en pack_skus). No toca reglas ni historial. */
+export async function deletePack(id) {
+  const p = getPool();
+  if (!p || !id) return false;
+  try {
+    await p.query('DELETE FROM product_packs WHERE id = $1', [id]);
+    return true;
+  } catch (e) {
+    console.error('deletePack:', e.message);
+    return false;
+  }
+}
+
+/** Mueve un SKU a un pack, o lo saca si `packId` es `null`. */
+export async function setSkuPack(sku, packId) {
+  const p = getPool();
+  if (!p || !sku) return false;
+  try {
+    if (packId == null) {
+      await p.query('DELETE FROM pack_skus WHERE sku = $1', [sku]);
+    } else {
+      await p.query(
+        `INSERT INTO pack_skus (sku, pack_id) VALUES ($1, $2)
+         ON CONFLICT (sku) DO UPDATE SET pack_id = EXCLUDED.pack_id`,
+        [sku, packId]
+      );
+    }
+    return true;
+  } catch (e) {
+    console.error('setSkuPack:', e.message);
     return false;
   }
 }
