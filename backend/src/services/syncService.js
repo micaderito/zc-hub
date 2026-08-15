@@ -376,6 +376,7 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
           ? String(oi.id)
           : null;
         await insertAuditLog({
+          source: 'devolucion',
           channelSale: 'mercadolibre',
           orderId: realOrderId,
           packId,
@@ -409,6 +410,7 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
     const productId = item.product_id ?? item.productId;
     const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
     const auditCtx = {
+      source: 'devolucion',
       channelSale: 'tiendanube',
       orderId: String(orderId),
       saleItemId,
@@ -492,6 +494,7 @@ export async function approvePendingReturn(returnId) {
   try {
     const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
     const auditCtx = {
+      source: 'devolucion',
       channelSale: 'mercadolibre',
       orderId: String(row.orderId),
       saleItemId,
@@ -513,6 +516,7 @@ export async function approvePendingReturn(returnId) {
     if (outTn.ok && outTn.stockBefore !== undefined) {
       const saleItemId = row.variationId ? `${row.itemId}:${row.variationId}` : String(row.itemId);
       await insertAuditLog({
+        source: 'devolucion',
         channelSale: 'mercadolibre',
         orderId: String(row.orderId),
         saleItemId,

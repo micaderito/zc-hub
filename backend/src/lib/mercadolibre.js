@@ -462,6 +462,7 @@ export async function getClaimsSearch(accessToken, params = {}) {
   if (params.resource_id) q.set('resource_id', params.resource_id);
   if (params.player_role) q.set('player_role', params.player_role);
   if (params.player_user_id != null) q.set('player_user_id', params.player_user_id);
+  if (params.range) q.set('range', params.range);
   const url = `${BASE}/post-purchase/v1/claims/search?${q.toString()}`;
   const res = await fetchWith429Retry(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 'getClaimsSearch');
   if (!res.ok) {
@@ -470,6 +471,18 @@ export async function getClaimsSearch(accessToken, params = {}) {
     return null;
   }
   return res.json();
+}
+
+/**
+ * Un reclamo tiene una devolución asociada si `related_entities` incluye `"return"` (así lo
+ * indica la doc de ML: es el campo que hay que mirar, no `type`). `type === 'return'` se
+ * mantiene como respaldo porque la doc es inconsistente entre versiones, pero por sí solo pierde
+ * devoluciones que llegan como `type: 'mediations'` (p. ej. producto defectuoso).
+ */
+export function claimHasReturn(claim) {
+  if (!claim) return false;
+  if (Array.isArray(claim.related_entities) && claim.related_entities.includes('return')) return true;
+  return (claim.type || '').toLowerCase() === 'return';
 }
 
 /** Detalle de devoluciones de un reclamo. Devuelve info de envío y puede incluir ítems. Reintenta ante 429. */

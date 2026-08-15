@@ -114,6 +114,42 @@ bloquee con la marca que dejó el primero.
 salió de un carrito) y `sale_order_id` = id de la orden individual, que es el que traen los webhooks
 y el que cruza con `sync_processed_orders`. Cruzar por `order_id` solo falla en ventas por pack.
 
+### Devoluciones vía claim: el webhook de reclamos usaba el topic viejo de ML
+
+Incidente 2026-08-12: dos devoluciones reales nunca aparecieron en `sync_pending_returns` (la
+tabla estaba vacía en prod). Investigando con logs y la API real de la cuenta se encontraron tres
+bugs apilados en el camino de "reclamo → devolución pendiente" (`backend/src/routes/webhooks.js`,
+`backend/src/routes/sync.js`):
+
+1. **ML migró el topic.** Ya no manda `topic: 'claims'`/`'claims_actions'`; manda
+   `topic: 'post_purchase'` con el subtópico en el array `actions` (`actions: ['claims']`).
+   Confirmado con logs reales de producción. El webhook filtraba por el topic viejo, así que
+   **descartaba el 100% de las notificaciones de reclamos**. `isClaimsNotification()` en
+   `webhooks.js` acepta ambos formatos.
+2. **El discriminador de "es devolución" estaba mal.** Se filtraba por `claim.type === 'return'`,
+   pero la doc de ML dice que lo correcto es `claim.related_entities.includes('return')` — un
+   reclamo por producto defectuoso llega como `type: 'mediations'` con `related_entities:
+   ['return']`, y ese caso se perdía. `claimHasReturn()` en `lib/mercadolibre.js` chequea ambos
+   campos (el `type` se mantiene como respaldo porque la doc es inconsistente entre versiones).
+3. **`ML_RETURN_CLOSED_STATUSES` excluía justo los estados donde hay que actuar.** Incluía
+   `delivered` (= "devolución en manos del vendedor", el momento exacto de restaurar stock) y
+   `expired` (= ML cerró la devolución sola al vencer el plazo de revisión). Una devolución
+   real terminaba descartada en el momento en que dejaba de estar pendiente. Ahora la lista
+   solo excluye estados donde no hay nada que restaurar (`cancelled`/`canceled`).
+
+Las 2 devoluciones puntuales de ese incidente no perdieron stock: como el paquete no llegó a
+destino, ML canceló la orden y esas cancelaciones sí pasaron por el camino de "entrega fallida"
+(sección de arriba), que restauró el stock automáticamente sin depender del webhook de reclamos.
+Los tres bugs de arriba solo afectan devoluciones que **sí** pasan por un claim de ML — arrepentimiento
+o producto defectuoso sin que ML cancele la orden — que hasta este fix quedaban invisibles.
+
+De paso se encontró que el filtro **"Devoluciones" del Historial** (`sync.component.ts`, columna
+`source` de `sync_audit`) llevaba muerto desde siempre: la columna acepta `'venta' | 'manual' |
+'devolucion'`, pero ningún camino de restauración por cancelación/devolución (`onMercadoLibreOrderCancelled`,
+`onTiendaNubeOrderCancelled`, `approvePendingReturn`) le ponía `source: 'devolucion'` al insertar
+en `sync_audit` — todo caía al default `'venta'`. Se agregó en los 4 puntos donde se restaura
+stock por cancelación o devolución aprobada, así el filtro que ya existía en la UI queda con datos.
+
 ### Cola de tareas (`ml_pending_tasks`): locks que vencen
 
 El worker (`backend/src/lib/mlTaskQueue.js`, tick cada 500 ms) reclama una tarea y la pasa a
