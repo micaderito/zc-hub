@@ -89,12 +89,42 @@
   padding: 0;
 }
 
-.hist-row {
+// Estado de los dos canales según lo último que sabemos. Es lo primero que se lee al abrir el
+// historial: la pregunta no es "¿se descontó?" sino "¿quedaron iguales?".
+.hist-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.75rem;
+  background: var(--ok-bg);
+  color: var(--ok);
+
+  &.desync {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+
+  .ti { font-size: 0.85rem; }
+}
+
+.hist-summary-text { font-weight: 600; }
+
+.hist-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  color: var(--text-2);
+}
+
+.hist-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
   padding: 0.55rem 0;
   border-bottom: 0.5px solid var(--border);
 
@@ -106,6 +136,44 @@
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
+}
+
+// Las dos caras del mismo movimiento (el canal donde se vendió y el espejo), una al lado de la otra.
+.hist-sides {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  padding-left: 1.55rem; // alineado con el texto de arriba, después del icono
+}
+
+.hist-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+
+  // El canal en el que no quedó registro de nada: la sincronización tendría que haber escrito acá.
+  &.missing .hist-stock {
+    color: var(--warn);
+    font-style: italic;
+  }
+}
+
+// En qué número quedó cada canal después del movimiento.
+.hist-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--text-3);
+
+  .ti { font-size: 0.75rem; }
+
+  &.desync {
+    color: var(--warn);
+    font-weight: 600;
+  }
 }
 
 // Qué tipo de cambio es (stock o precio), para distinguirlos de un vistazo en la línea de tiempo.
@@ -146,6 +214,13 @@
     background: var(--brand-bg);
     color: var(--brand);
   }
+
+  // Cambio hecho en el panel de ML/TN, sin pasar por el hub: se destaca porque es el que no
+  // controlamos y el que suele explicar una diferencia entre canales.
+  &.externo {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
 }
 
 .hist-order {
@@ -167,13 +242,6 @@
   color: var(--warn);
 }
 
-.hist-row-right {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-left: auto;
-}
-
 .hist-stock {
   display: inline-flex;
   align-items: center;
@@ -191,6 +259,7 @@
 }
 
 .hist-date {
+  margin-left: auto;
   font-size: 0.7rem;
   color: var(--text-3);
   white-space: nowrap;

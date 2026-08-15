@@ -130,7 +130,7 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
 
 /**
  * Historial de cambios de stock.
- * Query: limit, offset, orderId (busca por nº venta, id. ítem o SKU), source ('venta'|'manual'|'devolucion').
+ * Query: limit, offset, orderId (busca por nº venta, id. ítem o SKU), source ('venta'|'manual'|'devolucion'|'externo').
  */
 syncRoutes.get('/audit', async (req, res) => {
   try {
@@ -173,6 +173,13 @@ syncRoutes.post('/audit/:id/revert', async (req, res) => {
     // engañoso ("SKU o cantidad inválidos").
     if (row.source === 'manual') {
       return res.status(400).json({ error: 'Este cambio se hizo a mano, no viene de una venta: no se puede revertir automáticamente. Volvé a fijar el stock desde Precio y stock.' });
+    }
+    // Las filas con actor 'plataforma' no las escribió el hub: son el movimiento que hizo ML o TN
+    // por su cuenta, que registramos para poder comparar los dos canales. "Revertir" acá no
+    // desharía nada en el canal —solo escribiría un stock nuevo por encima del que puso ML/TN—, así
+    // que se corrige a mano desde Precio y stock, viendo los dos números.
+    if (row.actor === 'plataforma') {
+      return res.status(400).json({ error: 'Este movimiento lo hizo la plataforma (no el hub): se registra para poder comparar los dos canales, pero no se puede revertir desde acá. Corregí el stock desde Precio y stock.' });
     }
     const result = await revertSyncAudit(row);
     if (!result.ok) return res.status(502).json({ error: result.error || 'No se pudo revertir' });

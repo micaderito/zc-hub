@@ -215,14 +215,50 @@ En la UI (tab **Cola ML**) esas tareas se muestran como **Trabada** (no "En proc
 botón Reintentar; `retryMlTask` acepta `failed` o `processing` con lock vencido, nunca una
 `processing` viva.
 
+### Historial: el movimiento de LOS DOS canales
+
+El hub solo escribe el canal espejo (vende ML → descuenta TN), así que el historial contaba media
+historia: no mostraba lo que hacía el canal donde se vendió. Eso hacía invisible el caso "se
+descontó en TN pero ML nunca descontó lo suyo".
+
+Ahora cada venta registra **las dos caras**, y la del canal se toma de un dato **observado**:
+
+1. `refreshMlItemInSnapshot` / `refreshTnProductInSnapshot` (`conflictsService.js`) leen el ítem real
+   y diffean contra el snapshot; cada diferencia de stock entra al historial como
+   `source: 'externo'` / `actor: 'plataforma'`. Esto también captura ediciones hechas desde el panel
+   de ML/TN, que es la otra fuente típica de desincronización.
+2. `attributeStockChangeToSale` (`db.js`) reetiqueta esa fila como "Venta ML"/"Venta TN" si matchea
+   canal + SKU + delta dentro de 30 min. Si NO matchea, queda como cambio externo a propósito: un
+   movimiento que no se corresponde con ninguna venta conocida es justo lo que hay que poder ver.
+
+Separar detección de atribución hace que dé igual quién llegue primero, si el webhook del ítem o el
+de la orden. `stockEcho.js` evita contar dos veces lo que escribió el propio hub: cada
+`patchMlStock`/`patchTnStock` deja un eco (canal+ítem+valor, TTL 2 min) que el diff consume.
+
+**Nada de esto puede perderse por un 429.** Dos guardas:
+
+- `ml.getItemOrStatus` expone el status en vez de colapsar todo a `null`: `refreshMlItemInSnapshot`
+  solo vacía las filas del snapshot ante un **404 confirmado**; ante 429 agotado o 5xx no toca nada
+  (si no, una racha de 429 borraba el producto del catálogo y marcaba el evento como desincronizado
+  sin que ML hubiera hecho nada). El lado TN ya distinguía 404 real de falla transitoria.
+- Si la lectura falla, la venta encola una tarea **`stock_probe`** (única kind que no escribe nada:
+  solo relee y registra). Reintenta con el backoff de la cola y, agotados los 5 intentos, queda
+  visible en **Cola ML** con botón Reintentar. Que no haya nada que atribuir NO es error: significa
+  que el canal no movió stock, y eso es exactamente lo que el historial debe mostrar.
+
+En el modal de historial por SKU las dos caras se muestran agrupadas como un solo evento, con el
+número en que quedó cada canal y un chip **desincronizado** cuando no coinciden o falta una cara.
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
 ML). `backend/test/mlShipmentState.test.js` cubre la regla de restauración por estado de envío,
 `backend/test/mlCancelReason.test.js` qué motivos de cancelación van a revisión manual,
 `backend/test/syncService.test.js` el espejo de stock (ML devolvió / ML no devolvió / sin plan /
-por variación), `backend/test/db.test.js` la recuperación de locks vencidos y
-`backend/test/mlTaskQueue.test.js` el latido, y `backend/test/routesWebhooks.test.js` el flujo
-completo de cancelación (entrega fallida, envío despachado, envío no consultable, caché por pack,
-cancelación del vendedor, reintento del espejo). Correr con `npm test` en `backend/`
+por variación) y la atribución/encolado del reintento del historial, `backend/test/db.test.js` la
+recuperación de locks vencidos, `backend/test/mlTaskQueue.test.js` el latido y `stock_probe`, y
+`backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
+despachado, envío no consultable, caché por pack, cancelación del vendedor, reintento del espejo).
+El historial de los dos canales está cubierto además en `backend/test/conflictsService.test.js`
+(diff + eco + 429/5xx que no tocan el snapshot). Correr con `npm test` en `backend/`
 (necesita Node ≥ 22: con Node 20 el mockeo de módulos de `node:test` rompe el import de `pg`).

@@ -141,6 +141,80 @@ describe('ProductHistoryDialogComponent', () => {
     expect(rows[1].querySelector('strong.down')).not.toBeNull();
   });
 
+  it('las dos caras de una venta se muestran como un solo evento con el estado de los dos canales', async () => {
+    // Venta en ML: ML descontó lo suyo (fila del canal) y el hub descontó en TN (fila espejo).
+    syncSpy.getStockHistoryBySku.and.returnValue(
+      of({
+        rows: [
+          stockRow({ id: 1, updatedChannel: 'mercadolibre', actor: 'plataforma', productLabel: 'Venta ML',
+                     stockBefore: 10, stockAfter: 9, createdAt: '2026-07-10T10:00:00.000Z' }),
+          stockRow({ id: 2, updatedChannel: 'tiendanube', productLabel: 'Venta ML',
+                     stockBefore: 10, stockAfter: 9, createdAt: '2026-07-10T10:00:02.000Z' }),
+        ],
+        total: 2,
+      }) as never,
+    );
+    pricingSpy.getPriceHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+
+    await createAndLoad();
+
+    const rows = fixture.nativeElement.querySelectorAll('.hist-row');
+    expect(rows.length).toBe(1);
+    expect(rows[0].querySelectorAll('.hist-side').length).toBe(2);
+    expect(rows[0].querySelector('.hist-state.desync')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.hist-summary')?.textContent).toContain('Sincronizado');
+  });
+
+  it('si falta la cara del espejo, el evento queda marcado como desincronizado', async () => {
+    // El descuento en TN nunca se registró: ML quedó en 9 y TN en 10.
+    syncSpy.getStockHistoryBySku.and.returnValue(
+      of({
+        rows: [
+          stockRow({ id: 1, updatedChannel: 'tiendanube', productLabel: 'Venta ML', packId: '100',
+                     orderId: '100', stockBefore: 11, stockAfter: 10, createdAt: '2026-07-09T10:00:00.000Z' }),
+          stockRow({ id: 2, updatedChannel: 'mercadolibre', actor: 'plataforma', productLabel: 'Venta ML',
+                     packId: '101', orderId: '101', stockBefore: 10, stockAfter: 9,
+                     createdAt: '2026-07-10T10:00:00.000Z' }),
+        ],
+        total: 2,
+      }) as never,
+    );
+    pricingSpy.getPriceHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+
+    await createAndLoad();
+
+    const rows = fixture.nativeElement.querySelectorAll('.hist-row');
+    expect(rows.length).toBe(2);
+    // El más reciente (la venta 101, que solo movió ML) es el desincronizado.
+    expect(rows[0].querySelector('.hist-state.desync')).not.toBeNull();
+    expect(rows[0].querySelector('.hist-side.missing')).not.toBeNull();
+    const summary = fixture.nativeElement.querySelector('.hist-summary');
+    expect(summary.classList).toContain('desync');
+    expect(summary.textContent).toContain('Desincronizado');
+  });
+
+  it('un cambio hecho en el panel del canal se muestra como externo', async () => {
+    syncSpy.getStockHistoryBySku.and.returnValue(
+      of({
+        rows: [
+          stockRow({ id: 1, source: 'externo', actor: 'plataforma', channelSale: null, orderId: null,
+                     packId: null, quantity: null, updatedChannel: 'mercadolibre',
+                     productLabel: 'Cambio en ML', stockBefore: 9, stockAfter: 20 }),
+        ],
+        total: 1,
+      }) as never,
+    );
+    pricingSpy.getPriceHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+
+    await createAndLoad();
+
+    const row = fixture.nativeElement.querySelector('.hist-row');
+    expect(row.querySelector('.hist-source.externo')).not.toBeNull();
+    expect(row.textContent).toContain('Cambio en ML');
+    // Un cambio suelto no espera espejo: no se muestra el hueco del otro canal.
+    expect(row.querySelector('.hist-side.missing')).toBeNull();
+  });
+
   it('un precio sin valor previo no marca dirección ni muestra flecha', async () => {
     syncSpy.getStockHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
     pricingSpy.getPriceHistoryBySku.and.returnValue(
