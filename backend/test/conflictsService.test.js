@@ -27,7 +27,7 @@ const storeState = {
 
 const dbState = { hasDb: false, snapshot: null, setSnapshotCalls: [], auditLogs: [] };
 
-const mlState = { responder: null, getItemImpl: null };
+const mlState = { responder: null, getItemImpl: null, getItemStatusOverride: null };
 const tnState = { getProductsImpl: null, getProductImpl: null };
 
 function makeRes({ status = 200, json = null } = {}) {
@@ -65,6 +65,13 @@ before(async () => {
     exports: {
       fetchWith429Retry: async (url, opts, ctx) => mlState.responder(url, opts, ctx),
       getItem: async (token, itemId) => (mlState.getItemImpl ? mlState.getItemImpl(itemId) : null),
+      // getItemOrStatus: por default se deriva de getItemImpl (200 si devuelve algo, 404 si no);
+      // los tests de fallas transitorias (429/5xx) usan el override para simular el status real.
+      getItemOrStatus: async (token, itemId) => {
+        if (mlState.getItemStatusOverride) return mlState.getItemStatusOverride(itemId);
+        const item = mlState.getItemImpl ? mlState.getItemImpl(itemId) : null;
+        return { item, status: item ? 200 : 404 };
+      },
     },
   });
   mock.module('../src/lib/tiendanube.js', {
@@ -91,6 +98,7 @@ beforeEach(() => {
   mlState.responder = null;
   conflictsService.__resetStockEchoesForTests();
   mlState.getItemImpl = null;
+  mlState.getItemStatusOverride = null;
   tnState.getProductsImpl = null;
   tnState.getProductImpl = null;
   conflictsService.__resetSnapshotCacheForTests();
@@ -588,4 +596,40 @@ test('refreshTnProductInSnapshot: el cambio que hizo TN entra al historial del l
       ({ sku, source, actor, updatedChannel, stockBefore, stockAfter }))(dbState.auditLogs[0]),
     { sku: 'A', source: 'externo', actor: 'plataforma', updatedChannel: 'tiendanube', stockBefore: 5, stockAfter: 4 },
   );
+});
+
+// ─── refreshMlItemInSnapshot: no confundir "el ítem se borró" con "ML no contestó" ────────────
+
+test('refreshMlItemInSnapshot: un 429 agotado NO toca el snapshot ni el historial', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemStatusOverride = () => ({ item: null, status: 429 });
+
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.onlyML.length, 2, 'las filas del ítem se conservan tal cual estaban');
+  assert.deepEqual(dbState.auditLogs, [], 'no se inventa un movimiento de stock que no pudimos observar');
+});
+
+test('refreshMlItemInSnapshot: un 5xx tampoco toca el snapshot', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemStatusOverride = () => ({ item: null, status: 500 });
+
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.onlyML.length, 2);
+});
+
+test('refreshMlItemInSnapshot: un 404 real SÍ vacía las filas (el ítem se borró de verdad)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemStatusOverride = () => ({ item: null, status: 404 });
+
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.onlyML.length, 0);
 });

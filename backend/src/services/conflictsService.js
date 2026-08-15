@@ -688,7 +688,15 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
   if (!itemId) return;
   let item = null;
   try {
-    item = await ml.getItem(accessToken, itemId);
+    const res = await ml.getItemOrStatus(accessToken, itemId);
+    item = res.item;
+    // 429 agotado, 5xx u otra falla transitoria: no sabemos qué pasó con el ítem, así que NO se
+    // toca el snapshot (ni se registra nada en el historial) — ver el porqué en getItemOrStatus.
+    // Solo un 404 real confirma que el ítem se borró y hay que sacarlo del catálogo.
+    if (!item && res.status !== 404) {
+      console.warn(`[Analysis] refreshMlItemInSnapshot: GET ${itemId} devolvió ${res.status}, no se toca el snapshot (lo reintentará el próximo webhook o crawl).`);
+      return;
+    }
   } catch (e) {
     console.error('[Analysis] refreshMlItemInSnapshot getItem falló:', e.message);
     return;
