@@ -280,5 +280,4 @@ despachado, envío no consultable, caché por pack, cancelación del vendedor, r
 y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
 ajuste rápido de cantidad, filas inexistentes). El historial de los dos canales está cubierto
 además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no tocan el snapshot).
-Correr con `npm test` en `backend/`
-(necesita Node ≥ 22: con Node 20 el mockeo de módulos de `node:test` rompe el import de `pg`).
+Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

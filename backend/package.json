@@ -4,6 +4,9 @@
   "description": "Backend para sincronizar stock y precios entre Mercado Libre y Tienda Nube",
   "main": "src/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
