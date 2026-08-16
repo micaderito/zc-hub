@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import { getResolvedMappings, tokens, getMlToken, persistTokens } from '../store.js';
+import { getResolvedMappings } from '../store.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import * as ml from '../lib/mercadolibre.js';
-import * as tn from '../lib/tiendanube.js';
+import { getAnalysis } from '../services/conflictsService.js';
 
 export const mappingRoutes = Router();
 
@@ -38,82 +37,38 @@ mappingRoutes.post('/', async (req, res) => {
 mappingRoutes.put('/:sku', (_, res) => res.json({ ok: true }));
 mappingRoutes.delete('/:sku', (_, res) => res.json({ ok: true }));
 
-/** Listar publicaciones de ML del usuario (para mapear por SKU). */
-mappingRoutes.get('/sources/mercadolibre', async (_, res) => {
-  const accessToken = await getMlToken();
-  if (!accessToken) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
-  let userId = tokens.mercadolibre?.user_id;
-  if (!userId) {
-    try {
-      const me = await ml.getMe(accessToken);
-      if (me?.id != null) {
-        tokens.mercadolibre.user_id = me.id;
-        persistTokens();
-        userId = me.id;
-        console.log('[ML] user_id obtenido en /sources/mercadolibre:', userId);
-      }
-    } catch (e) {
-      console.warn('[ML] getMe falló en sources:', e.message);
+/** SKU→{nombre,foto} únicos, en orden de aparición (matched antes que "solo en este canal"). */
+function catalogOptionsFromRows(rows, labelKey) {
+  const options = new Map();
+  for (const row of rows) {
+    if (row.sku && !options.has(row.sku)) {
+      options.set(row.sku, { label: row[labelKey], thumbnail: row.thumbnail || null });
     }
   }
-  if (!userId) {
-    return res.status(503).json({
-      error: 'Falta el user_id de Mercado Libre. Desconectá y volvé a conectar ML en Inicio para que se guarde.'
-    });
-  }
+  return [...options.entries()].map(([sku, { label, thumbnail }]) => ({ sku, label, thumbnail }));
+}
+
+/** Catálogo de SKUs de ML para autocomplete (ej. Depósito Marañón). Sirve del snapshot cacheado
+ *  del análisis (mismo que Precio y stock/Conflictos), así trae el catálogo COMPLETO y no solo
+ *  una primera tanda — a diferencia de una búsqueda en vivo, no hace falta paginar acá. */
+mappingRoutes.get('/sources/mercadolibre', async (_, res) => {
   try {
-    const r = await fetch(
-      `https://api.mercadolibre.com/users/${userId}/items/search?limit=50&catalog_listing=false`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    if (!r.ok) throw new Error(await r.text());
-    const { results } = await r.json();
-    // Multiget: en vez de 50 GET sueltos (un estallido que dispara 429), pedimos
-    // los ítems en tandas de 20. Trae solo los campos que usamos abajo.
-    const items = await ml.getItems(
-      accessToken,
-      (results || []).slice(0, 50),
-      'id,title,seller_sku,catalog_listing,variations'
-    );
-    const originalsOnly = items.filter(it => it && it.catalog_listing !== true);
-    const withSku = originalsOnly.map(it => ({
-      id: it.id,
-      title: it.title,
-      sku: it.seller_sku || (it.variations?.[0]?.seller_sku) || null,
-      variations: (it.variations || []).map(v => ({ id: v.id, sku: v.seller_sku }))
-    }));
-    res.json(withSku);
+    const analysis = await getAnalysis();
+    if (!analysis.mlConnected) return res.status(401).json({ error: 'No conectado a Mercado Libre' });
+    const rows = [...analysis.matched.map(m => m.ml), ...analysis.onlyML];
+    res.json(catalogOptionsFromRows(rows, 'title'));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-/** Listar productos y variantes de Tienda Nube. */
+/** Catálogo de SKUs de TN para autocomplete (ej. Depósito Marañón). Misma fuente que arriba. */
 mappingRoutes.get('/sources/tiendanube', async (_, res) => {
-  if (!tokens.tiendanube?.access_token) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
-  const storeId = tokens.tiendanube.store_id;
   try {
-    const products = await tn.getProducts(tokens.tiendanube.access_token, storeId);
-    const withVariants = await Promise.all(
-      (products || []).slice(0, 100).map(async p => {
-        const variants = await tn.getProductVariants(
-          tokens.tiendanube.access_token,
-          storeId,
-          p.id
-        );
-        return {
-          id: p.id,
-          name: p.name?.es || p.name || p.title,
-          variants: (variants || []).map(v => ({
-            id: v.id,
-            sku: v.sku,
-            price: v.price,
-            stock: v.stock
-          }))
-        };
-      })
-    );
-    res.json(withVariants);
+    const analysis = await getAnalysis();
+    if (!analysis.tnConnected) return res.status(401).json({ error: 'No conectado a Tienda Nube' });
+    const rows = [...analysis.matched.map(m => m.tn), ...analysis.onlyTN];
+    res.json(catalogOptionsFromRows(rows, 'productName'));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

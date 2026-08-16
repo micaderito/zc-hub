@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { MappingService, MappingEntry, MlSourceItem, TnSourceProduct } from './mapping.service';
+import { MappingService, MappingEntry, CatalogOption } from './mapping.service';
 
 describe('MappingService', () => {
   let service: MappingService;
@@ -58,7 +58,7 @@ describe('MappingService', () => {
   });
 
   it('getMercadoLibreSources() hace GET a /mapping/sources/mercadolibre', () => {
-    const fixture: MlSourceItem[] = [{ id: 'MLA1', title: 'Cuaderno', sku: null, variations: [] }];
+    const fixture: CatalogOption[] = [{ sku: 'SKU1', label: 'Cuaderno', thumbnail: null }];
     service.getMercadoLibreSources().subscribe(res => expect(res).toEqual(fixture));
 
     const req = httpMock.expectOne(`${baseUrl}/mapping/sources/mercadolibre`);
@@ -67,7 +67,7 @@ describe('MappingService', () => {
   });
 
   it('getTiendaNubeSources() hace GET a /mapping/sources/tiendanube', () => {
-    const fixture: TnSourceProduct[] = [{ id: 1, name: 'Cuaderno', variants: [] }];
+    const fixture: CatalogOption[] = [{ sku: 'SKU1', label: 'Cuaderno', thumbnail: null }];
     service.getTiendaNubeSources().subscribe(res => expect(res).toEqual(fixture));
 
     const req = httpMock.expectOne(`${baseUrl}/mapping/sources/tiendanube`);
