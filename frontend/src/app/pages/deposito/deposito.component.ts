@@ -102,12 +102,42 @@ export class DepositoComponent {
     }
   }
 
-  /** Si el SKU tipeado matchea el catálogo y todavía no hay descripción, la precarga. */
-  onSkuChange(sku: string): void {
-    this.form.update((f) => ({ ...f, sku }));
-    if (this.form().label.trim()) return;
-    const match = this.catalogOptions().find((o) => o.sku === sku.trim());
-    if (match) this.form.update((f) => ({ ...f, label: match.label }));
+  // ── Buscador de SKU (por SKU o descripción, sobre el catálogo ya cargado) ──
+  readonly skuQuery = signal('');
+  readonly skuDropdownOpen = signal(false);
+
+  readonly filteredCatalogOptions = computed(() => {
+    const q = this.skuQuery().trim().toLowerCase();
+    if (!q) return [];
+    return this.catalogOptions()
+      .filter((o) => o.sku.toLowerCase().includes(q) || o.label.toLowerCase().includes(q))
+      .slice(0, 30);
+  });
+
+  skuLabelFor(sku: string): string | null {
+    return this.catalogOptions().find((o) => o.sku === sku)?.label ?? null;
+  }
+
+  onSkuQueryChange(value: string): void {
+    this.skuQuery.set(value);
+    this.skuDropdownOpen.set(true);
+  }
+
+  /** Ejecutar el cierre en un microtask para que el click de la opción llegue a registrarse antes. */
+  onSkuInputBlur(): void {
+    setTimeout(() => this.skuDropdownOpen.set(false), 150);
+  }
+
+  selectSku(option: CatalogOption): void {
+    this.form.update((f) => ({ ...f, sku: option.sku, label: f.label.trim() ? f.label : option.label }));
+    this.skuQuery.set('');
+    this.skuDropdownOpen.set(false);
+  }
+
+  clearSku(): void {
+    this.form.update((f) => ({ ...f, sku: '' }));
+    this.skuQuery.set('');
+    this.skuDropdownOpen.set(true);
   }
 
   // ── Modal de alta/edición ──
@@ -119,6 +149,8 @@ export class DepositoComponent {
 
   openCreate(): void {
     this.form.set(emptyForm());
+    this.skuQuery.set('');
+    this.skuDropdownOpen.set(false);
     this.errorMsg.set(null);
     this.showForm.set(true);
     void this.ensureCatalogLoaded();
@@ -129,6 +161,8 @@ export class DepositoComponent {
       id: item.id, sku: item.sku ?? '', label: item.label, itemType: item.itemType,
       quantity: item.quantity, unit: item.unit, notes: item.notes ?? '',
     });
+    this.skuQuery.set('');
+    this.skuDropdownOpen.set(false);
     this.errorMsg.set(null);
     this.showForm.set(true);
     if (item.itemType === 'producto') void this.ensureCatalogLoaded();
@@ -136,6 +170,8 @@ export class DepositoComponent {
 
   setItemType(itemType: DepositoItemType): void {
     this.form.update((f) => ({ ...f, itemType, sku: itemType === 'embalaje' ? '' : f.sku }));
+    this.skuQuery.set('');
+    this.skuDropdownOpen.set(false);
     if (itemType === 'producto') void this.ensureCatalogLoaded();
   }
 

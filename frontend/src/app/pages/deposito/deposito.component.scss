@@ -141,6 +141,39 @@
 }
 .fld-hint { font-weight: 400; color: var(--text-3); font-size: 11px; margin: -6px 0 11px; }
 
+.sku-selected {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 7px 10px; border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg);
+  font-size: 12.5px; color: var(--text); font-weight: 400;
+  .sku-selected-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .muted { color: var(--text-2); font-weight: 400; }
+}
+.link-btn {
+  font: inherit; font-size: 11.5px; color: var(--brand); background: none; border: none;
+  cursor: pointer; padding: 0; flex-shrink: 0;
+  &:hover { text-decoration: underline; }
+}
+
+.sku-search {
+  position: relative;
+  input { width: 100%; box-sizing: border-box; }
+}
+.sku-results {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 10;
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(10, 12, 20, 0.14); max-height: 220px; overflow-y: auto;
+}
+.sku-result-hint { padding: 9px 10px; font-size: 11.5px; color: var(--text-3); font-weight: 400; }
+.sku-result {
+  display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
+  font: inherit; padding: 7px 10px; border: none; background: none; cursor: pointer;
+  border-bottom: 0.5px solid var(--border);
+  &:last-child { border-bottom: none; }
+  &:hover { background: var(--surface-2); }
+  .result-sku { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .result-label { font-size: 12.5px; color: var(--text); font-weight: 400; }
+}
+
 .seg {
   display: flex; gap: 0; margin-bottom: 12px; border: 0.5px solid var(--border); border-radius: 8px; overflow: hidden; width: fit-content;
   button {
