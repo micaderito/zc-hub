@@ -10,10 +10,12 @@ import {
   ALERTS_RULES_QUERY_KEY,
   ALERTS_RESTOCK_QUERY_KEY,
   ALERTS_NOTIFICATIONS_QUERY_KEY,
+  ALERTS_UNWATCHED_QUERY_KEY,
   StockAlertRule,
   RestockRow,
   RestockPeriod,
   PackRef,
+  UnwatchedProduct,
   restockStateLabel,
 } from '../../core/services/alerts.service';
 import { ConflictsService, mlLabel } from '../../core/services/conflicts.service';
@@ -21,7 +23,7 @@ import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.compone
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 
-type Tab = 'reponer' | 'notificaciones' | 'reglas';
+type Tab = 'reponer' | 'notificaciones' | 'sin-alertas' | 'reglas';
 
 interface RestockGroup {
   pack: PackRef;
@@ -191,6 +193,39 @@ export class AlertasComponent {
     await this.alertsSvc.muteRule(sku, 7);
   }
 
+  /* ══════════════════════════ Sin alertas ══════════════════════════ */
+
+  readonly unwatchedQuery = injectQuery(() => ({
+    queryKey: ALERTS_UNWATCHED_QUERY_KEY,
+    queryFn: () => this.alertsSvc.getUnwatchedPromise(),
+    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000,
+  }));
+
+  readonly unwatchedLoading = computed(() => this.unwatchedQuery.isLoading());
+  readonly unwatchedProducts = computed(() => this.unwatchedQuery.data()?.products ?? []);
+  readonly unwatchedSearch = signal('');
+
+  readonly filteredUnwatched = computed(() => {
+    const q = this.unwatchedSearch().trim().toLowerCase();
+    const rows = this.unwatchedProducts();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      r.sku.toLowerCase().includes(q) ||
+      (r.productLabel || '').toLowerCase().includes(q) ||
+      (r.pack?.name || '').toLowerCase().includes(q)
+    );
+  });
+
+  /** Manda a Reglas con el producto ya tildado en "Vigilar productos" — solo falta el umbral. */
+  configureAlert(product: UnwatchedProduct): void {
+    this.selectedNewSkus.set(new Map([
+      [product.sku, { sku: product.sku, label: product.productLabel ?? product.sku, thumbnail: product.thumbnail }],
+    ]));
+    this.newRuleQuery.set(product.sku);
+    this.activeTab.set('reglas');
+  }
+
   /* ══════════════════════════ Reglas ══════════════════════════ */
 
   readonly rulesQuery = injectQuery(() => ({
@@ -241,7 +276,7 @@ export class AlertasComponent {
       const tab = params.get('tab');
       const sku = params.get('sku');
       untracked(() => {
-        if (tab === 'reglas' || tab === 'reponer' || tab === 'notificaciones') this.activeTab.set(tab);
+        if (tab === 'reglas' || tab === 'reponer' || tab === 'notificaciones' || tab === 'sin-alertas') this.activeTab.set(tab);
         if (sku) {
           this.rulesSearch.set(sku);
           this.newRuleQuery.set(sku);
@@ -357,9 +392,11 @@ export class AlertasComponent {
   readonly tabs = computed<TabDef[]>(() => {
     const reponerCount = this.restockRows().length;
     const unread = this.unreadCount();
+    const unwatchedCount = this.unwatchedProducts().length;
     return [
       { key: 'reponer', label: 'Para reponer', count: reponerCount, countVariant: reponerCount ? 'warn' : undefined },
       { key: 'notificaciones', label: 'Notificaciones', count: unread, countVariant: unread ? 'warn' : undefined },
+      { key: 'sin-alertas', label: 'Sin alertas', count: unwatchedCount, countVariant: unwatchedCount ? 'warn' : undefined },
       { key: 'reglas', label: 'Reglas', count: this.rules().length },
     ];
   });

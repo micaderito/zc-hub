@@ -9,7 +9,7 @@ import {
 } from '../db.js';
 import {
   getRulesWithStock, getNotificationsInbox, getRestockList, closeRestockPeriod,
-  evaluateStockAlertsNow,
+  evaluateStockAlertsNow, getUnwatchedProducts,
 } from '../services/alertsService.js';
 
 export const alertsRoutes = Router();
@@ -18,6 +18,15 @@ export const alertsRoutes = Router();
 alertsRoutes.get('/', async (_req, res) => {
   try {
     res.json({ rules: await getRulesWithStock() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Productos matcheados sin regla todavía, para la pestaña "Sin alertas". */
+alertsRoutes.get('/unwatched', async (_req, res) => {
+  try {
+    res.json({ products: await getUnwatchedProducts() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
