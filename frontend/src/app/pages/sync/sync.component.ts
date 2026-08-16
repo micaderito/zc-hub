@@ -52,6 +52,7 @@ export class SyncComponent implements OnInit {
     { key: 'venta', label: 'Ventas' },
     { key: 'manual', label: 'Manuales' },
     { key: 'devolucion', label: 'Devoluciones' },
+    { key: 'externo', label: 'Externos' },
   ];
 
   setAuditSource(source: AuditSource | ''): void {
@@ -360,17 +361,20 @@ export class SyncComponent implements OnInit {
 
   /**
    * Revertir deshace el descuento que hizo una venta. Un cambio manual no tiene venta detrás ni
-   * cantidad que deshacer: se corrige volviendo a fijar el stock desde Precio y stock. El backend
-   * también lo rechaza; esto evita ofrecer un botón que solo puede fallar.
+   * cantidad que deshacer: se corrige volviendo a fijar el stock desde Precio y stock. Tampoco se
+   * revierte lo que movió la plataforma por su cuenta (actor 'plataforma'): esa fila es el registro
+   * de lo que hizo ML/TN, no una escritura nuestra que se pueda deshacer. El backend también lo
+   * rechaza; esto evita ofrecer un botón que solo puede fallar.
    */
   canRevert(row: SyncAuditRow): boolean {
-    return row.source !== 'manual';
+    return row.source !== 'manual' && row.actor !== 'plataforma';
   }
 
   /** Etiqueta del chip de origen de cada fila del historial. */
   auditSourceLabel(source: AuditSource): string {
     if (source === 'manual') return 'Manual';
     if (source === 'devolucion') return 'Devolución';
+    if (source === 'externo') return 'Externo';
     return 'Venta';
   }
 
@@ -553,6 +557,7 @@ export class SyncComponent implements OnInit {
       case 'sku_ml': return 'SKU ML';
       case 'sku_tn': return 'SKU TN';
       case 'price_ml': return 'Precio ML';
+      case 'stock_probe': return 'Releer stock';
       default: return kind;
     }
   }
@@ -590,6 +595,8 @@ export class SyncComponent implements OnInit {
     if (task.kind === 'price_ml') {
       return task.targetPrice != null ? `$${task.targetPrice.toLocaleString('es-AR')}` : '—';
     }
+    // stock_probe no cambia nada: solo lee para completar el historial.
+    if (task.kind === 'stock_probe') return 'Solo lectura';
     return task.targetSku ? `SKU → ${task.targetSku}` : '—';
   }
 }

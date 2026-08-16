@@ -35,6 +35,7 @@ export class AppComponent {
     { path: '/', label: 'Inicio', icon: 'ti-layout-dashboard', exact: true },
     { path: '/precio-stock', label: 'Productos', icon: 'ti-box' },
     { path: '/precios', label: 'Precios', icon: 'ti-tag' },
+    { path: '/deposito', label: 'Depósito Marañón', icon: 'ti-building-warehouse' },
     { path: '/crear', label: 'Crear producto', icon: 'ti-plus' },
     { path: '/alertas', label: 'Alertas', icon: 'ti-bell' },
     { path: '/conflictos', label: 'Conflictos', icon: 'ti-alert-triangle' },

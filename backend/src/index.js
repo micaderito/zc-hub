@@ -20,6 +20,7 @@ import { conflictsRoutes } from './routes/conflicts.js';
 import { productRoutes } from './routes/products.js';
 import { pricingRoutes } from './routes/pricing.js';
 import { alertsRoutes } from './routes/alerts.js';
+import { depositoRoutes } from './routes/deposito.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -68,6 +69,7 @@ app.use('/api/conflicts', conflictsRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/alerts', alertsRoutes);
+app.use('/api/deposito', depositoRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 // Por si Railway (u otro) hace health check en la raíz

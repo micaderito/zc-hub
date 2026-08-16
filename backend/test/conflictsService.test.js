@@ -27,10 +27,10 @@ const storeState = {
   resolutionCalls: [],
 };
 
-const dbState = { hasDb: false, snapshot: null, setSnapshotCalls: [] };
+const dbState = { hasDb: false, snapshot: null, setSnapshotCalls: [], auditLogs: [] };
 
-const mlState = { responder: null, getItemImpl: null };
-const tnState = { getProductsImpl: null };
+const mlState = { responder: null, getItemImpl: null, getItemStatusOverride: null };
+const tnState = { getProductsImpl: null, getProductImpl: null };
 
 function makeRes({ status = 200, json = null } = {}) {
   return {
@@ -60,17 +60,26 @@ before(async () => {
       getAnalysisSnapshot: async () => dbState.snapshot,
       setAnalysisSnapshot: async (d) => { dbState.setSnapshotCalls.push(d); dbState.snapshot = { at: Date.now(), data: d }; },
       invalidateAnalysisCache: async () => { dbState.snapshot = null; },
+      insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
     },
   });
   mock.module('../src/lib/mercadolibre.js', {
     exports: {
       fetchWith429Retry: async (url, opts, ctx) => mlState.responder(url, opts, ctx),
       getItem: async (token, itemId) => (mlState.getItemImpl ? mlState.getItemImpl(itemId) : null),
+      // getItemOrStatus: por default se deriva de getItemImpl (200 si devuelve algo, 404 si no);
+      // los tests de fallas transitorias (429/5xx) usan el override para simular el status real.
+      getItemOrStatus: async (token, itemId) => {
+        if (mlState.getItemStatusOverride) return mlState.getItemStatusOverride(itemId);
+        const item = mlState.getItemImpl ? mlState.getItemImpl(itemId) : null;
+        return { item, status: item ? 200 : 404 };
+      },
     },
   });
   mock.module('../src/lib/tiendanube.js', {
     exports: {
       getProducts: async (token, storeId) => tnState.getProductsImpl(token, storeId),
+      getProduct: async (token, storeId, productId) => (tnState.getProductImpl ? tnState.getProductImpl(productId) : null),
     },
   });
   mock.module('../src/services/alertsService.js', {
@@ -90,9 +99,13 @@ beforeEach(() => {
   dbState.hasDb = false;
   dbState.snapshot = null;
   dbState.setSnapshotCalls = [];
+  dbState.auditLogs = [];
   mlState.responder = null;
+  conflictsService.__resetStockEchoesForTests();
   mlState.getItemImpl = null;
+  mlState.getItemStatusOverride = null;
   tnState.getProductsImpl = null;
+  tnState.getProductImpl = null;
   conflictsService.__resetSnapshotCacheForTests();
 });
 
@@ -475,4 +488,153 @@ test('refreshMlItemInSnapshot: reemplaza las filas del ítem con lo que trae get
   assert.equal(result.onlyML.length, 1);
   assert.equal(result.onlyML[0].price, 999);
   assert.equal(result.onlyML[0].stock, 7);
+});
+
+// ─── Historial de los dos canales: el diff del refresh registra lo que hizo la plataforma ────
+
+/** Ítem MLA1 con sus dos variaciones (10 y 11), con el stock que se le pase. */
+function mlItemWithStocks(stock10, stock11) {
+  return {
+    id: 'MLA1',
+    title: 'X',
+    catalog_listing: false,
+    variations: [
+      { id: 10, seller_sku: 'A', price: 100, available_quantity: stock10 },
+      { id: 11, seller_sku: 'B', price: 100, available_quantity: stock11 },
+    ],
+  };
+}
+
+test('refreshMlItemInSnapshot: un cambio de stock que hizo ML entra al historial como externo', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations(); // variación 10 en 5, variación 11 en 3
+  mlState.getItemImpl = () => mlItemWithStocks(4, 3);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  assert.equal(dbState.auditLogs.length, 1, 'solo la variación que se movió');
+  assert.deepEqual(
+    (({ sku, source, actor, updatedChannel, stockBefore, stockAfter }) =>
+      ({ sku, source, actor, updatedChannel, stockBefore, stockAfter }))(dbState.auditLogs[0]),
+    { sku: 'A', source: 'externo', actor: 'plataforma', updatedChannel: 'mercadolibre', stockBefore: 5, stockAfter: 4 },
+  );
+});
+
+test('refreshMlItemInSnapshot: lo que escribió el hub no se registra dos veces (eco)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  // El hub baja la variación 10 a 4: patchMlStock deja el eco y el flujo que lo pidió ya escribió
+  // su propia línea del historial.
+  await conflictsService.patchMlStock('MLA1', '10', 4);
+  // ML avisa del mismo cambio por el webhook `items`. El snapshot ya está en 4, pero simulamos el
+  // caso peor: que el diff vea la diferencia igual (el webhook podría haber llegado antes).
+  conflictsService.__resetSnapshotCacheForTests();
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemImpl = () => mlItemWithStocks(4, 3);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  assert.deepEqual(dbState.auditLogs, [], 'el eco tapa el cambio propio');
+});
+
+test('refreshMlItemInSnapshot: el eco solo tapa el valor que escribió el hub', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  await conflictsService.patchMlStock('MLA1', '10', 4);
+  conflictsService.__resetSnapshotCacheForTests();
+  dbState.snapshot = snapshotWithMlVariations();
+  // ML terminó con otro número (2, no 4): eso NO lo escribimos nosotros y tiene que verse.
+  mlState.getItemImpl = () => mlItemWithStocks(2, 3);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  assert.equal(dbState.auditLogs.length, 1);
+  assert.equal(dbState.auditLogs[0].stockAfter, 2);
+});
+
+test('refreshMlItemInSnapshot: una variación nueva no cuenta como movimiento de stock', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemImpl = () => ({
+    id: 'MLA1',
+    title: 'X',
+    catalog_listing: false,
+    variations: [
+      { id: 10, seller_sku: 'A', price: 100, available_quantity: 5 },
+      { id: 11, seller_sku: 'B', price: 100, available_quantity: 3 },
+      { id: 12, seller_sku: 'C', price: 100, available_quantity: 9 },
+    ],
+  });
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  assert.deepEqual(dbState.auditLogs, [], 'sin fila vieja no hay antes/después que contar');
+});
+
+test('refreshMlItemInSnapshot: un cambio en una fila sin SKU no se registra (no se podría mostrar)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = {
+    at: Date.now(),
+    data: {
+      mlRows: [{ type: 'ml', itemId: 'MLA9', variationId: null, title: 'Sin SKU', sku: null, hasSku: false, price: 1, stock: 5 }],
+      tnRows: [],
+      mlConnected: true,
+    },
+  };
+  mlState.getItemImpl = () => ({ id: 'MLA9', title: 'Sin SKU', catalog_listing: false, price: 1, available_quantity: 2 });
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA9');
+  assert.deepEqual(dbState.auditLogs, []);
+});
+
+test('refreshTnProductInSnapshot: el cambio que hizo TN entra al historial del lado TN', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = {
+    at: Date.now(),
+    data: {
+      mlRows: [],
+      tnRows: [{ type: 'tn', productId: 5, variantId: 50, productName: 'X', variantName: 'Rojo', sku: 'A', hasSku: true, price: 1, stock: 5 }],
+      tnConnected: true,
+    },
+  };
+  tnState.getProductImpl = () => ({
+    id: 5,
+    name: { es: 'X' },
+    images: [],
+    variants: [{ id: 50, sku: 'A', price: 1, stock: 4, values: [{ es: 'Rojo' }] }],
+  });
+  await conflictsService.refreshTnProductInSnapshot('tok', 1, 5);
+  assert.equal(dbState.auditLogs.length, 1);
+  assert.deepEqual(
+    (({ sku, source, actor, updatedChannel, stockBefore, stockAfter }) =>
+      ({ sku, source, actor, updatedChannel, stockBefore, stockAfter }))(dbState.auditLogs[0]),
+    { sku: 'A', source: 'externo', actor: 'plataforma', updatedChannel: 'tiendanube', stockBefore: 5, stockAfter: 4 },
+  );
+});
+
+// ─── refreshMlItemInSnapshot: no confundir "el ítem se borró" con "ML no contestó" ────────────
+
+test('refreshMlItemInSnapshot: un 429 agotado NO toca el snapshot ni el historial', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemStatusOverride = () => ({ item: null, status: 429 });
+
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.onlyML.length, 2, 'las filas del ítem se conservan tal cual estaban');
+  assert.deepEqual(dbState.auditLogs, [], 'no se inventa un movimiento de stock que no pudimos observar');
+});
+
+test('refreshMlItemInSnapshot: un 5xx tampoco toca el snapshot', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemStatusOverride = () => ({ item: null, status: 500 });
+
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.onlyML.length, 2);
+});
+
+test('refreshMlItemInSnapshot: un 404 real SÍ vacía las filas (el ítem se borró de verdad)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemStatusOverride = () => ({ item: null, status: 404 });
+
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.onlyML.length, 0);
 });

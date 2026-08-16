@@ -11,9 +11,11 @@
  *    cantidad cancelada a ciegas (incidente 2026-08-11, ver CLAUDE.md).
  *
  * Mockeamos:
- * - '../src/db.js' (getSyncEnabled, insertAuditLog, enqueueMlTask, waitForMlTask) — no hay Postgres real.
- * - '../src/services/conflictsService.js' (getAnalysis) — ensureSkuResolved lo importa dinámicamente.
- * - '../src/lib/mercadolibre.js' (getItem) — el espejo lee el stock de la publicación.
+ * - '../src/db.js' (getSyncEnabled, insertAuditLog, attributeStockChangeToSale, enqueueMlTask,
+ *   waitForMlTask) — no hay Postgres real.
+ * - '../src/services/conflictsService.js' (getAnalysis, refresh*InSnapshot) — ensureSkuResolved lo
+ *   importa dinámicamente; los refresh los usa el registro del lado del canal donde se vendió.
+ * - '../src/lib/mercadolibre.js' (getItem) — el espejo de cancelación lee el stock de la publicación.
  * - global fetch + 'node-fetch' — deductStockTiendaNube/restoreStockTiendaNube pegan directo a la
  *   API de TN (fetch global para el GET, tiendanube.js/node-fetch para el PUT vía updateVariant*).
  */
@@ -30,7 +32,13 @@ const dbState = {
   approvedReturns: [],
   /** Claves `canal|orderId|operacion` de sync_processed_orders. */
   orderClaims: new Set(),
+  /** Llamadas a attributeStockChangeToSale (el paso que le pone "Venta ML"/"Venta TN" al movimiento del canal). */
+  attributions: [],
+  attributionMatches: true,
 };
+
+/** Refrescos de snapshot que dispara el registro del lado del canal donde se vendió. */
+const snapshotState = { mlRefreshes: [], tnRefreshes: [], mlRefreshOk: true, tnRefreshOk: true };
 
 const claimKey = (channel, orderId, op) => `${channel}|${orderId}|${op}`;
 
@@ -62,6 +70,10 @@ before(async () => {
     exports: {
       getSyncEnabled: async () => dbState.syncEnabled,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
+      attributeStockChangeToSale: async (args) => {
+        dbState.attributions.push(args);
+        return dbState.attributionMatches;
+      },
       getPendingReturnById: async (id) => dbState.pendingReturns.get(Number(id)) ?? null,
       setReturnApproved: async (id) => { dbState.approvedReturns.push(Number(id)); return true; },
       hasOrderProcessingClaimed: async (channel, orderId, op) => dbState.orderClaims.has(claimKey(channel, orderId, op)),
@@ -89,6 +101,8 @@ before(async () => {
       getAnalysis: async () => ({ mappings: analysisState.mappings }),
       patchTnStock: async () => {},
       patchTnPrice: async () => {},
+      refreshMlItemInSnapshot: async (...a) => { snapshotState.mlRefreshes.push(a); return { ok: snapshotState.mlRefreshOk }; },
+      refreshTnProductInSnapshot: async (...a) => { snapshotState.tnRefreshes.push(a); return { ok: snapshotState.tnRefreshOk }; },
     },
   });
   mock.module('../src/lib/mercadolibre.js', {
@@ -113,7 +127,14 @@ beforeEach(() => {
   dbState.pendingReturns = new Map();
   dbState.approvedReturns = [];
   dbState.orderClaims = new Set();
+  dbState.attributions = [];
+  dbState.attributionMatches = true;
+  snapshotState.mlRefreshes = [];
+  snapshotState.tnRefreshes = [];
+  snapshotState.mlRefreshOk = true;
+  snapshotState.tnRefreshOk = true;
   analysisState.mappings = [];
+  Object.assign(tokens.mercadolibre, { access_token: null, user_id: null });
   Object.assign(tokens.tiendanube, { access_token: null, store_id: null });
   tnFetchState.responder = null;
   mlState.items = {};
@@ -370,6 +391,112 @@ test('approvePendingReturn: una orden con dos ítems se puede aprobar dos veces 
   assert.deepEqual(dbState.approvedReturns, [4, 5]);
 });
 
+// ─── El otro lado del historial: el movimiento que hace el canal donde se vendió ──────────────
+
+test('onTiendaNubeOrderPaid: refresca el producto en TN y atribuye ese movimiento a la venta', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], [{ sku: 'CREANDO', productId: 1, variantId: 42 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-tok', store_id: 7 });
+
+  await syncService.onTiendaNubeOrderPaid(
+    [{ variant_id: 42, quantity: 2, product_id: 1, name: 'Cuaderno', variant_name: 'A4' }],
+    '102',
+    null
+  );
+
+  assert.deepEqual(snapshotState.tnRefreshes, [['tn-tok', 7, 1]], 'baja el producto para ver el stock real');
+  assert.equal(dbState.attributions.length, 1);
+  const attr = dbState.attributions[0];
+  assert.equal(attr.channel, 'tiendanube');
+  assert.equal(attr.sku, 'CREANDO');
+  assert.equal(attr.delta, -2, 'la venta descontó 2 en TN');
+  assert.equal(attr.productLabel, 'Venta TN');
+  assert.equal(attr.orderId, '102');
+  assert.equal(attr.source, undefined, 'una venta no manda source: attributeStockChangeToSale la default a "venta"');
+});
+
+test('onTiendaNubeOrderCancelled: atribuye la restitución con delta positivo', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1' }], [{ sku: 'CREANDO', productId: 1, variantId: 42 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-tok', store_id: 7 });
+
+  await syncService.onTiendaNubeOrderCancelled([{ variant_id: 42, quantity: 3, product_id: 1 }], '102', null);
+
+  assert.equal(dbState.attributions.length, 1);
+  assert.equal(dbState.attributions[0].delta, 3);
+  assert.equal(dbState.attributions[0].productLabel, 'Cancelación TN');
+  assert.equal(dbState.attributions[0].source, 'devolucion');
+});
+
+test('onMercadoLibreOrderPaid: registra el movimiento de ML aunque el descuento en TN falle', async () => {
+  // Sin el SKU resuelto del lado TN, deductStockTiendaNube devuelve { ok: false } y antes no
+  // quedaba rastro de la venta. El lado ML —el que sí se movió— tiene que quedar registrado igual:
+  // esa fila sola en el historial es la desincronización.
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1', variationId: '10' }], []);
+
+  const results = await syncService.onMercadoLibreOrderPaid(
+    [{ item: { id: 'MLA1', variation_id: '10', seller_sku: 'CREANDO', title: 'Cuaderno' }, quantity: 1 }],
+    '900',
+    { id: '900', pack_id: '900' }
+  );
+
+  assert.equal(results[0].ok, false, 'el espejo en TN no se pudo hacer');
+  assert.deepEqual(dbState.auditLogs, [], 'no hay fila del lado TN porque no se descontó nada');
+  assert.equal(dbState.attributions.length, 1, 'pero sí se registra el lado ML');
+  const attr = dbState.attributions[0];
+  assert.equal(attr.channel, 'mercadolibre');
+  assert.equal(attr.sku, 'CREANDO');
+  assert.equal(attr.delta, -1);
+  assert.equal(attr.productLabel, 'Venta ML');
+  assert.equal(attr.packId, '900');
+});
+
+test('si no se puede leer el canal (429 de ML), el movimiento queda encolado para reintentar', async () => {
+  // Un 429 sostenido no puede dejar la venta sin registrar: sería un agujero justo en el dato que
+  // sirve para detectar inconsistencias.
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1', variationId: '10' }], []);
+  snapshotState.mlRefreshOk = false;
+  dbState.attributionMatches = false; // tampoco había una fila previa del webhook `items`
+
+  await syncService.onMercadoLibreOrderPaid(
+    [{ item: { id: 'MLA1', variation_id: '10', seller_sku: 'CREANDO', title: 'Cuaderno' }, quantity: 1 }],
+    '900',
+    { id: '900', pack_id: '900' }
+  );
+
+  const probe = dbState.enqueuedTasks.find((t) => t.kind === 'stock_probe');
+  assert.ok(probe, 'debe encolar la relectura');
+  assert.equal(probe.itemId, 'MLA1');
+  const ctx = JSON.parse(probe.contextJson);
+  assert.equal(ctx.probe.channel, 'mercadolibre');
+  assert.equal(ctx.probe.sku, 'CREANDO');
+  assert.equal(ctx.probe.delta, -1);
+});
+
+test('si la lectura falló pero el webhook del canal ya había registrado el movimiento, no se encola nada', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1', variationId: '10' }], []);
+  snapshotState.mlRefreshOk = false;
+  dbState.attributionMatches = true; // la fila 'externo' ya existía y se atribuyó
+
+  await syncService.onMercadoLibreOrderPaid(
+    [{ item: { id: 'MLA1', variation_id: '10', seller_sku: 'CREANDO', title: 'Cuaderno' }, quantity: 1 }],
+    '900',
+    { id: '900', pack_id: '900' }
+  );
+
+  assert.equal(dbState.enqueuedTasks.filter((t) => t.kind === 'stock_probe').length, 0);
+});
+
+test('lectura OK: no se encola ninguna relectura', async () => {
+  setResolutionFromAnalysis([{ sku: 'CREANDO', itemId: 'MLA1', variationId: '10' }], []);
+
+  await syncService.onMercadoLibreOrderPaid(
+    [{ item: { id: 'MLA1', variation_id: '10', seller_sku: 'CREANDO', title: 'Cuaderno' }, quantity: 1 }],
+    '900',
+    { id: '900', pack_id: '900' }
+  );
+
+  assert.equal(dbState.enqueuedTasks.filter((t) => t.kind === 'stock_probe').length, 0);
+});
+
 // ─── Espejo de cancelación ML: TN se iguala a ML, no suma a ciegas ───────────
 
 /** Responder de TN: GET devuelve el stock pedido, PUT registra lo que se escribió. */
@@ -404,6 +531,43 @@ test('espejo: ML devolvió la unidad (ML 3, TN 2) → TN queda en 3, el número 
   assert.equal(dbState.auditLogs.length, 1);
   assert.equal(dbState.auditLogs[0].stockBefore, 2);
   assert.equal(dbState.auditLogs[0].stockAfter, 3);
+});
+
+test('espejo: cuando ML devolvió la unidad, también se registra y atribuye el lado ML del historial', async () => {
+  // La fila que arma insertAuditLog más arriba es la del espejo en TN; el otro lado —lo que hizo
+  // ML por su cuenta al cancelar— lo cubre recordMlSideMovement (refresca el ítem y atribuye).
+  // Necesita su propio token ML (getMlToken lee tokens.mercadolibre, no el que recibió el plan).
+  Object.assign(tokens.mercadolibre, { access_token: 'ml-tok', user_id: 1 });
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 3, seller_sku: 'LLUVIA' } };
+  tnFetchState.responder = tnResponder(2, []);
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  await syncService.onMercadoLibreOrderCancelled(cancelledItems, '557', null, plan);
+
+  assert.deepEqual(snapshotState.mlRefreshes[0], ['ml-tok', 'MLA1']);
+  assert.equal(dbState.attributions.length, 1);
+  assert.equal(dbState.attributions[0].delta, 1, 'la cantidad cancelada, no la diferencia mlStock-tnStock');
+  assert.equal(dbState.attributions[0].productLabel, 'Cancelación ML');
+  // No 'venta': el filtro "Devoluciones" del historial tiene que encontrar también este lado.
+  assert.equal(dbState.attributions[0].source, 'devolucion');
+});
+
+test('espejo: si falla la escritura en TN, el lado ML del historial se registra igual', async () => {
+  setResolutionFromAnalysis([{ sku: 'LLUVIA', itemId: 'MLA1' }], [{ sku: 'LLUVIA', productId: 10, variantId: 20 }]);
+  Object.assign(tokens.tiendanube, { access_token: 'tn-token', store_id: '777' });
+  mlState.items = { MLA1: { id: 'MLA1', available_quantity: 3, seller_sku: 'LLUVIA' } };
+  // El GET (lectura previa, para el plan) responde bien; el PUT (la escritura del espejo) falla.
+  tnFetchState.responder = (url, opts) => (!opts?.method || opts.method === 'GET')
+    ? makeRes({ json: { stock: 2 } })
+    : makeRes({ status: 500, json: {} });
+
+  const plan = await syncService.planMlCancellationMirror(cancelledItems, 'ml-tok');
+  const results = await syncService.onMercadoLibreOrderCancelled(cancelledItems, '557', null, plan);
+
+  assert.equal(results[0].ok, false, 'el espejo en TN falló');
+  assert.equal(dbState.attributions.length, 1, 'pero ML sí restauró, y eso queda registrado');
 });
 
 test('espejo: ML NO devolvió la unidad (ML 2, TN 2) → no se toca TN y queda para confirmar a mano', async () => {

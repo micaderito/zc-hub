@@ -154,6 +154,42 @@ Dos detalles que evitan avisos de más:
   marca `manual_review` en `sync_processed_orders`, porque descartar una devolución la saca del
   chequeo de duplicados y sin la marca volvería a aparecer con la próxima notificación.
 
+### Devoluciones vía claim: el webhook de reclamos usaba el topic viejo de ML
+
+Incidente 2026-08-12: dos devoluciones reales nunca aparecieron en `sync_pending_returns` (la
+tabla estaba vacía en prod). Investigando con logs y la API real de la cuenta se encontraron tres
+bugs apilados en el camino de "reclamo → devolución pendiente" (`backend/src/routes/webhooks.js`,
+`backend/src/routes/sync.js`):
+
+1. **ML migró el topic.** Ya no manda `topic: 'claims'`/`'claims_actions'`; manda
+   `topic: 'post_purchase'` con el subtópico en el array `actions` (`actions: ['claims']`).
+   Confirmado con logs reales de producción. El webhook filtraba por el topic viejo, así que
+   **descartaba el 100% de las notificaciones de reclamos**. `isClaimsNotification()` en
+   `webhooks.js` acepta ambos formatos.
+2. **El discriminador de "es devolución" estaba mal.** Se filtraba por `claim.type === 'return'`,
+   pero la doc de ML dice que lo correcto es `claim.related_entities.includes('return')` — un
+   reclamo por producto defectuoso llega como `type: 'mediations'` con `related_entities:
+   ['return']`, y ese caso se perdía. `claimHasReturn()` en `lib/mercadolibre.js` chequea ambos
+   campos (el `type` se mantiene como respaldo porque la doc es inconsistente entre versiones).
+3. **`ML_RETURN_CLOSED_STATUSES` excluía justo los estados donde hay que actuar.** Incluía
+   `delivered` (= "devolución en manos del vendedor", el momento exacto de restaurar stock) y
+   `expired` (= ML cerró la devolución sola al vencer el plazo de revisión). Una devolución
+   real terminaba descartada en el momento en que dejaba de estar pendiente. Ahora la lista
+   solo excluye estados donde no hay nada que restaurar (`cancelled`/`canceled`).
+
+Las 2 devoluciones puntuales de ese incidente no perdieron stock: como el paquete no llegó a
+destino, ML canceló la orden y esas cancelaciones sí pasaron por el camino de "entrega fallida"
+(sección de arriba), que restauró el stock automáticamente sin depender del webhook de reclamos.
+Los tres bugs de arriba solo afectan devoluciones que **sí** pasan por un claim de ML — arrepentimiento
+o producto defectuoso sin que ML cancele la orden — que hasta este fix quedaban invisibles.
+
+De paso se encontró que el filtro **"Devoluciones" del Historial** (`sync.component.ts`, columna
+`source` de `sync_audit`) llevaba muerto desde siempre: la columna acepta `'venta' | 'manual' |
+'devolucion'`, pero ningún camino de restauración por cancelación/devolución (`onMercadoLibreOrderCancelled`,
+`onTiendaNubeOrderCancelled`, `approvePendingReturn`) le ponía `source: 'devolucion'` al insertar
+en `sync_audit` — todo caía al default `'venta'`. Se agregó en los 4 puntos donde se restaura
+stock por cancelación o devolución aprobada, así el filtro que ya existía en la UI queda con datos.
+
 ### Cola de tareas (`ml_pending_tasks`): locks que vencen
 
 El worker (`backend/src/lib/mlTaskQueue.js`, tick cada 500 ms) reclama una tarea y la pasa a
@@ -179,14 +215,69 @@ En la UI (tab **Cola ML**) esas tareas se muestran como **Trabada** (no "En proc
 botón Reintentar; `retryMlTask` acepta `failed` o `processing` con lock vencido, nunca una
 `processing` viva.
 
+### Depósito Marañón: stock aparte de ML/TN
+
+Sección (`/deposito`, tabla `deposito_stock`) para llevar el stock físico guardado en el depósito
+Marañón — aparte del publicado en los canales. No es un espejo de nada: se carga y edita a mano.
+
+Cada fila es `item_type = 'producto'` (vinculada a un SKU real del catálogo, con autocomplete que
+reusa `GET /api/mapping/sources/{mercadolibre,tiendanube}` — los mismos endpoints que ya alimentan
+el picker de mapeo) o `'embalaje'` (insumos sin canal — rollos de burbupack, cartón corrugado — que
+nunca fueron ni van a ser un producto publicado, por eso `sku` es `NULL`). La ruta valida que un
+`producto` tenga SKU y que un `embalaje` no lo tenga.
+
+Los dos insumos de embalaje se precargan en `initDb()`, pero **solo si la tabla está vacía**
+(mismo patrón que `ml_fee_tiers`): así una fila borrada a mano porque se dejó de comprar ese
+insumo no resucita en cada reinicio del backend.
+
+El ajuste rápido de cantidad (`PATCH /:id/ajustar`, botones +/-1 de la tabla) es un delta sobre el
+valor guardado, no pisa un valor absoluto — evita que dos clics simultáneos se pisen entre sí.
+
+### Historial: el movimiento de LOS DOS canales
+
+El hub solo escribe el canal espejo (vende ML → descuenta TN), así que el historial contaba media
+historia: no mostraba lo que hacía el canal donde se vendió. Eso hacía invisible el caso "se
+descontó en TN pero ML nunca descontó lo suyo".
+
+Ahora cada venta registra **las dos caras**, y la del canal se toma de un dato **observado**:
+
+1. `refreshMlItemInSnapshot` / `refreshTnProductInSnapshot` (`conflictsService.js`) leen el ítem real
+   y diffean contra el snapshot; cada diferencia de stock entra al historial como
+   `source: 'externo'` / `actor: 'plataforma'`. Esto también captura ediciones hechas desde el panel
+   de ML/TN, que es la otra fuente típica de desincronización.
+2. `attributeStockChangeToSale` (`db.js`) reetiqueta esa fila como "Venta ML"/"Venta TN" si matchea
+   canal + SKU + delta dentro de 30 min. Si NO matchea, queda como cambio externo a propósito: un
+   movimiento que no se corresponde con ninguna venta conocida es justo lo que hay que poder ver.
+
+Separar detección de atribución hace que dé igual quién llegue primero, si el webhook del ítem o el
+de la orden. `stockEcho.js` evita contar dos veces lo que escribió el propio hub: cada
+`patchMlStock`/`patchTnStock` deja un eco (canal+ítem+valor, TTL 2 min) que el diff consume.
+
+**Nada de esto puede perderse por un 429.** Dos guardas:
+
+- `ml.getItemOrStatus` expone el status en vez de colapsar todo a `null`: `refreshMlItemInSnapshot`
+  solo vacía las filas del snapshot ante un **404 confirmado**; ante 429 agotado o 5xx no toca nada
+  (si no, una racha de 429 borraba el producto del catálogo y marcaba el evento como desincronizado
+  sin que ML hubiera hecho nada). El lado TN ya distinguía 404 real de falla transitoria.
+- Si la lectura falla, la venta encola una tarea **`stock_probe`** (única kind que no escribe nada:
+  solo relee y registra). Reintenta con el backoff de la cola y, agotados los 5 intentos, queda
+  visible en **Cola ML** con botón Reintentar. Que no haya nada que atribuir NO es error: significa
+  que el canal no movió stock, y eso es exactamente lo que el historial debe mostrar.
+
+En el modal de historial por SKU las dos caras se muestran agrupadas como un solo evento, con el
+número en que quedó cada canal y un chip **desincronizado** cuando no coinciden o falta una cara.
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
 ML). `backend/test/mlShipmentState.test.js` cubre la regla de restauración por estado de envío,
 `backend/test/mlCancelReason.test.js` qué motivos de cancelación van a revisión manual,
 `backend/test/syncService.test.js` el espejo de stock (ML devolvió / ML no devolvió / sin plan /
-por variación), `backend/test/db.test.js` la recuperación de locks vencidos y
-`backend/test/mlTaskQueue.test.js` el latido, y `backend/test/routesWebhooks.test.js` el flujo
-completo de cancelación (entrega fallida, envío despachado, envío no consultable, caché por pack,
-cancelación del vendedor, reintento del espejo). Correr con `npm test` en `backend/`
-(necesita Node ≥ 22: con Node 20 el mockeo de módulos de `node:test` rompe el import de `pg`).
+por variación) y la atribución/encolado del reintento del historial, `backend/test/db.test.js` la
+recuperación de locks vencidos, `backend/test/mlTaskQueue.test.js` el latido y `stock_probe`,
+`backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
+despachado, envío no consultable, caché por pack, cancelación del vendedor, reintento del espejo),
+y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
+ajuste rápido de cantidad, filas inexistentes). El historial de los dos canales está cubierto
+además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no tocan el snapshot).
+Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

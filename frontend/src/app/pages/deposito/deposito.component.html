@@ -1,0 +1,143 @@
+<div class="dp-page">
+  <header class="dp-head">
+    <div>
+      <h1>Depósito Marañón</h1>
+      <p>Stock físico guardado en el depósito, aparte de lo publicado en Mercado Libre y Tienda Nube.</p>
+    </div>
+    <div class="dp-head-actions">
+      <button type="button" class="btn pri" (click)="openCreate()">
+        <i class="ti ti-plus"></i> Agregar
+      </button>
+    </div>
+  </header>
+
+  @if (items().length > 0) {
+    <div class="dp-rules">
+      <span class="chip"><i class="ti ti-stack-2"></i> Total <b>{{ totals().total }}</b></span>
+      <span class="chip"><i class="ti ti-box"></i> Productos <b>{{ totals().productos }}</b></span>
+      <span class="chip"><i class="ti ti-package"></i> Embalaje <b>{{ totals().embalaje }}</b></span>
+    </div>
+  }
+
+  <div class="dp-toolbar">
+    <div class="dp-search">
+      <i class="ti ti-search"></i>
+      <input type="text" placeholder="Buscar SKU o descripción…" [ngModel]="search()" (ngModelChange)="search.set($event)" />
+    </div>
+  </div>
+
+  @if (errorMsg()) {
+    <div class="dp-error">{{ errorMsg() }}</div>
+  }
+
+  @if (itemsQuery.isLoading()) {
+    <p class="dp-msg">Cargando…</p>
+  } @else if (filteredItems().length === 0) {
+    <div class="dp-empty">
+      <i class="ti ti-building-warehouse"></i>
+      <p>{{ items().length === 0 ? 'Todavía no cargaste stock de depósito.' : 'No hay filas que coincidan con la búsqueda.' }}</p>
+      @if (items().length === 0) {
+        <button type="button" class="btn pri" (click)="openCreate()"><i class="ti ti-plus"></i> Agregar el primero</button>
+      }
+    </div>
+  } @else {
+    <div class="dp-table-wrap">
+      <table class="dp-table">
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Descripción</th>
+            <th>SKU</th>
+            <th class="num">Cantidad</th>
+            <th>Unidad</th>
+            <th>Notas</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (item of filteredItems(); track item.id) {
+            <tr>
+              <td>
+                @if (item.itemType === 'producto') {
+                  <span class="badge prod"><i class="ti ti-box"></i> Producto</span>
+                } @else {
+                  <span class="badge pack"><i class="ti ti-package"></i> Embalaje</span>
+                }
+              </td>
+              <td>{{ item.label }}</td>
+              <td><span class="sku">{{ item.sku || '—' }}</span></td>
+              <td class="num">
+                <div class="qty-stepper">
+                  <button type="button" class="icon-btn" [disabled]="item.quantity === 0 || adjustingId() === item.id" (click)="adjust(item, -1)" title="Restar 1"><i class="ti ti-minus"></i></button>
+                  <span class="qty-val">{{ item.quantity }}</span>
+                  <button type="button" class="icon-btn" [disabled]="adjustingId() === item.id" (click)="adjust(item, 1)" title="Sumar 1"><i class="ti ti-plus"></i></button>
+                </div>
+              </td>
+              <td>{{ item.unit }}</td>
+              <td class="notes">{{ item.notes || '—' }}</td>
+              <td class="col-actions">
+                <button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar"><i class="ti ti-pencil"></i></button>
+                <button type="button" class="icon-btn danger" (click)="remove(item)" title="Borrar"><i class="ti ti-trash"></i></button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>
+
+<!-- ══════════════ Modal: alta/edición ══════════════ -->
+@if (showForm()) {
+  <div class="modal-backdrop" (click)="showForm.set(false)">
+    <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>{{ form().id != null ? 'Editar fila' : 'Agregar al depósito' }}</h2>
+        <button type="button" class="icon-btn" (click)="showForm.set(false)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="seg">
+          <button type="button" [class.on]="form().itemType === 'producto'" (click)="setItemType('producto')">Producto del catálogo</button>
+          <button type="button" [class.on]="form().itemType === 'embalaje'" (click)="setItemType('embalaje')">Insumo de embalaje</button>
+        </div>
+
+        @if (form().itemType === 'producto') {
+          <label class="fld">SKU
+            <input type="text" list="dp-sku-options" [ngModel]="form().sku" (ngModelChange)="onSkuChange($event)" placeholder="El mismo SKU que en ML/TN" />
+            <datalist id="dp-sku-options">
+              @for (o of catalogOptions(); track o.sku) {
+                <option [value]="o.sku">{{ o.label }}</option>
+              }
+            </datalist>
+          </label>
+          @if (catalogLoading()) {
+            <p class="fld-hint">Cargando catálogo de ML/TN…</p>
+          }
+        }
+
+        <label class="fld">Descripción
+          <input type="text" [ngModel]="form().label" (ngModelChange)="updateForm('label', $event)" placeholder="Ej: Cuaderno A4 80 hojas" />
+        </label>
+
+        <div class="grid2">
+          <label class="fld">Cantidad
+            <input type="number" min="0" [ngModel]="form().quantity" (ngModelChange)="updateForm('quantity', $event)" />
+          </label>
+          <label class="fld">Unidad
+            <input type="text" [ngModel]="form().unit" (ngModelChange)="updateForm('unit', $event)" placeholder="unidades, rollos…" />
+          </label>
+        </div>
+
+        <label class="fld">Notas (opcional)
+          <input type="text" [ngModel]="form().notes" (ngModelChange)="updateForm('notes', $event)" />
+        </label>
+      </div>
+      <div class="modal-foot">
+        @if (errorMsg()) { <span class="dp-error inline">{{ errorMsg() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="showForm.set(false)">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="saving()" (click)="save()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </div>
+    </div>
+  </div>
+}

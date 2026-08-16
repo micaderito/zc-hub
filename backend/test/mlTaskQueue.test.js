@@ -18,6 +18,8 @@ const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], priceAudi
 // mlStockBefore / mlPriceBefore: lo que patchMlStock / patchMlPrice devuelven como estado previo
 // del snapshot (null = fila ausente).
 const patchState = { calls: [], mlStockBefore: null, mlPriceBefore: null };
+// stock_probe: relee el canal (refresh*) y atribuye el movimiento a la venta (attribute*).
+const probeState = { refreshMlOk: true, refreshTnOk: true, refreshCalls: [], attributions: [], attributionMatches: true };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '55' } } };
 const mlState = {
   item: { id: 'MLA1', available_quantity: 10, variations: [] },
@@ -39,6 +41,10 @@ before(async () => {
       MLTASK_HEARTBEAT_MS: 30_000,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
       insertPriceAudit: async (row) => { dbState.priceAudits.push(row); },
+      attributeStockChangeToSale: async (args) => {
+        probeState.attributions.push(args);
+        return probeState.attributionMatches;
+      },
     },
   });
   mock.module('../src/services/conflictsService.js', {
@@ -47,6 +53,14 @@ before(async () => {
       patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); return patchState.mlStockBefore; },
       patchMlSku: async (...a) => { patchState.calls.push(['patchMlSku', ...a]); },
       patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
+      refreshMlItemInSnapshot: async (...a) => {
+        probeState.refreshCalls.push(['ml', ...a]);
+        return { ok: probeState.refreshMlOk };
+      },
+      refreshTnProductInSnapshot: async (...a) => {
+        probeState.refreshCalls.push(['tn', ...a]);
+        return { ok: probeState.refreshTnOk };
+      },
     },
   });
   mock.module('../src/store.js', {
@@ -84,6 +98,11 @@ beforeEach(() => {
   patchState.calls = [];
   patchState.mlStockBefore = null;
   patchState.mlPriceBefore = null;
+  probeState.refreshMlOk = true;
+  probeState.refreshTnOk = true;
+  probeState.refreshCalls = [];
+  probeState.attributions = [];
+  probeState.attributionMatches = true;
   dbState.hasDb = true;
   storeState.mlToken = 'ml-tok';
   storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '55' };
@@ -365,4 +384,62 @@ test('startMlTaskWorker/stopMlTaskWorker: con base de datos arranca y para sin l
   mlTaskQueue.startMlTaskWorker(); // segunda llamada es no-op (workerTimer ya seteado)
   mlTaskQueue.stopMlTaskWorker();
   mlTaskQueue.stopMlTaskWorker(); // segunda llamada es no-op (workerTimer ya null)
+});
+
+// ─── processTask: stock_probe (reintento de la lectura del canal que se vendió) ───────────────
+
+test('stock_probe ML: relee el ítem y atribuye el movimiento a la venta', async () => {
+  await mlTaskQueue.processTask({
+    id: 30, kind: 'stock_probe', itemId: 'MLA1', variationId: null, attempts: 0,
+    contextJson: JSON.stringify({
+      probe: { channel: 'mercadolibre', sku: 'SKU-1', delta: -2, orderId: '900', packId: '900', productLabel: 'Venta ML' },
+    }),
+  });
+
+  assert.deepEqual(probeState.refreshCalls[0], ['ml', 'ml-tok', 'MLA1']);
+  assert.equal(dbState.statusUpdates[0].status, 'done');
+  assert.equal(probeState.attributions.length, 1);
+  assert.equal(probeState.attributions[0].sku, 'SKU-1');
+  assert.equal(probeState.attributions[0].delta, -2);
+});
+
+test('stock_probe TN: relee el producto en la tienda, no en ML', async () => {
+  await mlTaskQueue.processTask({
+    id: 31, kind: 'stock_probe', itemId: '1234', variationId: null, attempts: 0,
+    contextJson: JSON.stringify({
+      probe: { channel: 'tiendanube', sku: 'SKU-1', delta: -1, orderId: '102', productLabel: 'Venta TN' },
+    }),
+  });
+
+  assert.deepEqual(probeState.refreshCalls[0], ['tn', 'tn-tok', '55', '1234']);
+  assert.equal(dbState.statusUpdates[0].status, 'done');
+});
+
+test('stock_probe: si la lectura vuelve a fallar, la tarea falla y la cola la reintenta', async () => {
+  probeState.refreshMlOk = false;
+  await mlTaskQueue.processTask({
+    id: 32, kind: 'stock_probe', itemId: 'MLA1', variationId: null, attempts: 1,
+    contextJson: JSON.stringify({ probe: { channel: 'mercadolibre', sku: 'SKU-1', delta: -2, orderId: '900' } }),
+  });
+
+  assert.equal(dbState.statusUpdates[0].status, 'failed');
+  assert.match(dbState.statusUpdates[0].err, /No se pudo leer el stock/);
+  assert.deepEqual(probeState.attributions, [], 'sin lectura buena no se atribuye nada');
+});
+
+test('stock_probe: que no haya nada que atribuir NO es un error (el canal no movió stock)', async () => {
+  // Es el caso que hay que poder ver en el historial: la venta se procesó pero ML nunca descontó.
+  probeState.attributionMatches = false;
+  await mlTaskQueue.processTask({
+    id: 33, kind: 'stock_probe', itemId: 'MLA1', variationId: null, attempts: 0,
+    contextJson: JSON.stringify({ probe: { channel: 'mercadolibre', sku: 'SKU-1', delta: -2, orderId: '900' } }),
+  });
+
+  assert.equal(dbState.statusUpdates[0].status, 'done', 'no se reintenta para siempre algo que ya sabemos');
+});
+
+test('stock_probe sin contexto: falla explícito en vez de leer cualquier cosa', async () => {
+  await mlTaskQueue.processTask({ id: 34, kind: 'stock_probe', itemId: 'MLA1', variationId: null, attempts: 0 });
+  assert.equal(dbState.statusUpdates[0].status, 'failed');
+  assert.match(dbState.statusUpdates[0].err, /sin contexto/);
 });

@@ -357,6 +357,35 @@ export async function initDb() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_pack_skus_pack ON pack_skus (pack_id);`);
 
+    // ── Depósito Marañón ──────────────────────────────────────────────────────
+    // Stock físico guardado en el depósito, aparte del publicado en ML/TN. item_type='producto'
+    // linkea un SKU real del catálogo (autocomplete contra ML/TN); 'embalaje' es material sin
+    // canal (rollos, cinta) que nunca fue ni va a ser un producto publicado, por eso sku es NULL.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS deposito_stock (
+        id SERIAL PRIMARY KEY,
+        sku VARCHAR(128),
+        label VARCHAR(512) NOT NULL,
+        item_type VARCHAR(16) NOT NULL DEFAULT 'producto' CHECK (item_type IN ('producto', 'embalaje')),
+        quantity INTEGER NOT NULL DEFAULT 0,
+        unit VARCHAR(32) NOT NULL DEFAULT 'unidades',
+        notes VARCHAR(1024),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_deposito_stock_sku ON deposito_stock (sku);`);
+    // Precarga los dos insumos de embalaje que ya se guardan en Marañón. Solo si la tabla está
+    // vacía: así una fila borrada a mano (ya no se compra ese insumo) no resucita en cada reinicio.
+    const depositoCount = await p.query(`SELECT COUNT(*)::int AS n FROM deposito_stock`);
+    if ((depositoCount.rows[0]?.n ?? 0) === 0) {
+      await p.query(
+        `INSERT INTO deposito_stock (label, item_type, unit, quantity) VALUES
+           ('Rollo de burbupack', 'embalaje', 'rollos', 0),
+           ('Rollo de cartón corrugado', 'embalaje', 'rollos', 0)`
+      );
+    }
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -1942,6 +1971,117 @@ export async function setSkuPack(sku, packId) {
     return true;
   } catch (e) {
     console.error('setSkuPack:', e.message);
+    return false;
+  }
+}
+
+// ── Depósito Marañón ──────────────────────────────────────────────────────
+
+const DEPOSITO_SELECT = `SELECT id, sku, label, item_type AS "itemType", quantity, unit, notes,
+  created_at AS "createdAt", updated_at AS "updatedAt" FROM deposito_stock`;
+
+function mapDepositoItem(row) {
+  return {
+    id: row.id,
+    sku: row.sku,
+    label: row.label,
+    itemType: row.itemType,
+    quantity: Number(row.quantity),
+    unit: row.unit,
+    notes: row.notes,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+/** Todo el stock de depósito, productos primero. */
+export async function getDepositoItems() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(`${DEPOSITO_SELECT} ORDER BY item_type, label`);
+    return r.rows.map(mapDepositoItem);
+  } catch (e) {
+    console.error('getDepositoItems:', e.message);
+    return [];
+  }
+}
+
+/** Alta de una fila de depósito (producto vinculado a un SKU o insumo de embalaje). */
+export async function createDepositoItem(data = {}) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `INSERT INTO deposito_stock (sku, label, item_type, quantity, unit, notes)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, sku, label, item_type AS "itemType", quantity, unit, notes,
+         created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [
+        data.sku || null, data.label, data.itemType || 'producto',
+        Number.isFinite(Number(data.quantity)) ? Number(data.quantity) : 0,
+        data.unit || 'unidades', data.notes || null,
+      ]
+    );
+    return mapDepositoItem(r.rows[0]);
+  } catch (e) {
+    console.error('createDepositoItem:', e.message);
+    return null;
+  }
+}
+
+/** Edición de una fila existente (pisa sku/label/tipo/unidad/notas y opcionalmente la cantidad). */
+export async function updateDepositoItem(id, data = {}) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `UPDATE deposito_stock SET
+         sku = $2, label = $3, item_type = $4, unit = $5, notes = $6,
+         quantity = COALESCE($7, quantity), updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, sku, label, item_type AS "itemType", quantity, unit, notes,
+         created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [
+        id, data.sku || null, data.label, data.itemType || 'producto', data.unit || 'unidades',
+        data.notes || null, Number.isFinite(Number(data.quantity)) ? Number(data.quantity) : null,
+      ]
+    );
+    return r.rows[0] ? mapDepositoItem(r.rows[0]) : null;
+  } catch (e) {
+    console.error('updateDepositoItem:', e.message);
+    return null;
+  }
+}
+
+/** Suma (o resta, con delta negativo) a la cantidad. Nunca deja la cantidad por debajo de 0. */
+export async function adjustDepositoQuantity(id, delta) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `UPDATE deposito_stock SET quantity = GREATEST(quantity + $2, 0), updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, sku, label, item_type AS "itemType", quantity, unit, notes,
+         created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [id, Number(delta) || 0]
+    );
+    return r.rows[0] ? mapDepositoItem(r.rows[0]) : null;
+  } catch (e) {
+    console.error('adjustDepositoQuantity:', e.message);
+    return null;
+  }
+}
+
+/** Borra una fila de depósito. */
+export async function deleteDepositoItem(id) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query('DELETE FROM deposito_stock WHERE id = $1', [id]);
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('deleteDepositoItem:', e.message);
     return false;
   }
 }
