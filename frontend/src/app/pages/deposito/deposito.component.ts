@@ -3,7 +3,8 @@ import { FormsModule } from '@angular/forms';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
 import { DepositoService, DepositoItem, DepositoItemType } from '../../core/services/deposito.service';
-import { MappingService } from '../../core/services/mapping.service';
+import { MappingService, CatalogOption } from '../../core/services/mapping.service';
+import { matchSearchByTokens } from '../../core/services/conflicts.service';
 
 /** Estado del formulario de alta/edición de una fila de depósito. */
 interface DepositoForm {
@@ -18,12 +19,6 @@ interface DepositoForm {
 
 function emptyForm(): DepositoForm {
   return { id: null, sku: '', label: '', itemType: 'producto', quantity: 0, unit: 'unidades', notes: '' };
-}
-
-/** Una opción del catálogo ML/TN para el autocomplete de SKU. */
-interface CatalogOption {
-  sku: string;
-  label: string;
 }
 
 /**
@@ -52,11 +47,8 @@ export class DepositoComponent {
   readonly search = signal('');
 
   readonly filteredItems = computed(() => {
-    const q = this.search().trim().toLowerCase();
-    if (!q) return this.items();
-    return this.items().filter(
-      (i) => i.label.toLowerCase().includes(q) || (i.sku ?? '').toLowerCase().includes(q),
-    );
+    const q = this.search();
+    return this.items().filter((i) => matchSearchByTokens(q, `${i.label} ${i.sku ?? ''}`));
   });
 
   readonly totals = computed(() => {
@@ -81,21 +73,13 @@ export class DepositoComponent {
         firstValueFrom(this.mapping.getMercadoLibreSources()),
         firstValueFrom(this.mapping.getTiendaNubeSources()),
       ]);
-      const options = new Map<string, string>();
-      if (ml.status === 'fulfilled') {
-        for (const item of ml.value) {
-          if (item.sku) options.set(item.sku, item.title);
-          for (const v of item.variations) if (v.sku) options.set(v.sku, item.title);
-        }
-      }
-      if (tn.status === 'fulfilled') {
-        for (const product of tn.value) {
-          for (const v of product.variants) if (v.sku) options.set(v.sku, product.name);
-        }
-      }
-      this.catalogOptions.set(
-        [...options.entries()].map(([sku, label]) => ({ sku, label })).sort((a, b) => a.sku.localeCompare(b.sku)),
-      );
+      // Si las dos llamadas fallan (token vencido, ML/TN caídos), no marcamos el catálogo como
+      // cargado: la próxima vez que se abra el modal se reintenta en vez de quedar vacío para siempre.
+      if (ml.status === 'rejected' && tn.status === 'rejected') return;
+      const options = new Map<string, CatalogOption>();
+      if (ml.status === 'fulfilled') for (const o of ml.value) options.set(o.sku, o);
+      if (tn.status === 'fulfilled') for (const o of tn.value) options.set(o.sku, o);
+      this.catalogOptions.set([...options.values()].sort((a, b) => a.sku.localeCompare(b.sku)));
       this.catalogLoaded = true;
     } finally {
       this.catalogLoading.set(false);
@@ -107,15 +91,19 @@ export class DepositoComponent {
   readonly skuDropdownOpen = signal(false);
 
   readonly filteredCatalogOptions = computed(() => {
-    const q = this.skuQuery().trim().toLowerCase();
-    if (!q) return [];
+    const q = this.skuQuery();
+    if (!q.trim()) return [];
     return this.catalogOptions()
-      .filter((o) => o.sku.toLowerCase().includes(q) || o.label.toLowerCase().includes(q))
+      .filter((o) => matchSearchByTokens(q, `${o.label} ${o.sku}`))
       .slice(0, 30);
   });
 
   skuLabelFor(sku: string): string | null {
     return this.catalogOptions().find((o) => o.sku === sku)?.label ?? null;
+  }
+
+  skuThumbnailFor(sku: string): string | null {
+    return this.catalogOptions().find((o) => o.sku === sku)?.thumbnail ?? null;
   }
 
   onSkuQueryChange(value: string): void {

@@ -105,6 +105,9 @@
           <label class="fld">SKU
             @if (form().sku) {
               <div class="sku-selected">
+                @if (skuThumbnailFor(form().sku)) {
+                  <img [src]="skuThumbnailFor(form().sku)" alt="" class="sku-thumb" />
+                }
                 <span class="sku-selected-text">
                   <b>{{ form().sku }}</b>
                   @if (skuLabelFor(form().sku)) { <span class="muted"> — {{ skuLabelFor(form().sku) }}</span> }
@@ -129,8 +132,15 @@
                     } @else {
                       @for (o of filteredCatalogOptions(); track o.sku) {
                         <button type="button" class="sku-result" (click)="selectSku(o)">
-                          <span class="result-sku">{{ o.sku }}</span>
-                          <span class="result-label">{{ o.label }}</span>
+                          @if (o.thumbnail) {
+                            <img [src]="o.thumbnail" alt="" class="result-thumb" />
+                          } @else {
+                            <span class="result-thumb result-thumb-empty"><i class="ti ti-box"></i></span>
+                          }
+                          <span class="result-text">
+                            <span class="result-sku">{{ o.sku }}</span>
+                            <span class="result-label">{{ o.label }}</span>
+                          </span>
                         </button>
                       }
                     }

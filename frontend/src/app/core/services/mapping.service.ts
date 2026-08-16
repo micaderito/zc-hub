@@ -11,17 +11,11 @@ export interface MappingEntry {
   lastSync?: string;
 }
 
-export interface MlSourceItem {
-  id: string;
-  title: string;
-  sku: string | null;
-  variations: { id: string; sku: string | null }[];
-}
-
-export interface TnSourceProduct {
-  id: number;
-  name: string;
-  variants: { id: number; sku: string | null; price: string; stock: number }[];
+/** Una opción del catálogo ML/TN: SKU + nombre legible + foto, ya deduplicado por SKU. */
+export interface CatalogOption {
+  sku: string;
+  label: string;
+  thumbnail: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -48,10 +42,10 @@ export class MappingService {
   }
 
   getMercadoLibreSources() {
-    return this.http.get<MlSourceItem[]>(`${this.api.baseUrl}/mapping/sources/mercadolibre`);
+    return this.http.get<CatalogOption[]>(`${this.api.baseUrl}/mapping/sources/mercadolibre`);
   }
 
   getTiendaNubeSources() {
-    return this.http.get<TnSourceProduct[]>(`${this.api.baseUrl}/mapping/sources/tiendanube`);
+    return this.http.get<CatalogOption[]>(`${this.api.baseUrl}/mapping/sources/tiendanube`);
   }
 }
