@@ -149,6 +149,39 @@ export async function getRulesWithStock() {
   });
 }
 
+/**
+ * Productos matcheados (mismo SKU en ML y TN — el mismo universo que "Vigilar producto nuevo" en
+ * la pestaña Reglas) que todavía no tienen una regla de alerta. Para la pestaña "Sin alertas".
+ */
+export async function getUnwatchedProducts() {
+  const [rules, packs, snap] = await Promise.all([listStockAlerts(), listPacks(), getAnalysisSnapshot()]);
+  const withRule = new Set(rules.map((r) => r.sku));
+  const stockBySku = buildStockBySku(snap?.data);
+  const packBySku = buildSkuPackIndex(packs);
+
+  const mlBySku = new Map();
+  for (const r of snap?.data?.mlRows || []) {
+    if (r.sku && !mlBySku.has(r.sku)) mlBySku.set(r.sku, r);
+  }
+  const tnSkus = new Set((snap?.data?.tnRows || []).map((r) => r.sku).filter(Boolean));
+
+  const products = [];
+  for (const [sku, r] of mlBySku) {
+    if (withRule.has(sku) || !tnSkus.has(sku)) continue;
+    const entry = stockBySku.get(sku);
+    products.push({
+      sku,
+      productLabel: r.variationName ? `${r.title} (${r.variationName})` : r.title,
+      thumbnail: r.thumbnail ?? null,
+      stockMl: entry?.ml ?? null,
+      stockTn: entry?.tn ?? null,
+      stockEffective: effectiveStock(entry),
+      pack: packBySku.get(sku) || null,
+    });
+  }
+  return products.sort((a, b) => (a.productLabel || a.sku).localeCompare(b.productLabel || b.sku, 'es'));
+}
+
 /** Bandeja de notificaciones (pestaña Notificaciones + cajón lateral) con el contador de no leídas. */
 export async function getNotificationsInbox({ unreadOnly = false, limit = 50, offset = 0 } = {}) {
   const [{ rows, total }, unreadCount] = await Promise.all([

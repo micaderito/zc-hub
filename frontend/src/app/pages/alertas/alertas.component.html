@@ -216,6 +216,77 @@
     </div>
   }
 
+  <!-- ══════════════════════════ Sin alertas ══════════════════════════ -->
+  @if (activeTab() === 'sin-alertas') {
+    <div class="tab-panel">
+      <div class="toolbar">
+        <zc-search-bar
+          class="restock-search"
+          [value]="unwatchedSearch()"
+          (valueChange)="unwatchedSearch.set($event)"
+          placeholder="Buscar producto, SKU o pack…"
+          ariaLabel="Buscar productos sin alerta"
+        />
+      </div>
+
+      @if (unwatchedLoading()) {
+        <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
+      } @else if (filteredUnwatched().length === 0) {
+        <p class="empty">
+          @if (unwatchedProducts().length === 0) {
+            Todos los productos coincidentes ya tienen una alerta configurada.
+          } @else {
+            Sin coincidencias para "{{ unwatchedSearch() }}".
+          }
+        </p>
+      } @else {
+        <div class="zc-card table-scroll">
+          <table class="zc-table">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Pack</th>
+                <th class="num">Stock ML</th>
+                <th class="num">Stock TN</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of filteredUnwatched(); track p.sku) {
+                <tr>
+                  <td>
+                    <div class="prod-cell">
+                      <div class="prod-name">{{ p.productLabel ?? p.sku }}</div>
+                      <div class="prod-sku">{{ p.sku }}</div>
+                    </div>
+                  </td>
+                  <td>
+                    @if (p.pack) {
+                      <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ p.pack.name }}</span>
+                    } @else {
+                      <span class="hint">—</span>
+                    }
+                  </td>
+                  <td class="num">{{ p.stockMl ?? '—' }}</td>
+                  <td class="num">{{ p.stockTn ?? '—' }}</td>
+                  <td class="actions-cell">
+                    <button type="button" class="zc-btn small" (click)="configureAlert(p)">
+                      <i class="ti ti-bell-plus" aria-hidden="true"></i> Configurar alerta
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+      <p class="hint footnote">
+        <i class="ti ti-info-circle" aria-hidden="true"></i>
+        Solo se listan productos con el mismo SKU coincidente en ML y TN — el mismo universo de "Vigilar productos" en Reglas.
+      </p>
+    </div>
+  }
+
   <!-- ══════════════════════════ Reglas ══════════════════════════ -->
   @if (activeTab() === 'reglas') {
     <div class="tab-panel">

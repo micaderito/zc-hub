@@ -8,6 +8,7 @@ import { ApiService } from './api.service';
 export const ALERTS_RULES_QUERY_KEY = ['alerts', 'rules'] as const;
 export const ALERTS_RESTOCK_QUERY_KEY = ['alerts', 'restock'] as const;
 export const ALERTS_NOTIFICATIONS_QUERY_KEY = ['alerts', 'notifications'] as const;
+export const ALERTS_UNWATCHED_QUERY_KEY = ['alerts', 'unwatched'] as const;
 
 /** El pack al que pertenece un SKU (ver Productos → Packs); `null` si se pide suelto. */
 export interface PackRef {
@@ -88,6 +89,21 @@ export interface RestockList {
 
 export type RestockPeriod = 'last-order' | '30d' | 'all';
 
+/** Producto matcheado (ML+TN) sin regla de alerta todavía, para la pestaña "Sin alertas". */
+export interface UnwatchedProduct {
+  sku: string;
+  productLabel: string | null;
+  thumbnail: string | null;
+  stockMl: number | null;
+  stockTn: number | null;
+  stockEffective: number | null;
+  pack: PackRef | null;
+}
+
+export interface UnwatchedProductsResponse {
+  products: UnwatchedProduct[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class AlertsService {
   private readonly queryClient = inject(QueryClient);
@@ -101,6 +117,7 @@ export class AlertsService {
     this.queryClient.invalidateQueries({ queryKey: ALERTS_RULES_QUERY_KEY });
     this.queryClient.invalidateQueries({ queryKey: ALERTS_RESTOCK_QUERY_KEY });
     this.queryClient.invalidateQueries({ queryKey: ALERTS_NOTIFICATIONS_QUERY_KEY });
+    this.queryClient.invalidateQueries({ queryKey: ALERTS_UNWATCHED_QUERY_KEY });
   }
 
   private invalidateRestock(): void {
@@ -163,6 +180,14 @@ export class AlertsService {
   async closeRestockPeriod(): Promise<void> {
     await lastValueFrom(this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/done`, {}));
     this.invalidateAll();
+  }
+
+  getUnwatched(): Observable<UnwatchedProductsResponse> {
+    return this.http.get<UnwatchedProductsResponse>(`${this.api.baseUrl}/alerts/unwatched`);
+  }
+
+  getUnwatchedPromise(): Promise<UnwatchedProductsResponse> {
+    return lastValueFrom(this.getUnwatched());
   }
 
   /** Ajusta a mano la cantidad "a pedir" de un SKU o un pack; `qty: null` la borra y vuelve a la sugerida. */

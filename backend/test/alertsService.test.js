@@ -382,6 +382,43 @@ test('marcar pedido como hecho limpia los ajustes manuales', async () => {
   assert.equal(dbState.overrides.size, 0, 'el override no sobrevive al cierre del período');
 });
 
+/* ── productos sin alerta ────────────────────────────────────────────────── */
+
+test('getUnwatchedProducts: solo devuelve SKUs matcheados en los dos canales y sin regla', async () => {
+  dbState.snapshot = makeSnapshot({
+    mlRows: [
+      { sku: 'SKU-A', title: 'Cuaderno A4', variationName: null, thumbnail: 'https://ml/a.jpg', stock: 5 },
+      { sku: 'SKU-B', title: 'Cuaderno A5', variationName: 'Negro', thumbnail: null, stock: 2 },
+      { sku: 'SKU-SOLO-ML', title: 'Solo en ML', variationName: null, thumbnail: null, stock: 9 },
+    ],
+    tnRows: [
+      { sku: 'SKU-A', productName: 'Cuaderno A4', stock: 4 },
+      { sku: 'SKU-B', productName: 'Cuaderno A5', stock: 1 },
+      { sku: 'SKU-SOLO-TN', productName: 'Solo en TN', stock: 3 },
+    ],
+  });
+  addRule('SKU-B', 3); // ya vigilado → no debe aparecer
+
+  const products = await alertsService.getUnwatchedProducts();
+  assert.deepEqual(products.map((p) => p.sku), ['SKU-A']);
+  assert.equal(products[0].productLabel, 'Cuaderno A4');
+  assert.equal(products[0].stockMl, 5);
+  assert.equal(products[0].stockTn, 4);
+});
+
+test('getUnwatchedProducts: usa título + variante como label y respeta el pack', async () => {
+  dbState.snapshot = makeSnapshot({
+    mlRows: [{ sku: 'SKU-VAR', title: 'Repuesto', variationName: 'Rojo', thumbnail: null, stock: 6 }],
+    tnRows: [{ sku: 'SKU-VAR', productName: 'Repuesto', stock: 6 }],
+  });
+  dbState.packs = [{ id: 1, name: 'Repuestos A4', unitCount: 8, mode: 'single', skus: ['SKU-VAR'] }];
+
+  const products = await alertsService.getUnwatchedProducts();
+  assert.equal(products.length, 1);
+  assert.equal(products[0].productLabel, 'Repuesto (Rojo)');
+  assert.equal(products[0].pack?.name, 'Repuestos A4');
+});
+
 test('borrar un pack deja a sus SKUs sin pack, sin tocar reglas ni historial', async () => {
   addRule('SKU-PACK', 3);
   dbState.packs = [{ id: 1, name: 'Repuestos A4', unitCount: 8, mode: 'single', skus: ['SKU-PACK'] }];
