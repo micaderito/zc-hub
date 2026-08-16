@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 
 import { PairCardComponent, PairPrices } from './pair-card.component';
 import { MlRow, TnRow } from '../../../../core/services/conflicts.service';
@@ -40,6 +41,7 @@ describe('PairCardComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [PairCardComponent],
+      providers: [provideRouter([])],
     }).compileComponents();
 
     fixture = TestBed.createComponent(PairCardComponent);

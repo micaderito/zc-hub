@@ -1,0 +1,365 @@
+<div class="alertas">
+  <div class="page-header">
+    <div>
+      <h1><i class="ti ti-bell" aria-hidden="true"></i> Alertas</h1>
+      <p class="subtitle">Qué reponer, qué avisó y qué estás vigilando.</p>
+    </div>
+  </div>
+
+  <zc-tabs [tabs]="tabs()" [activeKey]="activeTab()" (tabChange)="onTabChange($event)" />
+
+  <!-- ══════════════════════════ Para reponer ══════════════════════════ -->
+  @if (activeTab() === 'reponer') {
+    <div class="tab-panel">
+      <div class="toolbar">
+        <select class="zc-select period-select" [ngModel]="restockPeriod()" (ngModelChange)="restockPeriod.set($event)">
+          <option value="last-order">Desde el último pedido</option>
+          <option value="30d">Últimos 30 días</option>
+          <option value="all">Todo</option>
+        </select>
+        @if (restockCutoff(); as cutoff) {
+          <span class="hint">desde {{ cutoff | date: 'dd/MM/yy HH:mm' }}</span>
+        }
+        <zc-search-bar
+          class="restock-search"
+          [value]="restockSearch()"
+          (valueChange)="restockSearch.set($event)"
+          placeholder="Buscar producto, SKU o pack…"
+          ariaLabel="Buscar en para reponer"
+        />
+        <div class="seg">
+          <button type="button" [class.on]="restockView() === 'pack'" (click)="restockView.set('pack')">
+            <i class="ti ti-stack-2" aria-hidden="true"></i> Por pack
+          </button>
+          <button type="button" [class.on]="restockView() === 'flat'" (click)="restockView.set('flat')">
+            <i class="ti ti-list" aria-hidden="true"></i> Lista plana
+          </button>
+        </div>
+      </div>
+
+      @if (restockLoading()) {
+        <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
+      } @else if (filteredRestockRows().length === 0) {
+        <p class="empty">
+          @if (restockRows().length === 0) {
+            Ninguna alerta desde el último pedido.
+          } @else {
+            Sin coincidencias para "{{ restockSearch() }}".
+          }
+        </p>
+      } @else {
+        <div class="zc-card table-scroll">
+          <table class="zc-table">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                @if (restockView() === 'flat') { <th>Pack</th> }
+                <th class="num">Stock hoy</th>
+                <th class="num">Umbral</th>
+                <th>Avisó</th>
+                <th>Estado</th>
+                <th class="num">A pedir</th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (restockView() === 'pack') {
+                @for (group of restockGroups().groups; track group.pack.packId) {
+                  <tr class="group-row">
+                    <td [attr.colspan]="6">
+                      <i class="ti ti-stack-2" aria-hidden="true"></i>
+                      <b>{{ group.pack.name }}</b>
+                      <span class="zc-badge">pack de {{ group.pack.unitCount }} u.</span>
+                      <span class="zc-badge">{{ group.pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
+                      <span class="group-total">{{ group.totalPacks }} pack{{ group.totalPacks === 1 ? '' : 's' }}</span>
+                    </td>
+                  </tr>
+                  @for (row of group.rows; track row.sku) {
+                    <ng-container *ngTemplateOutlet="restockRowTpl; context: { $implicit: row, showPack: false }" />
+                  }
+                }
+                @if (restockGroups().noPack.length > 0) {
+                  <tr class="group-row">
+                    <td [attr.colspan]="6"><i class="ti ti-package-off" aria-hidden="true"></i> <b>Sin pack</b> <span class="hint">se piden por unidad</span></td>
+                  </tr>
+                  @for (row of restockGroups().noPack; track row.sku) {
+                    <ng-container *ngTemplateOutlet="restockRowTpl; context: { $implicit: row, showPack: false }" />
+                  }
+                }
+              } @else {
+                @for (row of restockFlatRows(); track row.sku) {
+                  <ng-container *ngTemplateOutlet="restockRowTpl; context: { $implicit: row, showPack: true }" />
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <div class="restock-footer">
+          <span class="hint">
+            <b>{{ restockTotals().packs }}</b> pack{{ restockTotals().packs === 1 ? '' : 's' }}
+            @if (restockTotals().looseUnits > 0) { + <b>{{ restockTotals().looseUnits }}</b> u. sueltas }
+            · <b>{{ restockTotals().units }}</b> unidades
+          </span>
+          <div class="spacer"></div>
+          <button type="button" class="zc-btn small" (click)="copyRestockList()"><i class="ti ti-copy" aria-hidden="true"></i> Copiar lista</button>
+          <button type="button" class="zc-btn small" (click)="exportRestockCsv()"><i class="ti ti-download" aria-hidden="true"></i> Exportar CSV</button>
+          <button type="button" class="zc-btn primary small" (click)="showCloseConfirm.set(true)">
+            <i class="ti ti-checkbox" aria-hidden="true"></i> Marcar pedido como hecho
+          </button>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Fila de "para reponer", reutilizada en las dos vistas -->
+  <ng-template #restockRowTpl let-row let-showPack="showPack">
+    <tr [class.restocked]="row.state === 'restocked'">
+      <td>
+        <div class="prod-cell">
+          <div class="prod-name">{{ row.productLabel ?? row.sku }}</div>
+          <div class="prod-sku">{{ row.sku }}</div>
+        </div>
+      </td>
+      @if (showPack) {
+        <td>
+          @if (row.pack) {
+            <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ row.pack.name }}</span>
+          } @else {
+            <span class="hint">—</span>
+          }
+        </td>
+      }
+      <td class="num">
+        <span class="stock-dot ml"></span>{{ row.stockMl ?? '—' }}
+        <span class="stock-dot tn"></span>{{ row.stockTn ?? '—' }}
+      </td>
+      <td class="num">{{ row.threshold }}</td>
+      <td>
+        @if (row.firstTriggeredAt) {
+          <div>{{ row.firstTriggeredAt | date: 'dd/MM/yy' }}</div>
+          <div class="hint">{{ row.timesTriggered }} vez{{ row.timesTriggered === 1 ? '' : 'es' }}</div>
+        }
+      </td>
+      <td>
+        <span class="zc-badge" [class.warn]="row.state === 'still-low'" [class.err]="row.state === 'out'" [class.ok]="row.state === 'restocked'">
+          {{ restockStateLabel(row.state) }}
+        </span>
+      </td>
+      <td class="num">{{ row.suggested.qty }} <span class="hint">{{ row.suggested.unit }}</span></td>
+    </tr>
+  </ng-template>
+
+  <!-- ══════════════════════════ Notificaciones ══════════════════════════ -->
+  @if (activeTab() === 'notificaciones') {
+    <div class="tab-panel">
+      <div class="toolbar">
+        <div class="seg">
+          <button type="button" [class.on]="notifUnreadOnly()" (click)="notifUnreadOnly.set(true)">Sin leer</button>
+          <button type="button" [class.on]="!notifUnreadOnly()" (click)="notifUnreadOnly.set(false)">Todas</button>
+        </div>
+        <div class="spacer"></div>
+        @if (unreadCount() > 0) {
+          <button type="button" class="zc-btn small" (click)="markAllNotificationsRead()">
+            <i class="ti ti-checks" aria-hidden="true"></i> Marcar todas como leídas
+          </button>
+        }
+      </div>
+
+      @if (notifications().length === 0) {
+        <p class="empty">No hay notificaciones{{ notifUnreadOnly() ? ' sin leer' : '' }}.</p>
+      } @else {
+        <div class="zc-card notif-list">
+          @for (n of notifications(); track n.id) {
+            <div class="notif-row" [class.unread]="!n.readAt">
+              <span class="unread-dot" [class.hidden]="!!n.readAt"></span>
+              <div class="notif-body">
+                <div class="notif-title">Quedan <b>{{ n.stockEffective }}</b> de <b>{{ n.productLabel ?? n.sku }}</b></div>
+                <div class="notif-meta">
+                  <span class="prod-sku">{{ n.sku }}</span>
+                  · umbral {{ n.threshold }}
+                  · {{ n.createdAt | date: 'dd/MM/yy HH:mm' }}
+                </div>
+                <div class="notif-actions">
+                  @if (!n.readAt) {
+                    <button type="button" (click)="markNotificationRead(n.id)">Marcar leída</button>
+                  }
+                  <button type="button" (click)="muteFromNotification(n.sku)">Silenciar 7 días</button>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  <!-- ══════════════════════════ Reglas ══════════════════════════ -->
+  @if (activeTab() === 'reglas') {
+    <div class="tab-panel">
+      <div class="zc-card add-rule">
+        <div class="fld">
+          <label class="lbl">Vigilar productos — buscar por título o SKU</label>
+          <input
+            class="zc-input"
+            [ngModel]="newRuleQuery()"
+            (ngModelChange)="newRuleQuery.set($event)"
+            placeholder="Buscar por título o SKU…"
+            autocomplete="off"
+          />
+        </div>
+        <div class="fld threshold-fld">
+          <label class="lbl">Avisar con ≤</label>
+          <input class="zc-input" type="number" min="0" [(ngModel)]="newThreshold" />
+        </div>
+        <button type="button" class="zc-btn primary" [disabled]="selectedNewSkus().size === 0 || addingRule()" (click)="addSelectedRules()">
+          {{ addingRule() ? 'Agregando…' : 'Agregar' }}
+          @if (selectedNewSkus().size > 0) { ({{ selectedNewSkus().size }}) }
+        </button>
+      </div>
+
+      @if (newRuleQuery().trim().length >= 2) {
+        <div class="zc-card product-results">
+          @if (newRuleSearchLoading()) {
+            <div class="product-result-hint"><i class="ti ti-loader-2" aria-hidden="true"></i> Buscando…</div>
+          } @else if (newRuleSearchResults().length === 0) {
+            <div class="product-result-hint">Sin resultados para "{{ newRuleQuery() }}" (o ya tienen regla).</div>
+          } @else {
+            @for (opt of newRuleSearchResults(); track opt.sku) {
+              <label class="product-result">
+                <input type="checkbox" [checked]="isNewRuleSelected(opt.sku)" (change)="toggleNewRuleSelected(opt)" />
+                @if (opt.thumbnail) {
+                  <img [src]="opt.thumbnail" alt="" class="result-thumb" />
+                } @else {
+                  <span class="result-thumb no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span>
+                }
+                <span class="result-info">
+                  <span class="result-label">{{ opt.label }}</span>
+                  <span class="result-sku">{{ opt.sku }}</span>
+                </span>
+              </label>
+            }
+          }
+        </div>
+      } @else if (selectedNewSkus().size > 0) {
+        <p class="hint selected-hint">
+          {{ selectedNewSkus().size }} producto{{ selectedNewSkus().size === 1 ? '' : 's' }} tildado{{ selectedNewSkus().size === 1 ? '' : 's' }} para vigilar.
+        </p>
+      }
+      @if (addError) {
+        <p class="alert error">{{ addError }}</p>
+      }
+
+      <div class="toolbar">
+        <zc-search-bar
+          class="restock-search"
+          [value]="rulesSearch()"
+          (valueChange)="rulesSearch.set($event)"
+          placeholder="Buscar una regla para editarla…"
+          ariaLabel="Buscar reglas"
+        />
+        <span class="hint">
+          @if (rulesSearch().trim() && filteredRules().length === 1) {
+            1 coincidencia — abierta para editar
+          } @else if (rulesSearch().trim()) {
+            {{ filteredRules().length }} coincidencias
+          }
+        </span>
+      </div>
+
+      @if (rules().length === 0) {
+        <p class="empty">Todavía no configuraste ninguna alerta.</p>
+      } @else if (filteredRules().length === 0) {
+        <p class="empty">Sin coincidencias para "{{ rulesSearch() }}".</p>
+      } @else {
+        <div class="zc-card table-scroll">
+          <table class="zc-table">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Pack</th>
+                <th class="num">Stock hoy</th>
+                <th class="num">Avisar con ≤</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (rule of filteredRules(); track rule.sku) {
+                <tr [class.editing]="editingSku() === rule.sku">
+                  <td>
+                    <div class="prod-cell">
+                      <div class="prod-name">{{ rule.productLabel ?? rule.sku }}</div>
+                      <div class="prod-sku">{{ rule.sku }}</div>
+                    </div>
+                  </td>
+                  <td>
+                    @if (rule.pack) {
+                      <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ rule.pack.name }}</span>
+                    } @else {
+                      <span class="hint">—</span>
+                    }
+                  </td>
+                  <td class="num">
+                    <span class="stock-dot ml"></span>{{ rule.stockMl ?? '—' }}
+                    <span class="stock-dot tn"></span>{{ rule.stockTn ?? '—' }}
+                  </td>
+                  <td class="num">
+                    @if (editingSku() === rule.sku) {
+                      <input class="zc-input cell-input" type="number" min="0" [(ngModel)]="editThreshold" />
+                    } @else {
+                      {{ rule.threshold }}
+                    }
+                  </td>
+                  <td>
+                    @if (rule.state === 'triggered') {
+                      <span class="zc-badge warn"><i class="ti ti-bell-ringing" aria-hidden="true"></i> Disparada</span>
+                    } @else if (isMuted(rule)) {
+                      <span class="zc-badge"><i class="ti ti-bell-off" aria-hidden="true"></i> Silenciada</span>
+                    } @else {
+                      <span class="zc-badge ok">Ok</span>
+                    }
+                  </td>
+                  <td class="actions-cell">
+                    @if (editingSku() === rule.sku) {
+                      <button type="button" class="zc-btn small" (click)="cancelEdit()">Cancelar</button>
+                      <button type="button" class="zc-btn primary small" [disabled]="savingRule()" (click)="saveEdit(rule)">Guardar</button>
+                    } @else {
+                      <button type="button" class="icon-btn" title="Editar" (click)="startEdit(rule)"><i class="ti ti-pencil" aria-hidden="true"></i></button>
+                      <button type="button" class="icon-btn danger" title="Quitar" (click)="deletingSku.set(rule.sku)"><i class="ti ti-trash" aria-hidden="true"></i></button>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+      <p class="hint footnote">
+        <i class="ti ti-info-circle" aria-hidden="true"></i>
+        Se avisa cuando el menor de los dos canales llega al umbral. Solo avisan los productos de esta lista.
+      </p>
+    </div>
+  }
+
+  @if (showCloseConfirm()) {
+    <zc-confirm-dialog
+      title="Marcar pedido como hecho"
+      message="Cierra el período actual: 'desde el último pedido' vuelve a contar desde ahora. No borra reglas ni el historial."
+      confirmLabel="Marcar como hecho"
+      (confirmed)="confirmClosePeriod()"
+      (cancelled)="showCloseConfirm.set(false)"
+    />
+  }
+
+  @if (deletingSku(); as sku) {
+    <zc-confirm-dialog
+      title="Quitar alerta"
+      [message]="'Dejás de vigilar ' + sku + '. No borra el historial de avisos.'"
+      confirmLabel="Quitar"
+      variant="danger"
+      icon="ti-trash"
+      (confirmed)="deleteRule(sku)"
+      (cancelled)="deletingSku.set(null)"
+    />
+  }
+</div>

@@ -9,6 +9,8 @@
  * - '../src/lib/mercadolibre.js' (fetchWith429Retry) — conflictsService pega directo a la API
  *   de búsqueda/multiget de ML con esta función, sin pasar por getItem/getItems.
  * - '../src/lib/tiendanube.js' (getProducts) — TN devuelve productos con variants/images embebidos.
+ * - '../src/services/alertsService.js' (evaluateStockAlerts) — storeSnapshot() la llama
+ *   fire-and-forget en cada escritura; acá no es lo que se testea (ver alertsService.test.js).
  */
 import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -79,6 +81,9 @@ before(async () => {
       getProducts: async (token, storeId) => tnState.getProductsImpl(token, storeId),
       getProduct: async (token, storeId, productId) => (tnState.getProductImpl ? tnState.getProductImpl(productId) : null),
     },
+  });
+  mock.module('../src/services/alertsService.js', {
+    exports: { evaluateStockAlerts: async () => {} },
   });
   conflictsService = await import('../src/services/conflictsService.js');
 });

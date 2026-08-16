@@ -19,6 +19,7 @@
 import { tokens, getMlToken, tryRefreshMlToken, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import { setResolutionFromAnalysis } from '../store.js';
 import { hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot, invalidateAnalysisCache, insertAuditLog } from '../db.js';
+import { evaluateStockAlerts } from './alertsService.js';
 import { rememberStockWrite, consumeStockEcho, mlStockEchoKey, tnStockEchoKey, __resetStockEchoesForTests } from '../lib/stockEcho.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
@@ -213,6 +214,9 @@ async function loadSnapshot() {
 async function storeSnapshot(data) {
   memSnapshot = { at: Date.now(), data };
   if (hasDatabase()) await setAnalysisSnapshot(data);
+  // Fire-and-forget: evaluar las alertas de stock es I/O de Postgres aparte, no tiene que demorar
+  // la escritura del snapshot ni correr dentro de withSnapshotLock (ver alertsService.js).
+  evaluateStockAlerts(data).catch((e) => console.error('[Alerts] evaluateStockAlerts falló:', e.message));
 }
 
 /** Dedupe: un solo crawl completo a la vez por proceso. */

@@ -19,6 +19,7 @@ import { webhookRoutes } from './routes/webhooks.js';
 import { conflictsRoutes } from './routes/conflicts.js';
 import { productRoutes } from './routes/products.js';
 import { pricingRoutes } from './routes/pricing.js';
+import { alertsRoutes } from './routes/alerts.js';
 import { depositoRoutes } from './routes/deposito.js';
 import { sessionRoutes } from './routes/session.js';
 import { usersRoutes } from './routes/users.js';
@@ -75,6 +76,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/conflicts', requireAuth, conflictsRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/pricing', requireAuth, pricingRoutes);
+app.use('/api/alerts', requireAuth, alertsRoutes);
 app.use('/api/deposito', requireAuth, depositoRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));

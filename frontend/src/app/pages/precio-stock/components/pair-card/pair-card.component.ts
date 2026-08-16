@@ -1,5 +1,6 @@
 import { Component, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { CurrencyInputDirective } from '../../../../directives/currency-input.directive';
 import { MlRow, TnRow, mlLabel, tnLabel } from '../../../../core/services/conflicts.service';
 
@@ -12,7 +13,7 @@ export interface PairPrices {
 @Component({
   selector: 'zc-pair-card',
   standalone: true,
-  imports: [FormsModule, CurrencyInputDirective],
+  imports: [FormsModule, RouterLink, CurrencyInputDirective],
   templateUrl: './pair-card.component.html',
   styleUrl: './pair-card.component.scss',
 })
@@ -40,6 +41,11 @@ export class PairCardComponent {
 
   get isStockSynced(): boolean {
     return this.displayStockML() === this.displayStockTN();
+  }
+
+  /** SKU efectivo del par, para el atajo "Configurar alerta" (ver Alertas → Reglas). */
+  get alertSku(): string {
+    return this.pair().sku || this.pair().ml.sku || this.pair().tn.sku || '';
   }
 
   /**

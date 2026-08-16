@@ -1,5 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { LayoutComponent } from './layout.component';
 import { SessionService, SessionUser } from '../core/services/session.service';
 import { ThemeService } from '../core/services/theme.service';
@@ -24,6 +27,9 @@ describe('LayoutComponent', () => {
       imports: [LayoutComponent],
       providers: [
         provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideTanStackQuery(new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })),
         { provide: SessionService, useValue: sessionSpy },
       ],
     });
@@ -47,12 +53,12 @@ describe('LayoutComponent', () => {
     expect(component.collapsed()).toBeFalse();
   });
 
-  it('expone los items de navegación principales, incluido Usuarios', () => {
+  it('expone los items de navegación principales, incluidos Alertas y Usuarios', () => {
     setup();
     const fixture = TestBed.createComponent(LayoutComponent);
     const paths = fixture.componentInstance.nav.map(i => i.path);
     expect(paths).toEqual([
-      '/', '/precio-stock', '/precios', '/deposito', '/crear', '/conflictos', '/sincronizacion', '/usuarios',
+      '/', '/precio-stock', '/precios', '/deposito', '/crear', '/alertas', '/conflictos', '/sincronizacion', '/usuarios',
     ]);
   });
 
