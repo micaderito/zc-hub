@@ -73,6 +73,7 @@ export class PacksTabComponent {
   newPackName = '';
   newPackUnitCount = 8;
   newPackMode: 'assorted' | 'single' = 'assorted';
+  newPackSku = '';
   readonly savingNewPack = signal(false);
   newPackError: string | null = null;
 
@@ -82,10 +83,11 @@ export class PacksTabComponent {
     this.savingNewPack.set(true);
     this.newPackError = null;
     try {
-      await this.packsSvc.createPack({ name, unitCount: this.newPackUnitCount, mode: this.newPackMode });
+      await this.packsSvc.createPack({ name, unitCount: this.newPackUnitCount, mode: this.newPackMode, sku: this.newPackSku.trim() || null });
       this.newPackName = '';
       this.newPackUnitCount = 8;
       this.newPackMode = 'assorted';
+      this.newPackSku = '';
       this.showNewPackForm.set(false);
     } catch (e: unknown) {
       const err = e as { error?: { error?: string }; message?: string };
@@ -101,13 +103,17 @@ export class PacksTabComponent {
   editName = '';
   editUnitCount = 8;
   editMode: 'assorted' | 'single' = 'assorted';
+  editSku = '';
   readonly savingEdit = signal(false);
+  editError: string | null = null;
 
   startEditPack(pack: Pack): void {
     this.editingPackId.set(pack.id);
     this.editName = pack.name;
     this.editUnitCount = pack.unitCount;
     this.editMode = pack.mode;
+    this.editSku = pack.sku ?? '';
+    this.editError = null;
   }
 
   cancelEditPack(): void {
@@ -118,9 +124,13 @@ export class PacksTabComponent {
     const name = this.editName.trim();
     if (!name) return;
     this.savingEdit.set(true);
+    this.editError = null;
     try {
-      await this.packsSvc.updatePack(pack.id, { name, unitCount: this.editUnitCount, mode: this.editMode });
+      await this.packsSvc.updatePack(pack.id, { name, unitCount: this.editUnitCount, mode: this.editMode, sku: this.editSku.trim() || null });
       this.editingPackId.set(null);
+    } catch (e: unknown) {
+      const err = e as { error?: { error?: string }; message?: string };
+      this.editError = err?.error?.error || err?.message || 'No se pudo guardar el pack.';
     } finally {
       this.savingEdit.set(false);
     }

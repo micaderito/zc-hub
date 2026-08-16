@@ -31,6 +31,10 @@
           <option value="single">Un modelo por pack</option>
         </select>
       </div>
+      <div class="fld small-fld">
+        <label class="lbl">SKU del pack (opcional)</label>
+        <input class="zc-input" [(ngModel)]="newPackSku" placeholder="Código propio del pack" (keyup.enter)="createPack()" />
+      </div>
       <button type="button" class="zc-btn primary" [disabled]="savingNewPack()" (click)="createPack()">Crear</button>
       <button type="button" class="zc-btn" (click)="showNewPackForm.set(false)">Cancelar</button>
     </div>
@@ -65,12 +69,16 @@
                   <option value="assorted">Surtido</option>
                   <option value="single">Un modelo por pack</option>
                 </select>
+                <input class="zc-input" [(ngModel)]="editSku" placeholder="SKU del pack (opcional)" />
                 <button type="button" class="zc-btn small" (click)="cancelEditPack()">Cancelar</button>
                 <button type="button" class="zc-btn primary small" [disabled]="savingEdit()" (click)="saveEditPack(pack)">Guardar</button>
               </div>
+              @if (editError) {
+                <p class="alert error" (click)="$event.stopPropagation()">{{ editError }}</p>
+              }
             } @else {
               <div class="pack-info">
-                <div class="pack-name">{{ pack.name }}</div>
+                <div class="pack-name">{{ pack.name }} @if (pack.sku) { <span class="pack-sku">{{ pack.sku }}</span> }</div>
                 <div class="hint">{{ pack.products.length }} modelo{{ pack.products.length === 1 ? '' : 's' }} · pack de {{ pack.unitCount }} u.</div>
               </div>
               <span class="zc-badge">{{ pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
