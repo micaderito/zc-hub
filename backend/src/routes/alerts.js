@@ -9,7 +9,7 @@ import {
 } from '../db.js';
 import {
   getRulesWithStock, getNotificationsInbox, getRestockList, closeRestockPeriod,
-  evaluateStockAlertsNow,
+  evaluateStockAlertsNow, saveRestockOverride,
 } from '../services/alertsService.js';
 
 export const alertsRoutes = Router();
@@ -95,6 +95,30 @@ alertsRoutes.get('/restock', async (req, res) => {
   const period = ['last-order', '30d', 'all'].includes(req.query.period) ? req.query.period : 'last-order';
   try {
     res.json(await getRestockList({ period }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Ajuste manual de "a pedir": body { targetType: 'sku'|'pack', targetId, qty }. `qty: null` borra
+ * el ajuste (vuelve al sugerido calculado). `targetId` es el SKU o el id numérico del pack.
+ */
+alertsRoutes.put('/restock/override', async (req, res) => {
+  const targetType = req.body?.targetType;
+  const targetId = String(req.body?.targetId ?? '').trim();
+  if (!['sku', 'pack'].includes(targetType) || !targetId) {
+    return res.status(400).json({ error: 'targetType/targetId inválidos' });
+  }
+  const qtyRaw = req.body?.qty;
+  let qty = null;
+  if (qtyRaw !== null && qtyRaw !== undefined && qtyRaw !== '') {
+    qty = Number(qtyRaw);
+    if (!Number.isFinite(qty) || qty < 0) return res.status(400).json({ error: 'qty inválida' });
+  }
+  try {
+    await saveRestockOverride({ targetType, targetId, qty });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

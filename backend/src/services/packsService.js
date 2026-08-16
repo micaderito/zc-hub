@@ -29,6 +29,7 @@ export async function listPacksWithStock() {
   return packs.map((pack) => ({
     id: pack.id,
     name: pack.name,
+    sku: pack.sku ?? null,
     unitCount: pack.unitCount,
     mode: pack.mode,
     products: pack.skus.map((sku) => {
