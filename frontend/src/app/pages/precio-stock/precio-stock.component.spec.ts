@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
 import { of, throwError, Subject } from 'rxjs';
+import { provideRouter } from '@angular/router';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { PrecioStockComponent } from './precio-stock.component';
 import {
@@ -169,6 +170,7 @@ describe('PrecioStockComponent', () => {
     TestBed.configureTestingModule({
       imports: [PrecioStockComponent],
       providers: [
+        provideRouter([]),
         provideTanStackQuery(new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })),
         { provide: ConflictsService, useValue: conflictsSpy },
       ],

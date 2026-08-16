@@ -1,5 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { AppComponent } from './app.component';
 import { GlobalErrorService } from './core/services/global-error.service';
 import { ThemeService } from './core/services/theme.service';
@@ -8,7 +11,12 @@ describe('AppComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [AppComponent],
-      providers: [provideRouter([])]
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideTanStackQuery(new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })),
+      ]
     });
   });
 
@@ -31,7 +39,7 @@ describe('AppComponent', () => {
   it('expone los items de navegación principales', () => {
     const fixture = TestBed.createComponent(AppComponent);
     const paths = fixture.componentInstance.nav.map(i => i.path);
-    expect(paths).toEqual(['/', '/precio-stock', '/precios', '/deposito', '/crear', '/conflictos', '/sincronizacion']);
+    expect(paths).toEqual(['/', '/precio-stock', '/precios', '/deposito', '/crear', '/alertas', '/conflictos', '/sincronizacion']);
   });
 
   it('muestra el banner de error global cuando GlobalErrorService tiene un mensaje', () => {

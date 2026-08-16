@@ -3,7 +3,7 @@ import { routes } from './app.routes';
 describe('routes', () => {
   it('define una entrada para cada página principal', () => {
     const paths = routes.map(r => r.path);
-    expect(paths).toEqual(['', 'conflictos', 'precio-stock', 'precios', 'deposito', 'crear', 'sincronizacion']);
+    expect(paths).toEqual(['', 'conflictos', 'precio-stock', 'precios', 'deposito', 'crear', 'alertas', 'sincronizacion']);
   });
 
   it('cada ruta carga su componente de forma diferida (loadComponent)', () => {
