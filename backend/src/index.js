@@ -21,6 +21,9 @@ import { productRoutes } from './routes/products.js';
 import { pricingRoutes } from './routes/pricing.js';
 import { alertsRoutes } from './routes/alerts.js';
 import { depositoRoutes } from './routes/deposito.js';
+import { sessionRoutes } from './routes/session.js';
+import { usersRoutes } from './routes/users.js';
+import { requireAuth } from './middleware/requireAuth.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -57,19 +60,24 @@ app.use((req, res, next) => {
   express.json({ limit: '25mb' })(req, res, next);
 });
 
+// /api/session/login es público (es como se consigue el token); el resto de session y todo lo
+// demás abajo exige sesión. auth.js y products.js aplican requireAuth por ruta (ver esos archivos):
+// tienen endpoints que un token no puede llevar (callbacks de OAuth, <img src>).
+app.use('/api/session', sessionRoutes);
+app.use('/api/users', requireAuth, usersRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api/mapping', mappingRoutes);
-app.use('/api/sync', syncRoutes);
+app.use('/api/mapping', requireAuth, mappingRoutes);
+app.use('/api/sync', requireAuth, syncRoutes);
 app.use('/api/webhooks', (req, res, next) => {
   if (req.method === 'POST') console.log('[Webhooks] POST', req.originalUrl);
   next();
 });
 app.use('/api/webhooks', webhookRoutes);
-app.use('/api/conflicts', conflictsRoutes);
+app.use('/api/conflicts', requireAuth, conflictsRoutes);
 app.use('/api/products', productRoutes);
-app.use('/api/pricing', pricingRoutes);
-app.use('/api/alerts', alertsRoutes);
-app.use('/api/deposito', depositoRoutes);
+app.use('/api/pricing', requireAuth, pricingRoutes);
+app.use('/api/alerts', requireAuth, alertsRoutes);
+app.use('/api/deposito', requireAuth, depositoRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 // Por si Railway (u otro) hace health check en la raíz

@@ -3,15 +3,20 @@ import { tokens, persistTokens, persistTokensAsync, clearMlTokens, clearTnTokens
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { invalidateSnapshot } from '../services/conflictsService.js';
+import { requireAuth } from '../middleware/requireAuth.js';
 
 export const authRoutes = Router();
 
-authRoutes.post('/mercadolibre/disconnect', (_, res) => {
+// Esta es la conexión ML/TN de la cuenta comercial (OAuth de canales), no el login del hub. Todo
+// acá exige sesión del hub, EXCEPTO los dos callbacks (/mercadolibre/callback, /tiendanube/callback):
+// ahí aterriza el navegador redirigido por ML/TN, sin nuestro token — no hay forma de mandarlo.
+
+authRoutes.post('/mercadolibre/disconnect', requireAuth, (_, res) => {
   clearMlTokens();
   res.json({ ok: true });
 });
 
-authRoutes.get('/mercadolibre/url', (_, res) => {
+authRoutes.get('/mercadolibre/url', requireAuth, (_, res) => {
   const redirectUri = process.env.ML_REDIRECT_URI || 'http://localhost:4000/api/auth/mercadolibre/callback';
   ml.getAuthUrl(redirectUri).then(url => res.json({ url })).catch(e => res.status(500).json({ error: e.message }));
 });
@@ -39,12 +44,12 @@ authRoutes.get('/mercadolibre/callback', async (req, res) => {
   }
 });
 
-authRoutes.post('/tiendanube/disconnect', (_, res) => {
+authRoutes.post('/tiendanube/disconnect', requireAuth, (_, res) => {
   clearTnTokens();
   res.json({ ok: true });
 });
 
-authRoutes.get('/tiendanube/url', (_, res) => {
+authRoutes.get('/tiendanube/url', requireAuth, (_, res) => {
   const redirectUri = process.env.TN_REDIRECT_URI || 'http://localhost:4000/api/auth/tiendanube/callback';
   tn.getAuthUrl(redirectUri).then(url => res.json({ url })).catch(e => res.status(500).json({ error: e.message }));
 });
@@ -82,7 +87,7 @@ authRoutes.get('/tiendanube/callback', async (req, res) => {
   }
 });
 
-authRoutes.get('/status', async (_, res) => {
+authRoutes.get('/status', requireAuth, async (_, res) => {
   const hasStoredMl = !!(tokens.mercadolibre?.access_token || tokens.mercadolibre?.refresh_token);
   const hasStoredTn = !!tokens.tiendanube?.access_token;
   const tnKnownInvalid = isTnTokenKnownInvalid();

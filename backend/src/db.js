@@ -5,6 +5,7 @@
  */
 
 import pg from 'pg';
+import { hashPassword } from './lib/authTokens.js';
 
 const { Pool } = pg;
 
@@ -436,6 +437,35 @@ export async function initDb() {
            ('Rollo de burbupack', 'embalaje', 'rollos', 0),
            ('Rollo de cartón corrugado', 'embalaje', 'rollos', 0)`
       );
+    }
+
+    // ── Usuarios del hub (login) ────────────────────────────────────────────
+    // Sin roles por ahora: cualquier usuario ve y hace todo. token_version se usa para invalidar
+    // tokens ya emitidos (desactivar, "cerrar sesión en todos lados", cambio de contraseña) sin
+    // llevar una lista de tokens — el middleware compara el `tv` del JWT contra este valor.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS app_users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(64) NOT NULL,
+        password_hash VARCHAR(256) NOT NULL,
+        display_name VARCHAR(128),
+        activo BOOLEAN NOT NULL DEFAULT TRUE,
+        token_version INTEGER NOT NULL DEFAULT 1,
+        last_login_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_username ON app_users (LOWER(username));`);
+    // Seedea el primer usuario desde el .env, y solo si la tabla está vacía — mismo motivo que
+    // deposito_stock: un usuario borrado a mano no debe resucitar en cada reinicio del backend.
+    const usersCount = await p.query(`SELECT COUNT(*)::int AS n FROM app_users`);
+    if ((usersCount.rows[0]?.n ?? 0) === 0 && process.env.ADMIN_USER && process.env.ADMIN_PASSWORD) {
+      await p.query(
+        `INSERT INTO app_users (username, password_hash, display_name) VALUES ($1, $2, $3)`,
+        [process.env.ADMIN_USER.trim(), hashPassword(process.env.ADMIN_PASSWORD), process.env.ADMIN_USER.trim()]
+      );
+      console.log('DB init: usuario admin inicial creado desde ADMIN_USER/ADMIN_PASSWORD.');
     }
 
     return true;
@@ -2208,5 +2238,169 @@ export async function deleteDepositoItem(id) {
   } catch (e) {
     console.error('deleteDepositoItem:', e.message);
     return false;
+  }
+}
+
+// ── Usuarios del hub ──────────────────────────────────────────────────────
+
+// password_hash a propósito fuera de este SELECT: solo getAppUserByUsername (login) lo trae.
+const APP_USER_SELECT = `SELECT id, username, display_name AS "displayName", activo,
+  token_version AS "tokenVersion", last_login_at AS "lastLoginAt",
+  created_at AS "createdAt", updated_at AS "updatedAt" FROM app_users`;
+
+function mapAppUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.displayName,
+    activo: row.activo,
+    tokenVersion: Number(row.tokenVersion),
+    lastLoginAt: row.lastLoginAt ? new Date(row.lastLoginAt).toISOString() : null,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+/** Todos los usuarios del hub (sin password_hash), para el panel de administración. */
+export async function getAppUsers() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(`${APP_USER_SELECT} ORDER BY username`);
+    return r.rows.map(mapAppUser);
+  } catch (e) {
+    console.error('getAppUsers:', e.message);
+    return [];
+  }
+}
+
+/** Usuario por id, sin password_hash (para el panel / requireAuth). */
+export async function getAppUserById(id) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(`${APP_USER_SELECT} WHERE id = $1`, [id]);
+    return mapAppUser(r.rows[0]);
+  } catch (e) {
+    console.error('getAppUserById:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Usuario por nombre de usuario (case-insensitive), CON password_hash. Uso exclusivo del login —
+ * en cualquier otro lugar hay que usar getAppUserById/getAppUsers, que no exponen el hash.
+ */
+export async function getAppUserByUsername(username) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `SELECT id, username, password_hash AS "passwordHash", display_name AS "displayName", activo,
+         token_version AS "tokenVersion", last_login_at AS "lastLoginAt",
+         created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM app_users WHERE LOWER(username) = LOWER($1)`,
+      [String(username || '').trim()]
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    return { ...mapAppUser(row), passwordHash: row.passwordHash };
+  } catch (e) {
+    console.error('getAppUserByUsername:', e.message);
+    return null;
+  }
+}
+
+/** Cuántos usuarios activos hay — para no permitir dejar el hub sin ningún usuario que pueda entrar. */
+export async function countActiveAppUsers() {
+  const p = getPool();
+  if (!p) return 0;
+  try {
+    const r = await p.query(`SELECT COUNT(*)::int AS n FROM app_users WHERE activo`);
+    return r.rows[0]?.n ?? 0;
+  } catch (e) {
+    console.error('countActiveAppUsers:', e.message);
+    return 0;
+  }
+}
+
+/** Alta de un usuario. `passwordHash` ya viene hasheado (ver lib/authTokens.js). */
+export async function createAppUser({ username, passwordHash, displayName }) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `INSERT INTO app_users (username, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id`,
+      [String(username).trim(), passwordHash, displayName || null]
+    );
+    return getAppUserById(r.rows[0].id);
+  } catch (e) {
+    console.error('createAppUser:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Edición de un usuario. `passwordHash` es opcional (null/undefined = no tocar la contraseña).
+ * Si viene `activo: false` o `passwordHash`, el caller debe además llamar bumpAppUserTokenVersion
+ * para que los tokens ya emitidos dejen de valer — esta función no lo hace sola.
+ */
+export async function updateAppUser(id, { username, displayName, activo, passwordHash }) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    await p.query(
+      `UPDATE app_users SET
+         username = $2, display_name = $3, activo = $4,
+         password_hash = COALESCE($5, password_hash), updated_at = NOW()
+       WHERE id = $1`,
+      [id, String(username).trim(), displayName || null, !!activo, passwordHash || null]
+    );
+    return getAppUserById(id);
+  } catch (e) {
+    console.error('updateAppUser:', e.message);
+    return null;
+  }
+}
+
+/** Borra un usuario definitivamente. */
+export async function deleteAppUser(id) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query('DELETE FROM app_users WHERE id = $1', [id]);
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('deleteAppUser:', e.message);
+    return false;
+  }
+}
+
+/** Sube token_version en 1: invalida todos los tokens ya emitidos para este usuario. */
+export async function bumpAppUserTokenVersion(id) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `UPDATE app_users SET token_version = token_version + 1, updated_at = NOW()
+       WHERE id = $1 RETURNING token_version AS "tokenVersion"`,
+      [id]
+    );
+    return r.rows[0] ? Number(r.rows[0].tokenVersion) : null;
+  } catch (e) {
+    console.error('bumpAppUserTokenVersion:', e.message);
+    return null;
+  }
+}
+
+/** Registra el login. No crítico: si falla, no rompe el login. */
+export async function touchAppUserLastLogin(id) {
+  const p = getPool();
+  if (!p) return;
+  try {
+    await p.query('UPDATE app_users SET last_login_at = NOW() WHERE id = $1', [id]);
+  } catch (e) {
+    console.error('touchAppUserLastLogin:', e.message);
   }
 }
