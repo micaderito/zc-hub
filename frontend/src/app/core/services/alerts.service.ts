@@ -8,13 +8,21 @@ import { ApiService } from './api.service';
 export const ALERTS_RULES_QUERY_KEY = ['alerts', 'rules'] as const;
 export const ALERTS_RESTOCK_QUERY_KEY = ['alerts', 'restock'] as const;
 export const ALERTS_NOTIFICATIONS_QUERY_KEY = ['alerts', 'notifications'] as const;
+export const ALERTS_UNWATCHED_QUERY_KEY = ['alerts', 'unwatched'] as const;
 
 /** El pack al que pertenece un SKU (ver Productos → Packs); `null` si se pide suelto. */
 export interface PackRef {
   packId: number;
   name: string;
+  /** Código propio del pack (opcional), distinto del SKU de sus modelos. */
+  sku: string | null;
   unitCount: number;
   mode: 'assorted' | 'single';
+}
+
+/** El pack de una fila de "Para reponer": trae además la cantidad de packs sugerida (ver computePackSuggestedQty en el backend). */
+export interface RestockPackRef extends PackRef {
+  suggestedPacks: SuggestedQty | null;
 }
 
 /** Una regla de alerta, con el stock de hoy y el pack ya resueltos (lo que pinta la pestaña Reglas). */
@@ -68,8 +76,9 @@ export interface RestockRow {
   stockTn: number | null;
   stockEffective: number | null;
   state: RestockState;
-  pack: PackRef | null;
-  suggested: SuggestedQty;
+  pack: RestockPackRef | null;
+  /** `null` cuando el producto tiene pack y no se cargó un ajuste manual: la sugerencia real es la del pack (`pack.suggestedPacks`). */
+  suggested: SuggestedQty | null;
 }
 
 export interface RestockList {
@@ -79,6 +88,21 @@ export interface RestockList {
 }
 
 export type RestockPeriod = 'last-order' | '30d' | 'all';
+
+/** Producto matcheado (ML+TN) sin regla de alerta todavía, para la pestaña "Sin alertas". */
+export interface UnwatchedProduct {
+  sku: string;
+  productLabel: string | null;
+  thumbnail: string | null;
+  stockMl: number | null;
+  stockTn: number | null;
+  stockEffective: number | null;
+  pack: PackRef | null;
+}
+
+export interface UnwatchedProductsResponse {
+  products: UnwatchedProduct[];
+}
 
 @Injectable({ providedIn: 'root' })
 export class AlertsService {
@@ -93,6 +117,11 @@ export class AlertsService {
     this.queryClient.invalidateQueries({ queryKey: ALERTS_RULES_QUERY_KEY });
     this.queryClient.invalidateQueries({ queryKey: ALERTS_RESTOCK_QUERY_KEY });
     this.queryClient.invalidateQueries({ queryKey: ALERTS_NOTIFICATIONS_QUERY_KEY });
+    this.queryClient.invalidateQueries({ queryKey: ALERTS_UNWATCHED_QUERY_KEY });
+  }
+
+  private invalidateRestock(): void {
+    this.queryClient.invalidateQueries({ queryKey: ALERTS_RESTOCK_QUERY_KEY });
   }
 
   getRules(): Observable<{ rules: StockAlertRule[] }> {
@@ -151,6 +180,22 @@ export class AlertsService {
   async closeRestockPeriod(): Promise<void> {
     await lastValueFrom(this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/done`, {}));
     this.invalidateAll();
+  }
+
+  getUnwatched(): Observable<UnwatchedProductsResponse> {
+    return this.http.get<UnwatchedProductsResponse>(`${this.api.baseUrl}/alerts/unwatched`);
+  }
+
+  getUnwatchedPromise(): Promise<UnwatchedProductsResponse> {
+    return lastValueFrom(this.getUnwatched());
+  }
+
+  /** Ajusta a mano la cantidad "a pedir" de un SKU o un pack; `qty: null` la borra y vuelve a la sugerida. */
+  async saveRestockOverride(targetType: 'sku' | 'pack', targetId: string, qty: number | null): Promise<void> {
+    await lastValueFrom(
+      this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/override`, { targetType, targetId, qty })
+    );
+    this.invalidateRestock();
   }
 }
 

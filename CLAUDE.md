@@ -267,6 +267,38 @@ de la orden. `stockEcho.js` evita contar dos veces lo que escribió el propio hu
 En el modal de historial por SKU las dos caras se muestran agrupadas como un solo evento, con el
 número en que quedó cada canal y un chip **desincronizado** cuando no coinciden o falta una cara.
 
+### Alertas de stock: sugerencia de reposición por pack, no por modelo
+
+En "Para reponer" (`backend/src/services/alertsService.js`, `frontend/.../pages/alertas/`), cuando
+un producto tiene pack la sugerencia de "a pedir" es del PACK completo, no de cada modelo por
+separado. Antes se calculaba por SKU y se sumaban los packs de cada fila del grupo, lo que
+multiplicaba la cantidad real por la cantidad de modelos en el pack (un pack surtido de 8 modelos
+con 3 disparados de una pedía "3 packs" en vez de 1).
+
+- **`computeShortfall(threshold, stockEffective) = max(threshold - stock, 1)`**: cuánto falta para
+  llegar justo al umbral (sin colchón del doble; es un default editable, no impuesto).
+- **`computePackSuggestedQty(members, pack)`**: la cantidad de packs es `ceil(max(faltante de cada
+  modelo del pack) / unidades de ESE modelo por pack)` — manda el modelo con MENOS stock, porque
+  pedir lo que él necesita también cubre a los demás. Las unidades de un modelo por pack son
+  `floor(unitCount / modelCount)`: el pack reparte sus `unitCount` unidades entre TODOS sus modelos
+  (`modelCount` = `pack.skus.length`, el total del pack, no solo los que hoy están bajos) a partes
+  iguales — un pack de 8 con 3 modelos trae ~2,6 de cada uno, se cuentan **2** (piso, nunca menos de
+  1, para no sobreestimar). Con `modelCount === unitCount` da 1 (1 modelo por unidad); con un pack
+  `single` (`modelCount = 1`) da `unitCount` entero — mismo cálculo para los dos `mode`, no hace
+  falta bifurcar. `modelCount` se arma en `buildSkuPackIndex` a partir del pack completo, no de los
+  SKUs que aparecen en la lista de "Para reponer" (que pueden ser menos si no todos dispararon alerta).
+- **Un SKU con pack no tiene sugerencia propia** (`RestockRow.suggested = null`): la sugerencia real
+  es la del pack, repetida en `row.pack.suggestedPacks` de cada fila del grupo para que agrupar en
+  el front sea trivial. La celda "A pedir" de ese modelo queda vacía y editable a mano (para pedir
+  un extra puntual de un modelo específico), no lo pisa la sugerencia calculada.
+- **Ajustes manuales (`restock_order_overrides`, `PUT /alerts/restock/override`)**: la usuaria puede
+  pisar tanto la sugerencia de un SKU como la de un pack completo; `qty: null` borra el ajuste y
+  vuelve al valor calculado. Son del pedido en curso, no config permanente — "Marcar pedido como
+  hecho" los limpia (`clearRestockOverrides` en `closeRestockPeriod`).
+- **SKU propio del pack** (`product_packs.sku`, opcional, columna UNIQUE parcial): el proveedor a
+  veces le pone su propio código al pack armado, distinto del SKU de cada modelo. Se edita en
+  Productos → Packs y se muestra al lado del nombre del pack en "Para reponer".
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
@@ -279,5 +311,8 @@ recuperación de locks vencidos, `backend/test/mlTaskQueue.test.js` el latido y 
 despachado, envío no consultable, caché por pack, cancelación del vendedor, reintento del espejo),
 y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
 ajuste rápido de cantidad, filas inexistentes). El historial de los dos canales está cubierto
-además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no tocan el snapshot).
+además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no tocan el snapshot),
+y la sugerencia de "Para reponer" (por SKU sin pack, por pack completo tomando el mayor faltante,
+ajustes manuales por SKU/pack y su borrado, limpieza al cerrar el período) en
+`backend/test/alertsService.test.js`.
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

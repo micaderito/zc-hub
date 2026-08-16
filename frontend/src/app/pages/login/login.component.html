@@ -1,0 +1,44 @@
+<div class="login-page">
+  <form class="login-card zc-card" (ngSubmit)="submit()">
+    <img class="login-logo" src="logo.png" alt="Zona Cuaderno" />
+    <h1>Zona Cuaderno Hub</h1>
+    <p class="login-sub">Iniciá sesión para continuar</p>
+
+    <label class="fld">
+      <span>Usuario</span>
+      <input
+        class="zc-input"
+        type="text"
+        autocomplete="username"
+        [ngModel]="username()"
+        (ngModelChange)="username.set($event)"
+        name="username"
+        autofocus
+      />
+    </label>
+
+    <label class="fld">
+      <span>Contraseña</span>
+      <input
+        class="zc-input"
+        type="password"
+        autocomplete="current-password"
+        [ngModel]="password()"
+        (ngModelChange)="password.set($event)"
+        name="password"
+      />
+    </label>
+
+    @if (errorMsg()) {
+      <p class="login-error">{{ errorMsg() }}</p>
+    }
+
+    <button type="submit" class="zc-btn primary login-submit" [disabled]="loading()">
+      @if (loading()) {
+        <i class="ti ti-loader-2 spin"></i> Ingresando…
+      } @else {
+        Ingresar
+      }
+    </button>
+  </form>
+</div>

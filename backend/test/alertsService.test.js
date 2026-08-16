@@ -7,7 +7,9 @@
  *    con variantes, SKU sin filas en ningún canal, regla nueva con stock ya bajo, muted_until vigente.
  * 2) getRestockList: colapsa varios disparos del mismo SKU en una fila, "Marcar pedido como hecho"
  *    vacía la lista sin borrar el historial, y un SKU que se repuso solo queda en 'restocked'.
- * 3) computeSuggestedQty: redondea hacia arriba al pack; sin pack, sugiere unidades sueltas.
+ * 3) computeSuggestedQty/computePackSuggestedQty: sin pack sugiere unidades sueltas hasta el
+ *    umbral; con pack la sugerencia es del pack completo (el modelo con menos stock manda), y los
+ *    ajustes manuales (restock_order_overrides) pisan lo calculado y se limpian al cerrar el período.
  *
  * Mockeamos '../src/db.js' con un estado en memoria (mismo patrón que syncService.test.js) — no
  * hay Postgres real. `setStockAlertState` implementa el UPDATE condicional real (con `expectedState`)
@@ -25,6 +27,7 @@ const dbState = {
   packs: [],
   snapshot: null,
   clock: 0,
+  overrides: new Map(),
 };
 
 function resetDbState() {
@@ -35,6 +38,7 @@ function resetDbState() {
   dbState.packs = [];
   dbState.snapshot = null;
   dbState.clock = Date.parse('2026-01-01T00:00:00.000Z');
+  dbState.overrides = new Map();
 }
 
 /**
@@ -106,6 +110,14 @@ before(async () => {
       },
       listPacks: async () => dbState.packs,
       getAnalysisSnapshot: async () => dbState.snapshot,
+      listRestockOverrides: async () => new Map(dbState.overrides),
+      setRestockOverride: async (targetType, targetId, qty) => {
+        const key = `${targetType}:${targetId}`;
+        if (qty == null) dbState.overrides.delete(key);
+        else dbState.overrides.set(key, qty);
+        return true;
+      },
+      clearRestockOverrides: async () => { dbState.overrides = new Map(); return true; },
     },
   });
   alertsService = await import('../src/services/alertsService.js');
@@ -265,15 +277,146 @@ test('un SKU que se repuso solo sigue en la lista pero marcado "restocked"', asy
 
 /* ── packs: sugerencia de cantidad ───────────────────────────────────────── */
 
-test('la sugerencia redondea hacia arriba al pack', () => {
-  const s = alertsService.computeSuggestedQty({ threshold: 5, stockEffective: 1, pack: { unitCount: 8 } });
-  // faltante = max(5*2 - 1, 1) = 9 → ceil(9/8) = 2 packs
-  assert.deepEqual(s, { unit: 'packs', qty: 2 });
+test('un SKU sin pack sugiere llegar justo al umbral, en unidades sueltas', () => {
+  const s = alertsService.computeSuggestedQty({ threshold: 5, stockEffective: 1 });
+  assert.deepEqual(s, { unit: 'unidades', qty: 4 });
 });
 
-test('un SKU sin pack sugiere unidades sueltas', () => {
-  const s = alertsService.computeSuggestedQty({ threshold: 5, stockEffective: 1, pack: null });
-  assert.deepEqual(s, { unit: 'unidades', qty: 9 });
+test('el faltante nunca es menor a 1, aunque el stock ya esté sobre el umbral', () => {
+  const s = alertsService.computeSuggestedQty({ threshold: 5, stockEffective: 9 });
+  assert.deepEqual(s, { unit: 'unidades', qty: 1 });
+});
+
+test('pack surtido con TANTOS modelos como unitCount: 1 unidad de cada modelo por pack', () => {
+  // 8 modelos en un pack de 8 → floor(8/8) = 1 unidad de cada modelo por pack.
+  const members = [{ threshold: 3, stockEffective: 1 }]; // falta 2
+  const s = alertsService.computePackSuggestedQty(members, { unitCount: 8, modelCount: 8 });
+  assert.deepEqual(s, { unit: 'packs', qty: 2 }); // ceil(2/1) = 2
+});
+
+test('pack surtido con MENOS modelos que unitCount: se reparte, no es 1 por modelo', () => {
+  // 3 modelos en un pack de 8 → floor(8/3) = 2 unidades de cada modelo por pack (no 8, no 1).
+  // El más bajo (44) con umbral 80 falta 36; el otro (50) falta 30 — manda el de 36.
+  const members = [{ threshold: 80, stockEffective: 44 }, { threshold: 80, stockEffective: 50 }];
+  const s = alertsService.computePackSuggestedQty(members, { unitCount: 8, modelCount: 3 });
+  assert.deepEqual(s, { unit: 'packs', qty: 18 }); // ceil(36/2) = 18
+});
+
+test('pack de un solo modelo: todo el unitCount es de ese modelo', () => {
+  const members = [{ threshold: 5, stockEffective: 1 }]; // falta 4
+  const s = alertsService.computePackSuggestedQty(members, { mode: 'single', unitCount: 8, modelCount: 1 });
+  assert.deepEqual(s, { unit: 'packs', qty: 1 }); // floor(8/1)=8 unidades por pack → ceil(4/8) = 1
+});
+
+test('lista para reponer: un SKU sin pack trae su sugerencia calculada; uno con pack la trae vacía y el pack trae la suya', async () => {
+  addRule('SKU-SUELTO', 5);
+  addRule('SKU-PACK-A', 30);
+  addRule('SKU-PACK-B', 10);
+  dbState.packs = [{ id: 1, name: 'Repuestos A4', unitCount: 8, mode: 'assorted', skus: ['SKU-PACK-A', 'SKU-PACK-B'] }];
+  const snap = makeSnapshot({
+    mlRows: [
+      { sku: 'SKU-SUELTO', stock: 1 },
+      { sku: 'SKU-PACK-A', stock: 6 }, // falta 24 (umbral 30) — el peor
+      { sku: 'SKU-PACK-B', stock: 8 }, // falta 2 (umbral 10)
+    ],
+    tnRows: [
+      { sku: 'SKU-SUELTO', stock: 1 },
+      { sku: 'SKU-PACK-A', stock: 6 },
+      { sku: 'SKU-PACK-B', stock: 8 },
+    ],
+  });
+  await alertsService.evaluateStockAlerts(snap.data);
+  dbState.snapshot = snap;
+
+  const { rows } = await alertsService.getRestockList({ period: 'all' });
+  const suelto = rows.find((r) => r.sku === 'SKU-SUELTO');
+  const packA = rows.find((r) => r.sku === 'SKU-PACK-A');
+  const packB = rows.find((r) => r.sku === 'SKU-PACK-B');
+
+  assert.deepEqual(suelto.suggested, { unit: 'unidades', qty: 4 });
+  assert.equal(packA.suggested, null, 'sin pack propio, el modelo dentro de un pack no trae sugerencia');
+  assert.equal(packB.suggested, null);
+  // 2 modelos en un pack de 8 → floor(8/2) = 4 unidades de cada modelo por pack.
+  // ceil(max(24, 2) / 4) = ceil(24/4) = 6
+  assert.deepEqual(packA.pack.suggestedPacks, { unit: 'packs', qty: 6 }, 'lo cubre el de menor stock (A), repartido entre los 2 modelos del pack');
+  assert.deepEqual(packB.pack.suggestedPacks, { unit: 'packs', qty: 6 }, 'mismo pack, misma sugerencia repetida en cada fila');
+});
+
+test('ajuste manual: pisa la sugerencia calculada, por SKU y por pack, y se puede borrar', async () => {
+  addRule('SKU-SUELTO', 5);
+  addRule('SKU-PACK-A', 3);
+  dbState.packs = [{ id: 7, name: 'Repuestos A4', unitCount: 8, mode: 'assorted', skus: ['SKU-PACK-A'] }];
+  const snap = makeSnapshot({
+    mlRows: [{ sku: 'SKU-SUELTO', stock: 1 }, { sku: 'SKU-PACK-A', stock: 1 }],
+    tnRows: [{ sku: 'SKU-SUELTO', stock: 1 }, { sku: 'SKU-PACK-A', stock: 1 }],
+  });
+  await alertsService.evaluateStockAlerts(snap.data);
+  dbState.snapshot = snap;
+
+  await alertsService.saveRestockOverride({ targetType: 'sku', targetId: 'SKU-SUELTO', qty: 20 });
+  await alertsService.saveRestockOverride({ targetType: 'sku', targetId: 'SKU-PACK-A', qty: 3 });
+  await alertsService.saveRestockOverride({ targetType: 'pack', targetId: '7', qty: 9 });
+
+  let { rows } = await alertsService.getRestockList({ period: 'all' });
+  let suelto = rows.find((r) => r.sku === 'SKU-SUELTO');
+  let packA = rows.find((r) => r.sku === 'SKU-PACK-A');
+  assert.deepEqual(suelto.suggested, { unit: 'unidades', qty: 20 });
+  assert.deepEqual(packA.suggested, { unit: 'unidades', qty: 3 }, 'extra puntual de ese modelo dentro del pack');
+  assert.deepEqual(packA.pack.suggestedPacks, { unit: 'packs', qty: 9 });
+
+  // Borrar el override (qty: null) vuelve al valor calculado.
+  await alertsService.saveRestockOverride({ targetType: 'pack', targetId: '7', qty: null });
+  ({ rows } = await alertsService.getRestockList({ period: 'all' }));
+  packA = rows.find((r) => r.sku === 'SKU-PACK-A');
+  assert.deepEqual(packA.pack.suggestedPacks, { unit: 'packs', qty: 1 }, 'sin override vuelve a ceil(max(faltante)/unitCount) = ceil(2/8)');
+});
+
+test('marcar pedido como hecho limpia los ajustes manuales', async () => {
+  addRule('SKU-CUT2', 3);
+  const low = makeSnapshot({ mlRows: [{ sku: 'SKU-CUT2', stock: 1 }], tnRows: [{ sku: 'SKU-CUT2', stock: 1 }] });
+  dbState.snapshot = low;
+  await alertsService.evaluateStockAlerts(low.data);
+  await alertsService.saveRestockOverride({ targetType: 'sku', targetId: 'SKU-CUT2', qty: 15 });
+
+  await alertsService.closeRestockPeriod();
+  assert.equal(dbState.overrides.size, 0, 'el override no sobrevive al cierre del período');
+});
+
+/* ── productos sin alerta ────────────────────────────────────────────────── */
+
+test('getUnwatchedProducts: solo devuelve SKUs matcheados en los dos canales y sin regla', async () => {
+  dbState.snapshot = makeSnapshot({
+    mlRows: [
+      { sku: 'SKU-A', title: 'Cuaderno A4', variationName: null, thumbnail: 'https://ml/a.jpg', stock: 5 },
+      { sku: 'SKU-B', title: 'Cuaderno A5', variationName: 'Negro', thumbnail: null, stock: 2 },
+      { sku: 'SKU-SOLO-ML', title: 'Solo en ML', variationName: null, thumbnail: null, stock: 9 },
+    ],
+    tnRows: [
+      { sku: 'SKU-A', productName: 'Cuaderno A4', stock: 4 },
+      { sku: 'SKU-B', productName: 'Cuaderno A5', stock: 1 },
+      { sku: 'SKU-SOLO-TN', productName: 'Solo en TN', stock: 3 },
+    ],
+  });
+  addRule('SKU-B', 3); // ya vigilado → no debe aparecer
+
+  const products = await alertsService.getUnwatchedProducts();
+  assert.deepEqual(products.map((p) => p.sku), ['SKU-A']);
+  assert.equal(products[0].productLabel, 'Cuaderno A4');
+  assert.equal(products[0].stockMl, 5);
+  assert.equal(products[0].stockTn, 4);
+});
+
+test('getUnwatchedProducts: usa título + variante como label y respeta el pack', async () => {
+  dbState.snapshot = makeSnapshot({
+    mlRows: [{ sku: 'SKU-VAR', title: 'Repuesto', variationName: 'Rojo', thumbnail: null, stock: 6 }],
+    tnRows: [{ sku: 'SKU-VAR', productName: 'Repuesto', stock: 6 }],
+  });
+  dbState.packs = [{ id: 1, name: 'Repuestos A4', unitCount: 8, mode: 'single', skus: ['SKU-VAR'] }];
+
+  const products = await alertsService.getUnwatchedProducts();
+  assert.equal(products.length, 1);
+  assert.equal(products[0].productLabel, 'Repuesto (Rojo)');
+  assert.equal(products[0].pack?.name, 'Repuestos A4');
 });
 
 test('borrar un pack deja a sus SKUs sin pack, sin tocar reglas ni historial', async () => {

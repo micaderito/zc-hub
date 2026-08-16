@@ -68,9 +68,21 @@
                     <td [attr.colspan]="6">
                       <i class="ti ti-stack-2" aria-hidden="true"></i>
                       <b>{{ group.pack.name }}</b>
+                      @if (group.pack.sku) { <span class="pack-sku">{{ group.pack.sku }}</span> }
                       <span class="zc-badge">pack de {{ group.pack.unitCount }} u.</span>
                       <span class="zc-badge">{{ group.pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
-                      <span class="group-total">{{ group.totalPacks }} pack{{ group.totalPacks === 1 ? '' : 's' }}</span>
+                      <span class="group-total">{{ group.rows.length }} producto{{ group.rows.length === 1 ? '' : 's' }} para reponer</span>
+                      <span class="pack-suggest">
+                        <label class="hint">A pedir</label>
+                        <input
+                          class="zc-input cell-input"
+                          type="number" min="0"
+                          [ngModel]="group.pack.suggestedPacks?.qty ?? null"
+                          [ngModelOptions]="{ updateOn: 'blur' }"
+                          (ngModelChange)="updatePackSuggested(group.pack, $event)"
+                        />
+                        <span class="hint">packs</span>
+                      </span>
                     </td>
                   </tr>
                   @for (row of group.rows; track row.sku) {
@@ -124,6 +136,7 @@
         <td>
           @if (row.pack) {
             <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ row.pack.name }}</span>
+            @if (row.pack.sku) { <span class="pack-sku">{{ row.pack.sku }}</span> }
           } @else {
             <span class="hint">—</span>
           }
@@ -145,7 +158,17 @@
           {{ restockStateLabel(row.state) }}
         </span>
       </td>
-      <td class="num">{{ row.suggested.qty }} <span class="hint">{{ row.suggested.unit }}</span></td>
+      <td class="num">
+        <input
+          class="zc-input cell-input suggest-input"
+          type="number" min="0"
+          [ngModel]="row.suggested?.qty ?? null"
+          [ngModelOptions]="{ updateOn: 'blur' }"
+          (ngModelChange)="updateRowSuggested(row, $event)"
+          placeholder="—"
+        />
+        @if (row.suggested) { <span class="hint">{{ row.suggested.unit }}</span> }
+      </td>
     </tr>
   </ng-template>
 
@@ -190,6 +213,77 @@
           }
         </div>
       }
+    </div>
+  }
+
+  <!-- ══════════════════════════ Sin alertas ══════════════════════════ -->
+  @if (activeTab() === 'sin-alertas') {
+    <div class="tab-panel">
+      <div class="toolbar">
+        <zc-search-bar
+          class="restock-search"
+          [value]="unwatchedSearch()"
+          (valueChange)="unwatchedSearch.set($event)"
+          placeholder="Buscar producto, SKU o pack…"
+          ariaLabel="Buscar productos sin alerta"
+        />
+      </div>
+
+      @if (unwatchedLoading()) {
+        <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
+      } @else if (filteredUnwatched().length === 0) {
+        <p class="empty">
+          @if (unwatchedProducts().length === 0) {
+            Todos los productos coincidentes ya tienen una alerta configurada.
+          } @else {
+            Sin coincidencias para "{{ unwatchedSearch() }}".
+          }
+        </p>
+      } @else {
+        <div class="zc-card table-scroll">
+          <table class="zc-table">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Pack</th>
+                <th class="num">Stock ML</th>
+                <th class="num">Stock TN</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of filteredUnwatched(); track p.sku) {
+                <tr>
+                  <td>
+                    <div class="prod-cell">
+                      <div class="prod-name">{{ p.productLabel ?? p.sku }}</div>
+                      <div class="prod-sku">{{ p.sku }}</div>
+                    </div>
+                  </td>
+                  <td>
+                    @if (p.pack) {
+                      <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ p.pack.name }}</span>
+                    } @else {
+                      <span class="hint">—</span>
+                    }
+                  </td>
+                  <td class="num">{{ p.stockMl ?? '—' }}</td>
+                  <td class="num">{{ p.stockTn ?? '—' }}</td>
+                  <td class="actions-cell">
+                    <button type="button" class="zc-btn small" (click)="configureAlert(p)">
+                      <i class="ti ti-bell-plus" aria-hidden="true"></i> Configurar alerta
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+      <p class="hint footnote">
+        <i class="ti ti-info-circle" aria-hidden="true"></i>
+        Solo se listan productos con el mismo SKU coincidente en ML y TN — el mismo universo de "Vigilar productos" en Reglas.
+      </p>
     </div>
   }
 

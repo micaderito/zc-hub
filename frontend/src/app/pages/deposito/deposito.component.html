@@ -103,12 +103,41 @@
 
         @if (form().itemType === 'producto') {
           <label class="fld">SKU
-            <input type="text" list="dp-sku-options" [ngModel]="form().sku" (ngModelChange)="onSkuChange($event)" placeholder="El mismo SKU que en ML/TN" />
-            <datalist id="dp-sku-options">
-              @for (o of catalogOptions(); track o.sku) {
-                <option [value]="o.sku">{{ o.label }}</option>
-              }
-            </datalist>
+            @if (form().sku) {
+              <div class="sku-selected">
+                <span class="sku-selected-text">
+                  <b>{{ form().sku }}</b>
+                  @if (skuLabelFor(form().sku)) { <span class="muted"> — {{ skuLabelFor(form().sku) }}</span> }
+                </span>
+                <button type="button" class="link-btn" (click)="clearSku()">Cambiar</button>
+              </div>
+            } @else {
+              <div class="sku-search">
+                <input
+                  type="text"
+                  [ngModel]="skuQuery()"
+                  (ngModelChange)="onSkuQueryChange($event)"
+                  (focus)="skuDropdownOpen.set(true)"
+                  (blur)="onSkuInputBlur()"
+                  placeholder="Buscar por SKU o descripción…"
+                  autocomplete="off"
+                />
+                @if (skuDropdownOpen() && skuQuery().trim()) {
+                  <div class="sku-results">
+                    @if (filteredCatalogOptions().length === 0) {
+                      <div class="sku-result-hint">Sin resultados para "{{ skuQuery() }}".</div>
+                    } @else {
+                      @for (o of filteredCatalogOptions(); track o.sku) {
+                        <button type="button" class="sku-result" (click)="selectSku(o)">
+                          <span class="result-sku">{{ o.sku }}</span>
+                          <span class="result-label">{{ o.label }}</span>
+                        </button>
+                      }
+                    }
+                  </div>
+                }
+              </div>
+            }
           </label>
           @if (catalogLoading()) {
             <p class="fld-hint">Cargando catálogo de ML/TN…</p>

@@ -17,10 +17,11 @@ export interface PackProduct {
   stockEffective: number | null;
 }
 
-/** Un pack: la unidad de compra al proveedor (ver CLAUDE.md). */
+/** Un pack: la unidad de compra al proveedor (ver CLAUDE.md). `sku` es el código propio del pack, opcional y distinto del de sus modelos. */
 export interface Pack {
   id: number;
   name: string;
+  sku: string | null;
   unitCount: number;
   mode: 'assorted' | 'single';
   products: PackProduct[];
@@ -40,12 +41,12 @@ export class PacksService {
     return lastValueFrom(this.http.get<{ packs: Pack[] }>(`${this.api.baseUrl}/products/packs`));
   }
 
-  async createPack(data: { name: string; unitCount: number; mode: 'assorted' | 'single' }): Promise<void> {
+  async createPack(data: { name: string; unitCount: number; mode: 'assorted' | 'single'; sku?: string | null }): Promise<void> {
     await lastValueFrom(this.http.post<{ ok: boolean; id: number }>(`${this.api.baseUrl}/products/packs`, data));
     this.invalidate();
   }
 
-  async updatePack(id: number, data: { name: string; unitCount: number; mode: 'assorted' | 'single' }): Promise<void> {
+  async updatePack(id: number, data: { name: string; unitCount: number; mode: 'assorted' | 'single'; sku?: string | null }): Promise<void> {
     await lastValueFrom(this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/products/packs/${id}`, data));
     this.invalidate();
   }
