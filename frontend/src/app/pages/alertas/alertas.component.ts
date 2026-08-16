@@ -14,8 +14,8 @@ import {
   StockAlertRule,
   RestockRow,
   RestockPeriod,
-  PackRef,
   UnwatchedProduct,
+  RestockPackRef,
   restockStateLabel,
 } from '../../core/services/alerts.service';
 import { ConflictsService, mlLabel } from '../../core/services/conflicts.service';
@@ -26,9 +26,8 @@ import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/c
 type Tab = 'reponer' | 'notificaciones' | 'sin-alertas' | 'reglas';
 
 interface RestockGroup {
-  pack: PackRef;
+  pack: RestockPackRef;
   rows: RestockRow[];
-  totalPacks: number;
 }
 
 /** Resultado del buscador de productos (para vigilar uno nuevo). */
@@ -99,9 +98,8 @@ export class AlertasComponent {
     for (const r of this.filteredRestockRows()) {
       if (r.pack) {
         let g = byPack.get(r.pack.packId);
-        if (!g) { g = { pack: r.pack, rows: [], totalPacks: 0 }; byPack.set(r.pack.packId, g); }
+        if (!g) { g = { pack: r.pack, rows: [] }; byPack.set(r.pack.packId, g); }
         g.rows.push(r);
-        if (r.suggested.unit === 'packs') g.totalPacks += r.suggested.qty;
       } else {
         noPack.push(r);
       }
@@ -121,14 +119,35 @@ export class AlertasComponent {
   });
 
   readonly restockTotals = computed(() => {
-    const rows = this.filteredRestockRows();
+    const { groups, noPack } = this.restockGroups();
     let packs = 0, looseUnits = 0, units = 0;
-    for (const r of rows) {
-      if (r.suggested.unit === 'packs') { packs += r.suggested.qty; units += r.suggested.qty * (r.pack?.unitCount ?? 0); }
-      else { looseUnits += r.suggested.qty; units += r.suggested.qty; }
+    for (const g of groups) {
+      const qty = g.pack.suggestedPacks?.qty ?? 0;
+      packs += qty;
+      units += qty * g.pack.unitCount;
+      for (const r of g.rows) {
+        if (r.suggested) { looseUnits += r.suggested.qty; units += r.suggested.qty; }
+      }
+    }
+    for (const r of noPack) {
+      if (r.suggested) { looseUnits += r.suggested.qty; units += r.suggested.qty; }
     }
     return { packs, looseUnits, units };
   });
+
+  /** Ajusta a mano la sugerencia de un modelo puntual (SKU sin pack, o un extra dentro de un pack). */
+  async updateRowSuggested(row: RestockRow, value: number | string | null): Promise<void> {
+    const qty = value === null || value === undefined || value === '' ? null : Number(value);
+    if (qty != null && (!Number.isFinite(qty) || qty < 0)) return;
+    await this.alertsSvc.saveRestockOverride('sku', row.sku, qty);
+  }
+
+  /** Ajusta a mano cuántos packs completos pedir de un pack (pisa la sugerencia calculada). */
+  async updatePackSuggested(pack: RestockPackRef, value: number | string | null): Promise<void> {
+    const qty = value === null || value === undefined || value === '' ? null : Number(value);
+    if (qty != null && (!Number.isFinite(qty) || qty < 0)) return;
+    await this.alertsSvc.saveRestockOverride('pack', String(pack.packId), qty);
+  }
 
   readonly showCloseConfirm = signal(false);
   readonly closingPeriod = signal(false);
@@ -144,18 +163,27 @@ export class AlertasComponent {
   }
 
   copyRestockList(): void {
-    const lines = this.filteredRestockRows().map(
-      (r) => `${r.productLabel ?? r.sku} (${r.sku}) — ${r.suggested.qty} ${r.suggested.unit}`
-    );
+    const lines: string[] = [];
+    for (const g of this.restockGroups().groups) {
+      const qty = g.pack.suggestedPacks?.qty ?? 0;
+      lines.push(`${g.pack.name}${g.pack.sku ? ` (${g.pack.sku})` : ''} — ${qty} pack${qty === 1 ? '' : 's'}`);
+      for (const r of g.rows) {
+        if (r.suggested) lines.push(`  ${r.productLabel ?? r.sku} (${r.sku}) — ${r.suggested.qty} extra`);
+      }
+    }
+    for (const r of this.restockGroups().noPack) {
+      if (r.suggested) lines.push(`${r.productLabel ?? r.sku} (${r.sku}) — ${r.suggested.qty} ${r.suggested.unit}`);
+    }
     navigator.clipboard?.writeText(lines.join('\n')).catch(() => {});
   }
 
   exportRestockCsv(): void {
     const esc = (v: string | number | null) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['SKU', 'Producto', 'Pack', 'Stock ML', 'Stock TN', 'Umbral', 'Estado', 'A pedir', 'Unidad'];
+    const header = ['SKU', 'Producto', 'Pack', 'SKU pack', 'Packs sugeridos', 'Stock ML', 'Stock TN', 'Umbral', 'Estado', 'A pedir', 'Unidad'];
     const rows = this.filteredRestockRows().map((r) => [
-      r.sku, r.productLabel, r.pack?.name ?? '', r.stockMl, r.stockTn, r.threshold,
-      restockStateLabel(r.state), r.suggested.qty, r.suggested.unit,
+      r.sku, r.productLabel, r.pack?.name ?? '', r.pack?.sku ?? '', r.pack?.suggestedPacks?.qty ?? '',
+      r.stockMl, r.stockTn, r.threshold,
+      restockStateLabel(r.state), r.suggested?.qty ?? '', r.suggested?.unit ?? '',
     ].map(esc).join(','));
     const csv = [header.map(esc).join(','), ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

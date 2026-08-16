@@ -68,9 +68,21 @@
                     <td [attr.colspan]="6">
                       <i class="ti ti-stack-2" aria-hidden="true"></i>
                       <b>{{ group.pack.name }}</b>
+                      @if (group.pack.sku) { <span class="pack-sku">{{ group.pack.sku }}</span> }
                       <span class="zc-badge">pack de {{ group.pack.unitCount }} u.</span>
                       <span class="zc-badge">{{ group.pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
-                      <span class="group-total">{{ group.totalPacks }} pack{{ group.totalPacks === 1 ? '' : 's' }}</span>
+                      <span class="group-total">{{ group.rows.length }} producto{{ group.rows.length === 1 ? '' : 's' }} para reponer</span>
+                      <span class="pack-suggest">
+                        <label class="hint">A pedir</label>
+                        <input
+                          class="zc-input cell-input"
+                          type="number" min="0"
+                          [ngModel]="group.pack.suggestedPacks?.qty ?? null"
+                          [ngModelOptions]="{ updateOn: 'blur' }"
+                          (ngModelChange)="updatePackSuggested(group.pack, $event)"
+                        />
+                        <span class="hint">packs</span>
+                      </span>
                     </td>
                   </tr>
                   @for (row of group.rows; track row.sku) {
@@ -124,6 +136,7 @@
         <td>
           @if (row.pack) {
             <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ row.pack.name }}</span>
+            @if (row.pack.sku) { <span class="pack-sku">{{ row.pack.sku }}</span> }
           } @else {
             <span class="hint">—</span>
           }
@@ -145,7 +158,17 @@
           {{ restockStateLabel(row.state) }}
         </span>
       </td>
-      <td class="num">{{ row.suggested.qty }} <span class="hint">{{ row.suggested.unit }}</span></td>
+      <td class="num">
+        <input
+          class="zc-input cell-input suggest-input"
+          type="number" min="0"
+          [ngModel]="row.suggested?.qty ?? null"
+          [ngModelOptions]="{ updateOn: 'blur' }"
+          (ngModelChange)="updateRowSuggested(row, $event)"
+          placeholder="—"
+        />
+        @if (row.suggested) { <span class="hint">{{ row.suggested.unit }}</span> }
+      </td>
     </tr>
   </ng-template>
 

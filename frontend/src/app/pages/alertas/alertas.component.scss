@@ -156,6 +156,21 @@
       font-weight: 500;
       font-variant-numeric: tabular-nums;
     }
+
+    .pack-suggest {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+  }
+
+  .pack-sku {
+    font-size: 0.68rem;
+    color: var(--text-3);
+  }
+
+  .suggest-input {
+    &::placeholder { color: var(--text-3); }
   }
 
   .prod-cell {

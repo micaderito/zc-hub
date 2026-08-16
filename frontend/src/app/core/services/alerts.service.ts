@@ -14,8 +14,15 @@ export const ALERTS_UNWATCHED_QUERY_KEY = ['alerts', 'unwatched'] as const;
 export interface PackRef {
   packId: number;
   name: string;
+  /** Código propio del pack (opcional), distinto del SKU de sus modelos. */
+  sku: string | null;
   unitCount: number;
   mode: 'assorted' | 'single';
+}
+
+/** El pack de una fila de "Para reponer": trae además la cantidad de packs sugerida (ver computePackSuggestedQty en el backend). */
+export interface RestockPackRef extends PackRef {
+  suggestedPacks: SuggestedQty | null;
 }
 
 /** Una regla de alerta, con el stock de hoy y el pack ya resueltos (lo que pinta la pestaña Reglas). */
@@ -69,8 +76,9 @@ export interface RestockRow {
   stockTn: number | null;
   stockEffective: number | null;
   state: RestockState;
-  pack: PackRef | null;
-  suggested: SuggestedQty;
+  pack: RestockPackRef | null;
+  /** `null` cuando el producto tiene pack y no se cargó un ajuste manual: la sugerencia real es la del pack (`pack.suggestedPacks`). */
+  suggested: SuggestedQty | null;
 }
 
 export interface RestockList {
@@ -110,6 +118,10 @@ export class AlertsService {
     this.queryClient.invalidateQueries({ queryKey: ALERTS_RESTOCK_QUERY_KEY });
     this.queryClient.invalidateQueries({ queryKey: ALERTS_NOTIFICATIONS_QUERY_KEY });
     this.queryClient.invalidateQueries({ queryKey: ALERTS_UNWATCHED_QUERY_KEY });
+  }
+
+  private invalidateRestock(): void {
+    this.queryClient.invalidateQueries({ queryKey: ALERTS_RESTOCK_QUERY_KEY });
   }
 
   getRules(): Observable<{ rules: StockAlertRule[] }> {
@@ -176,6 +188,14 @@ export class AlertsService {
 
   getUnwatchedPromise(): Promise<UnwatchedProductsResponse> {
     return lastValueFrom(this.getUnwatched());
+  }
+
+  /** Ajusta a mano la cantidad "a pedir" de un SKU o un pack; `qty: null` la borra y vuelve a la sugerida. */
+  async saveRestockOverride(targetType: 'sku' | 'pack', targetId: string, qty: number | null): Promise<void> {
+    await lastValueFrom(
+      this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/override`, { targetType, targetId, qty })
+    );
+    this.invalidateRestock();
   }
 }
 

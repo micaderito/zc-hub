@@ -16,6 +16,7 @@ import {
   listStockNotifications, countUnreadNotifications,
   getRestockCutoff, setRestockCutoff, listRestockCandidates,
   listPacks, getAnalysisSnapshot,
+  listRestockOverrides, setRestockOverride, clearRestockOverrides,
 } from '../db.js';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -46,26 +47,44 @@ export function effectiveStock(entry) {
   return Math.min(ml, tn);
 }
 
-/** Map<sku, {packId, name, unitCount, mode}> a partir de listPacks(). */
+/** Map<sku, {packId, name, sku, unitCount, mode, modelCount}> a partir de listPacks(). `modelCount` es el total de modelos del pack (no solo los que hoy están en "Para reponer"). */
 export function buildSkuPackIndex(packs) {
   const map = new Map();
   for (const pack of packs || []) {
-    for (const sku of pack.skus || []) {
-      map.set(sku, { packId: pack.id, name: pack.name, unitCount: pack.unitCount, mode: pack.mode });
+    const modelCount = (pack.skus || []).length;
+    for (const memberSku of pack.skus || []) {
+      map.set(memberSku, { packId: pack.id, name: pack.name, sku: pack.sku ?? null, unitCount: pack.unitCount, mode: pack.mode, modelCount });
     }
   }
   return map;
 }
 
+/** Unidades que faltan para llegar al umbral de un SKU (nunca menos de 1). */
+export function computeShortfall(threshold, stockEffective) {
+  return Math.max(threshold - (stockEffective ?? 0), 1);
+}
+
+/** Cantidad sugerida a pedir para un SKU sin pack: unidades sueltas. Default editable (ver CLAUDE.md). */
+export function computeSuggestedQty({ threshold, stockEffective }) {
+  return { unit: 'unidades', qty: computeShortfall(threshold, stockEffective) };
+}
+
 /**
- * Cantidad sugerida a pedir, en packs cuando el SKU tiene uno y en unidades sueltas si no. Es un
- * default editable, no un cálculo que la app imponga: unidades faltantes = `max(umbral*2 - stock, 1)`,
- * y de ahí `packs = ceil(faltante / unitCount)` si hay pack.
+ * Cantidad de packs sugerida para cubrir TODO el pack de una: se toma el mayor faltante entre los
+ * SKUs del pack que dispararon alerta —el de menor stock manda, porque pedir de más para ese
+ * modelo también cubre a los demás— y se divide por cuántas unidades de ESE modelo trae cada pack.
+ *
+ * Esas unidades por modelo son `floor(unitCount / modelCount)`: un pack surtido reparte sus
+ * `unitCount` unidades entre TODOS los modelos del pack (no solo los que hoy están bajos), a partes
+ * iguales — un pack de 8 con 3 modelos trae ~2,6 de cada uno, así que se cuentan 2 (piso, nunca
+ * menos de 1) para no sobreestimar. Con `modelCount === unitCount` (un modelo por unidad) da 1, y
+ * con un pack `single` (un solo modelo) da `unitCount` — mismo cálculo para los dos `mode`.
  */
-export function computeSuggestedQty({ threshold, stockEffective, pack }) {
-  const shortfall = Math.max(threshold * 2 - (stockEffective ?? 0), 1);
-  if (pack) return { unit: 'packs', qty: Math.ceil(shortfall / pack.unitCount) };
-  return { unit: 'unidades', qty: shortfall };
+export function computePackSuggestedQty(members, pack) {
+  if (!pack || !members?.length) return null;
+  const maxShortfall = Math.max(...members.map((m) => computeShortfall(m.threshold, m.stockEffective)));
+  const unitsPerModel = Math.max(1, Math.floor(pack.unitCount / (pack.modelCount || 1)));
+  return { unit: 'packs', qty: Math.max(1, Math.ceil(maxShortfall / unitsPerModel)) };
 }
 
 /**
@@ -174,8 +193,14 @@ export async function getNotificationsInbox({ unreadOnly = false, limit = 50, of
 
 /**
  * Lista "Para reponer": agrupa stock_notifications por SKU desde el corte del período, cruzado con
- * el stock de hoy (para decidir Sigue bajo / Sin stock / Ya repuesto) y con el pack (para que el
- * front agrupe y sume packs).
+ * el stock de hoy (para decidir Sigue bajo / Sin stock / Ya repuesto), con el pack (para que el
+ * front agrupe) y con los ajustes manuales guardados (restock_order_overrides).
+ *
+ * La sugerencia se calcula distinto según haya pack o no (ver computeSuggestedQty/
+ * computePackSuggestedQty): un SKU sin pack sugiere unidades sueltas; un SKU CON pack no trae
+ * sugerencia propia (queda vacía, editable a mano para un pedido puntual de ese modelo) — la
+ * sugerencia real es la del PACK completo, repetida en `pack.suggestedPacks` de cada fila que
+ * pertenece a ese pack, para que agrupar por pack en el front sea trivial.
  */
 export async function getRestockList({ period = 'last-order' } = {}) {
   let since = null;
@@ -183,15 +208,16 @@ export async function getRestockList({ period = 'last-order' } = {}) {
   else if (period === 'last-order') since = await getRestockCutoff();
   // period === 'all' (o cualquier otro valor): since queda null → todo el historial.
 
-  const [candidates, packs, snap] = await Promise.all([
+  const [candidates, packs, snap, overrides] = await Promise.all([
     listRestockCandidates(since),
     listPacks(),
     getAnalysisSnapshot(),
+    listRestockOverrides(),
   ]);
   const stockBySku = buildStockBySku(snap?.data);
   const packBySku = buildSkuPackIndex(packs);
 
-  const rows = candidates.map((c) => {
+  const base = candidates.map((c) => {
     const entry = stockBySku.get(c.sku);
     const effective = effectiveStock(entry);
     const pack = packBySku.get(c.sku) || null;
@@ -199,6 +225,33 @@ export async function getRestockList({ period = 'last-order' } = {}) {
       : effective <= 0 ? 'out'
       : effective <= c.threshold ? 'still-low'
       : 'restocked';
+    return { c, entry, effective, pack, state };
+  });
+
+  // Un solo faltante por pack: el mayor entre los SKUs del pack que están en esta lista.
+  const packInfoById = new Map();
+  const packMembersById = new Map();
+  for (const { c, effective, pack } of base) {
+    if (!pack) continue;
+    packInfoById.set(pack.packId, pack);
+    const members = packMembersById.get(pack.packId) || [];
+    members.push({ threshold: c.threshold, stockEffective: effective ?? 0 });
+    packMembersById.set(pack.packId, members);
+  }
+  const packSuggestedById = new Map();
+  for (const [packId, pack] of packInfoById) {
+    const override = overrides.get(`pack:${packId}`);
+    packSuggestedById.set(
+      packId,
+      override != null ? { unit: 'packs', qty: override } : computePackSuggestedQty(packMembersById.get(packId), pack)
+    );
+  }
+
+  const rows = base.map(({ c, entry, effective, pack, state }) => {
+    const skuOverride = overrides.get(`sku:${c.sku}`);
+    const suggested = pack
+      ? (skuOverride != null ? { unit: 'unidades', qty: skuOverride } : null)
+      : (skuOverride != null ? { unit: 'unidades', qty: skuOverride } : computeSuggestedQty({ threshold: c.threshold, stockEffective: effective ?? 0 }));
     return {
       sku: c.sku,
       productLabel: c.productLabel,
@@ -209,15 +262,24 @@ export async function getRestockList({ period = 'last-order' } = {}) {
       stockTn: entry?.tn ?? null,
       stockEffective: effective,
       state,
-      pack,
-      suggested: computeSuggestedQty({ threshold: c.threshold, stockEffective: effective ?? 0, pack }),
+      pack: pack ? { ...pack, suggestedPacks: packSuggestedById.get(pack.packId) } : null,
+      suggested,
     };
   });
 
   return { rows, cutoff: since };
 }
 
-/** "Marcar pedido como hecho": cierra el período desde ahora. No borra reglas ni notificaciones. */
+/** Guarda el ajuste manual de "a pedir" para un SKU o un pack (ver restock_order_overrides). */
+export async function saveRestockOverride({ targetType, targetId, qty }) {
+  return setRestockOverride(targetType, targetId, qty);
+}
+
+/**
+ * "Marcar pedido como hecho": cierra el período desde ahora y limpia los ajustes manuales — son
+ * del pedido que se acaba de hacer, no una config permanente. No borra reglas ni notificaciones.
+ */
 export async function closeRestockPeriod() {
+  await clearRestockOverrides();
   return setRestockCutoff(new Date().toISOString());
 }

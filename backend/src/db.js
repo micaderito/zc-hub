@@ -410,6 +410,27 @@ export async function initDb() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_pack_skus_pack ON pack_skus (pack_id);`);
 
+    // SKU propio del pack (opcional): algunos proveedores le ponen su propio código al pack armado
+    // -distinto de los SKUs de los modelos que contiene- y sirve para identificarlo al pedirlo.
+    await p.query(`ALTER TABLE product_packs ADD COLUMN IF NOT EXISTS sku VARCHAR(128);`);
+    await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_product_packs_sku ON product_packs (sku) WHERE sku IS NOT NULL;`);
+
+    // La sugerencia de "Para reponer" (computeSuggestedQty/computePackSuggestedQty en
+    // alertsService.js) es un default editable, no un cálculo impuesto: la usuaria puede pisarlo a
+    // mano por SKU (un producto suelto, o una cantidad extra puntual de un modelo dentro de un
+    // pack) o por pack (cuántos packs completos pedir). "Marcar pedido como hecho" limpia esta
+    // tabla entera (closeRestockPeriod) porque el override es del pedido en curso, no una config
+    // permanente — el próximo período arranca con la sugerencia calculada de nuevo.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS restock_order_overrides (
+        target_type VARCHAR(8) NOT NULL,
+        target_id VARCHAR(128) NOT NULL,
+        qty INTEGER NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (target_type, target_id)
+      );
+    `);
+
     // ── Depósito Marañón ──────────────────────────────────────────────────────
     // Stock físico guardado en el depósito, aparte del publicado en ML/TN. item_type='producto'
     // linkea un SKU real del catálogo (autocomplete contra ML/TN); 'embalaje' es material sin
@@ -2004,6 +2025,55 @@ export async function setRestockCutoff(iso = new Date().toISOString()) {
   }
 }
 
+/** Overrides vigentes de "Para reponer" — `Map<'sku:XXX' | 'pack:N', qty>`. */
+export async function listRestockOverrides() {
+  const p = getPool();
+  const map = new Map();
+  if (!p) return map;
+  try {
+    const r = await p.query('SELECT target_type AS "targetType", target_id AS "targetId", qty FROM restock_order_overrides');
+    for (const row of r.rows) map.set(`${row.targetType}:${row.targetId}`, Number(row.qty));
+    return map;
+  } catch (e) {
+    console.error('listRestockOverrides:', e.message);
+    return map;
+  }
+}
+
+/** Guarda el ajuste manual de "a pedir" para un SKU o un pack; `qty: null` lo borra (vuelve al sugerido). */
+export async function setRestockOverride(targetType, targetId, qty) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    if (qty == null) {
+      await p.query('DELETE FROM restock_order_overrides WHERE target_type = $1 AND target_id = $2', [targetType, targetId]);
+    } else {
+      await p.query(
+        `INSERT INTO restock_order_overrides (target_type, target_id, qty, updated_at) VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (target_type, target_id) DO UPDATE SET qty = $3, updated_at = NOW()`,
+        [targetType, targetId, qty]
+      );
+    }
+    return true;
+  } catch (e) {
+    console.error('setRestockOverride:', e.message);
+    return false;
+  }
+}
+
+/** Limpia todos los ajustes manuales — se llama al "Marcar pedido como hecho" (ver closeRestockPeriod). */
+export async function clearRestockOverrides() {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query('DELETE FROM restock_order_overrides');
+    return true;
+  } catch (e) {
+    console.error('clearRestockOverrides:', e.message);
+    return false;
+  }
+}
+
 /**
  * Candidatos a reponer: una fila por SKU con el primer disparo desde `since`, cuántas veces avisó
  * y el último umbral/etiqueta vistos (por si cambiaron entre medio). `since` en `null` trae todo
@@ -2046,7 +2116,7 @@ export async function listPacks() {
   if (!p) return [];
   try {
     const packs = await p.query(
-      `SELECT id, name, unit_count AS "unitCount", mode, created_at AS "createdAt", updated_at AS "updatedAt"
+      `SELECT id, name, sku, unit_count AS "unitCount", mode, created_at AS "createdAt", updated_at AS "updatedAt"
        FROM product_packs ORDER BY name ASC`
     );
     const skuRows = await p.query('SELECT sku, pack_id AS "packId" FROM pack_skus');
@@ -2058,6 +2128,7 @@ export async function listPacks() {
     return packs.rows.map((row) => ({
       id: row.id,
       name: row.name,
+      sku: row.sku || null,
       unitCount: Number(row.unitCount),
       mode: row.mode,
       skus: bySku.get(row.id) || [],
@@ -2070,24 +2141,25 @@ export async function listPacks() {
   }
 }
 
-/** Alta/edición de un pack. Sin `id`, crea uno nuevo y devuelve su id (o `null` si falló). */
-export async function upsertPack({ id, name, unitCount, mode } = {}) {
+/** Alta/edición de un pack. Sin `id`, crea uno nuevo y devuelve su id (o `null` si falló). `sku` es opcional (el código propio del pack, distinto del de sus modelos). */
+export async function upsertPack({ id, name, unitCount, mode, sku } = {}) {
   const p = getPool();
   if (!p || !name) return null;
   const units = Math.max(1, Number(unitCount) || 8);
   const packMode = mode === 'single' ? 'single' : 'assorted';
+  const packSku = sku && String(sku).trim() ? String(sku).trim() : null;
   try {
     if (id) {
       const r = await p.query(
-        `UPDATE product_packs SET name = $1, unit_count = $2, mode = $3, updated_at = NOW()
-         WHERE id = $4 RETURNING id`,
-        [name, units, packMode, id]
+        `UPDATE product_packs SET name = $1, unit_count = $2, mode = $3, sku = $4, updated_at = NOW()
+         WHERE id = $5 RETURNING id`,
+        [name, units, packMode, packSku, id]
       );
       return r.rows[0]?.id ?? null;
     }
     const r = await p.query(
-      `INSERT INTO product_packs (name, unit_count, mode) VALUES ($1, $2, $3) RETURNING id`,
-      [name, units, packMode]
+      `INSERT INTO product_packs (name, unit_count, mode, sku) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [name, units, packMode, packSku]
     );
     return r.rows[0]?.id ?? null;
   } catch (e) {
