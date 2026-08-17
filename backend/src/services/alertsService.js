@@ -17,6 +17,8 @@ import {
   getRestockCutoff, setRestockCutoff, listRestockCandidates,
   listPacks, getAnalysisSnapshot,
   listRestockOverrides, setRestockOverride, clearRestockOverrides,
+  listRestockDismissed, setRestockDismissed, clearRestockDismissed,
+  getDepositoStockBySku,
 } from '../db.js';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -194,7 +196,9 @@ export async function getNotificationsInbox({ unreadOnly = false, limit = 50, of
 /**
  * Lista "Para reponer": agrupa stock_notifications por SKU desde el corte del período, cruzado con
  * el stock de hoy (para decidir Sigue bajo / Sin stock / Ya repuesto), con el pack (para que el
- * front agrupe) y con los ajustes manuales guardados (restock_order_overrides).
+ * front agrupe), con los ajustes manuales guardados (restock_order_overrides), con el stock del
+ * Depósito Marañón (para saber si ya hay unidades a mano antes de pedirle más al proveedor) y con
+ * los descartes manuales (restock_dismissed — ver más abajo).
  *
  * La sugerencia se calcula distinto según haya pack o no (ver computeSuggestedQty/
  * computePackSuggestedQty): un SKU sin pack sugiere unidades sueltas; un SKU CON pack no trae
@@ -208,14 +212,25 @@ export async function getRestockList({ period = 'last-order' } = {}) {
   else if (period === 'last-order') since = await getRestockCutoff();
   // period === 'all' (o cualquier otro valor): since queda null → todo el historial.
 
-  const [candidates, packs, snap, overrides] = await Promise.all([
+  const [allCandidates, packs, snap, overrides, dismissed, depositoBySku] = await Promise.all([
     listRestockCandidates(since),
     listPacks(),
     getAnalysisSnapshot(),
     listRestockOverrides(),
+    listRestockDismissed(),
+    getDepositoStockBySku(),
   ]);
   const stockBySku = buildStockBySku(snap?.data);
   const packBySku = buildSkuPackIndex(packs);
+
+  // Un SKU descartado (ya repuesto, sacado a mano del pedido) no se muestra salvo que haya vuelto
+  // a disparar una alerta NUEVA después del descarte — así un yo-yo de stock no lo esconde para
+  // siempre.
+  const candidates = allCandidates.filter((c) => {
+    const dismissedAt = dismissed.get(c.sku);
+    if (!dismissedAt) return true;
+    return new Date(c.lastTriggeredAt).getTime() > new Date(dismissedAt).getTime();
+  });
 
   const base = candidates.map((c) => {
     const entry = stockBySku.get(c.sku);
@@ -261,6 +276,7 @@ export async function getRestockList({ period = 'last-order' } = {}) {
       stockMl: entry?.ml ?? null,
       stockTn: entry?.tn ?? null,
       stockEffective: effective,
+      depositoStock: depositoBySku.get(c.sku) ?? null,
       state,
       pack: pack ? { ...pack, suggestedPacks: packSuggestedById.get(pack.packId) } : null,
       suggested,
@@ -276,10 +292,21 @@ export async function saveRestockOverride({ targetType, targetId, qty }) {
 }
 
 /**
- * "Marcar pedido como hecho": cierra el período desde ahora y limpia los ajustes manuales — son
- * del pedido que se acaba de hacer, no una config permanente. No borra reglas ni notificaciones.
+ * Descarta (o restaura) una fila de "Para reponer" a mano — típicamente porque ya se repuso y no
+ * se la quiere en el pedido en curso (ver restock_dismissed en db.js: vuelve sola si el SKU
+ * dispara otra alerta después del descarte).
+ */
+export async function setRestockRowDismissed(sku, dismissed) {
+  return setRestockDismissed(sku, dismissed);
+}
+
+/**
+ * "Marcar pedido como hecho": cierra el período desde ahora y limpia los ajustes manuales y los
+ * descartes — son del pedido que se acaba de hacer, no una config permanente. No borra reglas ni
+ * notificaciones.
  */
 export async function closeRestockPeriod() {
   await clearRestockOverrides();
+  await clearRestockDismissed();
   return setRestockCutoff(new Date().toISOString());
 }

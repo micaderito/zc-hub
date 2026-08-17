@@ -115,7 +115,12 @@
   .table-scroll { overflow-x: auto; }
 
   .zc-table {
+    // Sin min-width la tabla se achica para entrar en el viewport en vez de dejar que
+    // .table-scroll la scrollee: eso es lo que hacía que "Stock hoy"/"Estado" envolvieran su
+    // contenido en varias líneas en pantallas angostas. Con min-width + nowrap en esas celdas,
+    // la tabla mantiene su ancho natural y el que scrollea es el contenedor, no las celdas.
     width: 100%;
+    min-width: 760px;
     border-collapse: collapse;
     font-size: 0.78rem;
 
@@ -136,17 +141,25 @@
       white-space: nowrap;
     }
 
-    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+    // display:flex directamente en un <td colspan> rompe el cálculo de ancho del colspan (el
+    // navegador lo mide como si fuera un ítem flex suelto, no como la celda combinada) y el header
+    // del pack termina angosto, con espacio en blanco al lado sin sentido. El flex va en un <div>
+    // adentro; el <td> se queda como celda de tabla normal y sí ocupa las 6 columnas.
     tr.group-row td {
       background: var(--surface-2);
       font-size: 0.76rem;
+      padding: 0.6rem 0.65rem;
+
+      i { color: var(--brand); }
+    }
+
+    .group-row-inner {
       display: flex;
       align-items: center;
       gap: 0.5rem;
       flex-wrap: wrap;
-
-      i { color: var(--brand); }
     }
 
     tr.restocked { opacity: 0.6; }
@@ -162,6 +175,16 @@
       align-items: center;
       gap: 0.35rem;
     }
+
+    // "Avisó" (fecha del primer disparo) es el dato menos crítico para decidir qué reponer —
+    // se saca en pantallas angostas para que quede menos por scrollear horizontalmente.
+    @media (max-width: 640px) {
+      .col-aviso { display: none; }
+    }
+  }
+
+  @media (max-width: 640px) {
+    .zc-table { min-width: 620px; }
   }
 
   .pack-sku {
@@ -188,6 +211,20 @@
     &:first-child { margin-left: 0; }
     &.ml { background: var(--ml); }
     &.tn { background: var(--tn); }
+  }
+
+  .zc-badge.deposito {
+    margin-top: 0.25rem;
+    background: var(--brand-bg);
+    color: var(--brand);
+    white-space: nowrap;
+  }
+
+  .estado-cell {
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
   }
 
   .cell-input {

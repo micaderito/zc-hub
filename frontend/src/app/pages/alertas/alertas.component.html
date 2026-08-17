@@ -56,7 +56,7 @@
                 @if (restockView() === 'flat') { <th>Pack</th> }
                 <th class="num">Stock hoy</th>
                 <th class="num">Umbral</th>
-                <th>Avisó</th>
+                <th class="col-aviso">Avisó</th>
                 <th>Estado</th>
                 <th class="num">A pedir</th>
               </tr>
@@ -66,23 +66,25 @@
                 @for (group of restockGroups().groups; track group.pack.packId) {
                   <tr class="group-row">
                     <td [attr.colspan]="6">
-                      <i class="ti ti-stack-2" aria-hidden="true"></i>
-                      <b>{{ group.pack.name }}</b>
-                      @if (group.pack.sku) { <span class="pack-sku">{{ group.pack.sku }}</span> }
-                      <span class="zc-badge">pack de {{ group.pack.unitCount }} u.</span>
-                      <span class="zc-badge">{{ group.pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
-                      <span class="group-total">{{ group.rows.length }} producto{{ group.rows.length === 1 ? '' : 's' }} para reponer</span>
-                      <span class="pack-suggest">
-                        <label class="hint">A pedir</label>
-                        <input
-                          class="zc-input cell-input"
-                          type="number" min="0"
-                          [ngModel]="group.pack.suggestedPacks?.qty ?? null"
-                          [ngModelOptions]="{ updateOn: 'blur' }"
-                          (ngModelChange)="updatePackSuggested(group.pack, $event)"
-                        />
-                        <span class="hint">packs</span>
-                      </span>
+                      <div class="group-row-inner">
+                        <i class="ti ti-stack-2" aria-hidden="true"></i>
+                        <b>{{ group.pack.name }}</b>
+                        @if (group.pack.sku) { <span class="pack-sku">{{ group.pack.sku }}</span> }
+                        <span class="zc-badge">pack de {{ group.pack.unitCount }} u.</span>
+                        <span class="zc-badge">{{ group.pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
+                        <span class="group-total">{{ group.rows.length }} producto{{ group.rows.length === 1 ? '' : 's' }} para reponer</span>
+                        <span class="pack-suggest">
+                          <label class="hint">A pedir</label>
+                          <input
+                            class="zc-input cell-input"
+                            type="number" min="0"
+                            [ngModel]="group.pack.suggestedPacks?.qty ?? null"
+                            [ngModelOptions]="{ updateOn: 'blur' }"
+                            (ngModelChange)="updatePackSuggested(group.pack, $event)"
+                          />
+                          <span class="hint">packs</span>
+                        </span>
+                      </div>
                     </td>
                   </tr>
                   @for (row of group.rows; track row.sku) {
@@ -91,7 +93,11 @@
                 }
                 @if (restockGroups().noPack.length > 0) {
                   <tr class="group-row">
-                    <td [attr.colspan]="6"><i class="ti ti-package-off" aria-hidden="true"></i> <b>Sin pack</b> <span class="hint">se piden por unidad</span></td>
+                    <td [attr.colspan]="6">
+                      <div class="group-row-inner">
+                        <i class="ti ti-package-off" aria-hidden="true"></i> <b>Sin pack</b> <span class="hint">se piden por unidad</span>
+                      </div>
+                    </td>
                   </tr>
                   @for (row of restockGroups().noPack; track row.sku) {
                     <ng-container *ngTemplateOutlet="restockRowTpl; context: { $implicit: row, showPack: false }" />
@@ -145,18 +151,28 @@
       <td class="num">
         <span class="stock-dot ml"></span>{{ row.stockMl ?? '—' }}
         <span class="stock-dot tn"></span>{{ row.stockTn ?? '—' }}
+        @if (row.depositoStock) {
+          <div class="zc-badge deposito" title="Stock físico en Depósito Marañón">
+            <i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ row.depositoStock }} en depósito
+          </div>
+        }
       </td>
       <td class="num">{{ row.threshold }}</td>
-      <td>
+      <td class="col-aviso">
         @if (row.firstTriggeredAt) {
           <div>{{ row.firstTriggeredAt | date: 'dd/MM/yy' }}</div>
           <div class="hint">{{ row.timesTriggered }} vez{{ row.timesTriggered === 1 ? '' : 'es' }}</div>
         }
       </td>
-      <td>
+      <td class="estado-cell">
         <span class="zc-badge" [class.warn]="row.state === 'still-low'" [class.err]="row.state === 'out'" [class.ok]="row.state === 'restocked'">
           {{ restockStateLabel(row.state) }}
         </span>
+        @if (row.state === 'restocked') {
+          <button type="button" class="icon-btn" title="Sacar del pedido" (click)="dismissRestockRow(row)">
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        }
       </td>
       <td class="num">
         <input
