@@ -431,6 +431,19 @@ export async function initDb() {
       );
     `);
 
+    // Fila de "Para reponer" descartada a mano porque ya se repuso y no se la quiere en el pedido
+    // en curso. Vuelve a aparecer sola si el SKU dispara una alerta NUEVA después del descarte
+    // (dismissed_at contra el último created_at de stock_notifications para ese SKU en
+    // getRestockList) — así un yo-yo de stock no la esconde para siempre. Se limpia al cerrar el
+    // período, mismo motivo que restock_order_overrides: es del pedido en curso, no config
+    // permanente.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS restock_dismissed (
+        sku VARCHAR(128) PRIMARY KEY,
+        dismissed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
     // ── Depósito Marañón ──────────────────────────────────────────────────────
     // Stock físico guardado en el depósito, aparte del publicado en ML/TN. item_type='producto'
     // linkea un SKU real del catálogo (autocomplete contra ML/TN); 'embalaje' es material sin
@@ -2074,6 +2087,55 @@ export async function clearRestockOverrides() {
   }
 }
 
+/** SKUs descartados de "Para reponer" a mano (ya repuesto, no va en el pedido) — Map<sku, dismissedAtISO>. */
+export async function listRestockDismissed() {
+  const p = getPool();
+  const map = new Map();
+  if (!p) return map;
+  try {
+    const r = await p.query('SELECT sku, dismissed_at AS "dismissedAt" FROM restock_dismissed');
+    for (const row of r.rows) map.set(row.sku, new Date(row.dismissedAt).toISOString());
+    return map;
+  } catch (e) {
+    console.error('listRestockDismissed:', e.message);
+    return map;
+  }
+}
+
+/** Descarta (o restaura) una fila de "Para reponer" a mano. */
+export async function setRestockDismissed(sku, dismissed) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    if (dismissed) {
+      await p.query(
+        `INSERT INTO restock_dismissed (sku, dismissed_at) VALUES ($1, NOW())
+         ON CONFLICT (sku) DO UPDATE SET dismissed_at = NOW()`,
+        [sku]
+      );
+    } else {
+      await p.query('DELETE FROM restock_dismissed WHERE sku = $1', [sku]);
+    }
+    return true;
+  } catch (e) {
+    console.error('setRestockDismissed:', e.message);
+    return false;
+  }
+}
+
+/** Limpia todos los descartes — se llama al "Marcar pedido como hecho" (mismo motivo que restock_order_overrides). */
+export async function clearRestockDismissed() {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query('DELETE FROM restock_dismissed');
+    return true;
+  } catch (e) {
+    console.error('clearRestockDismissed:', e.message);
+    return false;
+  }
+}
+
 /**
  * Candidatos a reponer: una fila por SKU con el primer disparo desde `since`, cuántas veces avisó
  * y el último umbral/etiqueta vistos (por si cambiaron entre medio). `since` en `null` trae todo
@@ -2087,6 +2149,7 @@ export async function listRestockCandidates(since) {
       `SELECT sku,
               (array_agg(product_label ORDER BY created_at DESC))[1] AS "productLabel",
               MIN(created_at) AS "firstTriggeredAt",
+              MAX(created_at) AS "lastTriggeredAt",
               COUNT(*)::int AS "timesTriggered",
               (array_agg(threshold ORDER BY created_at DESC))[1] AS "threshold"
        FROM stock_notifications
@@ -2099,6 +2162,7 @@ export async function listRestockCandidates(since) {
       sku: row.sku,
       productLabel: row.productLabel,
       firstTriggeredAt: row.firstTriggeredAt ? new Date(row.firstTriggeredAt).toISOString() : null,
+      lastTriggeredAt: row.lastTriggeredAt ? new Date(row.lastTriggeredAt).toISOString() : null,
       timesTriggered: row.timesTriggered,
       threshold: Number(row.threshold),
     }));
@@ -2219,6 +2283,24 @@ function mapDepositoItem(row) {
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
   };
+}
+
+/** Map<sku, cantidad> del stock de depósito Marañón, sumando filas 'producto' del mismo SKU (para "Para reponer"). */
+export async function getDepositoStockBySku() {
+  const p = getPool();
+  const map = new Map();
+  if (!p) return map;
+  try {
+    const r = await p.query(
+      `SELECT sku, SUM(quantity)::int AS qty FROM deposito_stock
+       WHERE item_type = 'producto' AND sku IS NOT NULL GROUP BY sku`
+    );
+    for (const row of r.rows) map.set(row.sku, row.qty);
+    return map;
+  } catch (e) {
+    console.error('getDepositoStockBySku:', e.message);
+    return map;
+  }
 }
 
 /** Todo el stock de depósito, productos primero. */

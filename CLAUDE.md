@@ -298,6 +298,17 @@ con 3 disparados de una pedía "3 packs" en vez de 1).
 - **SKU propio del pack** (`product_packs.sku`, opcional, columna UNIQUE parcial): el proveedor a
   veces le pone su propio código al pack armado, distinto del SKU de cada modelo. Se edita en
   Productos → Packs y se muestra al lado del nombre del pack en "Para reponer".
+- **Stock en Depósito Marañón** (`RestockRow.depositoStock`, sumando filas `producto` de
+  `deposito_stock` con ese SKU): se muestra en la fila para saber, antes de pedirle al proveedor,
+  si ya hay unidades a mano guardadas en el depósito. Es informativo — no descuenta del faltante
+  calculado ni cambia el estado de la fila.
+- **Descartar una fila (`restock_dismissed`, `PUT /alerts/restock/:sku/dismiss`)**: una vez que el
+  estado pasa a "Ya repuesto" la usuaria puede sacar esa fila del pedido en curso a mano (no la
+  quiere pedir de nuevo). El descarte no es un default global: vuelve a aparecer solo si el SKU
+  dispara una alerta NUEVA después de descartarla (`dismissed_at` comparado contra el último
+  `created_at` de `stock_notifications` para ese SKU en `getRestockList`) — así un yo-yo de stock
+  (repuesto → bajo otra vez) no la esconde para siempre. Se limpia al cerrar el período, mismo
+  motivo que `restock_order_overrides`: es del pedido en curso, no config permanente.
 
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
@@ -313,6 +324,7 @@ y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validaci
 ajuste rápido de cantidad, filas inexistentes). El historial de los dos canales está cubierto
 además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no tocan el snapshot),
 y la sugerencia de "Para reponer" (por SKU sin pack, por pack completo tomando el mayor faltante,
-ajustes manuales por SKU/pack y su borrado, limpieza al cerrar el período) en
+ajustes manuales por SKU/pack y su borrado, stock de Depósito Marañón por SKU, descartar una fila
+y que vuelva sola tras un nuevo disparo, limpieza al cerrar el período) en
 `backend/test/alertsService.test.js`.
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).
