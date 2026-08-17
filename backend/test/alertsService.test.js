@@ -28,6 +28,8 @@ const dbState = {
   snapshot: null,
   clock: 0,
   overrides: new Map(),
+  dismissed: new Map(),
+  depositoStock: new Map(),
 };
 
 function resetDbState() {
@@ -39,6 +41,8 @@ function resetDbState() {
   dbState.snapshot = null;
   dbState.clock = Date.parse('2026-01-01T00:00:00.000Z');
   dbState.overrides = new Map();
+  dbState.dismissed = new Map();
+  dbState.depositoStock = new Map();
 }
 
 /**
@@ -102,6 +106,7 @@ before(async () => {
               sku,
               productLabel: last.productLabel,
               firstTriggeredAt: sorted[0].createdAt,
+              lastTriggeredAt: last.createdAt,
               timesTriggered: sorted.length,
               threshold: last.threshold,
             };
@@ -118,6 +123,14 @@ before(async () => {
         return true;
       },
       clearRestockOverrides: async () => { dbState.overrides = new Map(); return true; },
+      listRestockDismissed: async () => new Map(dbState.dismissed),
+      setRestockDismissed: async (sku, dismissed) => {
+        if (dismissed) dbState.dismissed.set(sku, tick());
+        else dbState.dismissed.delete(sku);
+        return true;
+      },
+      clearRestockDismissed: async () => { dbState.dismissed = new Map(); return true; },
+      getDepositoStockBySku: async () => new Map(dbState.depositoStock),
     },
   });
   alertsService = await import('../src/services/alertsService.js');
@@ -273,6 +286,65 @@ test('un SKU que se repuso solo sigue en la lista pero marcado "restocked"', asy
   const { rows } = await alertsService.getRestockList({ period: 'all' });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].state, 'restocked');
+});
+
+test('lista para reponer: trae el stock de Depósito Marañón por SKU', async () => {
+  addRule('SKU-DEP', 3);
+  const low = makeSnapshot({ mlRows: [{ sku: 'SKU-DEP', stock: 1 }], tnRows: [{ sku: 'SKU-DEP', stock: 1 }] });
+  await alertsService.evaluateStockAlerts(low.data);
+  dbState.snapshot = low;
+  dbState.depositoStock.set('SKU-DEP', 12);
+
+  const { rows } = await alertsService.getRestockList({ period: 'all' });
+  assert.equal(rows[0].depositoStock, 12);
+});
+
+test('lista para reponer: sin fila de depósito para ese SKU, depositoStock es null', async () => {
+  addRule('SKU-SIN-DEP', 3);
+  const low = makeSnapshot({ mlRows: [{ sku: 'SKU-SIN-DEP', stock: 1 }], tnRows: [{ sku: 'SKU-SIN-DEP', stock: 1 }] });
+  await alertsService.evaluateStockAlerts(low.data);
+  dbState.snapshot = low;
+
+  const { rows } = await alertsService.getRestockList({ period: 'all' });
+  assert.equal(rows[0].depositoStock, null);
+});
+
+test('descartar una fila la saca de la lista, y "marcar pedido como hecho" limpia los descartes', async () => {
+  addRule('SKU-DISM', 3);
+  const low = makeSnapshot({ mlRows: [{ sku: 'SKU-DISM', stock: 1 }], tnRows: [{ sku: 'SKU-DISM', stock: 1 }] });
+  await alertsService.evaluateStockAlerts(low.data);
+  dbState.snapshot = low;
+
+  let { rows } = await alertsService.getRestockList({ period: 'all' });
+  assert.equal(rows.length, 1);
+
+  await alertsService.setRestockRowDismissed('SKU-DISM', true);
+  ({ rows } = await alertsService.getRestockList({ period: 'all' }));
+  assert.equal(rows.length, 0, 'la fila descartada no aparece más');
+
+  await alertsService.closeRestockPeriod();
+  assert.equal(dbState.dismissed.size, 0, 'el descarte no sobrevive al cierre del período');
+});
+
+test('una fila descartada vuelve a aparecer sola si el SKU dispara una alerta nueva', async () => {
+  addRule('SKU-YOYO', 3);
+  const low = makeSnapshot({ mlRows: [{ sku: 'SKU-YOYO', stock: 1 }], tnRows: [{ sku: 'SKU-YOYO', stock: 1 }] });
+  await alertsService.evaluateStockAlerts(low.data); // dispara (ok -> triggered)
+  dbState.snapshot = low;
+
+  await alertsService.setRestockRowDismissed('SKU-YOYO', true);
+  let { rows } = await alertsService.getRestockList({ period: 'all' });
+  assert.equal(rows.length, 0);
+
+  // Vuelve a subir y a bajar del umbral: nueva transición ok -> triggered, nueva notificación.
+  const restocked = makeSnapshot({ mlRows: [{ sku: 'SKU-YOYO', stock: 10 }], tnRows: [{ sku: 'SKU-YOYO', stock: 10 }] });
+  await alertsService.evaluateStockAlerts(restocked.data);
+  await alertsService.evaluateStockAlerts(low.data);
+  dbState.snapshot = low;
+
+  ({ rows } = await alertsService.getRestockList({ period: 'all' }));
+  assert.equal(rows.length, 1, 'el nuevo disparo, posterior al descarte, la trae de vuelta');
+  assert.equal(rows[0].sku, 'SKU-YOYO');
 });
 
 /* ── packs: sugerencia de cantidad ───────────────────────────────────────── */

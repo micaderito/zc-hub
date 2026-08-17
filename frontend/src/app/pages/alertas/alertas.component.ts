@@ -149,6 +149,11 @@ export class AlertasComponent {
     await this.alertsSvc.saveRestockOverride('pack', String(pack.packId), qty);
   }
 
+  /** Saca del pedido en curso una fila ya repuesta; vuelve sola si el SKU dispara otra alerta. */
+  async dismissRestockRow(row: RestockRow): Promise<void> {
+    await this.alertsSvc.dismissRestockRow(row.sku);
+  }
+
   readonly showCloseConfirm = signal(false);
   readonly closingPeriod = signal(false);
 
@@ -179,10 +184,10 @@ export class AlertasComponent {
 
   exportRestockCsv(): void {
     const esc = (v: string | number | null) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['SKU', 'Producto', 'Pack', 'SKU pack', 'Packs sugeridos', 'Stock ML', 'Stock TN', 'Umbral', 'Estado', 'A pedir', 'Unidad'];
+    const header = ['SKU', 'Producto', 'Pack', 'SKU pack', 'Packs sugeridos', 'Stock ML', 'Stock TN', 'Stock depósito', 'Umbral', 'Estado', 'A pedir', 'Unidad'];
     const rows = this.filteredRestockRows().map((r) => [
       r.sku, r.productLabel, r.pack?.name ?? '', r.pack?.sku ?? '', r.pack?.suggestedPacks?.qty ?? '',
-      r.stockMl, r.stockTn, r.threshold,
+      r.stockMl, r.stockTn, r.depositoStock ?? '', r.threshold,
       restockStateLabel(r.state), r.suggested?.qty ?? '', r.suggested?.unit ?? '',
     ].map(esc).join(','));
     const csv = [header.map(esc).join(','), ...rows].join('\n');

@@ -9,7 +9,7 @@ import {
 } from '../db.js';
 import {
   getRulesWithStock, getNotificationsInbox, getRestockList, closeRestockPeriod,
-  evaluateStockAlertsNow, getUnwatchedProducts, saveRestockOverride,
+  evaluateStockAlertsNow, getUnwatchedProducts, saveRestockOverride, setRestockRowDismissed,
 } from '../services/alertsService.js';
 
 export const alertsRoutes = Router();
@@ -127,6 +127,22 @@ alertsRoutes.put('/restock/override', async (req, res) => {
   }
   try {
     await saveRestockOverride({ targetType, targetId, qty });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Descarta (o restaura) una fila de "Para reponer" a mano — típicamente porque ya se repuso y no
+ * va en el pedido en curso. Body: { dismissed?: boolean } (default true). Vuelve a aparecer sola
+ * si el SKU dispara otra alerta después de descartarla.
+ */
+alertsRoutes.put('/restock/:sku/dismiss', async (req, res) => {
+  const sku = (req.params.sku || '').trim();
+  if (!sku) return res.status(400).json({ error: 'sku requerido' });
+  try {
+    await setRestockRowDismissed(sku, req.body?.dismissed !== false);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

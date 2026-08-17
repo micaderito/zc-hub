@@ -75,6 +75,8 @@ export interface RestockRow {
   stockMl: number | null;
   stockTn: number | null;
   stockEffective: number | null;
+  /** Stock físico en Depósito Marañón para este SKU (aparte de lo publicado en ML/TN); `null` si no hay fila cargada. */
+  depositoStock: number | null;
   state: RestockState;
   pack: RestockPackRef | null;
   /** `null` cuando el producto tiene pack y no se cargó un ajuste manual: la sugerencia real es la del pack (`pack.suggestedPacks`). */
@@ -194,6 +196,14 @@ export class AlertsService {
   async saveRestockOverride(targetType: 'sku' | 'pack', targetId: string, qty: number | null): Promise<void> {
     await lastValueFrom(
       this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/override`, { targetType, targetId, qty })
+    );
+    this.invalidateRestock();
+  }
+
+  /** Saca una fila de "Para reponer" del pedido en curso (ya repuesta); vuelve sola si dispara otra alerta. */
+  async dismissRestockRow(sku: string): Promise<void> {
+    await lastValueFrom(
+      this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/${encodeURIComponent(sku)}/dismiss`, { dismissed: true })
     );
     this.invalidateRestock();
   }
