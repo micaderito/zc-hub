@@ -9,6 +9,7 @@ import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { getSyncEnabled, insertAuditLog, attributeStockChangeToSale, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask, tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
 import { patchTnStock, patchTnPrice, refreshMlItemInSnapshot, refreshTnProductInSnapshot } from './conflictsService.js';
+import { markSaleReturned } from './salesService.js';
 
 /**
  * El mapeo SKU↔canal (`store.js`) vive solo en memoria y se llena al correr el análisis de
@@ -770,6 +771,9 @@ export async function approvePendingReturn(returnId) {
     // Marca para que el webhook de cancelación no vuelva a restaurar ni recree la devolución
     // pendiente si ML reenvía la notificación de esta orden más tarde.
     if (claimOrderId) await tryClaimOrderProcessing('mercadolibre', claimOrderId, 'return_restore');
+    // Dashboard de ventas: en este camino ML no cancela la orden (sigue 'paid'), así que
+    // classifyOrder no la reclasifica sola — el paso a 'devuelta' es este evento explícito.
+    if (claimOrderId) markSaleReturned(claimOrderId).catch((e) => console.warn('[Ventas] markSaleReturned:', e.message));
     return { ok: true, mlRestored, tnRestored };
   }
   return { ok: false, error: 'No se pudo restaurar el stock en ninguna plataforma', mlRestored, tnRestored };

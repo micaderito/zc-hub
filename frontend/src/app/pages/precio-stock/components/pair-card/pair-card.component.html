@@ -4,6 +4,11 @@
     <div class="pair-sku">
       <span class="label-sm">SKU</span>
       <code>{{ pair().sku || pair().ml.sku || pair().tn.sku || '—' }}</code>
+      @if (packName()) {
+        <span class="pack-chip" title="Pertenece al pack {{ packName() }}">
+          <i class="ti ti-box" aria-hidden="true"></i>{{ packName() }}
+        </span>
+      }
     </div>
     <div class="pair-header-right">
       <span class="zc-badge"
@@ -19,8 +24,10 @@
         <i class="ti ti-history" aria-hidden="true"></i>
       </button>
       @if (alertSku) {
-        <a class="pair-history-btn" routerLink="/alertas" [queryParams]="{ tab: 'reglas', sku: alertSku }"
-           (click)="$event.stopPropagation()" title="Configurar alerta de stock" aria-label="Configurar alerta de stock">
+        <a class="pair-history-btn" [class.alert-on]="hasAlert()" routerLink="/alertas" [queryParams]="{ tab: 'reglas', sku: alertSku }"
+           (click)="$event.stopPropagation()"
+           [title]="hasAlert() ? 'Alerta de stock configurada' : 'Configurar alerta de stock'"
+           [attr.aria-label]="hasAlert() ? 'Alerta de stock configurada' : 'Configurar alerta de stock'">
           <i class="ti ti-bell" aria-hidden="true"></i>
         </a>
       }

@@ -19,6 +19,8 @@ export interface PairPrices {
 })
 export class PairCardComponent {
   readonly pair = input.required<{ ml: MlRow; tn: TnRow; sku?: string }>();
+  /** Nombre del pack al que pertenece el SKU del par, si alguno (ver Productos → Packs). */
+  readonly packName = input<string | null>(null);
   readonly prices = input.required<PairPrices>();
   readonly displayStockML = input.required<number>();
   readonly displayStockTN = input.required<number>();
@@ -30,6 +32,8 @@ export class PairCardComponent {
   readonly isStockQueued = input(false);
   readonly isCollapsed = input(false);
   readonly syncError = input<string | null>(null);
+  /** Ya existe una regla de alerta para este SKU (ver Alertas → Reglas): pinta la campanita. */
+  readonly hasAlert = input(false);
 
   readonly toggleCollapse = output<void>();
   readonly updatePrices = output<void>();

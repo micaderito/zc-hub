@@ -81,6 +81,24 @@ pricingRoutes.delete('/cost/:sku', async (req, res) => {
 });
 
 /**
+ * Ajuste manual del precio publicado de un SKU en un canal ('ml' o 'tn'). Body: { channel, value }.
+ * `value: null` (o ausente) saca el ajuste y el precio vuelve a ser el calculado.
+ */
+pricingRoutes.put('/override/:sku', async (req, res) => {
+  const sku = (req.params.sku || '').trim();
+  const channel = req.body?.channel;
+  if (!sku || (channel !== 'ml' && channel !== 'tn')) {
+    return res.status(400).json({ error: "sku y channel ('ml'|'tn') requeridos" });
+  }
+  try {
+    await pricing.saveOverride(sku, channel, req.body?.value ?? null);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * Preview de una importación: parsea el texto y devuelve filas + marcadas + sugerencias de mapeo.
  * NO guarda nada. Body: { text, format?: 'pdf'|'csv' }.
  */
@@ -146,6 +164,31 @@ pricingRoutes.delete('/mapping/:sku', async (req, res) => {
   if (!sku) return res.status(400).json({ error: 'sku requerido' });
   try {
     await pricing.removeMapping(sku);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Confirma (o corrige) el mapeo de un pack: el costo se aplica a TODOS sus SKUs miembro. */
+pricingRoutes.put('/mapping/pack/:packId', async (req, res) => {
+  const packId = Number(req.params.packId);
+  const code = (req.body?.code || '').trim();
+  if (!packId || !code) return res.status(400).json({ error: 'packId y code requeridos' });
+  try {
+    await pricing.confirmPackMapping(packId, code, req.body?.matchSource || 'manual');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Borra el mapeo de un pack (para rehacerlo). */
+pricingRoutes.delete('/mapping/pack/:packId', async (req, res) => {
+  const packId = Number(req.params.packId);
+  if (!packId) return res.status(400).json({ error: 'packId requerido' });
+  try {
+    await pricing.removePackMapping(packId);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

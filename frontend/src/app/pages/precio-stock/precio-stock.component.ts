@@ -23,6 +23,8 @@ import { StockFilterTabsComponent, StockFilter } from './components/stock-filter
 import { PairCardComponent, PairPrices } from './components/pair-card/pair-card.component';
 import { ProductHistoryDialogComponent } from './components/product-history-dialog/product-history-dialog.component';
 import { PacksTabComponent } from './components/packs-tab/packs-tab.component';
+import { PacksService } from '../../core/services/packs.service';
+import { AlertsService, ALERTS_RULES_QUERY_KEY } from '../../core/services/alerts.service';
 
 const PAGE_SIZE = 25;
 const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
@@ -38,6 +40,8 @@ type SubTab = 'stock' | 'packs';
 })
 export class PrecioStockComponent {
   private readonly conflicts = inject(ConflictsService);
+  private readonly packsSvc = inject(PacksService);
+  private readonly alertsSvc = inject(AlertsService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly activeSubTab = signal<SubTab>('stock');
@@ -98,6 +102,47 @@ export class PrecioStockComponent {
   }));
 
   private readonly queuedStockKeys = computed(() => stockTaskKeys(this.activeTasksQuery.data()?.tasks ?? []));
+
+  /**
+   * Packs, para mostrar "pertenece al pack X" en la cabecera de cada par. Se pide aparte de la
+   * página de conflictos porque no depende de la paginación/filtro/búsqueda de esa lista.
+   */
+  readonly packsQuery = injectQuery(() => ({
+    queryKey: ['products', 'packs'],
+    queryFn: () => this.packsSvc.getPacksPromise(),
+    staleTime: 5 * 60 * 1000,
+  }));
+
+  /** SKU → nombre del pack al que pertenece (si alguno). */
+  private readonly skuPackIndex = computed<Map<string, string>>(() => {
+    const idx = new Map<string, string>();
+    for (const pack of this.packsQuery.data()?.packs ?? []) {
+      for (const product of pack.products) idx.set(product.sku, pack.name);
+    }
+    return idx;
+  });
+
+  getPairPackName(pair: { ml: MlRow; tn: TnRow; sku?: string }): string | null {
+    const sku = pair.sku || pair.ml.sku || pair.tn.sku;
+    return sku ? (this.skuPackIndex().get(sku) ?? null) : null;
+  }
+
+  /** SKUs con una regla de alerta configurada, para pintar la campanita de la cabecera del par. */
+  readonly alertRulesQuery = injectQuery(() => ({
+    queryKey: ALERTS_RULES_QUERY_KEY,
+    queryFn: () => this.alertsSvc.getRulesPromise(),
+    staleTime: 5 * 60 * 1000,
+  }));
+
+  private readonly skusWithAlert = computed<Set<string>>(() => {
+    const rules = this.alertRulesQuery.data()?.rules ?? [];
+    return new Set(rules.map(r => r.sku));
+  });
+
+  pairHasAlert(pair: { ml: MlRow; tn: TnRow; sku?: string }): boolean {
+    const sku = pair.sku || pair.ml.sku || pair.tn.sku;
+    return !!sku && this.skusWithAlert().has(sku);
+  }
 
   analysis = computed<ConflictAnalysis | null>(() => this.analysisQuery.data() ?? null);
   loading = computed(() => this.analysisQuery.isLoading());

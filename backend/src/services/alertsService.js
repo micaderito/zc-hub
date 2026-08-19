@@ -20,6 +20,7 @@ import {
   listRestockDismissed, setRestockDismissed, clearRestockDismissed,
   getDepositoStockBySku,
 } from '../db.js';
+import { buildSkuPackIndex } from '../lib/packIndex.js';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -47,18 +48,6 @@ export function effectiveStock(entry) {
   if (ml == null) return tn;
   if (tn == null) return ml;
   return Math.min(ml, tn);
-}
-
-/** Map<sku, {packId, name, sku, unitCount, mode, modelCount}> a partir de listPacks(). `modelCount` es el total de modelos del pack (no solo los que hoy están en "Para reponer"). */
-export function buildSkuPackIndex(packs) {
-  const map = new Map();
-  for (const pack of packs || []) {
-    const modelCount = (pack.skus || []).length;
-    for (const memberSku of pack.skus || []) {
-      map.set(memberSku, { packId: pack.id, name: pack.name, sku: pack.sku ?? null, unitCount: pack.unitCount, mode: pack.mode, modelCount });
-    }
-  }
-  return map;
 }
 
 /** Unidades que faltan para llegar al umbral de un SKU (nunca menos de 1). */

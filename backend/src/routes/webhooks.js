@@ -14,6 +14,7 @@ import {
 import { processClaimToPendingReturns, insertPendingReturnsForOrder } from './sync.js';
 import { isSafeToAutoRestore, getShipmentIdFromOrder } from '../lib/mlShipmentState.js';
 import { needsManualReview } from '../lib/mlCancelReason.js';
+import { upsertSaleFromOrder } from '../services/salesService.js';
 
 export const webhookRoutes = Router();
 
@@ -164,6 +165,15 @@ async function processMlOrderPayload(order, orderId, attempt = 0) {
   const status = (order.status || '').toLowerCase();
   const statusDetail = (order.status_detail || '').toLowerCase();
   const effectiveOrderId = String(order.id ?? orderId);
+
+  // Dashboard de ventas por provincia (capa 1 de sincronización, ver CLAUDE.md): registra la venta
+  // reusando la orden que este webhook ya trajo, sin requests extra a ML. Va primero y en su
+  // propio try/catch — que falle esto nunca debe frenar el descuento/restauración de stock de
+  // abajo. Sin el envío a mano acá, la fila queda sin provincia hasta que el barrido diario la
+  // complete.
+  upsertSaleFromOrder(order, null).catch((e) => {
+    console.warn('[Webhook ML] No se pudo registrar la venta %s para el dashboard: %s', effectiveOrderId, e?.message);
+  });
 
   if (status === 'cancelled' || status === 'canceled') {
     // Orden cancelada antes de llegar a pagarse (rechazo de pago, timeout, antifraude de ML): nunca se

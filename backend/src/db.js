@@ -24,6 +24,7 @@ function getPool() {
 
 const SYNC_ENABLED_KEY = 'stock_sync_enabled';
 const ANALYSIS_CACHE_KEY = 'conflicts_analysis_cache';
+const SALES_SYNC_STATE_KEY = 'ml_sales_sync_state';
 
 /**
  * Corre un backfill de datos una única vez, para siempre: a diferencia de `CREATE TABLE IF NOT
@@ -290,6 +291,21 @@ export async function initDb() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_price_audit_sku_created ON price_audit (sku, created_at DESC);`);
 
+    // Ajuste manual del precio publicado, por canal: la usuaria puede querer publicar OTRO precio
+    // que el que da la fórmula (redondeo comercial, competencia, lo que sea) sin perder de vista
+    // cuál "debería" ser. NO se pisa al recalcular (nuevo costo, nueva lista): el valor calculado
+    // cambia solo, el override queda hasta que lo saquen a mano. `channel` corto ('ml'|'tn') —
+    // distinto del `channel` largo de price_audit ('mercadolibre'|'tiendanube'), que es otra tabla.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_overrides (
+        sku VARCHAR(128) NOT NULL,
+        channel VARCHAR(8) NOT NULL,
+        value NUMERIC(15,2) NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (sku, channel)
+      );
+    `);
+
     // ── Listas del proveedor y mapeo (fase 4) ──────────────────────────────────
     // Catálogo de códigos del proveedor. Vive aparte de las listas importadas para que el mapeo
     // SKU↔código sobreviva a cada importación nueva: cuando entra la lista de marzo, los códigos
@@ -411,9 +427,26 @@ export async function initDb() {
     await p.query(`CREATE INDEX IF NOT EXISTS idx_pack_skus_pack ON pack_skus (pack_id);`);
 
     // SKU propio del pack (opcional): algunos proveedores le ponen su propio código al pack armado
-    // -distinto de los SKUs de los modelos que contiene- y sirve para identificarlo al pedirlo.
+    // -distinto de los SKUs de los modelos que contiene- y sirve para identificarlo al pedirlo. NO
+    // es único: el mismo producto puede venir en varios packs con SKUs de modelos distintos (p.ej.
+    // un pack de modelos viejos y otro de modelos nuevos) y el proveedor les da el mismo código.
     await p.query(`ALTER TABLE product_packs ADD COLUMN IF NOT EXISTS sku VARCHAR(128);`);
-    await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_product_packs_sku ON product_packs (sku) WHERE sku IS NOT NULL;`);
+    await p.query(`DROP INDEX IF EXISTS idx_product_packs_sku;`);
+
+    // El puente PACK del proveedor ↔ código, gemelo de sku_code_map (fase 4). Algunos proveedores
+    // le ponen su propio código al pack armado (product_packs.sku), distinto del de cada modelo —
+    // cuando ese código aparece en una lista, el costo se vuelca a TODOS los SKUs del pack de una
+    // (ver applyListCosts en pricingService.js), no solo a uno.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS pack_code_map (
+        pack_id INTEGER PRIMARY KEY REFERENCES product_packs(id) ON DELETE CASCADE,
+        code VARCHAR(128) NOT NULL,
+        supplier VARCHAR(64) NOT NULL DEFAULT 'punto_cero',
+        match_source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        confirmed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_pack_code_map_code ON pack_code_map (code);`);
 
     // La sugerencia de "Para reponer" (computeSuggestedQty/computePackSuggestedQty en
     // alertsService.js) es un default editable, no un cálculo impuesto: la usuaria puede pisarlo a
@@ -501,6 +534,56 @@ export async function initDb() {
       );
       console.log('DB init: usuario admin inicial creado desde ADMIN_USER/ADMIN_PASSWORD.');
     }
+
+    // ── Ventas de ML por provincia (dashboard /ventas) ──────────────────────
+    // Duplica localmente lo necesario del informe mensual para el contador: el `GET /orders/:id`
+    // de ML no trae provincia (hace falta un `GET /shipments/:id` extra) y armar el informe on-the-
+    // fly costaría 1 request por orden en cada visita. Se guardan también las canceladas/devueltas
+    // (computed_status) para que el criterio de exclusión sea auditable sin volver a pegarle a ML.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS ml_sales_orders (
+        order_id VARCHAR(64) PRIMARY KEY,
+        pack_id VARCHAR(64),
+        date_created TIMESTAMPTZ NOT NULL,
+        date_closed TIMESTAMPTZ,
+        ml_status VARCHAR(32) NOT NULL,
+        computed_status VARCHAR(16) NOT NULL,
+        exclusion_reason VARCHAR(64),
+        shipment_id VARCHAR(64),
+        shipment_status VARCHAR(32),
+        shipment_substatus VARCHAR(48),
+        state_id VARCHAR(16),
+        state_name VARCHAR(128),
+        city_name VARCHAR(128),
+        items_amount NUMERIC(15,2) NOT NULL DEFAULT 0,
+        shipping_cost NUMERIC(15,2),
+        total_amount NUMERIC(15,2),
+        paid_amount NUMERIC(15,2),
+        ml_fees NUMERIC(15,2),
+        units INTEGER NOT NULL DEFAULT 0,
+        buyer_nickname VARCHAR(128),
+        synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_ml_sales_date ON ml_sales_orders (date_created);`);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_ml_sales_state ON ml_sales_orders (state_name, date_created);`);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_ml_sales_status ON ml_sales_orders (computed_status, date_created);`);
+
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS ml_sales_items (
+        id SERIAL PRIMARY KEY,
+        order_id VARCHAR(64) NOT NULL REFERENCES ml_sales_orders(order_id) ON DELETE CASCADE,
+        item_id VARCHAR(32),
+        variation_id VARCHAR(32),
+        sku VARCHAR(128),
+        title VARCHAR(512),
+        quantity INTEGER NOT NULL,
+        unit_price NUMERIC(15,2) NOT NULL,
+        sale_fee NUMERIC(15,2)
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_ml_sales_items_order ON ml_sales_items (order_id);`);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_ml_sales_items_sku ON ml_sales_items (sku);`);
 
     return true;
   } catch (e) {
@@ -1587,6 +1670,56 @@ export async function deleteProductCost(sku) {
   }
 }
 
+/** Todos los ajustes manuales de precio (por SKU y canal). */
+export async function getPriceOverrides() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT sku, channel, value, updated_at AS "updatedAt" FROM price_overrides`
+    );
+    return r.rows.map((row) => ({
+      sku: row.sku,
+      channel: row.channel,
+      value: Number(row.value),
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getPriceOverrides:', e.message);
+    return [];
+  }
+}
+
+/** Fija (o corrige) el precio publicado a mano para un SKU y canal. NO se pisa al recalcular. */
+export async function upsertPriceOverride(sku, channel, value) {
+  const p = getPool();
+  if (!p || !sku || !channel || value == null || !Number.isFinite(Number(value))) return false;
+  try {
+    await p.query(
+      `INSERT INTO price_overrides (sku, channel, value, updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (sku, channel) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [sku, channel, Number(value)]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertPriceOverride:', e.message);
+    return false;
+  }
+}
+
+/** Saca el ajuste manual: el precio vuelve a ser el calculado. */
+export async function deletePriceOverride(sku, channel) {
+  const p = getPool();
+  if (!p || !sku || !channel) return false;
+  try {
+    await p.query('DELETE FROM price_overrides WHERE sku = $1 AND channel = $2', [sku, channel]);
+    return true;
+  } catch (e) {
+    console.error('deletePriceOverride:', e.message);
+    return false;
+  }
+}
+
 /**
  * Registra un cambio de precio en el historial. `priceBefore` puede venir null (si el snapshot no
  * tenía la fila); la fila se guarda igual porque el "a cuánto quedó" ya es información útil.
@@ -1799,6 +1932,56 @@ export async function deleteSkuCodeMap(sku) {
     return true;
   } catch (e) {
     console.error('deleteSkuCodeMap:', e.message);
+    return false;
+  }
+}
+
+/** Todos los mapeos PACK→código confirmados, gemelo de getSkuCodeMap. */
+export async function getPackCodeMap(supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT pack_id AS "packId", code, match_source AS "matchSource", confirmed_at AS "confirmedAt"
+       FROM pack_code_map WHERE supplier = $1`, [supplier]);
+    return r.rows.map((row) => ({
+      ...row,
+      confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getPackCodeMap:', e.message);
+    return [];
+  }
+}
+
+/** Confirma (o corrige) el mapeo de un pack. Se hace una vez y no se vuelve a preguntar. */
+export async function upsertPackCodeMap(packId, code, matchSource = 'manual', supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p || !packId || !code) return false;
+  try {
+    await p.query(
+      `INSERT INTO pack_code_map (pack_id, code, supplier, match_source, confirmed_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (pack_id) DO UPDATE SET code = EXCLUDED.code, supplier = EXCLUDED.supplier,
+         match_source = EXCLUDED.match_source, confirmed_at = NOW()`,
+      [packId, code, supplier, matchSource]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertPackCodeMap:', e.message);
+    return false;
+  }
+}
+
+/** Borra el mapeo de un pack (para rehacerlo). */
+export async function deletePackCodeMap(packId) {
+  const p = getPool();
+  if (!p || !packId) return false;
+  try {
+    await p.query('DELETE FROM pack_code_map WHERE pack_id = $1', [packId]);
+    return true;
+  } catch (e) {
+    console.error('deletePackCodeMap:', e.message);
     return false;
   }
 }
@@ -2556,5 +2739,190 @@ export async function touchAppUserLastLogin(id) {
     await p.query('UPDATE app_users SET last_login_at = NOW() WHERE id = $1', [id]);
   } catch (e) {
     console.error('touchAppUserLastLogin:', e.message);
+  }
+}
+
+// ── Ventas de ML por provincia (dashboard /ventas) ────────────────────────────
+
+/** Estado de la sync de ventas (para el botón "Actualizar" y la barra de progreso). Mismo patrón
+ *  que getAnalysisSnapshot/setAnalysisSnapshot: una key en sync_settings con JSON adentro. */
+export async function getSalesSyncState() {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query('SELECT value FROM sync_settings WHERE key = $1', [SALES_SYNC_STATE_KEY]);
+    if (!r.rows?.length) return null;
+    const raw = r.rows[0].value;
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {
+    return null;
+  }
+}
+
+export async function setSalesSyncState(state) {
+  const p = getPool();
+  if (!p) return;
+  try {
+    await p.query(
+      `INSERT INTO sync_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      [SALES_SYNC_STATE_KEY, JSON.stringify(state)]
+    );
+  } catch (e) {
+    console.error('setSalesSyncState:', e.message);
+  }
+}
+
+/**
+ * Guarda (o actualiza) una venta y sus ítems en una transacción. Es la unidad que usan las tres
+ * capas de sincronización (webhook, barrido diario, backfill inicial) — todas terminan acá.
+ * `order_id` es la clave: un UPSERT hace que reprocesar una orden ya guardada (porque cambió de
+ * estado) sea seguro, y borrar+reinsertar los ítems evita arrastrar líneas viejas si la orden se
+ * editó.
+ */
+export async function upsertSale(orderRow, items = []) {
+  const p = getPool();
+  if (!p) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO ml_sales_orders (
+         order_id, pack_id, date_created, date_closed, ml_status, computed_status, exclusion_reason,
+         shipment_id, shipment_status, shipment_substatus, state_id, state_name, city_name,
+         items_amount, shipping_cost, total_amount, paid_amount, ml_fees, units, buyer_nickname, synced_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
+       ON CONFLICT (order_id) DO UPDATE SET
+         pack_id = $2, date_created = $3, date_closed = $4, ml_status = $5, computed_status = $6,
+         exclusion_reason = $7, shipment_id = $8, shipment_status = $9, shipment_substatus = $10,
+         state_id = $11, state_name = $12, city_name = $13, items_amount = $14, shipping_cost = $15,
+         total_amount = $16, paid_amount = $17, ml_fees = $18, units = $19, buyer_nickname = $20,
+         synced_at = NOW()`,
+      [
+        orderRow.orderId, orderRow.packId ?? null, orderRow.dateCreated, orderRow.dateClosed ?? null,
+        orderRow.mlStatus, orderRow.computedStatus, orderRow.exclusionReason ?? null,
+        orderRow.shipmentId ?? null, orderRow.shipmentStatus ?? null, orderRow.shipmentSubstatus ?? null,
+        orderRow.stateId ?? null, orderRow.stateName ?? null, orderRow.cityName ?? null,
+        orderRow.itemsAmount ?? 0, orderRow.shippingCost ?? null, orderRow.totalAmount ?? null,
+        orderRow.paidAmount ?? null, orderRow.mlFees ?? null, orderRow.units ?? 0, orderRow.buyerNickname ?? null,
+      ]
+    );
+    await client.query('DELETE FROM ml_sales_items WHERE order_id = $1', [orderRow.orderId]);
+    for (const it of items) {
+      await client.query(
+        `INSERT INTO ml_sales_items (order_id, item_id, variation_id, sku, title, quantity, unit_price, sale_fee)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [orderRow.orderId, it.itemId ?? null, it.variationId ?? null, it.sku ?? null, it.title ?? null,
+         it.quantity, it.unitPrice, it.saleFee ?? null]
+      );
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('upsertSale:', e.message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+/** Una venta ya guardada, para que el barrido decida si hace falta releer el envío. */
+export async function getSaleByOrderId(orderId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `SELECT order_id AS "orderId", date_created AS "dateCreated", ml_status AS "mlStatus",
+              computed_status AS "computedStatus", state_name AS "stateName"
+       FROM ml_sales_orders WHERE order_id = $1`,
+      [orderId]
+    );
+    return r.rows[0] ?? null;
+  } catch (e) {
+    console.error('getSaleByOrderId:', e.message);
+    return null;
+  }
+}
+
+/** Filas crudas para el informe: todas las órdenes con date_created dentro del rango (incluye
+ *  todos los computed_status — quien agrega decide qué hacer con cada uno). */
+export async function getSalesOrdersForReport(fromISO, toISO) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT order_id AS "orderId", date_created AS "dateCreated", computed_status AS "computedStatus",
+              exclusion_reason AS "exclusionReason", state_name AS "stateName",
+              items_amount AS "itemsAmount", units
+       FROM ml_sales_orders
+       WHERE date_created >= $1 AND date_created <= $2
+       ORDER BY date_created ASC`,
+      [fromISO, toISO]
+    );
+    return r.rows.map((row) => ({ ...row, itemsAmount: Number(row.itemsAmount), units: Number(row.units) }));
+  } catch (e) {
+    console.error('getSalesOrdersForReport:', e.message);
+    return [];
+  }
+}
+
+/** Top SKUs por facturación en el período (solo ventas facturadas). */
+export async function getTopProductsForReport(fromISO, toISO, limit = 10) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT i.sku AS sku, MAX(i.title) AS title, SUM(i.quantity)::int AS units,
+              SUM(i.quantity * i.unit_price) AS amount
+       FROM ml_sales_items i
+       JOIN ml_sales_orders o ON o.order_id = i.order_id
+       WHERE o.computed_status = 'facturada' AND o.date_created >= $1 AND o.date_created <= $2
+         AND i.sku IS NOT NULL
+       GROUP BY i.sku
+       ORDER BY amount DESC
+       LIMIT $3`,
+      [fromISO, toISO, limit]
+    );
+    return r.rows.map((row) => ({ ...row, units: Number(row.units), amount: Number(row.amount) }));
+  } catch (e) {
+    console.error('getTopProductsForReport:', e.message);
+    return [];
+  }
+}
+
+/** Facturado por día en el período (solo ventas facturadas) — para el gráfico de evolución diaria. */
+export async function getDailySalesForReport(fromISO, toISO) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT date_trunc('day', date_created) AS day, SUM(items_amount) AS amount
+       FROM ml_sales_orders
+       WHERE computed_status = 'facturada' AND date_created >= $1 AND date_created <= $2
+       GROUP BY day
+       ORDER BY day ASC`,
+      [fromISO, toISO]
+    );
+    return r.rows.map((row) => ({ day: new Date(row.day).toISOString(), amount: Number(row.amount) }));
+  } catch (e) {
+    console.error('getDailySalesForReport:', e.message);
+    return [];
+  }
+}
+
+/** Cambia solo el computed_status/exclusion_reason de una venta ya guardada (no toca sus ítems). */
+export async function updateSaleStatus(orderId, computedStatus, exclusionReason = null) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE ml_sales_orders SET computed_status = $2, exclusion_reason = $3, synced_at = NOW()
+       WHERE order_id = $1`,
+      [String(orderId), computedStatus, exclusionReason]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('updateSaleStatus:', e.message);
+    return false;
   }
 }

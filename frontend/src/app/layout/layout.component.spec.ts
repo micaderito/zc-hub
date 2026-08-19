@@ -58,7 +58,7 @@ describe('LayoutComponent', () => {
     const fixture = TestBed.createComponent(LayoutComponent);
     const paths = fixture.componentInstance.nav.map(i => i.path);
     expect(paths).toEqual([
-      '/', '/precio-stock', '/precios', '/deposito', '/crear', '/alertas', '/conflictos', '/sincronizacion', '/usuarios',
+      '/', '/precio-stock', '/precios', '/deposito', '/crear', '/alertas', '/ventas', '/conflictos', '/sincronizacion', '/usuarios',
     ]);
   });
 

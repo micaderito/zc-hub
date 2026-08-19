@@ -13,7 +13,7 @@ describe('routes', () => {
     const shell = routes.find(r => r.path === '')!;
     const childPaths = (shell.children ?? []).map(r => r.path);
     expect(childPaths).toEqual([
-      '', 'conflictos', 'precio-stock', 'precios', 'deposito', 'crear', 'alertas', 'sincronizacion', 'usuarios',
+      '', 'conflictos', 'precio-stock', 'precios', 'deposito', 'crear', 'alertas', 'ventas', 'sincronizacion', 'usuarios',
     ]);
   });
 

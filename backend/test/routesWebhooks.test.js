@@ -30,6 +30,8 @@ const dbState = {
   /** hasOrderProcessingClaimed('return_restore'): ya se aprobó una devolución de esta orden. */
   hasReturnRestored: false,
   hasPendingReturn: false,
+  salesUpserts: [],
+  upsertSaleError: null,
 };
 
 const mlState = {
@@ -108,6 +110,11 @@ before(async () => {
       releaseOrderProcessingClaim: async (...args) => { dbState.claimCalls.push(['release', ...args]); return true; },
       hasDatabase: () => dbState.hasDb,
       hasPendingReturnForOrder: async () => dbState.hasPendingReturn,
+      upsertSale: async (row) => {
+        if (dbState.upsertSaleError) throw dbState.upsertSaleError;
+        dbState.salesUpserts.push(row);
+        return true;
+      },
     },
   });
   mock.module('../src/services/syncService.js', {
@@ -161,6 +168,8 @@ beforeEach(() => {
   dbState.hasProcessed = false;
   dbState.hasReturnRestored = false;
   dbState.hasPendingReturn = false;
+  dbState.salesUpserts = [];
+  dbState.upsertSaleError = null;
   mlState.order = null;
   mlState.ordersSearchResult = { results: [] };
   mlState.claim = null;
@@ -187,6 +196,16 @@ beforeEach(() => {
 
 function postJson(path, body) {
   return fetch(`${baseUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+/** El registro de venta para el dashboard es fire-and-forget: espera un toque a que aparezca. */
+async function waitFor(predicate, timeoutMs = 500) {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) return false;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  return true;
 }
 
 // ─── POST /mercadolibre ─────────────────────────────────────────────────────
@@ -216,6 +235,33 @@ test('topic orders: orden paid dentro de la ventana de tiempo, descuenta stock',
   const res = await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/555' });
   assert.equal(res.status, 200);
   assert.ok(dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'deduct'));
+});
+
+test('topic orders: orden paid registra la venta para el dashboard (capa 1 de sincronización)', async () => {
+  mlState.order = {
+    id: 900555, status: 'paid', date_created: '2026-07-10T12:00:00.000-03:00',
+    order_items: [{ item: { id: 'MLA1', title: 'Cuaderno A4', seller_sku: 'CUAD-A4' }, quantity: 2, unit_price: 1000 }],
+  };
+  syncServiceState.onMlPaidResults = [{ ok: true }];
+  await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/900555' });
+  const found = await waitFor(() => dbState.salesUpserts.some((r) => r.orderId === '900555'));
+  assert.ok(found, 'debería haber registrado la venta');
+  const row = dbState.salesUpserts.find((r) => r.orderId === '900555');
+  assert.equal(row.computedStatus, 'facturada');
+  assert.equal(row.itemsAmount, 2000);
+});
+
+test('topic orders: si falla el registro de la venta, el descuento de stock igual se completa', async () => {
+  dbState.upsertSaleError = new Error('boom');
+  mlState.order = {
+    id: 900556, status: 'paid', date_closed: new Date().toISOString(),
+    order_items: [{ item: { id: 'MLA1' }, quantity: 1 }],
+  };
+  syncServiceState.onMlPaidResults = [{ ok: true }];
+  const res = await postJson('/mercadolibre', { topic: 'orders', resource: '/orders/900556' });
+  assert.equal(res.status, 200);
+  const claimed = await waitFor(() => dbState.claimCalls.some((c) => c[0] === 'tryClaim' && c[3] === 'deduct'));
+  assert.ok(claimed, 'el descuento de stock no debe verse afectado por el fallo al registrar la venta');
 });
 
 test('topic orders: orden paid pero ya procesada (idempotencia) no vuelve a descontar', async () => {

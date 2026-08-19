@@ -295,9 +295,13 @@ con 3 disparados de una pedía "3 packs" en vez de 1).
   pisar tanto la sugerencia de un SKU como la de un pack completo; `qty: null` borra el ajuste y
   vuelve al valor calculado. Son del pedido en curso, no config permanente — "Marcar pedido como
   hecho" los limpia (`clearRestockOverrides` en `closeRestockPeriod`).
-- **SKU propio del pack** (`product_packs.sku`, opcional, columna UNIQUE parcial): el proveedor a
-  veces le pone su propio código al pack armado, distinto del SKU de cada modelo. Se edita en
-  Productos → Packs y se muestra al lado del nombre del pack en "Para reponer".
+- **SKU propio del pack** (`product_packs.sku`, opcional, NO único): el proveedor a veces le pone
+  su propio código al pack armado, distinto del SKU de cada modelo. Se edita en Productos → Packs
+  y se muestra al lado del nombre del pack en "Para reponer". Puede repetirse entre packs: un
+  mismo producto a veces viene en pack de modelos viejos y en pack de modelos nuevos, y el
+  proveedor le da el mismo código a los dos — sigue siendo el mismo producto, solo cambian los
+  modelos que trae. Por eso NO hay constraint de unicidad en la columna (se sacó el índice único
+  que había).
 - **Stock en Depósito Marañón** (`RestockRow.depositoStock`, sumando filas `producto` de
   `deposito_stock` con ese SKU): se muestra en la fila para saber, antes de pedirle al proveedor,
   si ya hay unidades a mano guardadas en el depósito. Es informativo — no descuenta del faltante
@@ -309,6 +313,52 @@ con 3 disparados de una pedía "3 packs" en vez de 1).
   `created_at` de `stock_notifications` para ese SKU en `getRestockList`) — así un yo-yo de stock
   (repuesto → bajo otra vez) no la esconde para siempre. Se limpia al cerrar el período, mismo
   motivo que `restock_order_overrides`: es del pedido en curso, no config permanente.
+
+### Dashboard de ventas por provincia (`/ventas`): duplica ventas de ML localmente
+
+Informe mensual para el contador: total facturado por provincia, sin canceladas ni devoluciones.
+El hub no guardaba ventas —es un sistema de stock, no de facturación— y armar esto on-the-fly
+costaría 1 request a ML por orden en cada visita (`GET /orders/:id` no trae provincia; hace falta
+un `GET /shipments/:id` extra). Por eso se duplica localmente en `ml_sales_orders`/`ml_sales_items`
+(`backend/src/db.js`) y **navegar a `/ventas` nunca le pega a ML** — `salesService.getSalesReport`
+solo lee esas tablas. "Facturado" = Σ `unit_price × quantity` de los ítems, **sin envío** (acuerdo
+explícito con la usuaria); el resto de los montos (`shipping_cost`, `total_amount`, `ml_fees`) se
+guarda igual por si hace falta después. Se guardan también las canceladas y devueltas
+(`computed_status`), para que la exclusión sea auditable sin volver a pegarle a ML.
+
+**Por qué duplicar obliga a mantenerlo sincronizado**: un comprador puede cancelar o devolver una
+compra hasta 30 días después. `backend/src/services/salesService.js` resuelve esto en tres capas:
+
+1. **Webhooks (tiempo real, capa principal)**: `upsertSaleFromOrder` se llama desde
+   `routes/webhooks.js` al principio de `processMlOrderPayload` (venta pagada y cancelada) y desde
+   `approvePendingReturn` en `syncService.js` (`markSaleReturned`, para devoluciones vía claim —
+   ahí ML no cancela la orden, así que `classifyOrder` no la reclasifica sola). Reusa la orden que
+   esos caminos ya trajeron: **cero requests extra a ML**. Va en su propio `try/catch`
+   (fire-and-forget) para que un fallo acá nunca frene el descuento/restauración de stock.
+2. **Barrido de seguridad** (`sweepRecentSales`): reprocesa (orden + envío) los últimos
+   `REPROCESS_WINDOW_DAYS` (30) — la ventana coincide con el plazo de cancelación/devolución del
+   comprador. Corre solo (chequeo cada hora contra `lastSyncAt` persistido, dispara si pasaron más
+   de 24h — `scheduleSalesSweep` en `index.js`) y también con el botón "Actualizar"
+   (`POST /api/sales/sync` → `triggerSync`, que dispara el backfill si nunca corrió). Una orden ya
+   guardada con el mismo `ml_status` y fuera de esa ventana se saltea SIN pedir el envío — es lo
+   que hace barato el "Actualizar" mensual.
+3. **Backfill inicial** (`syncMlSales`, una sola vez): año en curso completo.
+
+`ml.getOrdersWindow` (`backend/src/lib/mercadolibre.js`) pagina `orders/search` con los filtros de
+fecha nuevos (`order.date_created.from/to`, `sort`) y, si `paging.total` supera 1000 (el tope de
+`offset` de ML), parte el rango de fechas al medio y recursa — con el volumen de esta cuenta
+(cientos de órdenes/mes) casi nunca se llega, pero sin la guarda se perderían órdenes en silencio.
+
+**Ojo, sin verificar contra un payload real de esta cuenta**: la forma exacta de la provincia en
+`GET /shipments/:id` (`extractShipmentLocation` en `salesService.js`, cubre
+`destination.shipping_address` y `receiver_address`) y si `orders/search` respeta
+`order.date_last_updated.from` (por eso el barrido usa solo reproceso por `date_created`, no ese
+filtro). Confirmar la primera vez que corra el backfill contra la cuenta real.
+
+`GET /api/sales/report` agrega KPIs + comparativa contra el período anterior (mismo largo en
+días, no el mes calendario — ver el comentario en `computePreviousPeriod`) + provincias + top
+productos + evolución diaria, todo del rango pedido. `GET /api/sales/export` arma el mismo cálculo
+en CSV (separador `;`, coma decimal) para mandarle al contador.
 
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
@@ -326,5 +376,11 @@ además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no 
 y la sugerencia de "Para reponer" (por SKU sin pack, por pack completo tomando el mayor faltante,
 ajustes manuales por SKU/pack y su borrado, stock de Depósito Marañón por SKU, descartar una fila
 y que vuelva sola tras un nuevo disparo, limpieza al cerrar el período) en
-`backend/test/alertsService.test.js`.
+`backend/test/alertsService.test.js`. El dashboard de ventas por provincia está cubierto en
+`backend/test/salesService.test.js` (clasificación, armado de la fila, período anterior,
+agregación por provincia con comparativa y excluidas), `backend/test/routesSales.test.js`
+(validación de fechas, forma del CSV, que `POST /sync` no bloquee), y la extensión de
+`getOrdersWindow` en `backend/test/mercadolibre.test.js` (paginación y split por más de 1000
+órdenes); `backend/test/routesWebhooks.test.js` suma que la venta se registra y que un fallo ahí
+no rompe el descuento de stock.
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

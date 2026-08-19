@@ -39,6 +39,24 @@
         border: 0.5px solid var(--border-strong);
         color: var(--text);
       }
+
+      .pack-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.15rem 0.5rem;
+        border-radius: 20px;
+        background: var(--brand-bg);
+        color: var(--brand);
+        max-width: 12rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+
+        .ti { font-size: 0.72rem; flex-shrink: 0; }
+      }
     }
 
     .pair-header-right {
@@ -69,6 +87,11 @@
       align-items: center;
 
       &:hover { color: var(--brand); }
+
+      &.alert-on {
+        color: var(--warn);
+        &:hover { color: var(--warn); opacity: 0.8; }
+      }
     }
 
     .zc-badge {
