@@ -433,7 +433,14 @@ export async function getOrder(accessToken, orderId) {
   return res.json();
 }
 
-/** Buscar órdenes del vendedor (orders/search). Params: seller, q (order id / item id / título), item (ID o título del ítem), limit, offset. Ver doc: Filtrar órdenes. */
+/**
+ * Buscar órdenes del vendedor (orders/search). Params: seller, q (order id / item id / título),
+ * item (ID o título del ítem), limit, offset, sort ('date_asc' | 'date_desc'), y los filtros de
+ * fecha usados por el dashboard de ventas: dateCreatedFrom/dateCreatedTo (ISO-8601 con offset,
+ * `order.date_created.from/to`) y dateLastUpdatedFrom (`order.date_last_updated.from`, para el
+ * barrido incremental). No se filtra por `order.status`: el dashboard necesita también las
+ * canceladas para poder excluirlas de forma auditable. Ver doc: Filtrar órdenes.
+ */
 export async function getOrdersSearch(accessToken, params = {}) {
   const q = new URLSearchParams();
   if (params.seller != null) q.set('seller', params.seller);
@@ -441,6 +448,10 @@ export async function getOrdersSearch(accessToken, params = {}) {
   if (params.item != null && params.item !== '') q.set('item', String(params.item).trim());
   if (params.limit != null) q.set('limit', params.limit);
   if (params.offset != null) q.set('offset', params.offset);
+  if (params.sort != null) q.set('sort', params.sort);
+  if (params.dateCreatedFrom != null) q.set('order.date_created.from', params.dateCreatedFrom);
+  if (params.dateCreatedTo != null) q.set('order.date_created.to', params.dateCreatedTo);
+  if (params.dateLastUpdatedFrom != null) q.set('order.date_last_updated.from', params.dateLastUpdatedFrom);
   const url = `${BASE}/orders/search?${q.toString()}`;
   const res = await fetchWith429Retry(
     url,
@@ -458,6 +469,62 @@ export async function getOrdersSearch(accessToken, params = {}) {
     return null;
   }
   return res.json();
+}
+
+/**
+ * Trae TODAS las órdenes del vendedor con date_created en [from, to] (ISO-8601 con offset),
+ * paginando de a `PAGE_LIMIT`. ML corta `offset` en 1000: si `paging.total` supera eso, parte el
+ * rango de fechas al medio y se llama recursivamente sobre las dos mitades — con el volumen de
+ * esta cuenta (cientos de órdenes/mes) casi nunca pasa, pero sin la guarda se perderían órdenes en
+ * silencio a partir de offset 1000.
+ */
+const ORDERS_WINDOW_PAGE_LIMIT = 50;
+const ML_OFFSET_CAP = 1000;
+
+export async function getOrdersWindow(accessToken, sellerId, from, to) {
+  const first = await getOrdersSearch(accessToken, {
+    seller: sellerId,
+    dateCreatedFrom: from,
+    dateCreatedTo: to,
+    sort: 'date_asc',
+    limit: ORDERS_WINDOW_PAGE_LIMIT,
+    offset: 0,
+  });
+  const total = first?.paging?.total ?? 0;
+  const firstResults = first?.results ?? [];
+
+  if (total <= ML_OFFSET_CAP) {
+    const results = [...firstResults];
+    for (let offset = ORDERS_WINDOW_PAGE_LIMIT; offset < total; offset += ORDERS_WINDOW_PAGE_LIMIT) {
+      const page = await getOrdersSearch(accessToken, {
+        seller: sellerId,
+        dateCreatedFrom: from,
+        dateCreatedTo: to,
+        sort: 'date_asc',
+        limit: ORDERS_WINDOW_PAGE_LIMIT,
+        offset,
+      });
+      results.push(...(page?.results ?? []));
+    }
+    return results;
+  }
+
+  // Más de 1000 órdenes en la ventana: partir el rango de fechas al medio y recurrir.
+  const fromMs = new Date(from).getTime();
+  const toMs = new Date(to).getTime();
+  const midMs = fromMs + Math.floor((toMs - fromMs) / 2);
+  if (midMs <= fromMs) {
+    // Rango ya no divisible (mismo instante): no hay forma de traer más de 1000 sin perder
+    // órdenes. Devuelve lo que trajo la primera página y avisa en vez de recursar sin fin.
+    console.warn('[ML] getOrdersWindow: rango no divisible con más de 1000 órdenes (%s—%s), se pierden algunas.', from, to);
+    return firstResults;
+  }
+  const mid = new Date(midMs).toISOString();
+  const [left, right] = await Promise.all([
+    getOrdersWindow(accessToken, sellerId, from, mid),
+    getOrdersWindow(accessToken, sellerId, mid, to),
+  ]);
+  return [...left, ...right];
 }
 
 /** Detalle de un reclamo por ID (post-purchase v1). Reintenta ante 429. */
