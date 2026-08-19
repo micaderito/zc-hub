@@ -197,12 +197,20 @@ export function aggregateSalesReport(rows, { from, to, prevFrom, prevTo }) {
     else if (inPrevious) previous.push(r);
   }
 
+  // "Ventas" = compras, no líneas de orden: un pack de N productos reparte cada producto en su
+  // propia orden de ML (su propio order_id), así que contar filas cuenta productos disfrazados de
+  // ventas — un pack de 9 productos aparecía como "9 ventas" en vez de 1 (incidente 2026-08-19: el
+  // Excel de ML mostraba 51 paquetes en 3 semanas de julio —~78 al mes— contra las 236 "ventas" que
+  // mostraba acá, que en realidad eran 237 líneas de producto). La clave de venta es `pack_id` si
+  // la orden vino de un carrito, o el propio `order_id` si es una venta suelta.
+  const saleKey = (r) => r.packId || r.orderId;
+
   const byProvince = (list) => {
     const map = new Map();
     for (const r of list) {
       const key = r.stateName || 'Sin provincia';
-      const e = map.get(key) || { name: key, ventas: 0, unidades: 0, facturado: 0 };
-      e.ventas += 1;
+      const e = map.get(key) || { name: key, ventasSet: new Set(), unidades: 0, facturado: 0 };
+      e.ventasSet.add(saleKey(r));
       e.unidades += r.units;
       e.facturado += r.itemsAmount;
       map.set(key, e);
@@ -217,14 +225,17 @@ export function aggregateSalesReport(rows, { from, to, prevFrom, prevTo }) {
   const totalPrevFacturado = previous.reduce((s, r) => s + r.itemsAmount, 0);
   const totalUnidades = current.reduce((s, r) => s + r.units, 0);
   const totalPrevUnidades = previous.reduce((s, r) => s + r.units, 0);
-  const totalVentas = current.length;
-  const totalPrevVentas = previous.length;
+  const totalVentas = new Set(current.map(saleKey)).size;
+  const totalPrevVentas = new Set(previous.map(saleKey)).size;
 
   const provinces = [...curByProv.values()]
     .map((e) => {
       const prevE = prevByProv.get(e.name);
       return {
-        ...e,
+        name: e.name,
+        ventas: e.ventasSet.size,
+        unidades: e.unidades,
+        facturado: e.facturado,
         pctOfTotal: totalFacturado > 0 ? Math.round((e.facturado / totalFacturado) * 100) : 0,
         deltaPct: pctDelta(e.facturado, prevE?.facturado ?? 0),
       };

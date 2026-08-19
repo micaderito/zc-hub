@@ -122,7 +122,7 @@ test('GET /export: devuelve CSV con separador ; y coma decimal', async () => {
   assert.match(res.headers.get('content-type') || '', /text\/csv/);
   const text = await res.text();
   const lines = text.trim().split('\r\n');
-  assert.equal(lines[0], 'Provincia;Ventas;Unidades;Facturado');
+  assert.equal(lines[0], 'Provincia;Ventas;Productos;Facturado');
   assert.match(lines[1], /^CABA;2;3;1000,00$/);
   assert.match(lines[lines.length - 1], /^Total;2;3;1000,00$/);
 });

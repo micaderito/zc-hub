@@ -2851,9 +2851,9 @@ export async function getSalesOrdersForReport(fromISO, toISO) {
   if (!p) return [];
   try {
     const r = await p.query(
-      `SELECT order_id AS "orderId", date_created AS "dateCreated", computed_status AS "computedStatus",
-              exclusion_reason AS "exclusionReason", state_name AS "stateName",
-              items_amount AS "itemsAmount", units
+      `SELECT order_id AS "orderId", pack_id AS "packId", date_created AS "dateCreated",
+              computed_status AS "computedStatus", exclusion_reason AS "exclusionReason",
+              state_name AS "stateName", items_amount AS "itemsAmount", units
        FROM ml_sales_orders
        WHERE date_created >= $1 AND date_created <= $2
        ORDER BY date_created ASC`,

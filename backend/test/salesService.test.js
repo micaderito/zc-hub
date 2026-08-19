@@ -7,8 +7,11 @@
  * 2) classifyOrder: paid → facturada; cancelled/no pagada → cancelada; envío devuelto → devuelta.
  * 3) buildOrderRow: items_amount = Σ unit_price × quantity SIN envío; unidades y fees.
  * 4) computePreviousPeriod: mismo largo, inmediatamente anterior.
- * 5) aggregateSalesReport: totales por provincia, comparativa vs. período anterior, y que las
- *    excluidas (canceladas/devueltas) no sumen al facturado pero sí al conteo de auditoría.
+ * 5) aggregateSalesReport: totales por provincia, comparativa vs. período anterior, que las
+ *    excluidas (canceladas/devueltas) no sumen al facturado pero sí al conteo de auditoría, y que
+ *    "ventas" cuente paquetes (pack_id) — no líneas de orden — para no contar cada producto de un
+ *    carrito como una venta aparte (incidente 2026-08-19: un pack de 9 productos se veía como "9
+ *    ventas" en vez de 1; el Excel de ML de esa cuenta lo confirmó).
  *
  * No mockea nada: son funciones puras (sin red ni base) por diseño, justamente para poder
  * testearlas así.
@@ -147,8 +150,10 @@ test('computePreviousPeriod: rango de una semana → semana anterior, mismo larg
 
 // ─── aggregateSalesReport ───────────────────────────────────────────────────────
 
-function row({ dateCreated, computedStatus = 'facturada', stateName = 'CABA', itemsAmount = 1000, units = 1 }) {
-  return { dateCreated, computedStatus, stateName, itemsAmount, units };
+let rowSeq = 0;
+function row({ dateCreated, computedStatus = 'facturada', stateName = 'CABA', itemsAmount = 1000, units = 1, orderId, packId = null }) {
+  rowSeq += 1;
+  return { orderId: orderId ?? `order-${rowSeq}`, packId, dateCreated, computedStatus, stateName, itemsAmount, units };
 }
 
 test('aggregateSalesReport: totales por provincia y % del total', () => {
@@ -200,6 +205,26 @@ test('aggregateSalesReport: compara contra el período anterior por provincia y 
   assert.equal(out.kpis.facturadoDeltaPct, 50);
   const ba = out.provinces.find((p) => p.name === 'Buenos Aires');
   assert.equal(ba.deltaPct, 50);
+});
+
+test('aggregateSalesReport: un pack de varios productos cuenta como 1 venta, no una por producto', () => {
+  const rows = [
+    // 3 productos del mismo carrito → ML los guarda como 3 order_id distintos, mismo pack_id.
+    row({ dateCreated: '2026-07-05T12:00:00Z', stateName: 'Buenos Aires', itemsAmount: 1000, units: 1, orderId: 'o1', packId: 'pack-A' }),
+    row({ dateCreated: '2026-07-05T12:01:00Z', stateName: 'Buenos Aires', itemsAmount: 2000, units: 2, orderId: 'o2', packId: 'pack-A' }),
+    row({ dateCreated: '2026-07-05T12:02:00Z', stateName: 'Buenos Aires', itemsAmount: 500, units: 1, orderId: 'o3', packId: 'pack-A' }),
+    // venta suelta, sin pack.
+    row({ dateCreated: '2026-07-06T12:00:00Z', stateName: 'Buenos Aires', itemsAmount: 1500, units: 1, orderId: 'o4', packId: null }),
+  ];
+  const out = aggregateSalesReport(rows, {
+    from: '2026-07-01T00:00:00.000Z', to: '2026-07-31T23:59:59.999Z',
+    prevFrom: '2026-06-01T00:00:00.000Z', prevTo: '2026-06-30T23:59:59.999Z',
+  });
+  assert.equal(out.kpis.ventas, 2, 'el pack cuenta 1 vez + la venta suelta = 2, no 4 líneas de orden');
+  assert.equal(out.kpis.unidades, 5, 'las unidades sí suman todas las líneas (1+2+1+1)');
+  assert.equal(out.kpis.facturadoTotal, 5000, 'el facturado no cambia: sigue siendo la suma de todas las líneas');
+  const ba = out.provinces.find((p) => p.name === 'Buenos Aires');
+  assert.equal(ba.ventas, 2);
 });
 
 test('aggregateSalesReport: provincia nueva (sin ventas en el período anterior) → +100%, no división por cero', () => {

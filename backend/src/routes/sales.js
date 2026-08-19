@@ -79,7 +79,7 @@ salesRoutes.get('/export', async (req, res) => {
   if (!range) return;
   try {
     const report = await getSalesReport(range.from, range.to);
-    const lines = ['Provincia;Ventas;Unidades;Facturado'];
+    const lines = ['Provincia;Ventas;Productos;Facturado'];
     for (const p of report.provinces) {
       lines.push([csvEscape(p.name), p.ventas, p.unidades, formatMoneyCsv(p.facturado)].join(';'));
     }
