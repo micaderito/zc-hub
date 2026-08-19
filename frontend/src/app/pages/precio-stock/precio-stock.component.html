@@ -91,6 +91,8 @@
               @for (pair of currentPagePairs(); track getPairId(pair)) {
                 <zc-pair-card
                   [pair]="pair"
+                  [packName]="getPairPackName(pair)"
+                  [hasAlert]="pairHasAlert(pair)"
                   [prices]="getPairPrices(pair)"
                   [displayStockML]="getDisplayStock(pair, 'ml')"
                   [displayStockTN]="getDisplayStock(pair, 'tn')"
