@@ -290,6 +290,21 @@ export async function initDb() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_price_audit_sku_created ON price_audit (sku, created_at DESC);`);
 
+    // Ajuste manual del precio publicado, por canal: la usuaria puede querer publicar OTRO precio
+    // que el que da la fórmula (redondeo comercial, competencia, lo que sea) sin perder de vista
+    // cuál "debería" ser. NO se pisa al recalcular (nuevo costo, nueva lista): el valor calculado
+    // cambia solo, el override queda hasta que lo saquen a mano. `channel` corto ('ml'|'tn') —
+    // distinto del `channel` largo de price_audit ('mercadolibre'|'tiendanube'), que es otra tabla.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_overrides (
+        sku VARCHAR(128) NOT NULL,
+        channel VARCHAR(8) NOT NULL,
+        value NUMERIC(15,2) NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (sku, channel)
+      );
+    `);
+
     // ── Listas del proveedor y mapeo (fase 4) ──────────────────────────────────
     // Catálogo de códigos del proveedor. Vive aparte de las listas importadas para que el mapeo
     // SKU↔código sobreviva a cada importación nueva: cuando entra la lista de marzo, los códigos
@@ -414,6 +429,21 @@ export async function initDb() {
     // -distinto de los SKUs de los modelos que contiene- y sirve para identificarlo al pedirlo.
     await p.query(`ALTER TABLE product_packs ADD COLUMN IF NOT EXISTS sku VARCHAR(128);`);
     await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_product_packs_sku ON product_packs (sku) WHERE sku IS NOT NULL;`);
+
+    // El puente PACK del proveedor ↔ código, gemelo de sku_code_map (fase 4). Algunos proveedores
+    // le ponen su propio código al pack armado (product_packs.sku), distinto del de cada modelo —
+    // cuando ese código aparece en una lista, el costo se vuelca a TODOS los SKUs del pack de una
+    // (ver applyListCosts en pricingService.js), no solo a uno.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS pack_code_map (
+        pack_id INTEGER PRIMARY KEY REFERENCES product_packs(id) ON DELETE CASCADE,
+        code VARCHAR(128) NOT NULL,
+        supplier VARCHAR(64) NOT NULL DEFAULT 'punto_cero',
+        match_source VARCHAR(16) NOT NULL DEFAULT 'manual',
+        confirmed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_pack_code_map_code ON pack_code_map (code);`);
 
     // La sugerencia de "Para reponer" (computeSuggestedQty/computePackSuggestedQty en
     // alertsService.js) es un default editable, no un cálculo impuesto: la usuaria puede pisarlo a
@@ -1587,6 +1617,56 @@ export async function deleteProductCost(sku) {
   }
 }
 
+/** Todos los ajustes manuales de precio (por SKU y canal). */
+export async function getPriceOverrides() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT sku, channel, value, updated_at AS "updatedAt" FROM price_overrides`
+    );
+    return r.rows.map((row) => ({
+      sku: row.sku,
+      channel: row.channel,
+      value: Number(row.value),
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getPriceOverrides:', e.message);
+    return [];
+  }
+}
+
+/** Fija (o corrige) el precio publicado a mano para un SKU y canal. NO se pisa al recalcular. */
+export async function upsertPriceOverride(sku, channel, value) {
+  const p = getPool();
+  if (!p || !sku || !channel || value == null || !Number.isFinite(Number(value))) return false;
+  try {
+    await p.query(
+      `INSERT INTO price_overrides (sku, channel, value, updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (sku, channel) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [sku, channel, Number(value)]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertPriceOverride:', e.message);
+    return false;
+  }
+}
+
+/** Saca el ajuste manual: el precio vuelve a ser el calculado. */
+export async function deletePriceOverride(sku, channel) {
+  const p = getPool();
+  if (!p || !sku || !channel) return false;
+  try {
+    await p.query('DELETE FROM price_overrides WHERE sku = $1 AND channel = $2', [sku, channel]);
+    return true;
+  } catch (e) {
+    console.error('deletePriceOverride:', e.message);
+    return false;
+  }
+}
+
 /**
  * Registra un cambio de precio en el historial. `priceBefore` puede venir null (si el snapshot no
  * tenía la fila); la fila se guarda igual porque el "a cuánto quedó" ya es información útil.
@@ -1799,6 +1879,56 @@ export async function deleteSkuCodeMap(sku) {
     return true;
   } catch (e) {
     console.error('deleteSkuCodeMap:', e.message);
+    return false;
+  }
+}
+
+/** Todos los mapeos PACK→código confirmados, gemelo de getSkuCodeMap. */
+export async function getPackCodeMap(supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT pack_id AS "packId", code, match_source AS "matchSource", confirmed_at AS "confirmedAt"
+       FROM pack_code_map WHERE supplier = $1`, [supplier]);
+    return r.rows.map((row) => ({
+      ...row,
+      confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getPackCodeMap:', e.message);
+    return [];
+  }
+}
+
+/** Confirma (o corrige) el mapeo de un pack. Se hace una vez y no se vuelve a preguntar. */
+export async function upsertPackCodeMap(packId, code, matchSource = 'manual', supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p || !packId || !code) return false;
+  try {
+    await p.query(
+      `INSERT INTO pack_code_map (pack_id, code, supplier, match_source, confirmed_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (pack_id) DO UPDATE SET code = EXCLUDED.code, supplier = EXCLUDED.supplier,
+         match_source = EXCLUDED.match_source, confirmed_at = NOW()`,
+      [packId, code, supplier, matchSource]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertPackCodeMap:', e.message);
+    return false;
+  }
+}
+
+/** Borra el mapeo de un pack (para rehacerlo). */
+export async function deletePackCodeMap(packId) {
+  const p = getPool();
+  if (!p || !packId) return false;
+  try {
+    await p.query('DELETE FROM pack_code_map WHERE pack_id = $1', [packId]);
+    return true;
+  } catch (e) {
+    console.error('deletePackCodeMap:', e.message);
     return false;
   }
 }

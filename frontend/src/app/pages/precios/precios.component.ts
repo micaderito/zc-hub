@@ -1,13 +1,14 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { CurrencyPipe } from '@angular/common';
+import { CurrencyPipe, DatePipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
 import {
-  PricingService, PricingConfig, PreviewRow, PricingSettings, MlFeeTier,
-  ImportPreview, MappingSuggestion, MlFeesSync,
+  PricingService, PricingConfig, PreviewRow, PreviewRowPack, PricingSettings, MlFeeTier,
+  ImportPreview, MappingSuggestion, MlFeesSync, ImportedList,
 } from '../../core/services/pricing.service';
 import { PdfTextService } from '../../core/services/pdf-text.service';
+import { ProductHistoryDialogComponent } from '../precio-stock/components/product-history-dialog/product-history-dialog.component';
 
 /** Estado del formulario de carga manual de costo. */
 interface CostForm {
@@ -38,7 +39,7 @@ function emptyCostForm(): CostForm {
 @Component({
   selector: 'app-precios',
   standalone: true,
-  imports: [CurrencyPipe, FormsModule],
+  imports: [CurrencyPipe, DatePipe, FormsModule, NgTemplateOutlet, ProductHistoryDialogComponent],
   templateUrl: './precios.component.html',
   styleUrl: './precios.component.scss',
 })
@@ -58,6 +59,8 @@ export class PreciosComponent {
   readonly noDiscounts = signal(false);
   /** Confirmaciones de mapeo que hizo el usuario en este import: sku → código. */
   readonly mappingChoices = signal<Record<string, string>>({});
+  /** SKUs cuyo precio efectivo cambió con el ÚLTIMO cambio (import de lista o Ajustes), para resaltar la fila. */
+  readonly changedSkus = signal<Set<string>>(new Set());
 
   readonly configQuery = injectQuery(() => ({
     queryKey: ['pricing', 'config'],
@@ -90,6 +93,23 @@ export class PreciosComponent {
   readonly allSelected = computed(() => {
     const rows = this.filteredRows();
     return rows.length > 0 && rows.every((r) => this.selected().has(r.sku));
+  });
+
+  /** Filas agrupadas por pack (mismo precio de compra para todos los modelos) + las sueltas. */
+  readonly priceGroups = computed<{ groups: { pack: PreviewRowPack; rows: PreviewRow[] }[]; noPack: PreviewRow[] }>(() => {
+    const byPack = new Map<number, { pack: PreviewRowPack; rows: PreviewRow[] }>();
+    const noPack: PreviewRow[] = [];
+    for (const r of this.filteredRows()) {
+      if (r.pack) {
+        let g = byPack.get(r.pack.packId);
+        if (!g) { g = { pack: r.pack, rows: [] }; byPack.set(r.pack.packId, g); }
+        g.rows.push(r);
+      } else {
+        noPack.push(r);
+      }
+    }
+    const groups = [...byPack.values()].sort((a, b) => a.pack.name.localeCompare(b.pack.name, 'es'));
+    return { groups, noPack };
   });
 
   // ── Modales ──
@@ -170,9 +190,23 @@ export class PreciosComponent {
     if (!draft) return;
     this.saving.set(true);
     this.errorMsg.set(null);
+    // Ajustes es global: cambia la fórmula para TODOS los productos, así que el "afectado" acá se
+    // decide comparando el precio que se ve en cada fila (el efectivo — el ajustado a mano, si hay
+    // uno, no se mueve solo porque cambió la fórmula) antes y después de guardar.
+    const before = new Map(this.rows().map((r) => [r.sku, { tn: r.tn.effective, ml: r.mlEffective }]));
     try {
       await firstValueFrom(this.pricing.saveConfig({ ...draft, tiers: this.tiersDraft() }));
-      await Promise.all([this.configQuery.refetch(), this.previewQuery.refetch()]);
+      // Se lee el resultado que devuelve el propio refetch (no el signal this.rows()) porque no hay
+      // garantía de que el signal ya haya propagado el dato nuevo en el mismo tick del await.
+      const [, previewResult] = await Promise.all([this.configQuery.refetch(), this.previewQuery.refetch()]);
+      const changed = new Set<string>();
+      for (const row of previewResult.data?.rows ?? []) {
+        const prev = before.get(row.sku);
+        if (!prev || Math.abs(prev.tn - row.tn.effective) > 0.01 || Math.abs(prev.ml - row.mlEffective) > 0.01) {
+          changed.add(row.sku);
+        }
+      }
+      this.changedSkus.set(changed);
       this.showSettings.set(false);
     } catch (e) {
       this.errorMsg.set((e as Error)?.message ?? 'No se pudo guardar');
@@ -223,6 +257,48 @@ export class PreciosComponent {
     } catch (e) {
       this.errorMsg.set((e as Error)?.message ?? 'No se pudo borrar');
     }
+  }
+
+  // ── Ajuste manual de precio publicado (por canal) ──
+  /**
+   * Guarda (o saca) el ajuste manual de un canal. Si el valor tipeado coincide con el calculado no
+   * hace falta guardar nada — es lo mismo que no tener override.
+   */
+  async updateOverride(row: PreviewRow, channel: 'ml' | 'tn', value: number | string | null): Promise<void> {
+    const calculated = channel === 'tn' ? row.tn.list : row.ml;
+    const num = value === '' || value == null ? null : Number(value);
+    const toSave = num != null && Number.isFinite(num) && num !== calculated ? num : null;
+    try {
+      await firstValueFrom(this.pricing.saveOverride(row.sku, channel, toSave));
+      await this.previewQuery.refetch();
+    } catch (e) {
+      this.errorMsg.set((e as Error)?.message ?? 'No se pudo guardar el ajuste');
+    }
+  }
+
+  // ── Historial ──
+  readonly historySku = signal<string | null>(null);
+  readonly showLists = signal(false);
+
+  readonly listsQuery = injectQuery(() => ({
+    queryKey: ['pricing', 'lists'],
+    queryFn: () => firstValueFrom(this.pricing.getLists()),
+    enabled: this.showLists(),
+    staleTime: 30_000,
+  }));
+
+  readonly importedLists = computed<ImportedList[]>(() => this.listsQuery.data()?.lists ?? []);
+
+  openLists(): void {
+    this.showLists.set(true);
+  }
+
+  openHistory(sku: string): void {
+    this.historySku.set(sku);
+  }
+
+  dismissChanged(): void {
+    this.changedSkus.set(new Set());
   }
 
   // ── Aplicar masivo ──
@@ -311,8 +387,15 @@ export class PreciosComponent {
       const d2 = this.noDiscounts() ? 0 : Number(this.importDiscount2()) || 0;
 
       // Primero los mapeos que confirmaste: así el import ya los usa para volcar los costos.
-      for (const [sku, code] of Object.entries(this.mappingChoices())) {
-        await firstValueFrom(this.pricing.confirmMapping(sku, code, 'manual'));
+      // Un pack confirmado va a pack_code_map (y de ahí el costo se vuelca a TODOS sus miembros).
+      for (const m of this.pendingMappings()) {
+        const code = this.mappingChoices()[m.sku];
+        if (!code) continue;
+        if (m.isPack && m.packId != null) {
+          await firstValueFrom(this.pricing.confirmPackMapping(m.packId, code, 'manual'));
+        } else {
+          await firstValueFrom(this.pricing.confirmMapping(m.sku, code, 'manual'));
+        }
       }
 
       const res = await firstValueFrom(this.pricing.confirmImport({
@@ -326,6 +409,9 @@ export class PreciosComponent {
       this.applyResult.set(
         `Lista importada: ${res.autoMapped} mapeos automáticos · ${res.costsUpdated} costos actualizados`,
       );
+      // Resalta en la planilla los productos cuyo costo esta lista realmente movió (no todos los
+      // que tienen mapeo — algunos pueden haber quedado con el mismo precio que antes).
+      this.changedSkus.set(new Set(res.changedSkus ?? []));
       await this.previewQuery.refetch();
       this.showImport.set(false);
     } catch (e) {

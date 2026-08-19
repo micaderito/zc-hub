@@ -5,6 +5,9 @@
       <p>Del costo del proveedor al precio publicado, en una sola pasada.</p>
     </div>
     <div class="pr-head-actions">
+      <button type="button" class="btn" (click)="openLists()">
+        <i class="ti ti-history"></i> Historial de listas
+      </button>
       <button type="button" class="btn" (click)="openSettings()" [disabled]="!config()">
         <i class="ti ti-adjustments"></i> Ajustes
       </button>
@@ -39,6 +42,12 @@
     @if (applyResult()) {
       <span class="pr-applied"><i class="ti ti-circle-check"></i> {{ applyResult() }}</span>
     }
+    @if (changedSkus().size > 0) {
+      <span class="pr-changed-banner">
+        <i class="ti ti-sparkles"></i> {{ changedSkus().size }} producto{{ changedSkus().size === 1 ? '' : 's' }} con precio afectado por el último cambio
+        <button type="button" class="link" (click)="dismissChanged()">ocultar</button>
+      </span>
+    }
   </div>
 
   @if (errorMsg()) {
@@ -62,6 +71,7 @@
           <tr>
             <th class="col-check"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th>
             <th>Producto</th>
+            <th class="num">Bulto</th>
             <th class="num">Costo u.</th>
             <th class="num">Valor final</th>
             <th class="num tn">Tienda Nube ↑</th>
@@ -71,49 +81,103 @@
           </tr>
         </thead>
         <tbody>
-          @for (row of filteredRows(); track row.sku) {
-            <tr [class.row-unmapped]="!row.mappedMl && !row.mappedTn">
-              <td class="col-check">
-                <input type="checkbox" [checked]="selected().has(row.sku)" (change)="toggleRow(row.sku)" />
-              </td>
-              <td>
-                <div class="pr-prod">
-                  <span class="pr-prod-name">{{ row.label || row.sku }}</span>
-                  <span class="pr-prod-sub">
-                    <span class="sku">{{ row.sku }}</span>
-                    @if (row.mappedMl) { <span class="badge ml">ML</span> }
-                    @if (row.mappedTn) { <span class="badge tn">TN</span> }
-                    @if (!row.mappedMl && !row.mappedTn) { <span class="badge warn">sin mapear</span> }
-                    @if (row.source === 'manual') { <span class="badge neu"><i class="ti ti-pencil"></i> manual</span> }
-                  </span>
+          @for (group of priceGroups().groups; track group.pack.packId) {
+            <tr class="group-row">
+              <td [attr.colspan]="9">
+                <div class="group-row-inner">
+                  <i class="ti ti-stack-2" aria-hidden="true"></i>
+                  <b>{{ group.pack.name }}</b>
+                  @if (group.pack.sku) { <span class="pack-sku">{{ group.pack.sku }}</span> }
+                  <span class="zc-badge">pack de {{ group.pack.unitCount }} u.</span>
+                  <span class="group-total">{{ group.rows.length }} producto{{ group.rows.length === 1 ? '' : 's' }}</span>
                 </div>
               </td>
-              <td class="num">{{ row.unitCost | currency:'ARS':'symbol':'1.0-0' }}</td>
-              <td class="num">{{ row.valorFinal | currency:'ARS':'symbol':'1.0-0' }}</td>
-              <td class="num tn">
-                {{ row.tn.list | currency:'ARS':'symbol':'1.0-0' }}
-                @if (delta(row.currentTn, row.tn.list); as d) {
-                  <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
-                }
-              </td>
-              <td class="num ml">
-                {{ row.ml | currency:'ARS':'symbol':'1.0-0' }}
-                @if (row.freeShipping) { <i class="ti ti-truck" title="En zona de envío gratis"></i> }
-                @if (delta(row.currentMl, row.ml); as d) {
-                  <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
-                }
-              </td>
-              <td class="num net">{{ row.mlNet | currency:'ARS':'symbol':'1.0-0' }}</td>
-              <td class="col-actions">
-                <button type="button" class="icon-btn" (click)="openCostForm(row)" title="Editar costo"><i class="ti ti-pencil"></i></button>
-                <button type="button" class="icon-btn danger" (click)="removeCost(row.sku)" title="Borrar"><i class="ti ti-trash"></i></button>
-              </td>
             </tr>
+            @for (row of group.rows; track row.sku) {
+              <ng-container *ngTemplateOutlet="priceRowTpl; context: { $implicit: row }" />
+            }
+          }
+          @if (priceGroups().noPack.length > 0) {
+            @if (priceGroups().groups.length > 0) {
+              <tr class="group-row">
+                <td [attr.colspan]="9">
+                  <div class="group-row-inner"><i class="ti ti-package-off" aria-hidden="true"></i> <b>Sin pack</b></div>
+                </td>
+              </tr>
+            }
+            @for (row of priceGroups().noPack; track row.sku) {
+              <ng-container *ngTemplateOutlet="priceRowTpl; context: { $implicit: row }" />
+            }
           }
         </tbody>
       </table>
     </div>
   }
+
+  <!-- Fila de producto, reutilizada agrupada o suelta -->
+  <ng-template #priceRowTpl let-row>
+    <tr [class.row-unmapped]="!row.mappedMl && !row.mappedTn" [class.row-changed]="changedSkus().has(row.sku)">
+      <td class="col-check">
+        <input type="checkbox" [checked]="selected().has(row.sku)" (change)="toggleRow(row.sku)" />
+      </td>
+      <td>
+        <div class="pr-prod">
+          <span class="pr-prod-name">{{ row.label || row.sku }}</span>
+          <span class="pr-prod-sub">
+            <span class="sku">{{ row.sku }}</span>
+            @if (row.mappedMl) { <span class="badge ml">ML</span> }
+            @if (row.mappedTn) { <span class="badge tn">TN</span> }
+            @if (!row.mappedMl && !row.mappedTn) { <span class="badge warn">sin mapear</span> }
+            @if (row.source === 'manual') { <span class="badge neu"><i class="ti ti-pencil"></i> manual</span> }
+          </span>
+        </div>
+      </td>
+      <td class="num">{{ row.bulkQty ?? '—' }}</td>
+      <td class="num">{{ row.unitCost | currency:'ARS':'symbol':'1.0-0' }}</td>
+      <td class="num">{{ row.valorFinal | currency:'ARS':'symbol':'1.0-0' }}</td>
+      <td class="num tn">
+        <div class="price-cell">
+          <input
+            class="zc-input price-input"
+            type="number"
+            [ngModel]="row.tn.effective"
+            [ngModelOptions]="{ updateOn: 'blur' }"
+            (ngModelChange)="updateOverride(row, 'tn', $event)"
+          />
+          @if (row.tn.override != null) {
+            <span class="calc-ref" title="Precio calculado">calc. {{ row.tn.list | currency:'ARS':'symbol':'1.0-0' }}</span>
+          }
+        </div>
+        @if (delta(row.currentTn, row.tn.effective); as d) {
+          <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
+        }
+      </td>
+      <td class="num ml">
+        <div class="price-cell">
+          <input
+            class="zc-input price-input"
+            type="number"
+            [ngModel]="row.mlEffective"
+            [ngModelOptions]="{ updateOn: 'blur' }"
+            (ngModelChange)="updateOverride(row, 'ml', $event)"
+          />
+          @if (row.mlOverride != null) {
+            <span class="calc-ref" title="Precio calculado">calc. {{ row.ml | currency:'ARS':'symbol':'1.0-0' }}</span>
+          }
+        </div>
+        @if (row.freeShipping) { <i class="ti ti-truck" title="En zona de envío gratis"></i> }
+        @if (delta(row.currentMl, row.mlEffective); as d) {
+          <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
+        }
+      </td>
+      <td class="num net">{{ row.mlNet | currency:'ARS':'symbol':'1.0-0' }}</td>
+      <td class="col-actions">
+        <button type="button" class="icon-btn" (click)="openHistory(row.sku)" title="Ver historial"><i class="ti ti-history"></i></button>
+        <button type="button" class="icon-btn" (click)="openCostForm(row)" title="Editar costo"><i class="ti ti-pencil"></i></button>
+        <button type="button" class="icon-btn danger" (click)="removeCost(row.sku)" title="Borrar"><i class="ti ti-trash"></i></button>
+      </td>
+    </tr>
+  </ng-template>
 
   <!-- Barra de acción -->
   @if (rows().length > 0) {
@@ -298,10 +362,16 @@
               @for (m of pendingMappings(); track m.sku) {
                 <li class="mapping-row" [class.done]="mappingChoices()[m.sku]">
                   <div class="mapping-info">
-                    <code>{{ m.sku }}</code>
+                    @if (m.isPack) {
+                      <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> pack</span>
+                    }
+                    <code>{{ m.label || m.sku }}</code>
                     <i class="ti ti-arrow-right"></i>
                     <code class="suggested">{{ m.suggestion?.code }}</code>
                     <span class="why">{{ matchSourceLabel(m.suggestion?.matchSource || '') }}</span>
+                    @if (m.isPack && m.memberSkus?.length) {
+                      <span class="why">aplica a {{ m.memberSkus?.length }} producto{{ m.memberSkus?.length === 1 ? '' : 's' }}</span>
+                    }
                   </div>
                   <div class="mapping-actions">
                     @if (mappingChoices()[m.sku]) {
@@ -386,4 +456,48 @@
       </div>
     </div>
   </div>
+}
+
+<!-- ══════════════ Modal: Historial de listas importadas ══════════════ -->
+@if (showLists()) {
+  <div class="modal-backdrop" (click)="showLists.set(false)">
+    <div class="modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>Historial de listas</h2>
+        <button type="button" class="icon-btn" (click)="showLists.set(false)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        @if (listsQuery.isLoading()) {
+          <p class="pr-msg">Cargando…</p>
+        } @else if (importedLists().length === 0) {
+          <p class="pr-msg">Todavía no importaste ninguna lista del proveedor.</p>
+        } @else {
+          <ul class="mapping-list">
+            @for (l of importedLists(); track l.id) {
+              <li class="mapping-row">
+                <div class="mapping-info">
+                  <code>{{ l.label }}</code>
+                  <span class="why">{{ l.itemCount }} ítems</span>
+                  @if (l.discount1 || l.discount2) {
+                    <span class="why">desc. {{ l.discount1 }}% + {{ l.discount2 }}%</span>
+                  }
+                  <span class="why">{{ l.importedAt | date: 'dd/MM/yy HH:mm' }}</span>
+                </div>
+              </li>
+            }
+          </ul>
+          <p class="modal-note"><i class="ti ti-info-circle"></i> Para cambiar precios de nuevo, importá otra lista (o la misma actualizada) desde "Importar lista".</p>
+        }
+      </div>
+      <div class="modal-foot">
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="showLists.set(false)">Cerrar</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══════════════ Historial de un producto (stock + precio) ══════════════ -->
+@if (historySku(); as sku) {
+  <zc-product-history-dialog [sku]="sku" (closed)="historySku.set(null)" />
 }

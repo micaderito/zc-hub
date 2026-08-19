@@ -19,8 +19,12 @@ const tnState = { bulkCalls: [], bulkError: null };
 // patchTnPrice devuelve el precio previo del snapshot (null = fila ausente), igual que en prod.
 const patchState = { tnPriceBefore: null, calls: [] };
 const auditState = { priceRows: [] };
-// fase 4: listas importadas, ítems, catálogo de códigos y mapeos guardados.
-const listState = { saved: [], items: [], codes: [], map: [] };
+// fase 4: listas importadas, ítems, catálogo de códigos y mapeos guardados (SKU y pack).
+const listState = { saved: [], items: [], codes: [], map: [], packMap: [] };
+// packs del hub (para el mapeo por pack y para agrupar el preview).
+const packState = { packs: [] };
+// ajustes manuales de precio por SKU + canal (price_overrides).
+const overrideState = { rows: [] };
 // fase 5: lo que devuelve la API de comisiones de ML (o un error).
 const feesState = { config: null, error: null };
 // registro de lo guardado en Ajustes (savePricingSettings/saveMlFeeTiers).
@@ -51,6 +55,22 @@ before(async () => {
         return true;
       },
       deleteSkuCodeMap: async (sku) => { listState.map = listState.map.filter((m) => m.sku !== sku); return true; },
+      getPackCodeMap: async () => listState.packMap,
+      upsertPackCodeMap: async (packId, code, matchSource) => {
+        listState.packMap = listState.packMap.filter((m) => m.packId !== packId).concat({ packId, code, matchSource });
+        return true;
+      },
+      deletePackCodeMap: async (packId) => { listState.packMap = listState.packMap.filter((m) => m.packId !== packId); return true; },
+      listPacks: async () => packState.packs,
+      getPriceOverrides: async () => overrideState.rows,
+      upsertPriceOverride: async (sku, channel, value) => {
+        overrideState.rows = overrideState.rows.filter((r) => !(r.sku === sku && r.channel === channel)).concat({ sku, channel, value });
+        return true;
+      },
+      deletePriceOverride: async (sku, channel) => {
+        overrideState.rows = overrideState.rows.filter((r) => !(r.sku === sku && r.channel === channel));
+        return true;
+      },
     },
   });
   // pricingService usa patchTnPrice para refrescar el snapshot y saber el precio previo.
@@ -110,6 +130,9 @@ beforeEach(() => {
   listState.items = [];
   listState.codes = [];
   listState.map = [];
+  listState.packMap = [];
+  packState.packs = [];
+  overrideState.rows = [];
   feesState.config = null;
   feesState.error = null;
   saveState.settings = [];
@@ -332,9 +355,10 @@ test('applyListCosts: vuelca los precios de la lista a los SKUs mapeados', async
   listState.items = [{ code: '30700', description: 'Cuaderno', unitPrice: 8800, bulkQty: 8, bulkPrice: 70400 }];
   listState.map = [{ sku: '30700', code: '30700' }, { sku: 'SIN-ITEM', code: 'NOEXISTE' }];
 
-  const updated = await svc.applyListCosts(null, { discount1: 25, discount2: 5 });
+  const { updated, changedSkus } = await svc.applyListCosts(null, { discount1: 25, discount2: 5 });
 
   assert.equal(updated, 1, 'solo el SKU con ítem en la lista se actualiza');
+  assert.deepEqual(changedSkus, ['30700'], 'sin costo previo, cuenta como cambiado');
 });
 
 test('getMappingState: separa SKUs sin código y códigos sin SKU', async () => {
@@ -361,6 +385,169 @@ test('confirmMapping / removeMapping: se guarda una vez y se puede rehacer', asy
 
   await svc.removeMapping('30700-ROSA');
   assert.equal(listState.map.length, 0);
+});
+
+// ── mapeo por pack ────────────────────────────────────────────────────────
+
+test('previewImport: un pack con SKU propio matchea exacto y sus miembros no aparecen sueltos', async () => {
+  // Pack surtido: modelos sin ninguna relación textual con el código del proveedor — solo el
+  // propio SKU del pack (39001) puede matchear.
+  packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
+  storeState.resolvedSkus = ['REP-ROJO', 'REP-AZUL', 'OTRA-MARCA'];
+
+  const out = await svc.previewImport(PDF_SNIPPET);
+
+  assert.equal(out.mapping.auto, 1); // 30700 (individual) + el pack — pero acá 39001 matchea exacto
+  assert.equal(out.mapping.unmatched, 1); // solo OTRA-MARCA: los miembros del pack no se listan sueltos
+});
+
+test('previewImport: un pack SIN SKU propio no cambia nada — sus miembros siguen matcheando solos', async () => {
+  // Pack de repuestos: mismo producto ×8, sin código propio del proveedor. El SKU del producto
+  // matchea directo, como si no hubiera pack.
+  packState.packs = [{ id: 2, name: 'Repuesto x8', sku: null, unitCount: 8, mode: 'single', skus: ['30700'] }];
+  storeState.resolvedSkus = ['30700'];
+
+  const out = await svc.previewImport(PDF_SNIPPET);
+
+  assert.equal(out.mapping.auto, 1);
+  assert.equal(out.mapping.unmatched, 0);
+});
+
+test('confirmImport: el mapeo automático de un pack se guarda en pack_code_map, no en sku_code_map', async () => {
+  packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
+  storeState.resolvedSkus = ['REP-ROJO', 'REP-AZUL'];
+
+  const parsed = await svc.previewImport(PDF_SNIPPET);
+  await svc.confirmImport({ label: 'Marzo 2026', discount1: 25, discount2: 5, rows: parsed.rows });
+
+  assert.deepEqual(listState.packMap.map((m) => ({ packId: m.packId, code: m.code })), [{ packId: 1, code: '39001' }]);
+  assert.equal(listState.map.length, 0); // los miembros del pack no quedan en el mapeo individual
+});
+
+test('applyListCosts: un código de pack vuelca el MISMO costo a todos sus SKUs miembro', async () => {
+  listState.items = [{ code: '39001', description: 'Repuesto surtido', unitPrice: 725, bulkQty: 8, bulkPrice: 5800 }];
+  listState.packMap = [{ packId: 1, code: '39001' }];
+  packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
+
+  const { updated, changedSkus } = await svc.applyListCosts(null, { discount1: 0, discount2: 0 });
+
+  assert.equal(updated, 2, 'los dos miembros del pack se actualizan con la misma lista');
+  assert.deepEqual(changedSkus.sort(), ['REP-AZUL', 'REP-ROJO']);
+});
+
+test('applyListCosts: un mapeo individual pisa el costo que dejó el pack (más específico)', async () => {
+  listState.items = [
+    { code: '39001', description: 'Repuesto surtido', unitPrice: 725, bulkQty: 8, bulkPrice: 5800 },
+    { code: 'ESPECIAL', description: 'Precio puntual', unitPrice: 900, bulkQty: 1, bulkPrice: 900 },
+  ];
+  listState.packMap = [{ packId: 1, code: '39001' }];
+  listState.map = [{ sku: 'REP-ROJO', code: 'ESPECIAL' }];
+  packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
+
+  const { updated, changedSkus } = await svc.applyListCosts(null, { discount1: 0, discount2: 0 });
+
+  // 2 del pack (REP-ROJO, REP-AZUL) + 1 del mapeo individual (REP-ROJO otra vez, con otro código)
+  assert.equal(updated, 3);
+  assert.equal(changedSkus.length, 3);
+});
+
+test('getMappingState: separa packs sin código de los SKUs sin código', async () => {
+  packState.packs = [
+    { id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] },
+    { id: 2, name: 'Sin código', sku: '39999', unitCount: 8, mode: 'assorted', skus: ['OTRO-A', 'OTRO-B'] },
+  ];
+  listState.packMap = [{ packId: 1, code: '39001' }];
+  storeState.resolvedSkus = ['REP-ROJO', 'REP-AZUL', 'OTRO-A', 'OTRO-B'];
+
+  const state = await svc.getMappingState();
+
+  assert.deepEqual(state.packsWithoutCode.map((p) => p.id), [2]);
+  // Los miembros de los packs (con o sin código) no cuentan como "SKU sin código" sueltos.
+  assert.deepEqual(state.skusWithoutCode, []);
+});
+
+test('confirmPackMapping / removePackMapping: se guarda una vez y se puede rehacer', async () => {
+  await svc.confirmPackMapping(1, '39001', 'manual');
+  assert.deepEqual(listState.packMap, [{ packId: 1, code: '39001', matchSource: 'manual' }]);
+
+  await svc.removePackMapping(1);
+  assert.equal(listState.packMap.length, 0);
+});
+
+// ── preview agrupado por pack ────────────────────────────────────────────────
+
+test('getPreview: anota el pack de cada fila para que el front pueda agruparlas', async () => {
+  packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
+  dbState.costs['REP-ROJO'] = { sku: 'REP-ROJO', source: 'list', bulkPrice: 5800, bulkQty: 8, discount1: 0, discount2: 0, label: 'Repuesto rojo' };
+  dbState.costs['30700'] = { sku: '30700', source: 'manual', bulkPrice: 70400, bulkQty: 8, discount1: 25, discount2: 5 };
+
+  const rows = await svc.getPreview();
+
+  const rojo = rows.find((r) => r.sku === 'REP-ROJO');
+  const suelto = rows.find((r) => r.sku === '30700');
+  assert.equal(rojo.pack.packId, 1);
+  assert.equal(rojo.pack.name, 'Repuesto surtido');
+  assert.equal(suelto.pack, null);
+});
+
+// ── ajustes manuales de precio (price_overrides) ─────────────────────────────
+
+test('previewRow: sin override, "effective" es el calculado; con override, el calculado sigue de referencia', () => {
+  const cost = { sku: '30700', source: 'manual', bulkPrice: 70400, bulkQty: 8, discount1: 25, discount2: 5 };
+
+  const sinAjuste = svc.previewRow(cost, DEFAULT_SETTINGS, { defaultMarginPct: 100 });
+  assert.equal(sinAjuste.tn.override, null);
+  assert.equal(sinAjuste.tn.effective, sinAjuste.tn.list);
+  assert.equal(sinAjuste.mlOverride, null);
+  assert.equal(sinAjuste.mlEffective, sinAjuste.ml);
+
+  const conAjuste = svc.previewRow(cost, DEFAULT_SETTINGS, { defaultMarginPct: 100 }, {}, { tn: 9000, ml: 18500 });
+  assert.equal(conAjuste.tn.list, sinAjuste.tn.list, 'el calculado no se pisa');
+  assert.equal(conAjuste.tn.override, 9000);
+  assert.equal(conAjuste.tn.effective, 9000);
+  assert.equal(conAjuste.ml, sinAjuste.ml);
+  assert.equal(conAjuste.mlOverride, 18500);
+  assert.equal(conAjuste.mlEffective, 18500);
+  // "Te queda" es el neto de lo que en realidad se va a publicar (el ajustado), no del calculado.
+  assert.notEqual(conAjuste.mlNet, sinAjuste.mlNet);
+  assert.ok(conAjuste.mlNet > sinAjuste.mlNet, 'el ajuste subió el precio de ML, así que también sube lo que queda');
+});
+
+test('getPreview: trae bulkQty (de la lista del proveedor) y los ajustes guardados', async () => {
+  dbState.costs['30700'] = { sku: '30700', source: 'list', bulkPrice: 70400, bulkQty: 8, discount1: 25, discount2: 5, label: 'Cuaderno' };
+  overrideState.rows = [{ sku: '30700', channel: 'tn', value: 9000 }];
+
+  const rows = await svc.getPreview();
+  const row = rows.find((r) => r.sku === '30700');
+
+  assert.equal(row.bulkQty, 8);
+  assert.equal(row.tn.override, 9000);
+  assert.equal(row.tn.effective, 9000);
+  assert.equal(row.mlOverride, null);
+});
+
+test('saveOverride: guarda el ajuste; con value null lo saca (vuelve al calculado)', async () => {
+  await svc.saveOverride('30700', 'tn', 9000);
+  assert.deepEqual(overrideState.rows, [{ sku: '30700', channel: 'tn', value: 9000 }]);
+
+  await svc.saveOverride('30700', 'tn', null);
+  assert.equal(overrideState.rows.length, 0);
+});
+
+test('enqueueApply: si hay un ajuste manual, encola/aplica ESE precio, no el calculado', async () => {
+  dbState.costs['30700'] = { sku: '30700', source: 'manual', bulkPrice: 70400, bulkQty: 8, discount1: 25, discount2: 5 };
+  storeState.mlBySku['30700'] = { itemId: 'MLA123', variationId: null };
+  storeState.tnBySku['30700'] = { productId: 10, variantId: 20 };
+  overrideState.rows = [{ sku: '30700', channel: 'ml', value: 18500 }, { sku: '30700', channel: 'tn', value: 9000 }];
+
+  const res = await svc.enqueueApply(['30700'], { ml: true, tn: true });
+
+  assert.equal(dbState.enqueued[0].targetPrice, 18500);
+  assert.equal(tnState.bulkCalls[0][0].price, 9000);
+  const mlResult = res.results.find((r) => r.channel === 'ml');
+  const tnResult = res.results.find((r) => r.channel === 'tn');
+  assert.equal(mlResult.price, 18500);
+  assert.equal(tnResult.price, 9000);
 });
 
 // ── sincronización de comisiones desde la API de ML (fase 5) ────────────────

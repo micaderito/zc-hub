@@ -49,21 +49,38 @@ export interface ProductCost {
   updatedAt: string | null;
 }
 
+/** El pack al que pertenece un SKU (si tiene), para agrupar la planilla. */
+export interface PreviewRowPack {
+  packId: number;
+  name: string;
+  sku: string | null;
+  unitCount: number;
+  mode: 'assorted' | 'single';
+  modelCount: number;
+}
+
 /** Una fila del preview: costo + precios calculados + estado de mapeo. */
 export interface PreviewRow {
   sku: string;
   label: string | null;
   source: 'manual' | 'list';
+  /** Unidades por bulto (de la lista del proveedor), para ver cómo se llegó al costo unitario. */
+  bulkQty: number | null;
   unitCost: number;
   valorFinal: number;
-  tn: { transfer: number; list: number };
+  /** `list` es el calculado; `override` el ajuste manual (null = no hay); `effective` es lo que se aplica. */
+  tn: { transfer: number; list: number; override: number | null; effective: number };
+  /** Calculado. El ajuste manual va en mlOverride/mlEffective. */
   ml: number;
+  mlOverride: number | null;
+  mlEffective: number;
   mlNet: number;
   currentMl: number | null;
   currentTn: number | null;
   freeShipping: boolean;
   mappedMl: boolean;
   mappedTn: boolean;
+  pack: PreviewRowPack | null;
 }
 
 /** Una fila del historial de precios de un producto. */
@@ -97,10 +114,14 @@ export interface ParsedListRow {
   issues: string[];
 }
 
-/** Sugerencia de mapeo para un SKU que todavía no tiene código confirmado. */
+/** Sugerencia de mapeo para un SKU (o un pack) que todavía no tiene código confirmado. */
 export interface MappingSuggestion {
   sku: string;
   label?: string | null;
+  /** true si esta entidad es un PACK (sku = su código propio): confirmarla aplica el costo a TODOS sus memberSkus. */
+  isPack?: boolean;
+  packId?: number | null;
+  memberSkus?: string[];
   suggestion: {
     code: string;
     matchSource: 'exact' | 'saved' | 'base' | 'group' | 'text';
@@ -118,7 +139,9 @@ export interface ImportPreview {
 
 export interface MappingState {
   mapped: Array<{ sku: string; code: string; matchSource: string; confirmedAt: string | null }>;
+  packMapped: Array<{ packId: number; code: string; matchSource: string; confirmedAt: string | null; packName: string | null; packSku: string | null; memberSkus: string[] }>;
   skusWithoutCode: string[];
+  packsWithoutCode: Array<{ id: number; name: string; sku: string | null }>;
   codesWithoutSku: Array<{ code: string; description: string | null }>;
   totals: { codes: number; skus: number; mapped: number };
 }
@@ -191,7 +214,7 @@ export class PricingService {
     discount2: number;
     rows: ParsedListRow[];
   }) {
-    return this.http.post<{ ok: boolean; listId: number; autoMapped: number; costsUpdated: number }>(
+    return this.http.post<{ ok: boolean; listId: number; autoMapped: number; costsUpdated: number; changedSkus: string[] }>(
       `${this.api.baseUrl}/pricing/lists`, body,
     );
   }
@@ -212,6 +235,24 @@ export class PricingService {
 
   removeMapping(sku: string) {
     return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/mapping/${encodeURIComponent(sku)}`);
+  }
+
+  /** Confirma (o corrige) el mapeo de un PACK: el costo se aplica a TODOS sus SKUs miembro. */
+  confirmPackMapping(packId: number, code: string, matchSource = 'manual') {
+    return this.http.put<{ ok: boolean }>(
+      `${this.api.baseUrl}/pricing/mapping/pack/${packId}`, { code, matchSource },
+    );
+  }
+
+  removePackMapping(packId: number) {
+    return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/mapping/pack/${packId}`);
+  }
+
+  /** Ajuste manual del precio publicado de un SKU en un canal. `value: null` lo saca (vuelve al calculado). */
+  saveOverride(sku: string, channel: 'ml' | 'tn', value: number | null) {
+    return this.http.put<{ ok: boolean }>(
+      `${this.api.baseUrl}/pricing/override/${encodeURIComponent(sku)}`, { channel, value },
+    );
   }
 
   /** Historial de precios de un producto (ambos canales). */
