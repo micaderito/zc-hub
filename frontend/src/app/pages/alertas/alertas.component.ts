@@ -167,7 +167,13 @@ export class AlertasComponent {
     }
   }
 
+  /** Respeta la vista activa: agrupado por pack, o el listado completo de "Lista plana". */
   copyRestockList(): void {
+    const lines = this.restockView() === 'pack' ? this.buildPackCopyLines() : this.buildFlatCopyLines();
+    navigator.clipboard?.writeText(lines.join('\n')).catch(() => {});
+  }
+
+  private buildPackCopyLines(): string[] {
     const lines: string[] = [];
     for (const g of this.restockGroups().groups) {
       const qty = g.pack.suggestedPacks?.qty ?? 0;
@@ -179,25 +185,14 @@ export class AlertasComponent {
     for (const r of this.restockGroups().noPack) {
       if (r.suggested) lines.push(`${r.productLabel ?? r.sku} (${r.sku}) — ${r.suggested.qty} ${r.suggested.unit}`);
     }
-    navigator.clipboard?.writeText(lines.join('\n')).catch(() => {});
+    return lines;
   }
 
-  exportRestockCsv(): void {
-    const esc = (v: string | number | null) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['SKU', 'Producto', 'Pack', 'SKU pack', 'Packs sugeridos', 'Stock ML', 'Stock TN', 'Stock depósito', 'Umbral', 'Estado', 'A pedir', 'Unidad'];
-    const rows = this.filteredRestockRows().map((r) => [
-      r.sku, r.productLabel, r.pack?.name ?? '', r.pack?.sku ?? '', r.pack?.suggestedPacks?.qty ?? '',
-      r.stockMl, r.stockTn, r.depositoStock ?? '', r.threshold,
-      restockStateLabel(r.state), r.suggested?.qty ?? '', r.suggested?.unit ?? '',
-    ].map(esc).join(','));
-    const csv = [header.map(esc).join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `para-reponer-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  private buildFlatCopyLines(): string[] {
+    return this.restockFlatRows().map((r) => {
+      const qty = r.suggested ? `${r.suggested.qty} ${r.suggested.unit}` : r.pack ? `ver pack ${r.pack.name}` : '—';
+      return `${r.productLabel ?? r.sku} (${r.sku}) — ${qty}`;
+    });
   }
 
   /* ══════════════════════════ Notificaciones ══════════════════════════ */
