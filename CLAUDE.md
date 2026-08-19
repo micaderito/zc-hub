@@ -295,9 +295,13 @@ con 3 disparados de una pedía "3 packs" en vez de 1).
   pisar tanto la sugerencia de un SKU como la de un pack completo; `qty: null` borra el ajuste y
   vuelve al valor calculado. Son del pedido en curso, no config permanente — "Marcar pedido como
   hecho" los limpia (`clearRestockOverrides` en `closeRestockPeriod`).
-- **SKU propio del pack** (`product_packs.sku`, opcional, columna UNIQUE parcial): el proveedor a
-  veces le pone su propio código al pack armado, distinto del SKU de cada modelo. Se edita en
-  Productos → Packs y se muestra al lado del nombre del pack en "Para reponer".
+- **SKU propio del pack** (`product_packs.sku`, opcional, NO único): el proveedor a veces le pone
+  su propio código al pack armado, distinto del SKU de cada modelo. Se edita en Productos → Packs
+  y se muestra al lado del nombre del pack en "Para reponer". Puede repetirse entre packs: un
+  mismo producto a veces viene en pack de modelos viejos y en pack de modelos nuevos, y el
+  proveedor le da el mismo código a los dos — sigue siendo el mismo producto, solo cambian los
+  modelos que trae. Por eso NO hay constraint de unicidad en la columna (se sacó el índice único
+  que había).
 - **Stock en Depósito Marañón** (`RestockRow.depositoStock`, sumando filas `producto` de
   `deposito_stock` con ese SKU): se muestra en la fila para saber, antes de pedirle al proveedor,
   si ya hay unidades a mano guardadas en el depósito. Es informativo — no descuenta del faltante

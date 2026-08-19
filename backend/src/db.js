@@ -411,9 +411,11 @@ export async function initDb() {
     await p.query(`CREATE INDEX IF NOT EXISTS idx_pack_skus_pack ON pack_skus (pack_id);`);
 
     // SKU propio del pack (opcional): algunos proveedores le ponen su propio código al pack armado
-    // -distinto de los SKUs de los modelos que contiene- y sirve para identificarlo al pedirlo.
+    // -distinto de los SKUs de los modelos que contiene- y sirve para identificarlo al pedirlo. NO
+    // es único: el mismo producto puede venir en varios packs con SKUs de modelos distintos (p.ej.
+    // un pack de modelos viejos y otro de modelos nuevos) y el proveedor les da el mismo código.
     await p.query(`ALTER TABLE product_packs ADD COLUMN IF NOT EXISTS sku VARCHAR(128);`);
-    await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_product_packs_sku ON product_packs (sku) WHERE sku IS NOT NULL;`);
+    await p.query(`DROP INDEX IF EXISTS idx_product_packs_sku;`);
 
     // La sugerencia de "Para reponer" (computeSuggestedQty/computePackSuggestedQty en
     // alertsService.js) es un default editable, no un cálculo impuesto: la usuaria puede pisarlo a

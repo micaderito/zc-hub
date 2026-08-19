@@ -310,7 +310,7 @@ productRoutes.post('/packs', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'name requerido' });
   try {
     const id = await savePack({ name, unitCount: req.body?.unitCount, mode: req.body?.mode, sku: req.body?.sku });
-    if (!id) return res.status(500).json({ error: 'No se pudo crear el pack (¿el SKU ya está en uso?)' });
+    if (!id) return res.status(500).json({ error: 'No se pudo crear el pack' });
     res.json({ ok: true, id });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -325,7 +325,7 @@ productRoutes.put('/packs/:id', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'name requerido' });
   try {
     const saved = await savePack({ id, name, unitCount: req.body?.unitCount, mode: req.body?.mode, sku: req.body?.sku });
-    if (!saved) return res.status(500).json({ error: 'No se pudo guardar el pack (¿el SKU ya está en uso?)' });
+    if (!saved) return res.status(500).json({ error: 'No se pudo guardar el pack' });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
