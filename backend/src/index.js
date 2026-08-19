@@ -23,7 +23,9 @@ import { alertsRoutes } from './routes/alerts.js';
 import { depositoRoutes } from './routes/deposito.js';
 import { sessionRoutes } from './routes/session.js';
 import { usersRoutes } from './routes/users.js';
+import { salesRoutes } from './routes/sales.js';
 import { requireAuth } from './middleware/requireAuth.js';
+import { sweepRecentSales, getSyncState } from './services/salesService.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -78,6 +80,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/pricing', requireAuth, pricingRoutes);
 app.use('/api/alerts', requireAuth, alertsRoutes);
 app.use('/api/deposito', requireAuth, depositoRoutes);
+app.use('/api/sales', requireAuth, salesRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 // Por si Railway (u otro) hace health check en la raíz
@@ -100,6 +103,31 @@ function scheduleMlTokenRefresh() {
   setInterval(runRefresh, ML_REFRESH_INTERVAL_MS);
 }
 
+/**
+ * Barrido diario del dashboard de ventas (capa 2 de sincronización, ver CLAUDE.md). Un chequeo
+ * cada hora contra `lastSyncAt` (persistido) en vez de un setInterval de 24h: así un reinicio del
+ * backend (deploy) ni saltea el barrido del día ni lo dispara de nuevo en cada arranque.
+ */
+const SALES_SWEEP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const SALES_SWEEP_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function scheduleSalesSweep() {
+  const check = async () => {
+    if (!tokens.mercadolibre?.refresh_token) return;
+    try {
+      const state = await getSyncState();
+      const lastSyncMs = state.lastSyncAt ? new Date(state.lastSyncAt).getTime() : 0;
+      if (state.status === 'running') return;
+      if (Date.now() - lastSyncMs < SALES_SWEEP_MIN_INTERVAL_MS) return;
+      console.log('[Ventas] Barrido diario: última sync hace más de 24h, arrancando.');
+      await sweepRecentSales();
+    } catch (e) {
+      console.error('[Ventas] scheduleSalesSweep:', e.message);
+    }
+  };
+  setInterval(check, SALES_SWEEP_CHECK_INTERVAL_MS);
+}
+
 (async () => {
   const ok = await initDb();
   if (ok) {
@@ -112,5 +140,6 @@ function scheduleMlTokenRefresh() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Backend escuchando en http://0.0.0.0:${PORT}`);
     scheduleMlTokenRefresh();
+    scheduleSalesSweep();
   });
 })();

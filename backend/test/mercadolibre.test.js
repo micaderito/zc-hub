@@ -434,3 +434,49 @@ test('fetchWith429Retry: reintenta ante 429 respetando Retry-After y devuelve la
   assert.equal(res.ok, true);
   assert.equal(attempt, 2);
 });
+
+// ─── getOrdersWindow ──────────────────────────────────────────────────────────
+
+test('getOrdersWindow: una sola página (total <= limit)', async () => {
+  state.responder = (url) => {
+    const u = new URL(url);
+    assert.equal(u.searchParams.get('order.date_created.from'), '2026-07-01T00:00:00.000-03:00');
+    assert.equal(u.searchParams.get('order.date_created.to'), '2026-07-31T23:59:59.999-03:00');
+    assert.equal(u.searchParams.get('sort'), 'date_asc');
+    return makeRes({ json: { paging: { total: 2 }, results: [{ id: 1 }, { id: 2 }] } });
+  };
+  const results = await ml.getOrdersWindow(TOKEN, 999, '2026-07-01T00:00:00.000-03:00', '2026-07-31T23:59:59.999-03:00');
+  assert.deepEqual(results.map((r) => r.id), [1, 2]);
+  assert.equal(getCalls().length, 1, 'un total menor al límite de página no debería paginar más');
+});
+
+test('getOrdersWindow: pagina con offset hasta cubrir el total', async () => {
+  // Página llena (50, el límite) en offset 0 y el resto en offset 50 — con menos que el total
+  // ML jamás devolvería una página incompleta antes del final.
+  const page0 = Array.from({ length: 50 }, (_, i) => ({ id: i + 1 }));
+  const pages = { 0: page0, 50: [{ id: 51 }] };
+  state.responder = (url) => {
+    const u = new URL(url);
+    const offset = Number(u.searchParams.get('offset'));
+    return makeRes({ json: { paging: { total: 51 }, results: pages[offset] ?? [] } });
+  };
+  const results = await ml.getOrdersWindow(TOKEN, 999, '2026-07-01T00:00:00.000-03:00', '2026-07-31T23:59:59.999-03:00');
+  assert.equal(results.length, 51);
+  assert.equal(results[50].id, 51);
+  assert.equal(getCalls().length, 2, 'debe pedir 2 páginas: offset 0 y offset 50');
+});
+
+test('getOrdersWindow: más de 1000 en la ventana parte el rango de fechas al medio', async () => {
+  state.responder = (url) => {
+    const u = new URL(url);
+    const from = u.searchParams.get('order.date_created.from');
+    const to = u.searchParams.get('order.date_created.to');
+    // La primera mitad de julio (más de 1000) se subdivide; la segunda mitad no.
+    if (from === '2026-07-01T00:00:00.000-03:00' && to === '2026-07-31T23:59:59.999-03:00') {
+      return makeRes({ json: { paging: { total: 1500 }, results: [] } });
+    }
+    return makeRes({ json: { paging: { total: 10 }, results: [{ id: `${from}-${to}` }] } });
+  };
+  const results = await ml.getOrdersWindow(TOKEN, 999, '2026-07-01T00:00:00.000-03:00', '2026-07-31T23:59:59.999-03:00');
+  assert.equal(results.length, 2, 'debería recursar en dos mitades y traer resultados de cada una');
+});

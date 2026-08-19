@@ -1,0 +1,207 @@
+<div class="ventas">
+  <div class="page-header">
+    <div>
+      <h1><i class="ti ti-map-pin" aria-hidden="true"></i> Ventas por provincia</h1>
+      <p class="subtitle">Facturado de productos vendidos en Mercado Libre, sin canceladas ni devoluciones — listo para el informe del contador.</p>
+    </div>
+    <div class="header-right">
+      <button type="button" class="btn-refresh" [class.busy]="syncing()" [disabled]="syncing()" (click)="onSyncClick()">
+        <i class="ti ti-refresh" [class.spinning]="syncing()" aria-hidden="true"></i>
+        {{ syncing() ? 'Actualizando…' : 'Actualizar' }}
+      </button>
+      <span class="refresh-meta">{{ lastSyncLabel() }}</span>
+    </div>
+  </div>
+
+  @if (syncing()) {
+    <div class="sync-banner">
+      <i class="ti ti-refresh spinning" aria-hidden="true"></i>
+      <div class="sync-banner-body">
+        <div class="sync-banner-title">Sincronizando ventas de Mercado Libre…</div>
+        <div class="sync-banner-sub">
+          {{ syncState()?.processed ?? 0 }} de {{ syncState()?.total ?? 0 }} órdenes
+          @if (syncState()?.phase) { · {{ syncState()?.phase }} }
+        </div>
+        <div class="sync-progress"><div class="sync-progress-fill" [style.width.%]="syncProgressPct()"></div></div>
+      </div>
+    </div>
+  }
+
+  @if (syncState()?.status === 'error') {
+    <div class="alert error"><i class="ti ti-alert-circle" aria-hidden="true"></i> {{ syncState()?.error || 'No se pudo sincronizar con Mercado Libre.' }}</div>
+  }
+
+  <div class="toolbar">
+    <select class="zc-select period-select" [ngModel]="selectedMonth()" (ngModelChange)="onMonthChange($event)">
+      @for (m of months; track m.value) {
+        <option [value]="m.value">{{ m.label }}</option>
+      }
+      @if (selectedMonth() === 'custom') { <option value="custom">Rango personalizado</option> }
+    </select>
+    <span class="field-inline">
+      <input type="date" class="zc-input" [ngModel]="from()" (ngModelChange)="onFromChange($event)" />
+      <span>—</span>
+      <input type="date" class="zc-input" [ngModel]="to()" (ngModelChange)="onToChange($event)" />
+    </span>
+    <div class="spacer"></div>
+    <button type="button" class="zc-btn small" [disabled]="!rangeValid() || reportLoading()" (click)="onExportClick()">
+      <i class="ti ti-download" aria-hidden="true"></i> Exportar CSV
+    </button>
+  </div>
+
+  @if (!rangeValid()) {
+    <p class="alert warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i> "Desde" no puede ser posterior a "hasta".</p>
+  } @else if (neverSynced()) {
+    <div class="empty">
+      <i class="ti ti-map-pin" aria-hidden="true"></i>
+      <p>Todavía no sincronizaste las ventas de Mercado Libre. La primera carga trae el año en curso y puede tardar unos minutos.</p>
+      <button type="button" class="zc-btn primary" [disabled]="syncing()" (click)="onSyncClick()">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Sincronizar ventas
+      </button>
+      <p class="hint">Después alcanza con tocar Actualizar para traer lo nuevo — no vuelve a traer todo.</p>
+    </div>
+  } @else if (reportLoading()) {
+    <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando informe…</p>
+  } @else if (report()) {
+    @let r = report()!;
+    <div class="kpi-row">
+      <div class="zc-card kpi-tile">
+        <span class="kpi-label">Facturado total</span>
+        <span class="kpi-value">{{ money(r.kpis.facturadoTotal) }}</span>
+        <span class="kpi-delta" [class.up]="r.kpis.facturadoDeltaPct >= 0" [class.down]="r.kpis.facturadoDeltaPct < 0">
+          <i class="ti" [class.ti-arrow-up-right]="r.kpis.facturadoDeltaPct >= 0" [class.ti-arrow-down-right]="r.kpis.facturadoDeltaPct < 0" aria-hidden="true"></i>
+          {{ r.kpis.facturadoDeltaPct >= 0 ? '+' : '' }}{{ r.kpis.facturadoDeltaPct }}%
+        </span>
+      </div>
+      <div class="zc-card kpi-tile">
+        <span class="kpi-label">Ventas</span>
+        <span class="kpi-value">{{ r.kpis.ventas }}</span>
+        <span class="kpi-delta" [class.up]="r.kpis.ventasDeltaPct >= 0" [class.down]="r.kpis.ventasDeltaPct < 0">
+          <i class="ti" [class.ti-arrow-up-right]="r.kpis.ventasDeltaPct >= 0" [class.ti-arrow-down-right]="r.kpis.ventasDeltaPct < 0" aria-hidden="true"></i>
+          {{ r.kpis.ventasDeltaPct >= 0 ? '+' : '' }}{{ r.kpis.ventasDeltaPct }}%
+        </span>
+      </div>
+      <div class="zc-card kpi-tile">
+        <span class="kpi-label">Unidades</span>
+        <span class="kpi-value">{{ r.kpis.unidades }}</span>
+        <span class="kpi-delta" [class.up]="r.kpis.unidadesDeltaPct >= 0" [class.down]="r.kpis.unidadesDeltaPct < 0">
+          <i class="ti" [class.ti-arrow-up-right]="r.kpis.unidadesDeltaPct >= 0" [class.ti-arrow-down-right]="r.kpis.unidadesDeltaPct < 0" aria-hidden="true"></i>
+          {{ r.kpis.unidadesDeltaPct >= 0 ? '+' : '' }}{{ r.kpis.unidadesDeltaPct }}%
+        </span>
+      </div>
+      <div class="zc-card kpi-tile">
+        <span class="kpi-label">Ticket promedio</span>
+        <span class="kpi-value">{{ money(r.kpis.ticketPromedio) }}</span>
+        <span class="kpi-delta" [class.up]="r.kpis.ticketPromedioDeltaPct >= 0" [class.down]="r.kpis.ticketPromedioDeltaPct < 0">
+          <i class="ti" [class.ti-arrow-up-right]="r.kpis.ticketPromedioDeltaPct >= 0" [class.ti-arrow-down-right]="r.kpis.ticketPromedioDeltaPct < 0" aria-hidden="true"></i>
+          {{ r.kpis.ticketPromedioDeltaPct >= 0 ? '+' : '' }}{{ r.kpis.ticketPromedioDeltaPct }}%
+        </span>
+      </div>
+    </div>
+
+    @if (r.provinces.length === 0) {
+      <p class="empty-inline">No hay ventas facturadas en este rango.</p>
+    } @else {
+      <div class="section">
+        <div class="section-title"><i class="ti ti-map-pin" aria-hidden="true"></i> Facturado por provincia</div>
+        <div class="zc-card table-scroll">
+          <table class="zc-table">
+            <thead>
+              <tr>
+                <th>Provincia</th>
+                <th class="num">Ventas</th>
+                <th class="num">Unidades</th>
+                <th class="num">Facturado</th>
+                <th class="num">% del total</th>
+                <th class="num">vs. período anterior</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of r.provinces; track p.name) {
+                <tr>
+                  <td>{{ p.name }}</td>
+                  <td class="num">{{ p.ventas }}</td>
+                  <td class="num">{{ p.unidades }}</td>
+                  <td class="num">{{ money(p.facturado) }}</td>
+                  <td class="num">
+                    <div class="share-bar-wrap">
+                      <div class="share-bar"><div class="share-bar-fill" [style.width.%]="p.pctOfTotal"></div></div>
+                      <span class="share-pct">{{ p.pctOfTotal }}%</span>
+                    </div>
+                  </td>
+                  <td class="num">
+                    <span class="delta-cell" [class.up]="p.deltaPct >= 0" [class.down]="p.deltaPct < 0">
+                      <i class="ti" [class.ti-arrow-up-right]="p.deltaPct >= 0" [class.ti-arrow-down-right]="p.deltaPct < 0" aria-hidden="true"></i>
+                      {{ p.deltaPct >= 0 ? '+' : '' }}{{ p.deltaPct }}%
+                    </span>
+                  </td>
+                </tr>
+              }
+              <tr class="total-row">
+                <td>Total</td>
+                <td class="num">{{ r.kpis.ventas }}</td>
+                <td class="num">{{ r.kpis.unidades }}</td>
+                <td class="num">{{ money(r.kpis.facturadoTotal) }}</td>
+                <td class="num">100%</td>
+                <td class="num">
+                  <span class="delta-cell" [class.up]="r.kpis.facturadoDeltaPct >= 0" [class.down]="r.kpis.facturadoDeltaPct < 0">
+                    {{ r.kpis.facturadoDeltaPct >= 0 ? '+' : '' }}{{ r.kpis.facturadoDeltaPct }}%
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="analytics-row">
+        <div class="zc-card chart-card">
+          <div class="section-title"><i class="ti ti-calendar" aria-hidden="true"></i> Evolución diaria</div>
+          @if (dailyBars().length === 0) {
+            <p class="empty-inline">Sin datos para graficar.</p>
+          } @else {
+            <div class="chart-wrap">
+              <div class="chart-bars">
+                @for (b of dailyBars(); track b.day) {
+                  <div class="chart-bar" [style.height.%]="b.heightPct" [title]="formatDay(b.day) + ': ' + money(b.amount)"></div>
+                }
+              </div>
+              <div class="chart-legend">
+                <span>{{ formatDay(dailyBars()[0].day) }}</span>
+                <span>{{ formatDay(dailyBars()[dailyBars().length - 1].day) }}</span>
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="zc-card top-card">
+          <div class="section-title"><i class="ti ti-tag" aria-hidden="true"></i> Top productos</div>
+          @if (r.topProducts.length === 0) {
+            <p class="empty-inline">Sin ventas de productos en el rango.</p>
+          } @else {
+            <div class="table-scroll">
+              <table class="zc-table">
+                <thead><tr><th>SKU</th><th class="num">Unid.</th><th class="num">Facturado</th></tr></thead>
+                <tbody>
+                  @for (t of r.topProducts; track t.sku) {
+                    <tr>
+                      <td>{{ t.sku }}<div class="product-title">{{ t.title }}</div></td>
+                      <td class="num">{{ t.units }}</td>
+                      <td class="num">{{ money(t.amount) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <div class="footnote">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+      {{ r.excluded.total }} órdenes procesadas en el período · <b>{{ r.excluded.facturadas }} facturadas</b> ·
+      {{ r.excluded.canceladas }} canceladas · {{ r.excluded.devueltas }} devueltas — excluidas del total.
+    </div>
+  }
+</div>
