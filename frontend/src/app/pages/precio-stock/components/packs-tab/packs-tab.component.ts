@@ -8,6 +8,7 @@ import { PacksService, Pack, PACKS_QUERY_KEY } from '../../../../core/services/p
 import { ConflictsService, mlLabel } from '../../../../core/services/conflicts.service';
 import { SearchBarComponent } from '../../../../shared/components/search-bar/search-bar.component';
 import { ConfirmDialogComponent } from '../../../../shared/components/confirm-dialog/confirm-dialog.component';
+import { PaginationComponent } from '../../../../shared/components/pagination/pagination.component';
 
 /** Resultado del buscador de productos (para agregar al pack). */
 interface ProductOption {
@@ -15,6 +16,11 @@ interface ProductOption {
   label: string;
   thumbnail: string | null;
 }
+
+const PAGE_SIZE = 10;
+
+/** Sentinel de `addingToPackId` mientras se arma un pack nuevo (todavía sin id real). */
+const NEW_PACK_ID = -1;
 
 /**
  * Pestaña "Packs" de Productos: la unidad de compra al proveedor (ver CLAUDE.md). Se administra
@@ -25,7 +31,7 @@ interface ProductOption {
 @Component({
   selector: 'zc-packs-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent],
+  imports: [CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent],
   templateUrl: './packs-tab.component.html',
   styleUrl: './packs-tab.component.scss',
 })
@@ -53,6 +59,20 @@ export class PacksTabComponent {
     );
   });
 
+  setSearch(value: string): void {
+    this.search.set(value);
+    this.currentPage.set(1);
+  }
+
+  readonly currentPage = signal(1);
+  readonly totalPages = computed(() => Math.max(1, Math.ceil(this.filteredPacks().length / PAGE_SIZE)));
+  /** Clampeada: si se borra el último pack de la página actual, no queda mostrando una página vacía. */
+  readonly effectivePage = computed(() => Math.min(this.currentPage(), this.totalPages()));
+  readonly pagedPacks = computed(() => {
+    const start = (this.effectivePage() - 1) * PAGE_SIZE;
+    return this.filteredPacks().slice(start, start + PAGE_SIZE);
+  });
+
   readonly expanded = signal<Set<number>>(new Set());
 
   isExpanded(id: number): boolean {
@@ -77,18 +97,36 @@ export class PacksTabComponent {
   readonly savingNewPack = signal(false);
   newPackError: string | null = null;
 
+  /** Abre/cierra el form de alta; reusa el buscador de productos con el sentinel `NEW_PACK_ID`. */
+  toggleNewPackForm(): void {
+    if (this.showNewPackForm()) {
+      this.showNewPackForm.set(false);
+      this.closeAddProduct();
+    } else {
+      this.showNewPackForm.set(true);
+      this.openAddProduct(NEW_PACK_ID);
+    }
+  }
+
   async createPack(): Promise<void> {
     const name = this.newPackName.trim();
     if (!name) { this.newPackError = 'Ingresá un nombre para el pack.'; return; }
     this.savingNewPack.set(true);
     this.newPackError = null;
     try {
-      await this.packsSvc.createPack({ name, unitCount: this.newPackUnitCount, mode: this.newPackMode, sku: this.newPackSku.trim() || null });
+      const id = await this.packsSvc.createPack({ name, unitCount: this.newPackUnitCount, mode: this.newPackMode, sku: this.newPackSku.trim() || null });
+      const skus = [...this.selectedSkus()];
+      try {
+        if (skus.length) await Promise.all(skus.map((sku) => this.packsSvc.setSkuPack(sku, id)));
+      } catch {
+        // El pack ya se creó igual; los productos que no se pudieron sumar se agregan a mano desde la tarjeta.
+      }
       this.newPackName = '';
       this.newPackUnitCount = 8;
       this.newPackMode = 'assorted';
       this.newPackSku = '';
       this.showNewPackForm.set(false);
+      this.closeAddProduct();
     } catch (e: unknown) {
       const err = e as { error?: { error?: string }; message?: string };
       this.newPackError = err?.error?.error || err?.message || 'No se pudo crear el pack.';
