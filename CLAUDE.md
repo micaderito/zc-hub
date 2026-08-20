@@ -326,6 +326,23 @@ explícito con la usuaria); el resto de los montos (`shipping_cost`, `total_amou
 guarda igual por si hace falta después. Se guardan también las canceladas y devueltas
 (`computed_status`), para que la exclusión sea auditable sin volver a pegarle a ML.
 
+**"Ventas" cuenta paquetes, no líneas de orden.** Incidente 2026-08-19: la usuaria comparó el
+informe contra el Excel de ML de julio y el dashboard mostraba 236 ventas contra ~75-76 que había
+contado a mano. Causa: cuando una compra tiene varios productos (carrito/pack), ML le da a **cada
+producto su propio `order_id`** — todos comparten el mismo `pack_id`, pero son órdenes separadas
+en `/orders/search`. Contar filas de `ml_sales_orders` cuenta productos disfrazados de ventas: un
+pack de 9 productos aparecía como "9 ventas". Confirmado con el Excel real de la cuenta: 237 líneas
+"Entregado" ≈ las 236 que mostraba la app, contra 51 paquetes en las mismas ~3 semanas (~78
+proyectado al mes, en línea con el conteo a mano).
+
+`aggregateSalesReport` (`salesService.js`) arma la clave de venta como `pack_id ?? order_id`
+(`saleKey`) y cuenta paquetes **distintos**, no filas — tanto para el KPI total como por provincia
+(`Set` por provincia, no un contador que suma 1 por fila). "Productos vendidos" (`kpis.unidades`)
+NO cambió: sigue siendo la suma de `quantity` de todos los ítems, y es justamente lo que hace
+visible la diferencia con "Ventas" en la UI (dos tiles separados, con el rótulo "Ventas
+(paquetes)"). El total facturado tampoco cambió — nunca fue el problema, ya sumaba bien todas las
+líneas; el bug era solo de conteo.
+
 **Por qué duplicar obliga a mantenerlo sincronizado**: un comprador puede cancelar o devolver una
 compra hasta 30 días después. `backend/src/services/salesService.js` resuelve esto en tres capas:
 
@@ -378,7 +395,8 @@ ajustes manuales por SKU/pack y su borrado, stock de Depósito Marañón por SKU
 y que vuelva sola tras un nuevo disparo, limpieza al cerrar el período) en
 `backend/test/alertsService.test.js`. El dashboard de ventas por provincia está cubierto en
 `backend/test/salesService.test.js` (clasificación, armado de la fila, período anterior,
-agregación por provincia con comparativa y excluidas), `backend/test/routesSales.test.js`
+agregación por provincia con comparativa y excluidas, y que un pack de varios productos cuente
+como 1 venta y no una por línea de orden), `backend/test/routesSales.test.js`
 (validación de fechas, forma del CSV, que `POST /sync` no bloquee), y la extensión de
 `getOrdersWindow` en `backend/test/mercadolibre.test.js` (paginación y split por más de 1000
 órdenes); `backend/test/routesWebhooks.test.js` suma que la venta se registra y que un fallo ahí

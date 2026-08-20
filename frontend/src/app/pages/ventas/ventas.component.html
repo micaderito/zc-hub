@@ -74,7 +74,7 @@
         </span>
       </div>
       <div class="zc-card kpi-tile">
-        <span class="kpi-label">Ventas</span>
+        <span class="kpi-label">Ventas (paquetes)</span>
         <span class="kpi-value">{{ r.kpis.ventas }}</span>
         <span class="kpi-delta" [class.up]="r.kpis.ventasDeltaPct >= 0" [class.down]="r.kpis.ventasDeltaPct < 0">
           <i class="ti" [class.ti-arrow-up-right]="r.kpis.ventasDeltaPct >= 0" [class.ti-arrow-down-right]="r.kpis.ventasDeltaPct < 0" aria-hidden="true"></i>
@@ -82,7 +82,7 @@
         </span>
       </div>
       <div class="zc-card kpi-tile">
-        <span class="kpi-label">Unidades</span>
+        <span class="kpi-label">Productos vendidos</span>
         <span class="kpi-value">{{ r.kpis.unidades }}</span>
         <span class="kpi-delta" [class.up]="r.kpis.unidadesDeltaPct >= 0" [class.down]="r.kpis.unidadesDeltaPct < 0">
           <i class="ti" [class.ti-arrow-up-right]="r.kpis.unidadesDeltaPct >= 0" [class.ti-arrow-down-right]="r.kpis.unidadesDeltaPct < 0" aria-hidden="true"></i>
@@ -109,8 +109,8 @@
             <thead>
               <tr>
                 <th>Provincia</th>
-                <th class="num">Ventas</th>
-                <th class="num">Unidades</th>
+                <th class="num" title="Paquetes/compras — un pedido de varios productos cuenta como una sola venta">Ventas</th>
+                <th class="num" title="Unidades vendidas">Productos</th>
                 <th class="num">Facturado</th>
                 <th class="num">% del total</th>
                 <th class="num">vs. período anterior</th>
