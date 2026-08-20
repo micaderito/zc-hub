@@ -3,13 +3,13 @@
     <zc-search-bar
       class="packs-search"
       [value]="search()"
-      (valueChange)="search.set($event)"
+      (valueChange)="setSearch($event)"
       placeholder="Buscar un pack o un producto…"
       ariaLabel="Buscar packs"
     />
     <p class="hint">El pack es la unidad con la que le comprás al proveedor. No todos los productos tienen uno.</p>
     <div class="spacer"></div>
-    <button type="button" class="zc-btn primary small" (click)="showNewPackForm.set(!showNewPackForm())">
+    <button type="button" class="zc-btn primary small" (click)="toggleNewPackForm()">
       <i class="ti ti-plus" aria-hidden="true"></i> Nuevo pack
     </button>
   </div>
@@ -35,8 +35,52 @@
         <label class="lbl">SKU del pack (opcional)</label>
         <input class="zc-input" [(ngModel)]="newPackSku" placeholder="Código propio del pack" (keyup.enter)="createPack()" />
       </div>
+
+      <div class="fld new-pack-products">
+        <label class="lbl">Productos (opcional)</label>
+        <input
+          class="zc-input"
+          [ngModel]="addProductQuery()"
+          (ngModelChange)="addProductQuery.set($event)"
+          placeholder="Buscar por título o SKU…"
+          autocomplete="off"
+        />
+        @if (addProductQuery().trim().length >= 2) {
+          <div class="product-results">
+            @if (productSearchLoading()) {
+              <div class="product-result-hint"><i class="ti ti-loader-2" aria-hidden="true"></i> Buscando…</div>
+            } @else if (productSearchResults().length === 0) {
+              <div class="product-result-hint">Sin resultados para "{{ addProductQuery() }}".</div>
+            } @else {
+              @for (opt of productSearchResults(); track opt.sku) {
+                <label class="product-result">
+                  <input type="checkbox" [checked]="isSelected(opt.sku)" (change)="toggleSelected(opt.sku)" />
+                  @if (opt.thumbnail) {
+                    <img [src]="opt.thumbnail" alt="" class="result-thumb" />
+                  } @else {
+                    <span class="result-thumb no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span>
+                  }
+                  <span class="result-info">
+                    <span class="result-label">{{ opt.label }}</span>
+                    <span class="result-sku">
+                      {{ opt.sku }}
+                      @if (opt.inOtherPack) {
+                        · ya en <b>{{ opt.inOtherPack }}</b>
+                      }
+                    </span>
+                  </span>
+                </label>
+              }
+            }
+          </div>
+        }
+        @if (selectedSkus().size > 0) {
+          <span class="hint">{{ selectedSkus().size }} producto{{ selectedSkus().size === 1 ? '' : 's' }} seleccionado{{ selectedSkus().size === 1 ? '' : 's' }}</span>
+        }
+      </div>
+
       <button type="button" class="zc-btn primary" [disabled]="savingNewPack()" (click)="createPack()">Crear</button>
-      <button type="button" class="zc-btn" (click)="showNewPackForm.set(false)">Cancelar</button>
+      <button type="button" class="zc-btn" (click)="toggleNewPackForm()">Cancelar</button>
     </div>
     @if (newPackError) {
       <p class="alert error">{{ newPackError }}</p>
@@ -55,7 +99,7 @@
     </p>
   } @else {
     <div class="pack-list">
-      @for (pack of filteredPacks(); track pack.id) {
+      @for (pack of pagedPacks(); track pack.id) {
         <div class="zc-card pack-card" [class.open]="isExpanded(pack.id)">
           <div class="pack-head" (click)="toggleExpand(pack.id)">
             <i class="ti ti-chevron-right caret" aria-hidden="true"></i>
@@ -195,6 +239,14 @@
         </div>
       }
     </div>
+
+    <zc-pagination
+      [currentPage]="effectivePage()"
+      [totalPages]="totalPages()"
+      [total]="filteredPacks().length"
+      (prev)="currentPage.set(effectivePage() - 1)"
+      (next)="currentPage.set(effectivePage() + 1)"
+    />
   }
 
   @if (deletingPackId(); as id) {

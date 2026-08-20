@@ -41,9 +41,11 @@ export class PacksService {
     return lastValueFrom(this.http.get<{ packs: Pack[] }>(`${this.api.baseUrl}/products/packs`));
   }
 
-  async createPack(data: { name: string; unitCount: number; mode: 'assorted' | 'single'; sku?: string | null }): Promise<void> {
-    await lastValueFrom(this.http.post<{ ok: boolean; id: number }>(`${this.api.baseUrl}/products/packs`, data));
+  /** Devuelve el id del pack creado, para poder asignarle productos de una. */
+  async createPack(data: { name: string; unitCount: number; mode: 'assorted' | 'single'; sku?: string | null }): Promise<number> {
+    const res = await lastValueFrom(this.http.post<{ ok: boolean; id: number }>(`${this.api.baseUrl}/products/packs`, data));
     this.invalidate();
+    return res.id;
   }
 
   async updatePack(id: number, data: { name: string; unitCount: number; mode: 'assorted' | 'single'; sku?: string | null }): Promise<void> {
