@@ -709,7 +709,12 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
     console.error('[Analysis] refreshMlItemInSnapshot getItem falló:', e.message);
     return { ok: false };
   }
-  const newRows = item && item.id ? flattenMlItems([item]) : [];
+  // Igual que fetchRawRows(): las publicaciones "de catálogo" (catalog_listing: true) no son un
+  // producto propio — se actualizan solas cuando cambia la publicación ganadora del catálogo — así
+  // que no entran al snapshot. Sin este chequeo, el webhook `items` que llega justo al crearlas las
+  // metía igual y aparecían como duplicado del producto ya mapeado por SKU.
+  const isCatalogListing = item && item.catalog_listing === true;
+  const newRows = item && item.id && !isCatalogListing ? flattenMlItems([item]) : [];
   let changes = [];
   await patchSnapshot((data) => {
     const before = data.mlRows.length;
