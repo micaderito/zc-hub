@@ -352,13 +352,17 @@ async function fetchRawRows() {
             const items = Array.isArray(multiget)
               ? multiget.map(x => (x && x.code === 200 ? x.body : null)).filter(Boolean)
               : [];
-            const valid = items.filter(it => it && it.id && !it.error);
-            const originalsOnly = valid.filter(it => it.catalog_listing !== true);
-            return originalsOnly.length ? originalsOnly : valid;
+            return items.filter(it => it && it.id && !it.error);
           });
         })
       );
-      for (const batchItems of batchResults) rows.push(...flattenMlItems(batchItems));
+      // El filtro de catalog_listing corre sobre el TOTAL de la cuenta, no por tanda de 20: el scan
+      // de ML suele devolver los ítems en orden de creación, así que crear varias publicaciones de
+      // catálogo seguidas las agrupa en la misma tanda — filtrar por tanda podía dejarlas pasar
+      // enteras (fallback "no vaciar la tanda") justo cuando eran todas de catálogo.
+      const allValid = batchResults.flat();
+      const originalsOnly = allValid.filter(it => it.catalog_listing !== true);
+      rows.push(...flattenMlItems(originalsOnly.length ? originalsOnly : allValid));
       console.log('[ML] mlRows final:', rows.length);
       return { mlRows: rows, authFailed: false };
     };
