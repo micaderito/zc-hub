@@ -490,6 +490,31 @@ test('refreshMlItemInSnapshot: reemplaza las filas del ítem con lo que trae get
   assert.equal(result.onlyML[0].stock, 7);
 });
 
+test('refreshMlItemInSnapshot: una publicación de catálogo (catalog_listing: true) no entra al snapshot', async () => {
+  dbState.hasDb = true;
+  // MLA1 ya tiene 2 variaciones propias en el snapshot; MLA-CAT es una publicación nueva de
+  // catálogo que ML obligó a crear y que se actualiza sola — no debe aparecer como producto.
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemImpl = (id) => (id === 'MLA-CAT'
+    ? { id: 'MLA-CAT', title: 'Cuaderno (catálogo)', catalog_listing: true, seller_sku: 'SOLO', price: 999, available_quantity: 7 }
+    : null);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA-CAT');
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.onlyML.length, 2, 'no se agregó ninguna fila nueva por la publicación de catálogo');
+  assert.ok(!result.onlyML.some((r) => r.itemId === 'MLA-CAT'));
+});
+
+test('refreshMlItemInSnapshot: si una fila existente pasa a catalog_listing: true, se saca del snapshot', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemImpl = (id) => (id === 'MLA1'
+    ? { id: 'MLA1', title: 'X', catalog_listing: true, seller_sku: 'SOLO', price: 999, available_quantity: 7 }
+    : null);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.onlyML.length, 0);
+});
+
 // ─── Historial de los dos canales: el diff del refresh registra lo que hizo la plataforma ────
 
 /** Ítem MLA1 con sus dos variaciones (10 y 11), con el stock que se le pase. */
