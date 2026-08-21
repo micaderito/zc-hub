@@ -273,6 +273,31 @@ test('ML y TN con el mismo SKU quedan matched; SKU duplicado en ML se agrupa apa
   assert.deepEqual(storeState.resolutionCalls.length, 1);
 });
 
+test('varias publicaciones de catálogo creadas juntas no se cuelan por caer en la misma tanda de 20', async () => {
+  // Simula crear ~20 publicaciones de catálogo de una: el scan de ML las devuelve seguidas, así
+  // que ocupan una tanda entera del multiget (batchSize=20) sin ningún ítem propio mezclado.
+  const catalogIds = Array.from({ length: 20 }, (_, i) => `MLC${i + 1}`);
+  const allIds = [...catalogIds, 'MLA-ORIG'];
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) return makeRes({ json: { results: allIds, paging: { total: allIds.length } } });
+    if (url.includes('/items?ids=')) {
+      const idsParam = new URL(url).searchParams.get('ids').split(',');
+      const bodies = idsParam.map((id) => (id === 'MLA-ORIG'
+        ? { id: 'MLA-ORIG', title: 'Original', catalog_listing: false, seller_sku: 'DUP-SKU', price: 10, available_quantity: 1 }
+        : { id, title: 'Catálogo', catalog_listing: true, seller_sku: 'DUP-SKU', price: 10, available_quantity: 1 }));
+      return makeRes({ json: bodies.map((body) => ({ code: 200, body })) });
+    }
+    throw new Error('URL inesperada ' + url);
+  };
+  const result = await conflictsService.getAnalysis();
+  assert.equal(result.summary.totalML, 1, 'las 20 publicaciones de catálogo no entran al snapshot');
+  assert.equal(result.onlyML.length, 1);
+  assert.equal(result.onlyML[0].itemId, 'MLA-ORIG');
+  assert.equal(result.duplicateSkuML.length, 0, 'sin publicaciones de catálogo no hay SKU duplicado que armar');
+});
+
 test('ítems sin SKU van a noSkuML / noSkuTN', async () => {
   storeState.mlToken = 'tok';
   storeState.tokens.mercadolibre.user_id = 999;
