@@ -20,7 +20,8 @@
 
 import { claimNextMlTask, updateMlTaskStatus, hasDatabase, touchMlTaskLock, MLTASK_HEARTBEAT_MS } from '../db.js';
 import { insertAuditLog, insertPriceAudit, attributeStockChangeToSale } from '../db.js';
-import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku, refreshMlItemInSnapshot, refreshTnProductInSnapshot } from '../services/conflictsService.js';
+import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku, refreshMlItemInSnapshot, refreshTnProductInSnapshot, readMlSnapshotRow } from '../services/conflictsService.js';
+import { rememberStockWrite, forgetStockWrite, mlStockEchoKey } from './stockEcho.js';
 import { getMlToken, tokens } from '../store.js';
 import * as ml from './mercadolibre.js';
 import * as tn from './tiendanube.js';
@@ -82,30 +83,58 @@ export async function processTask(task) {
 
       const vid = variationId || undefined;
       const qty = Math.max(0, Math.floor(Number(targetQty)));
-      const ok = await ml.updateItemOrVariationStock(accessToken, itemId, vid, qty);
-      if (!ok) throw new Error('updateItemOrVariationStock devolvió false');
+      const echoKey = mlStockEchoKey(itemId, vid ?? null);
 
-      await updateMlTaskStatus(id, 'done');
-      // Stock (valor absoluto) aplicado en ML: parchamos esa fila del snapshot in-place. El parche
-      // devuelve el stock previo, que es lo que el historial necesita para contar el cambio.
-      const before = await patchMlStock(itemId, vid ?? null, qty).catch(e => {
-        console.error('[MLQueue] patchMlStock:', e.message);
+      // El valor previo se lee de la foto ANTES del PUT, no después: nuestro propio PUT dispara
+      // el webhook `items` de ML casi en el acto, y ese refresh puede mover la foto al valor nuevo
+      // antes de que lleguemos a leerla acá abajo — ahí "el previo" sería el valor NUEVO, el cambio
+      // parecería un no-op y la fila del historial se perdería (incidente 2026-09-05, confirmado en
+      // logs: el webhook `items` llegó antes que este punto del código). Ver readMlSnapshotRow.
+      const before = await readMlSnapshotRow(itemId, vid ?? null).catch(e => {
+        console.error('[MLQueue] readMlSnapshotRow:', e.message);
         return null;
       });
+
+      // El eco también se anota ANTES del PUT, por la misma carrera: si se anotara recién en
+      // patchMlStock (después del PUT), el webhook podría llegar en el medio sin eco disponible y
+      // registrar la escritura propia como "Cambio en ML" (externo). Si el PUT falla, se olvida
+      // (ver catch más abajo) para no tapar un cambio externo real que después deje el stock en
+      // ese mismo valor.
+      rememberStockWrite(echoKey, qty);
+      let ok;
+      try {
+        ok = await ml.updateItemOrVariationStock(accessToken, itemId, vid, qty);
+      } catch (e) {
+        forgetStockWrite(echoKey);
+        throw e;
+      }
+      if (!ok) {
+        forgetStockWrite(echoKey);
+        throw new Error('updateItemOrVariationStock devolvió false');
+      }
+
+      await updateMlTaskStatus(id, 'done');
+      // La foto ya se movió (por el webhook o por lo que sigue): la dejamos consistente igual,
+      // aunque el historial ya no dependa de lo que devuelva este parche.
+      await patchMlStock(itemId, vid ?? null, qty).catch(e => console.error('[MLQueue] patchMlStock:', e.message));
       console.log(`[MLQueue] Tarea ${id} stock_ml_set: ${itemId}${vid ? '/' + vid : ''} → ${qty}`);
 
       // Historial: solo se registra si el stock efectivamente se movió — un "sincronizar" sobre un
       // valor que ya estaba no es un cambio y solo ensuciaría el historial.
-      if (before && before.stockBefore !== qty) {
+      if (before && before.stock !== qty) {
         await insertAuditLog({
           source: 'manual',
           sku: ctx?.sku || before.sku || '',
           productLabel: 'Cambio manual',
           productDisplay: ctx?.productDisplay ?? null,
           updatedChannel: 'mercadolibre',
-          stockBefore: before.stockBefore,
+          stockBefore: before.stock,
           stockAfter: qty,
         }).catch(e => console.error('[MLQueue] insertAuditLog:', e.message));
+      } else if (!before) {
+        console.warn(`[MLQueue] Tarea ${id} stock_ml_set: sin fila en el snapshot para ${itemId}${vid ? '/' + vid : ''}, no se registra en el historial (sin SKU no hay dónde mostrarla).`);
+      } else {
+        console.log(`[MLQueue] Tarea ${id} stock_ml_set: ${itemId}${vid ? '/' + vid : ''} ya estaba en ${qty}, no se registra (no es un cambio).`);
       }
 
     } else if (kind === 'sku_ml') {
@@ -124,29 +153,39 @@ export async function processTask(task) {
       if (!accessToken) throw new Error('Sin token ML');
       const price = Number(targetPrice);
       if (!(price > 0)) throw new Error(`price_ml con precio inválido: ${targetPrice}`);
+
+      // El precio previo se lee de la foto ANTES del PUT — mismo motivo que en stock_ml_set: el
+      // webhook `items` de ML puede refrescar la foto por nuestra propia escritura antes de que
+      // lleguemos a mirarla, y leído después "el previo" sería el valor NUEVO.
+      const before = await readMlSnapshotRow(itemId, variationId || null).catch(e => {
+        console.error('[MLQueue] readMlSnapshotRow:', e.message);
+        return null;
+      });
+
       // updateItemOrVariationPrice lanza si ML rechaza (propaga el mensaje real de la API)
       await ml.updateItemOrVariationPrice(accessToken, itemId, variationId || null, price);
       await updateMlTaskStatus(id, 'done');
       // Precio aplicado en ML: parchamos el snapshot in-place (en ítems legacy ML aplica el mismo
-      // precio a TODAS las variaciones del ítem, y patchMlPrice hace exactamente eso). El parche
-      // devuelve el precio previo, que es lo que el historial necesita para contar el cambio.
-      const before = await patchMlPrice(itemId, price).catch(e => {
-        console.error('[MLQueue] patchMlPrice:', e.message);
-        return null;
-      });
+      // precio a TODAS las variaciones del ítem, y patchMlPrice hace exactamente eso). La foto ya
+      // puede estar al día por el webhook; esto la deja consistente igual.
+      await patchMlPrice(itemId, price).catch(e => console.error('[MLQueue] patchMlPrice:', e.message));
       console.log(`[MLQueue] Tarea ${id} price_ml: ${itemId}${variationId ? '/' + variationId : ''} → $${price}`);
 
       // Historial: solo se registra si el precio efectivamente se movió — reaplicar el mismo
       // precio no es un cambio y solo ensuciaría el historial (mismo criterio que stock_ml_set).
-      if (before && before.priceBefore !== price) {
+      if (before && before.price !== price) {
         await insertPriceAudit({
           sku: ctx?.sku || before.sku || '',
           channel: 'mercadolibre',
-          priceBefore: before.priceBefore,
+          priceBefore: before.price,
           priceAfter: price,
           source: ctx?.source || 'bulk',
           productLabel: ctx?.productLabel ?? null,
         }).catch(e => console.error('[MLQueue] insertPriceAudit:', e.message));
+      } else if (!before) {
+        console.warn(`[MLQueue] Tarea ${id} price_ml: sin fila en el snapshot para ${itemId}${variationId ? '/' + variationId : ''}, no se registra en el historial.`);
+      } else {
+        console.log(`[MLQueue] Tarea ${id} price_ml: ${itemId}${variationId ? '/' + variationId : ''} ya estaba en $${price}, no se registra (no es un cambio).`);
       }
 
     } else if (kind === 'stock_probe') {

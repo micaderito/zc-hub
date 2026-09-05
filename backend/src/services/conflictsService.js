@@ -529,6 +529,56 @@ async function patchSnapshot(mutator) {
 const sameVar = (a, b) => String(a ?? '') === String(b ?? '');
 
 /**
+ * Lo que la foto del catálogo tiene HOY para una fila de ML (por variación, o el ítem si no
+ * tiene). Se usa para leer el valor previo ANTES de escribir en el canal — ver el porqué en
+ * `readTnSnapshotRow`. Devuelve `{ stock, price, sku }`, o `null` si no hay snapshot o la fila
+ * no está.
+ */
+export async function readMlSnapshotRow(itemId, variationId) {
+  let found = null;
+  await withSnapshotLock(async () => {
+    const snap = await loadSnapshot();
+    if (!snap?.data?.mlRows) return;
+    for (const r of snap.data.mlRows) {
+      if (r.itemId !== itemId) continue;
+      if (variationId != null && variationId !== '' && !sameVar(r.variationId, variationId)) continue;
+      found = { stock: r.stock ?? null, price: r.price ?? null, sku: r.sku ?? null };
+      break;
+    }
+  });
+  return found;
+}
+
+/**
+ * Análogo a `readMlSnapshotRow` para TN (por variante).
+ *
+ * Por qué se lee ANTES de escribir y no después (como hacen `patchMlStock`/`patchTnStock`, que
+ * devuelven el valor previo "gratis" tras el parche): nuestro propio PUT dispara el webhook del
+ * canal (`items` de ML, `product/updated` de TN) casi en el acto, y ese refresh puede correr —y
+ * mover la foto al valor nuevo— ANTES de que el worker/la ruta llegue a leerla. El eco evita que
+ * ese refresh registre un duplicado, pero no evita que la foto ya haya cambiado: leído después,
+ * "el valor previo" sería el valor NUEVO, el cambio parecería un no-op y la fila del historial se
+ * perdería (incidente 2026-09-05, confirmado en logs: el webhook `items` llegó antes que el patch
+ * del worker). Leer antes de escribir no adelanta la escritura del historial — esa sigue yendo
+ * solo tras la confirmación del canal — solo fija de dónde sale el "antes".
+ */
+export async function readTnSnapshotRow(productId, variantId) {
+  let found = null;
+  await withSnapshotLock(async () => {
+    const snap = await loadSnapshot();
+    if (!snap?.data?.tnRows) return;
+    for (const r of snap.data.tnRows) {
+      if (String(r.productId) !== String(productId)) continue;
+      if (!sameVar(r.variantId, variantId)) continue;
+      found = { stock: r.stock ?? null, price: r.price ?? null, sku: r.sku ?? null };
+      break;
+    }
+  });
+  return found;
+}
+
+
+/**
  * Precio ML: en ítems legacy con variaciones ML aplica el mismo precio a TODAS las variaciones del ítem.
  *
  * Devuelve `{ priceBefore, sku }` con lo que la fila tenía ANTES del parche (o `null` si no había
