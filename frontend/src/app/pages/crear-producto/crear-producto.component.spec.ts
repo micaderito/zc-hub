@@ -360,7 +360,7 @@ describe('CrearProductoComponent', () => {
       expect(nueva.stock).toBeNull();
       expect(nueva.ml).toEqual({ price: null, pictureIds: [] });
       expect(nueva.tn).toEqual({ price: null, imageIds: [] });
-      expect(nueva.id).toMatch(/^v\d+$/);
+      expect(nueva.id).toMatch(/^v[a-z0-9]+$/);
     });
 
     it('addVariant() genera ids únicos entre llamadas sucesivas', () => {
@@ -797,6 +797,83 @@ describe('CrearProductoComponent', () => {
 
       // Servir el original acá era ~5 MB por foto: con 45 fotos, Chrome descartaba la pestaña.
       expect(fx.componentInstance.draft().ml.images[0].previewUrl).toContain('/products/images/img-9/thumb');
+    });
+
+    it('agregar una variante después de restaurar un borrador no colisiona con sus ids ("v1", "v2")', () => {
+      // Bug reportado: con 3+ variantes el modal de "Elegir fotos" de la fila nueva abría los
+      // datos de la primera. Causa: `addVariant()` generaba ids con un contador que se reinicia a
+      // 1 en cada carga de página (`v${variantSeq++}`), así que agregar una variante después de
+      // restaurar un borrador con variantes "v1"/"v2" (mismo esquema de ids) volvía a generar "v1"
+      // — dos filas con el mismo id, y `.find(id)` resolvía siempre a la primera.
+      localStorage.setItem(
+        'zc-crear-producto-drafts',
+        JSON.stringify([
+          {
+            id: 'd4',
+            savedAt: Date.now(),
+            mlMaxPictures: 12,
+            mlMaxPicturesPerVar: 10,
+            draft: {
+              ...emptyDraft(),
+              axes: [{ name: 'Color' }],
+              variants: [
+                { id: 'v1', sku: 'A', values: ['Rojo'], stock: 1, ml: { price: null, pictureIds: [] }, tn: { price: null, imageIds: [] } },
+                { id: 'v2', sku: 'B', values: ['Azul'], stock: 1, ml: { price: null, pictureIds: [] }, tn: { price: null, imageIds: [] } }
+              ],
+              ml: { ...emptyDraft().ml, images: [] },
+              tn: { ...emptyDraft().tn, images: [] }
+            }
+          }
+        ])
+      );
+      const fx = TestBed.createComponent(CrearProductoComponent);
+      fx.detectChanges();
+
+      fx.componentInstance.addVariant();
+
+      const ids = fx.componentInstance.draft().variants.map((v) => v.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids).toContain('v1');
+      expect(ids).toContain('v2');
+    });
+
+    it('un borrador guardado con ids de variante duplicados (por el bug ya arreglado) se cura al restaurarlo', () => {
+      // Borradores guardados ANTES del fix de `addVariant()` pueden tener el bug ya cristalizado
+      // en el JSON: dos variantes con el mismo id. `dedupeVariantIds` los separa al restaurar, sin
+      // pedirle a la usuaria que empiece un producto nuevo ni tocar sus fotos/SKUs/precios.
+      localStorage.setItem(
+        'zc-crear-producto-drafts',
+        JSON.stringify([
+          {
+            id: 'd5',
+            savedAt: Date.now(),
+            mlMaxPictures: 12,
+            mlMaxPicturesPerVar: 10,
+            draft: {
+              ...emptyDraft(),
+              axes: [{ name: 'Color' }],
+              variants: [
+                { id: 'v1', sku: 'STARDUST', values: ['Stardust'], stock: 5, ml: { price: 1000, pictureIds: ['a', 'b'] }, tn: { price: 1000, imageIds: [] } },
+                { id: 'v2', sku: 'ROSIE', values: ['Rosie'], stock: 5, ml: { price: 1000, pictureIds: ['c'] }, tn: { price: 1000, imageIds: [] } },
+                { id: 'v1', sku: 'AURORA', values: ['Aurora'], stock: 5, ml: { price: 1000, pictureIds: [] }, tn: { price: 1000, imageIds: [] } }
+              ],
+              ml: { ...emptyDraft().ml, images: [] },
+              tn: { ...emptyDraft().tn, images: [] }
+            }
+          }
+        ])
+      );
+      const fx = TestBed.createComponent(CrearProductoComponent);
+      fx.detectChanges();
+
+      const variants = fx.componentInstance.draft().variants;
+      const ids = variants.map((v) => v.id);
+      expect(new Set(ids).size).toBe(3);
+      // La primera ocurrencia conserva su id; solo la repetida cambia.
+      expect(variants[0].id).toBe('v1');
+      expect(variants[0].sku).toBe('STARDUST');
+      expect(variants[2].id).not.toBe('v1');
+      expect(variants[2].sku).toBe('AURORA');
     });
 
     it('la selección hecha mientras la foto subía sigue viva cuando cambia el id', async () => {
