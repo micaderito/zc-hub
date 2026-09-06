@@ -38,8 +38,6 @@ export const ML_MAX_PICTURES_PER_VAR_FALLBACK = 10;
 /** Cuánto se espera desde la última tecla antes de autoguardar. */
 const AUTOSAVE_DELAY_MS = 1500;
 
-let variantSeq = 1;
-
 /** Imagen tal como se guarda en localStorage: sin `previewUrl` (se reconstruye al restaurar). */
 interface StoredImageRef {
   id: string;
@@ -345,7 +343,12 @@ export class ProductDraftStore {
   addVariant(): void {
     const d = this.draft();
     d.variants.push({
-      id: `v${variantSeq++}`,
+      // `genId()` (timestamp + random) y no un contador secuencial: el contador vivía en una
+      // variable de módulo que se reinicia a 1 en cada carga de página. Restaurar un borrador con
+      // variantes `v1`/`v2`/`v3` guardadas y agregar una variante nueva en esa sesión generaba OTRA
+      // vez `v1`, duplicando el id de la primera — con dos filas compartiendo id, el modal de
+      // "Elegir fotos" de la fila nueva terminaba resolviendo a la variante vieja.
+      id: `v${this.genId()}`,
       sku: '',
       values: d.axes.map(() => ''),
       stock: null,
