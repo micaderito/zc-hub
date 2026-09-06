@@ -130,6 +130,58 @@ test('buildMlItems (one_per_variant): N items simples, cada uno con SELLER_SKU, 
   assert.equal(items[1].title, 'Cuaderno A4 Rojo');
 });
 
+test('buildMlItems (one_per_variant): usa el título propio de la variante si viene, no el automático', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'one_per_variant' },
+      axes: [{ name: 'Color' }],
+      variants: [{ sku: 'CUA-N', values: ['Negro'], ml: { price: 100, stock: 5, title: 'Cuaderno A4 Negro Edición Especial' } }]
+    },
+    picMap
+  );
+  assert.equal(items[0].title, 'Cuaderno A4 Negro Edición Especial');
+});
+
+test('buildMlItems: agrega GTIN al item simple si hay código de barras en common; no lo inventa si falta', () => {
+  const conBarcode = buildMlItems(
+    { ml: { ...mlBase }, axes: [], variants: [], common: { barcode: '7791234567890' } },
+    picMap
+  );
+  assert.ok(conBarcode[0].attributes.some((a) => a.id === 'GTIN' && a.value_name === '7791234567890'));
+
+  const sinBarcode = buildMlItems({ ml: { ...mlBase }, axes: [], variants: [], common: {} }, picMap);
+  assert.ok(!sinBarcode[0].attributes.some((a) => a.id === 'GTIN'));
+});
+
+test('buildMlItems (one_per_variant): GTIN es el código de barras de CADA variante, no el común', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'one_per_variant' },
+      axes: [{ name: 'Color' }],
+      variants: [
+        { sku: 'CUA-N', values: ['Negro'], barcode: '7791111111111', ml: { price: 100, stock: 5 } },
+        { sku: 'CUA-R', values: ['Rojo'], ml: { price: 110, stock: 3 } } // sin propio → sin GTIN (el front ya resolvió el fallback al común)
+      ]
+    },
+    picMap
+  );
+  assert.ok(items[0].attributes.some((a) => a.id === 'GTIN' && a.value_name === '7791111111111'));
+  assert.ok(!items[1].attributes.some((a) => a.id === 'GTIN'));
+});
+
+test('buildMlItems (single_with_variants): GTIN va por variación, no al nivel del ítem', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'single_with_variants' },
+      axes: [{ name: 'Color' }],
+      variants: [{ sku: 'CUA-1-N', values: ['Negro'], barcode: '7792222222222', ml: { price: 100, stock: 5 } }]
+    },
+    picMap
+  );
+  assert.ok(!items[0].attributes.some((a) => a.id === 'GTIN'));
+  assert.ok(items[0].variations[0].attributes.some((a) => a.id === 'GTIN' && a.value_name === '7792222222222'));
+});
+
 /* ───────────────── TN ───────────────── */
 
 test('buildTnProducts (simple): inyecta precio/stock base y price va como string', () => {
@@ -183,4 +235,38 @@ test('buildTnProducts (one_per_variant): N productos, uno por variante, con nomb
   // producto simple por variante: sin combinaciones de valores.
   assert.equal(products[0].variants[0].values, undefined);
   assert.equal(products[1].name.es, 'Cuaderno A4 Rojo');
+});
+
+test('buildTnProducts (one_per_variant): usa el nombre propio de la variante si viene, no el automático', () => {
+  const products = buildTnProducts({
+    tn: {
+      ...tnBase,
+      mapping_mode: 'one_per_variant',
+      variants: [{ sku: 'CUA-N', values: [{ es: 'Color: Negro' }], price: 100, stock: 5 }]
+    },
+    variants: [{ sku: 'CUA-N', values: ['Negro'], name: 'Cuaderno A4 Negro Edición Especial' }]
+  });
+  assert.equal(products[0].name.es, 'Cuaderno A4 Negro Edición Especial');
+});
+
+test('buildTnProducts (one_per_variant): el nombre en pt SIEMPRE lleva el sufijo automático (no hay override por idioma)', () => {
+  const products = buildTnProducts({
+    tn: {
+      ...tnBase,
+      name: { es: 'Cuaderno A4', pt: 'Caderno A4' },
+      mapping_mode: 'one_per_variant',
+      variants: [
+        { sku: 'CUA-N', values: [{ es: 'Color: Negro' }], price: 100, stock: 5 },
+        { sku: 'CUA-R', values: [{ es: 'Color: Rojo' }], price: 110, stock: 3 }
+      ]
+    },
+    // Uno con nombre propio en es (no debería afectar el pt) y otro 100% automático.
+    variants: [
+      { sku: 'CUA-N', values: ['Negro'], name: 'Cuaderno A4 Negro Edición Especial' },
+      { sku: 'CUA-R', values: ['Rojo'] }
+    ]
+  });
+  assert.equal(products[0].name.pt, 'Caderno A4 Negro');
+  assert.equal(products[1].name.es, 'Cuaderno A4 Rojo');
+  assert.equal(products[1].name.pt, 'Caderno A4 Rojo');
 });

@@ -468,6 +468,31 @@ label {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 }
+.cell-readonly {
+  padding: 0.3rem 0.45rem;
+  font-size: 0.74rem;
+  color: var(--text-2);
+  white-space: nowrap;
+  .muted {
+    color: var(--text-3);
+  }
+}
+.th-margin {
+  color: var(--text-3);
+}
+
+/* costo y ganancia */
+.cost-mode {
+  margin-bottom: 0.2rem;
+}
+.cost-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  .hint {
+    margin-top: 0;
+  }
+}
 
 /* fila "+ Agregar variante" dentro de la tabla: más visible que un botón suelto abajo */
 .seo-head {
@@ -930,6 +955,19 @@ label {
     background: color-mix(in srgb, var(--brand) 85%, transparent);
     color: #fff;
   }
+  .gimg-uploading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    color: #fff;
+    background: color-mix(in srgb, var(--text-1, #000) 35%, transparent);
+    i {
+      animation: zc-gimg-spin 0.8s linear infinite;
+    }
+  }
   .gimg-actions {
     position: absolute;
     top: 2px;
@@ -1105,5 +1143,11 @@ label {
   margin-right: auto;
   .hint {
     margin: 0;
+  }
+}
+
+@keyframes zc-gimg-spin {
+  to {
+    transform: rotate(360deg);
   }
 }

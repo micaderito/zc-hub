@@ -35,16 +35,19 @@ function stripDataUrl(b64) {
 }
 
 /**
- * Guarda una imagen. `data` es base64 (con o sin prefijo data:). Devuelve { id, name, mime, size }.
- * Lanza Error con .statusCode 400 si el mime no está permitido o excede el tamaño.
+ * Guarda una imagen ya decodificada a `Buffer`. Es el paso común de `saveImage` (base64) y de la
+ * subida binaria cruda (`express.raw`, ver routes/products.js) — esta última evita el costo de
+ * codificar/decodificar base64 (~33% más grande) y el `JSON.stringify` de todo ese texto en el
+ * cliente, que es lo que trababa la página al cargar varias fotos de una.
+ * Devuelve { id, name, mime, size }. Lanza Error con .statusCode 400 si el mime no está permitido
+ * o excede el tamaño.
  */
-export function saveImage({ filename, mime, data }) {
+export function saveImageBuffer({ filename, mime, buffer }) {
   const type = String(mime || '').toLowerCase();
   if (!ALLOWED_MIME.has(type)) {
     throw Object.assign(new Error(`Formato no permitido: ${mime}. Usá JPG, PNG, WEBP o GIF.`), { statusCode: 400 });
   }
-  const buffer = Buffer.from(stripDataUrl(data), 'base64');
-  if (!buffer.length) throw Object.assign(new Error('Imagen vacía'), { statusCode: 400 });
+  if (!buffer || !buffer.length) throw Object.assign(new Error('Imagen vacía'), { statusCode: 400 });
   if (buffer.length > MAX_BYTES) {
     throw Object.assign(new Error('La imagen supera los 10 MB'), { statusCode: 400 });
   }
@@ -54,6 +57,14 @@ export function saveImage({ filename, mime, data }) {
   fs.writeFileSync(path.join(DIR, id), buffer);
   fs.writeFileSync(path.join(DIR, `${id}.json`), JSON.stringify({ mime: type, filename: name, createdAt: Date.now() }));
   return { id, name, mime: type, size: buffer.length };
+}
+
+/**
+ * Guarda una imagen. `data` es base64 (con o sin prefijo data:). Devuelve { id, name, mime, size }.
+ * Lanza Error con .statusCode 400 si el mime no está permitido o excede el tamaño.
+ */
+export function saveImage({ filename, mime, data }) {
+  return saveImageBuffer({ filename, mime, buffer: Buffer.from(stripDataUrl(data), 'base64') });
 }
 
 /** Lee una imagen guardada. Devuelve { buffer, mime, filename } o null si no existe. */

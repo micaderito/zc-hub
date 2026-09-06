@@ -1,9 +1,10 @@
 import { Router } from 'express';
+import express from 'express';
 import { tokens, getMlToken } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { publishProduct } from '../services/productPublish.js';
-import { saveImage, getImage, removeImage } from '../services/imageStore.js';
+import { saveImage, saveImageBuffer, getImage, removeImage } from '../services/imageStore.js';
 import { generateSeo, isLlmConfigured } from '../lib/llm.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { listPacksWithStock, savePack, removePack, assignSkuPack } from '../services/packsService.js';
@@ -35,11 +36,34 @@ const ML_AUTO_FILLED_ATTRS = new Set([
 /* ============================ Imágenes (temporales) ============================ */
 
 /**
- * Sube UNA imagen (base64) al store temporal del backend y devuelve su id. El front sube cada
- * foto a medida que la elige (requests chicos), guarda solo el id en el draft, y al publicar el
- * backend lee la imagen de acá y la sube a ML/TN. Body: { filename, mime, data (base64) }.
+ * Sube UNA imagen al store temporal del backend y devuelve su id. El front sube cada foto a
+ * medida que la elige (varias en paralelo), guarda solo el id en el draft, y al publicar el
+ * backend lee la imagen de acá y la sube a ML/TN.
+ *
+ * Dos formas de mandarla, para no romper compatibilidad:
+ * - Binaria (la que usa crear-producto hoy): `Content-Type: image/*` con el archivo crudo en el
+ *   body y el nombre en el header `X-Image-Filename` (URL-encoded). Evita la conversión a base64
+ *   (~33% más grande) y el `JSON.stringify` de ese texto en el navegador — con fotos de varios MB
+ *   ese stringify sincrónico era lo que trababa la página al cargar muchas de una.
+ * - JSON con base64 (`{ filename, mime, data }`): se mantiene por compatibilidad con integraciones
+ *   o borradores que todavía la usen.
  */
-productRoutes.post('/images', (req, res) => {
+productRoutes.post('/images', express.raw({ type: 'image/*', limit: '12mb' }), (req, res) => {
+  if (Buffer.isBuffer(req.body) && req.body.length) {
+    const filenameHeader = req.headers['x-image-filename'];
+    let filename;
+    try {
+      filename = filenameHeader ? decodeURIComponent(String(filenameHeader)) : undefined;
+    } catch {
+      filename = String(filenameHeader);
+    }
+    try {
+      const saved = saveImageBuffer({ filename, mime: req.headers['content-type'], buffer: req.body });
+      return res.json(saved);
+    } catch (e) {
+      return res.status(e.statusCode || 500).json({ error: e.message });
+    }
+  }
   const { filename, mime, data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'Falta el archivo (data base64)' });
   try {

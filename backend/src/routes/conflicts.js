@@ -6,7 +6,9 @@ import {
   patchTnSku,
   patchTnPrice,
   patchTnStock,
+  readTnSnapshotRow,
 } from '../services/conflictsService.js';
+import { rememberStockWrite, forgetStockWrite, tnStockEchoKey } from '../lib/stockEcho.js';
 import { persistSkuToChannels } from '../services/syncService.js';
 import { enqueueMlTask, getMlTaskStatus, insertAuditLog } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
@@ -309,26 +311,49 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
     }
     if (stockTNNum !== undefined && stockTNNum >= 0) {
       const flooredTn = Math.max(0, Math.floor(stockTNNum));
-      tnStockOk = await tn.updateVariantStock(
-        tokens.tiendanube.access_token,
-        tokens.tiendanube.store_id,
-        Number(productId),
-        Number(variantId),
-        flooredTn
-      );
+      const tnEchoKey = tnStockEchoKey(Number(productId), Number(variantId));
+
+      // El valor previo se lee de la foto ANTES de escribir en TN — mismo motivo que en ML
+      // (ver readTnSnapshotRow): nuestra propia escritura dispara el webhook `product/updated`
+      // de TN casi en el acto, y ese refresh puede mover la foto al valor nuevo antes de que
+      // lleguemos a leerla más abajo.
+      const before = await readTnSnapshotRow(Number(productId), Number(variantId)).catch(e => {
+        console.error('[Conflicts] readTnSnapshotRow:', e.message);
+        return null;
+      });
+
+      // El eco se anota ANTES de escribir, por la misma carrera, y se olvida si la escritura
+      // falla (para no tapar un cambio externo real que después deje el stock en ese valor).
+      rememberStockWrite(tnEchoKey, flooredTn);
+      try {
+        tnStockOk = await tn.updateVariantStock(
+          tokens.tiendanube.access_token,
+          tokens.tiendanube.store_id,
+          Number(productId),
+          Number(variantId),
+          flooredTn
+        );
+      } catch (e) {
+        forgetStockWrite(tnEchoKey);
+        throw e;
+      }
+      if (!tnStockOk) forgetStockWrite(tnEchoKey);
+
       if (tnStockOk) {
-        // El parche del snapshot devuelve el stock previo: con eso registramos el cambio manual
-        // en el historial. Solo si se movió — poner el valor que ya estaba no es un cambio.
-        const before = await patchTnStock(Number(productId), Number(variantId), flooredTn);
-        if (before && before.stockBefore !== flooredTn) {
+        // La foto ya puede estar al día por el webhook; esto la deja consistente igual, aunque
+        // el historial ya no dependa de lo que devuelva este parche.
+        await patchTnStock(Number(productId), Number(variantId), flooredTn).catch(e => console.error('[Conflicts] patchTnStock:', e.message));
+        if (before && before.stock !== flooredTn) {
           await insertAuditLog({
             source: 'manual',
             sku: before.sku || '',
             productLabel: 'Cambio manual',
             updatedChannel: 'tiendanube',
-            stockBefore: before.stockBefore,
+            stockBefore: before.stock,
             stockAfter: flooredTn,
           }).catch(e => console.error('[Conflicts] insertAuditLog:', e.message));
+        } else if (!before) {
+          console.warn(`[Conflicts] stock TN manual: sin fila en el snapshot para ${productId}/${variantId}, no se registra en el historial.`);
         }
       }
     }

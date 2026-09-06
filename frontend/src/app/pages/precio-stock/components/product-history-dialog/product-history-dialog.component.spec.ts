@@ -215,6 +215,82 @@ describe('ProductHistoryDialogComponent', () => {
     expect(row.querySelector('.hist-side.missing')).toBeNull();
   });
 
+  it('un cambio manual de una sola cara muestra "sin cambio" del otro canal, con el mismo valor en ambos', async () => {
+    // El caso del incidente 2026-09-05: se sincronizó a mano y la cara de ML se perdió por una
+    // carrera con el webhook. Antes del fix esto quedaba como un hueco sin explicar; ahora se
+    // muestra como "TN sin cambio" (ya estaba en el valor pedido) y el chip dice sincronizado.
+    syncSpy.getStockHistoryBySku.and.returnValue(
+      of({
+        rows: [
+          stockRow({ id: 1, source: 'manual', channelSale: null, orderId: null, packId: null,
+                     quantity: null, updatedChannel: 'mercadolibre', productLabel: 'Cambio manual',
+                     stockBefore: 0, stockAfter: 2, createdAt: '2026-09-05T13:37:00.000Z' }),
+        ],
+        total: 1,
+      }) as never,
+    );
+    pricingSpy.getPriceHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+
+    await createAndLoad();
+
+    const row = fixture.nativeElement.querySelector('.hist-row');
+    const missing = row.querySelector('.hist-side.missing');
+    expect(missing).not.toBeNull();
+    expect(missing.textContent).toContain('TN');
+    expect(missing.textContent).toContain('sin cambio');
+  });
+
+  it('el chip del header usa el stock real (input) en vez del arrastrado por el historial', async () => {
+    // Mismo escenario que el anterior (cara de ML perdida, historial arrastra un ML viejo), pero
+    // el llamador SÍ tiene el stock real de catálogo: el chip de arriba tiene que decir
+    // "Sincronizado" con los números reales, no derivar del historial incompleto.
+    syncSpy.getStockHistoryBySku.and.returnValue(
+      of({
+        rows: [
+          stockRow({ id: 1, source: 'manual', channelSale: null, orderId: null, packId: null,
+                     quantity: null, updatedChannel: 'tiendanube', productLabel: 'Cambio manual',
+                     stockBefore: 0, stockAfter: 2, createdAt: '2026-09-05T13:37:00.000Z' }),
+        ],
+        total: 1,
+      }) as never,
+    );
+    pricingSpy.getPriceHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+
+    fixture = TestBed.createComponent(ProductHistoryDialogComponent);
+    fixture.componentRef.setInput('sku', 'SKU1');
+    fixture.componentRef.setInput('mlStock', 2);
+    fixture.componentRef.setInput('tnStock', 2);
+    fixture.detectChanges();
+    for (let i = 0; i < 3; i++) {
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    }
+
+    const summary = fixture.nativeElement.querySelector('.hist-summary');
+    expect(summary.classList).not.toContain('desync');
+    expect(summary.textContent).toContain('Sincronizado');
+  });
+
+  it('sin stock real (input), el chip del header cae al valor derivado del historial', async () => {
+    syncSpy.getStockHistoryBySku.and.returnValue(
+      of({
+        rows: [
+          stockRow({ id: 1, updatedChannel: 'mercadolibre', packId: '100', orderId: '100',
+                     productLabel: 'Venta ML', stockBefore: 10, stockAfter: 9 }),
+        ],
+        total: 1,
+      }) as never,
+    );
+    pricingSpy.getPriceHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+
+    await createAndLoad();
+
+    // Sin mlStock/tnStock (default null), sigue derivando del historial: falta la cara TN → sin
+    // estado conocido de los dos canales → no se muestra el resumen.
+    expect(fixture.nativeElement.querySelector('.hist-summary')).toBeNull();
+  });
+
   it('un precio sin valor previo no marca dirección ni muestra flecha', async () => {
     syncSpy.getStockHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
     pricingSpy.getPriceHistoryBySku.and.returnValue(

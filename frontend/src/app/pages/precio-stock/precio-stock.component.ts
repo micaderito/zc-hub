@@ -219,10 +219,14 @@ export class PrecioStockComponent {
 
   /** SKU del par cuyo historial se está mirando; null = diálogo cerrado. */
   readonly historySku = signal<string | null>(null);
+  /** Stock actual de cada canal para el par abierto: se lo pasamos al diálogo (ver su doc). */
+  readonly historyStock = signal<{ ml: number | null; tn: number | null }>({ ml: null, tn: null });
 
   openHistory(pair: { ml: MlRow; tn: TnRow; sku?: string }): void {
     const sku = pair.sku || pair.ml.sku || pair.tn.sku;
-    if (sku) this.historySku.set(sku);
+    if (!sku) return;
+    this.historyStock.set({ ml: pair.ml.stock ?? null, tn: pair.tn.stock ?? null });
+    this.historySku.set(sku);
   }
 
   getPairError(pair: { ml: MlRow; tn: TnRow }): string | null {

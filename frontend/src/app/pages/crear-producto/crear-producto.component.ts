@@ -1,6 +1,7 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
 import {
   CatalogService,
@@ -9,6 +10,15 @@ import {
   MlCategoryRef,
   TnCategory
 } from '../../core/services/catalog.service';
+import { PricingService } from '../../core/services/pricing.service';
+import {
+  DEFAULT_SETTINGS,
+  PricingSettings,
+  computePrices,
+  mlNetReceived,
+  tiersFromConfig,
+  tnNetReceived
+} from '../../core/pricing/pricing-math';
 import {
   Channel,
   DraftImage,
@@ -18,9 +28,12 @@ import {
   ProductDraft,
   ProductVariant,
   PublishResult,
+  defaultVariantTitle,
   emptyDraft,
+  inherited,
   listingTypeLabel,
-  projectionLabel
+  projectionLabel,
+  variantLabel
 } from './product-draft.model';
 
 let variantSeq = 1;
@@ -50,9 +63,10 @@ interface StoredDraftEntry {
   templateUrl: './crear-producto.component.html',
   styleUrl: './crear-producto.component.scss'
 })
-export class CrearProductoComponent implements OnInit {
+export class CrearProductoComponent implements OnInit, OnDestroy {
   private readonly catalog = inject(CatalogService);
   private readonly api = inject(ApiService);
+  private readonly pricingSvc = inject(PricingService);
 
   readonly draft = signal<ProductDraft>(emptyDraft());
 
@@ -114,11 +128,10 @@ export class CrearProductoComponent implements OnInit {
   readonly seoGenerating = signal(false);
   readonly seoError = signal<string | null>(null);
 
-  // --- ML: comisiones / "cuánto recibís" ---
-  readonly mlFee = signal<{ saleFee: number; net: number; currency: string; percentage: number | null } | null>(null);
-  readonly mlFeeLoading = signal(false);
-  readonly mlFeeError = signal<string | null>(null);
-  private feeTimer: ReturnType<typeof setTimeout> | null = null;
+  // Nota: el hint de "cuánto recibís" que vivía acá (comisión en vivo de la API de ML) se
+  // reemplazó por el desglose de rentabilidad (ver costPreview()/mlBreakdown()/tnBreakdown() más
+  // arriba): ese hint no restaba impuestos ni envío, así que no coincidía con "Te queda" de
+  // /precios y confundía más de lo que ayudaba.
 
   // --- Imágenes ---
   /** Límite de fotos por publicación ML (settings.max_pictures_per_item; fallback 12). */
@@ -128,9 +141,16 @@ export class CrearProductoComponent implements OnInit {
   /** Tope de fotos por producto en TN (fijo por la API; error 422 al superar 250). */
   readonly TN_MAX_PICTURES = 250;
   readonly imageError = signal<string | null>(null);
-  readonly uploadingImage = signal(false);
+  /** true mientras haya al menos una foto subiendo (galería de cualquiera de los dos canales). */
+  readonly hasPendingUploads = computed(
+    () => this.draft().ml.images.some((i) => i.uploading) || this.draft().tn.images.some((i) => i.uploading)
+  );
   /** Índice arrastrado en la galería (para reordenar con drag). */
   private dragIndex: { channel: Channel; index: number } | null = null;
+  /** Worker que genera la miniatura del preview sin tocar el hilo principal (ver onImageFiles). */
+  private thumbWorker: Worker | null = null;
+  private thumbSeq = 0;
+  private readonly thumbWaiters = new Map<number, { resolve: (blob: Blob) => void; reject: (e: Error) => void }>();
 
   /** Hijos a mostrar en el modal: los del nodo actual, o las raíces si estamos en el inicio. */
   readonly currentMlChildren = computed<MlCategoryRef[]>(() => {
@@ -138,12 +158,114 @@ export class CrearProductoComponent implements OnInit {
     return node ? node.children_categories : this.mlTreeRoots();
   });
 
-  ngOnInit(): void {
+  /*
+   * ---------- computeds "de índice": evitan que la grilla de fotos-por-variante y el picker de
+   * categorías de TN vuelvan a recorrer arrays completos en cada ciclo de detección de cambios.
+   * Antes eran métodos que hacían Array.includes()/find() sobre la lista entera; con 8+ variantes
+   * y 12+ fotos, o con decenas de categorías de tienda, eso se sentía como tipeo/scroll trabado
+   * porque zone.js dispara un ciclo por cada tecla y cada evento.
+   */
+  private readonly mlVariantImageSets = computed(() => {
+    const map = new Map<string, Set<string>>();
+    for (const v of this.draft().variants) map.set(v.id, new Set(v.ml.pictureIds));
+    return map;
+  });
+  private readonly tnVariantImageSets = computed(() => {
+    const map = new Map<string, Set<string>>();
+    for (const v of this.draft().variants) map.set(v.id, new Set(v.tn.imageIds));
+    return map;
+  });
+  private readonly tnCategoryPathById = computed(() => new Map(this.tnCategories().map((c) => [c.id, c.path])));
+  private readonly tnSelectedCategorySet = computed(() => new Set(this.draft().tn.categories));
+
+  /* ---------- rentabilidad (motor de precios de /precios, ver core/pricing/pricing-math.ts) ---------- */
+
+  /** Reglas de la sección Precios (comisión, impuestos, envío, tramos…), cargadas una sola vez. */
+  readonly pricingSettings = signal<PricingSettings>(DEFAULT_SETTINGS);
+  readonly pricingLoading = signal(false);
+
+  /** true si el costo cargado alcanza para calcular (bulto+cantidad, o costo unitario directo). */
+  readonly hasCost = computed(() => {
+    const c = this.draft().cost;
+    return c.mode === 'unit' ? c.unitCost != null && c.unitCost > 0 : c.bulkPrice != null && c.bulkQty != null && c.bulkQty > 0;
+  });
+
+  /** Costo unitario + valor final + sugeridos de ML/TN a partir del costo cargado. Null sin costo. */
+  readonly costPreview = computed(() => {
+    if (!this.hasCost()) return null;
+    const c = this.draft().cost;
+    try {
+      return computePrices(
+        c.mode === 'unit'
+          ? { unitCost: c.unitCost, marginPct: c.marginPct }
+          : { bulkPrice: c.bulkPrice, bulkQty: c.bulkQty, discount1: c.discount1, discount2: c.discount2, marginPct: c.marginPct },
+        this.pricingSettings()
+      );
+    } catch {
+      return null;
+    }
+  });
+
+  /** Desglose de "cuánto te queda" para el precio de ML realmente ingresado (no el sugerido). */
+  mlBreakdown(price: number | null): { net: number; marginPct: number | null } | null {
+    const preview = this.costPreview();
+    if (!price || price <= 0 || !preview) return null;
+    const net = mlNetReceived(price, this.pricingSettings());
+    const marginPct = preview.unitCost > 0 ? (net / preview.unitCost - 1) * 100 : null;
+    return { net, marginPct };
+  }
+
+  /** Desglose de "cuánto te queda" para el precio de TN realmente ingresado. */
+  tnBreakdown(price: number | null): { net: number; marginPct: number | null } | null {
+    const preview = this.costPreview();
+    if (!price || price <= 0 || !preview) return null;
+    const net = tnNetReceived(price, this.pricingSettings());
+    const marginPct = preview.unitCost > 0 ? (net / preview.unitCost - 1) * 100 : null;
+    return { net, marginPct };
+  }
+
+  /** true si el precio de ML ingresado cae en la "zona muerta" (arriba del umbral de envío gratis). */
+  readonly mlFreeShippingZone = computed(() => {
+    const price = this.draft().ml.basePrice;
+    return !!price && price > this.pricingSettings().freeShippingThreshold;
+  });
+
+  async ngOnInit(): Promise<void> {
     // Precargamos las categorías de TN para poblar el multi-select (requiere estar conectado).
     void this.loadTnCategories();
     this.migrateLegacyDraft();
     this.refreshSavedDraftsList();
     this.restoreMostRecentDraft();
+    void this.loadPricingSettings();
+  }
+
+  ngOnDestroy(): void {
+    this.thumbWorker?.terminate();
+    // Los previews son object URLs (blob:): liberarlos evita que se acumulen en memoria.
+    for (const img of [...this.draft().ml.images, ...this.draft().tn.images]) {
+      if (img.previewUrl.startsWith('blob:')) URL.revokeObjectURL(img.previewUrl);
+    }
+  }
+
+  /** Trae los valores fijos + tramos de comisión de ML que ya usa /precios (misma fuente de verdad). */
+  async loadPricingSettings(): Promise<void> {
+    this.pricingLoading.set(true);
+    try {
+      const config = await firstValueFrom(this.pricingSvc.getConfig());
+      this.pricingSettings.set({ ...config.settings, tiers: tiersFromConfig(config.tiers) });
+      const d = this.draft();
+      // Solo si el borrador todavía tiene los defaults de fábrica (no pisamos lo que ya se cargó/restauró).
+      if (d.cost.discount1 === 25 && d.cost.discount2 === 5 && d.cost.marginPct === 100) {
+        d.cost.discount1 = config.settings.defaultDiscount1;
+        d.cost.discount2 = config.settings.defaultDiscount2;
+        d.cost.marginPct = config.settings.defaultMarginPct;
+        this.touch();
+      }
+    } catch {
+      // Sin conexión a /precios: seguimos con los defaults de la planilla (DEFAULT_SETTINGS).
+    } finally {
+      this.pricingLoading.set(false);
+    }
   }
 
   /* ================= Tienda Nube: multi-select ================= */
@@ -160,8 +282,9 @@ export class CrearProductoComponent implements OnInit {
     }
   }
 
+  /** O(1) por índice precalculado (ver tnSelectedCategorySet): la tienda puede tener decenas de categorías. */
   isTnCategorySelected(id: number): boolean {
-    return this.draft().tn.categories.includes(id);
+    return this.tnSelectedCategorySet().has(id);
   }
 
   toggleTnCategory(id: number): void {
@@ -172,9 +295,9 @@ export class CrearProductoComponent implements OnInit {
     this.touch();
   }
 
-  /** Nombre/path de una categoría TN por id (para los chips seleccionados). */
+  /** Nombre/path de una categoría TN por id (para los chips seleccionados). O(1) por índice. */
   tnCategoryName(id: number): string {
-    return this.tnCategories().find((c) => c.id === id)?.path ?? `#${id}`;
+    return this.tnCategoryPathById().get(id) ?? `#${id}`;
   }
 
   /* ================= Mercado Libre: predictor ================= */
@@ -208,7 +331,6 @@ export class CrearProductoComponent implements OnInit {
     this.mlPredictions.set([]);
     this.touch();
     await this.loadMlAttributes(p.category_id, p.attributes);
-    void this.loadMlFee();
   }
 
   /* ================= Mercado Libre: árbol ================= */
@@ -268,7 +390,6 @@ export class CrearProductoComponent implements OnInit {
     this.mlTreeOpen.set(false);
     this.touch();
     await this.loadMlAttributes(node.id);
-    void this.loadMlFee();
   }
 
   clearMlCategory(): void {
@@ -366,35 +487,6 @@ export class CrearProductoComponent implements OnInit {
     }
   }
 
-  /* ================= ML: "cuánto recibís" (comisiones) ================= */
-
-  /** Se dispara al cambiar el precio ML: pide las comisiones con debounce. */
-  onMlPriceChange(): void {
-    if (this.feeTimer) clearTimeout(this.feeTimer);
-    this.feeTimer = setTimeout(() => void this.loadMlFee(), 500);
-  }
-
-  /** Consulta las comisiones de ML para el precio simple + categoría + tipo de publicación. */
-  async loadMlFee(): Promise<void> {
-    const d = this.draft();
-    const price = d.ml.basePrice;
-    if (!price || price <= 0 || !d.ml.categoryId) {
-      this.mlFee.set(null);
-      this.mlFeeError.set(null);
-      return;
-    }
-    this.mlFeeLoading.set(true);
-    this.mlFeeError.set(null);
-    try {
-      const r = await this.catalog.getMlListingPrices(price, d.ml.categoryId, d.ml.listingType);
-      this.mlFee.set({ saleFee: r.sale_fee_amount, net: r.net, currency: r.currency_id, percentage: r.percentage_fee });
-    } catch (e) {
-      this.mlFee.set(null);
-      this.mlFeeError.set(this.errMsg(e));
-    } finally {
-      this.mlFeeLoading.set(false);
-    }
-  }
 
   private errMsg(e: unknown): string {
     const err = e as { error?: { error?: string }; message?: string };
@@ -419,6 +511,26 @@ export class CrearProductoComponent implements OnInit {
   revert(field: OverrideField<string>): void {
     field.inherited = true;
     this.touch();
+  }
+
+  /* ---------- títulos por variante (one_per_variant, uno por canal) ---------- */
+
+  /** Título automático de la publicación de una variante: "<título del canal> - <valores>". */
+  variantDefaultTitle(channel: Channel, v: ProductVariant): string {
+    const d = this.draft();
+    const base = channel === 'ml' ? this.effective(d.ml.title, d.common.baseName) : this.effective(d.tn.nameEs, d.common.baseName);
+    return defaultVariantTitle(base, v.values);
+  }
+
+  /** Título efectivo de la publicación de esta variante (propio si se cargó uno, si no el automático). */
+  variantTitle(channel: Channel, v: ProductVariant): string {
+    const field = channel === 'ml' ? v.titles.ml : v.titles.tn;
+    return this.effective(field, this.variantDefaultTitle(channel, v));
+  }
+
+  /** Etiqueta corta de la variante para listas/selectores ("Negro A4"). Única fuente en el front. */
+  variantChipLabel(v: ProductVariant): string {
+    return variantLabel(v.values) || v.sku || 'Variante';
   }
 
   /* ---------- mapping mode (Opción B) ---------- */
@@ -456,8 +568,12 @@ export class CrearProductoComponent implements OnInit {
       sku: '',
       values: d.axes.map(() => ''),
       stock: null,
+      // Vacío = usa el código de barras común (ver common.barcode): no todas las variantes
+      // vienen con el mismo código del proveedor.
+      barcode: '',
       ml: { price: null, pictureIds: [] },
-      tn: { price: null, imageIds: [] }
+      tn: { price: null, imageIds: [] },
+      titles: { ml: inherited(''), tn: inherited('') }
     };
     d.variants.push(variant);
     this.touch();
@@ -475,6 +591,12 @@ export class CrearProductoComponent implements OnInit {
   readonly mlRequiredAttrs = computed(() => this.draft().ml.attributes.filter((a) => a.required));
   /** Características opcionales (se muestran en una sección colapsable para no saturar). */
   readonly mlOptionalAttrs = computed(() => this.draft().ml.attributes.filter((a) => !a.required));
+  /**
+   * Categorías con muchos atributos meten 50-150 filas opcionales al DOM. Antes quedaban siempre
+   * renderizadas (aunque el `<details>` estuviera cerrado) y de paso change-detected en cada
+   * ciclo; ahora solo se arman cuando la usuaria los abre.
+   */
+  readonly mlOptionalOpen = signal(false);
 
   /**
    * Las características de la categoría no se agregan ni se quitan a mano: son las que define ML.
@@ -494,8 +616,13 @@ export class CrearProductoComponent implements OnInit {
   }
 
   /**
-   * Sube los archivos elegidos: valida formato/tamaño/tope, sube cada uno al backend (base64) y
-   * agrega la imagen a la galería del canal con su preview. Los errores se muestran inline.
+   * Sube los archivos elegidos: valida formato/tamaño/tope y agrega de entrada una fila por foto
+   * (con `uploading: true`), en el orden elegido. La miniatura del preview se genera en un Web
+   * Worker (nunca bloquea el hilo principal) y el original se sube tal cual — sin pasar por
+   * base64/JSON — con una concurrencia acotada (varias en paralelo, no una detrás de la otra).
+   * Antes cada foto se leía entera a un data URL y se mandaba dentro de un JSON: con fotos de
+   * varios MB, ese `JSON.stringify` corría sincrónico en el hilo principal y era la causa
+   * principal del scroll/tipeo trabado al cargar varias fotos de una.
    */
   async onImageFiles(channel: Channel, fileList: FileList | null): Promise<void> {
     if (!fileList || !fileList.length) return;
@@ -503,8 +630,11 @@ export class CrearProductoComponent implements OnInit {
     const list = this.images(channel);
     const limit = this.imageLimit(channel);
     const channelName = channel === 'ml' ? 'Mercado Libre' : 'Tienda Nube';
+
+    // 1) Validar todo primero (formato / WEBP en ML / tamaño / tope de galería).
+    const accepted: { file: File; localId: string }[] = [];
     for (const file of Array.from(fileList)) {
-      if (list.length >= limit) {
+      if (list.length + accepted.length >= limit) {
         this.imageError.set(`Máximo ${limit} fotos en ${channelName}.`);
         break;
       }
@@ -520,27 +650,88 @@ export class CrearProductoComponent implements OnInit {
         this.imageError.set(`"${file.name}" supera los 10 MB.`);
         continue;
       }
-      try {
-        this.uploadingImage.set(true);
-        const dataUrl = await this.readAsDataUrl(file);
-        const up = await this.catalog.uploadImage({ filename: file.name, mime: file.type, data: dataUrl });
-        list.push({ id: up.id, name: up.name, previewUrl: dataUrl });
-        this.touch();
-      } catch (e) {
-        this.imageError.set(this.errMsg(e));
-      } finally {
-        this.uploadingImage.set(false);
+      accepted.push({ file, localId: `local-${this.genId()}` });
+    }
+    if (!accepted.length) return;
+
+    // 2) Placeholders visibles de entrada, en el orden elegido, mientras se genera la miniatura y sube el original.
+    for (const { file, localId } of accepted) {
+      list.push({ id: localId, name: file.name, previewUrl: '', uploading: true });
+    }
+    this.touch();
+
+    // 3) Miniatura + subida real, con concurrencia acotada (3 a la vez).
+    const CONCURRENCY = 3;
+    let cursor = 0;
+    const runNext = async (): Promise<void> => {
+      while (cursor < accepted.length) {
+        const { file, localId } = accepted[cursor++];
+        try {
+          const previewUrl = await this.makeThumb(file);
+          const placeholder = list.find((i) => i.id === localId);
+          if (placeholder) {
+            placeholder.previewUrl = previewUrl;
+            this.touch();
+          }
+          const up = await this.catalog.uploadImageFile(file);
+          const idx = list.findIndex((i) => i.id === localId);
+          if (idx >= 0) {
+            list[idx] = { ...list[idx], id: up.id, name: up.name, uploading: false };
+            this.touch();
+          }
+        } catch (e) {
+          const idx = list.findIndex((i) => i.id === localId);
+          if (idx >= 0) {
+            const [removed] = list.splice(idx, 1);
+            if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+            this.touch();
+          }
+          this.imageError.set(this.errMsg(e));
+        }
       }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, accepted.length) }, () => runNext()));
+  }
+
+  /** Miniatura liviana (≤400px) para el `<img src>` del preview. Nunca el archivo original. */
+  private async makeThumb(file: File): Promise<string> {
+    const worker = this.getThumbWorker();
+    if (!worker) return URL.createObjectURL(file);
+    const id = ++this.thumbSeq;
+    try {
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        this.thumbWaiters.set(id, { resolve, reject });
+        worker.postMessage({ id, file });
+      });
+      return URL.createObjectURL(blob);
+    } catch {
+      // El worker falló (formato raro, etc.): mostramos el original antes que nada.
+      return URL.createObjectURL(file);
     }
   }
 
-  private readAsDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
-      reader.readAsDataURL(file);
-    });
+  private getThumbWorker(): Worker | null {
+    if (typeof Worker === 'undefined') return null;
+    if (!this.thumbWorker) {
+      try {
+        this.thumbWorker = new Worker(new URL('./image-thumb.worker', import.meta.url), { type: 'module' });
+        this.thumbWorker.onmessage = (ev: MessageEvent<{ id: number; blob?: Blob; error?: string }>) => {
+          const waiter = this.thumbWaiters.get(ev.data.id);
+          if (!waiter) return;
+          this.thumbWaiters.delete(ev.data.id);
+          if (ev.data.blob) waiter.resolve(ev.data.blob);
+          else waiter.reject(new Error(ev.data.error || 'No se pudo generar la miniatura'));
+        };
+        this.thumbWorker.onerror = () => {
+          // Worker roto por completo: los pendientes caen al fallback (createObjectURL directo).
+          for (const [, w] of this.thumbWaiters) w.reject(new Error('Worker de miniaturas no disponible'));
+          this.thumbWaiters.clear();
+        };
+      } catch {
+        this.thumbWorker = null;
+      }
+    }
+    return this.thumbWorker;
   }
 
   /** Quita una imagen de la galería, la desasigna de las variantes y la borra del backend. */
@@ -549,11 +740,13 @@ export class CrearProductoComponent implements OnInit {
     const list = channel === 'ml' ? d.ml.images : d.tn.images;
     const [removed] = list.splice(index, 1);
     if (removed) {
+      if (removed.previewUrl.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
       for (const v of d.variants) {
         if (channel === 'ml') v.ml.pictureIds = v.ml.pictureIds.filter((id) => id !== removed.id);
         else v.tn.imageIds = v.tn.imageIds.filter((id) => id !== removed.id);
       }
-      void this.catalog.deleteImage(removed.id).catch(() => undefined);
+      // Si todavía estaba subiendo, el id es local (no existe en el backend): no hay nada que borrar.
+      if (!removed.uploading) void this.catalog.deleteImage(removed.id).catch(() => undefined);
     }
     this.touch();
   }
@@ -584,8 +777,9 @@ export class CrearProductoComponent implements OnInit {
   }
 
   /* asignación de fotos por variante */
+  /** O(1) por índice precalculado (ver mlVariantImageSets): se llama por cada celda de la grilla. */
   isVariantMlImage(v: ProductVariant, imageId: string): boolean {
-    return v.ml.pictureIds.includes(imageId);
+    return this.mlVariantImageSets().get(v.id)?.has(imageId) ?? false;
   }
   toggleVariantMlImage(v: ProductVariant, imageId: string): void {
     if (v.ml.pictureIds.includes(imageId)) {
@@ -602,8 +796,9 @@ export class CrearProductoComponent implements OnInit {
   /** En one_per_variant cada variante es su propio producto TN → admite varias fotos. */
   readonly tnMultiPerVariant = computed(() => this.draft().tn.mappingMode === 'one_per_variant');
 
+  /** O(1) por índice precalculado (ver tnVariantImageSets): se llama por cada celda de la grilla. */
   isVariantTnImage(v: ProductVariant, imageId: string): boolean {
-    return v.tn.imageIds.includes(imageId);
+    return this.tnVariantImageSets().get(v.id)?.has(imageId) ?? false;
   }
   /**
    * Asigna/desasigna una foto a la variante en TN. En single_with_variants es de a UNA (TN solo
@@ -706,6 +901,10 @@ export class CrearProductoComponent implements OnInit {
    * `id`/`name` — el `previewUrl` (puede ser un data: URL pesado) se reconstruye al restaurar.
    */
   saveDraft(): void {
+    if (this.hasPendingUploads()) {
+      this.imageError.set('Esperá a que terminen de subirse las fotos antes de guardar el borrador.');
+      return;
+    }
     const d = this.draft();
     const stripPreview = (images: DraftImage[]) => images.map(({ id, name }) => ({ id, name }));
     const id = this.currentDraftId() ?? this.genId();
@@ -739,12 +938,18 @@ export class CrearProductoComponent implements OnInit {
     d.ml.images = restorePreview(entry.draft.ml.images as { id: string; name: string }[]);
     d.tn.images = restorePreview(entry.draft.tn.images as { id: string; name: string }[]);
     // Compat: borradores viejos guardaban `tn.imageId` (una sola); migramos a `imageIds` (array).
+    // También migramos borradores de antes de `barcode`/`titles` por variante y de `cost` (rentabilidad).
     for (const v of d.variants) {
       const tn = v.tn as { imageIds?: string[]; imageId?: string | null };
       if (!Array.isArray(tn.imageIds)) {
         tn.imageIds = tn.imageId ? [tn.imageId] : [];
         delete tn.imageId;
       }
+      if (v.barcode == null) v.barcode = '';
+      if (!v.titles) v.titles = { ml: inherited(''), tn: inherited('') };
+    }
+    if (!d.cost) {
+      d.cost = { mode: 'bulk', bulkPrice: null, bulkQty: null, discount1: 25, discount2: 5, unitCost: null, marginPct: 100 };
     }
     this.draft.set(d);
     this.mlMaxPictures.set(entry.mlMaxPictures ?? 12);
@@ -812,6 +1017,10 @@ export class CrearProductoComponent implements OnInit {
    * (así no se re-publica el canal que ya salió OK).
    */
   async publish(channels?: Channel[]): Promise<void> {
+    if (this.hasPendingUploads()) {
+      this.imageError.set('Esperá a que terminen de subirse las fotos antes de publicar.');
+      return;
+    }
     this.publishing.set(true);
     if (!channels) this.publishResults.set(null);
     try {
@@ -866,8 +1075,19 @@ export class CrearProductoComponent implements OnInit {
       variants: d.variants.map((v) => ({
         sku: v.sku,
         values: v.values,
+        // Código de barras propio de la variante; vacío = el backend no tiene fallback acá, así
+        // que se resuelve el common ANTES de mandarlo (no todas las variantes traen el mismo).
+        barcode: v.barcode || d.common.barcode || undefined,
+        // Nombre de la publicación de TN cuando ese canal está en one_per_variant (uno por variante).
+        name: this.variantTitle('tn', v),
         // El stock es el mismo en ambos canales: se manda igual a ML y a TN.
-        ml: { price: v.ml.price, stock: v.stock, picture_ids: v.ml.pictureIds },
+        ml: {
+          price: v.ml.price,
+          stock: v.stock,
+          picture_ids: v.ml.pictureIds,
+          // Título de la publicación de ML cuando ese canal está en one_per_variant.
+          title: this.variantTitle('ml', v)
+        },
         tn: { price: v.tn.price, stock: v.stock, image_ids: v.tn.imageIds }
       })),
       ml: {
@@ -948,13 +1168,14 @@ export class CrearProductoComponent implements OnInit {
         }
       ];
     }
-    // Peso, código de barras y dimensiones son iguales para todas las variantes (vienen del común).
+    // Peso y dimensiones son iguales para todas las variantes (vienen del común). El código de
+    // barras es propio de cada una si se cargó uno; si no, cae al común (no todas traen el mismo).
     return d.variants.map((v) => ({
       sku: v.sku,
       values: v.values.map((value, i) => ({ es: `${d.axes[i]?.name ?? ''}: ${value}` })),
       price: v.tn.price,
       stock: v.stock,
-      barcode: d.common.barcode,
+      barcode: v.barcode || d.common.barcode,
       weight: weightKg,
       width: d.common.widthCm,
       height: d.common.heightCm,
@@ -971,8 +1192,14 @@ export class CrearProductoComponent implements OnInit {
     void this.publish([channel]);
   }
 
-  /** Fuerza una nueva referencia de la señal tras mutar el draft en sitio. */
-  private touch(): void {
+  /**
+   * Fuerza una nueva referencia de la señal tras mutar el draft en sitio. Pública (no solo de uso
+   * interno): el template la llama directo en los campos de precio/costo para que los `computed()`
+   * de rentabilidad (costPreview, mlBreakdown, tnBreakdown) se actualicen mientras se tipea — un
+   * `computed()` sólo vuelve a calcular cuando la señal `draft` cambia de referencia, no cuando
+   * `[(ngModel)]` muta una propiedad anidada en el lugar.
+   */
+  touch(): void {
     this.draft.set({ ...this.draft() });
   }
 }

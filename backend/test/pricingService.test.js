@@ -16,8 +16,10 @@ const dbState = {
 };
 const storeState = { mlBySku: {}, tnBySku: {}, tnTokens: { access_token: 'tn-tok', store_id: '55' } };
 const tnState = { bulkCalls: [], bulkError: null };
-// patchTnPrice devuelve el precio previo del snapshot (null = fila ausente), igual que en prod.
-const patchState = { tnPriceBefore: null, calls: [] };
+// readTnSnapshotRow devuelve la fila previa del snapshot (null = ausente); se lee ANTES del
+// bulk, no después — patchTnPrice ahora solo mantiene la foto al día, su valor de retorno
+// ya no se usa para el historial (ver pricingService.js / conflictsService.js).
+const patchState = { tnSnapshotRow: null, calls: [], readCalls: [] };
 const auditState = { priceRows: [] };
 // fase 4: listas importadas, ítems, catálogo de códigos y mapeos guardados (SKU y pack).
 const listState = { saved: [], items: [], codes: [], map: [], packMap: [] };
@@ -78,7 +80,10 @@ before(async () => {
     exports: {
       patchTnPrice: async (...a) => {
         patchState.calls.push(a);
-        return patchState.tnPriceBefore;
+      },
+      readTnSnapshotRow: async (...a) => {
+        patchState.readCalls.push(a);
+        return patchState.tnSnapshotRow;
       },
     },
   });
@@ -121,7 +126,8 @@ beforeEach(() => {
   storeState.access_token = undefined;
   tnState.bulkCalls = [];
   tnState.bulkError = null;
-  patchState.tnPriceBefore = null;
+  patchState.tnSnapshotRow = null;
+  patchState.readCalls = [];
   patchState.calls = [];
   auditState.priceRows = [];
   storeState.resolvedSkus = [];
@@ -249,7 +255,7 @@ test('enqueueApply: channels.ml=false no encola ML', async () => {
 test('enqueueApply: registra el cambio de precio de TN en el historial', async () => {
   dbState.costs['H1'] = { sku: 'H1', source: 'manual', unitCost: 1000, label: 'Producto H1' };
   storeState.tnBySku['H1'] = { productId: 7, variantId: 8 };
-  patchState.tnPriceBefore = { priceBefore: 1500, sku: 'H1' };
+  patchState.tnSnapshotRow = { price: 1500, sku: 'H1' };
 
   await svc.enqueueApply(['H1'], { ml: false, tn: true });
 
@@ -270,7 +276,7 @@ test('enqueueApply: si el precio de TN no cambió, no ensucia el historial', asy
   storeState.tnBySku['H2'] = { productId: 1, variantId: 2 };
   // el precio previo es exactamente el que vamos a aplicar
   const expected = svc.previewRow(dbState.costs['H2'], DEFAULT_SETTINGS, null).tn.list;
-  patchState.tnPriceBefore = { priceBefore: expected, sku: 'H2' };
+  patchState.tnSnapshotRow = { price: expected, sku: 'H2' };
 
   await svc.enqueueApply(['H2'], { ml: false, tn: true });
 
@@ -280,13 +286,33 @@ test('enqueueApply: si el precio de TN no cambió, no ensucia el historial', asy
 test('enqueueApply: si el bulk de TN falla, no registra historial', async () => {
   dbState.costs['H3'] = { sku: 'H3', source: 'manual', unitCost: 1000 };
   storeState.tnBySku['H3'] = { productId: 1, variantId: 2 };
-  patchState.tnPriceBefore = { priceBefore: 999, sku: 'H3' };
+  patchState.tnSnapshotRow = { price: 999, sku: 'H3' };
   tnState.bulkError = new Error('422');
 
   await svc.enqueueApply(['H3'], { ml: false, tn: true });
 
   assert.equal(auditState.priceRows.length, 0);
+  // El precio previo se lee ANTES del bulk (para no perderlo si el bulk aplica pero el proceso se
+  // cae antes de leerlo), pero el snapshot solo se parcha DESPUÉS de que el bulk confirme — si
+  // falla, no hay nada que confirmar y no se toca la foto.
   assert.equal(patchState.calls.length, 0);
+});
+
+/**
+ * El mismo motivo que en ML (ver mlTaskQueue.test.js): la escritura dispara el webhook
+ * `product/updated` de TN casi en el acto, que puede mover la foto al valor nuevo antes de que
+ * este código llegue a leerla si se leyera DESPUÉS del bulk. readTnSnapshotRow tiene que leerse
+ * antes de mandar el bulk.
+ */
+test('enqueueApply: lee el precio previo de TN ANTES del bulk, no después', async () => {
+  dbState.costs['H4'] = { sku: 'H4', source: 'manual', unitCost: 1000 };
+  storeState.tnBySku['H4'] = { productId: 9, variantId: 90 };
+  patchState.tnSnapshotRow = { price: 1000, sku: 'H4' };
+
+  await svc.enqueueApply(['H4'], { ml: false, tn: true });
+
+  assert.equal(patchState.readCalls.length, 1, 'debe leer el snapshot antes de mandar el bulk');
+  assert.equal(tnState.bulkCalls.length, 1, 'el bulk se manda una vez confirmado el valor previo');
 });
 
 // ── importación de listas y mapeo (fase 4) ─────────────────────────────────
