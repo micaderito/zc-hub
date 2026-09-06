@@ -1,0 +1,119 @@
+<section class="zc-card block">
+  <div class="block-head">
+    <i class="ti ti-layout-grid"></i>
+    <span class="block-title">Variantes</span>
+    <span class="block-note">— cada combinación lleva su SKU, precio por canal y un stock único</span>
+  </div>
+
+  @if (!store.hasVariants()) {
+    <div class="simple-pricing">
+      <p class="muted">Producto simple (sin variantes). Cargá SKU, precio y stock, o agregá un eje para crear variantes.</p>
+      <label class="field">
+        <span class="lbl">SKU <span class="req">*</span></span>
+        <input class="zc-input" [(ngModel)]="store.draft().common.sku" placeholder="Ej. CUA-A4-TD" />
+        <span class="hint"><i class="ti ti-link"></i> ML: SELLER_SKU · TN: sku — es la clave que une ambos canales</span>
+      </label>
+      <div class="simple-grid">
+        <label>
+          <span class="lbl"><span class="dot dot-ml"></span> Precio ML ({{ store.draft().ml.currency }}) <span class="req">*</span></span>
+          <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().ml.basePrice" (ngModelChange)="store.touch()" />
+          @if (store.mlBreakdown(store.draft().ml.basePrice); as b) {
+            <span class="hint fee-hint">
+              <i class="ti ti-receipt-2"></i>
+              Te quedan <strong>{{ b.net | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+              @if (b.marginPct != null) { · margen real <strong>{{ b.marginPct | number: '1.0-1' }}%</strong> }
+            </span>
+            @if (store.mlFreeShippingZone()) {
+              <span class="hint"><i class="ti ti-truck"></i> zona de envío gratis (arriba de {{ store.pricingSettings().freeShippingThreshold | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }})</span>
+            }
+          } @else if (store.draft().ml.basePrice && !store.hasCost()) {
+            <span class="hint muted">cargá el costo (arriba) para ver cuánto te queda</span>
+          }
+        </label>
+        <label>
+          <span class="lbl">◆ Precio TN <span class="req">*</span></span>
+          <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().tn.basePrice" (ngModelChange)="store.touch()" />
+          @if (store.tnBreakdown(store.draft().tn.basePrice); as b) {
+            <span class="hint fee-hint">
+              Te quedan <strong>{{ b.net | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+              @if (b.marginPct != null) { · margen real <strong>{{ b.marginPct | number: '1.0-1' }}%</strong> }
+            </span>
+          }
+        </label>
+        <label>
+          <span class="lbl">Stock <span class="req">*</span></span>
+          <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().common.baseStock" />
+          <span class="hint">el mismo stock se manda a los dos canales</span>
+        </label>
+      </div>
+      <button type="button" class="zc-btn small" (click)="store.addAxis()"><i class="ti ti-plus"></i> Agregar eje de variante</button>
+    </div>
+  } @else {
+    <div class="axes field">
+      @for (axis of store.draft().axes; track $index) {
+        <div class="axis-chip">
+          <input class="zc-input axis-input" [(ngModel)]="axis.name" placeholder="Eje (ej. Color)" />
+          <button type="button" class="icon-btn" (click)="store.removeAxis($index)" aria-label="Quitar eje"><i class="ti ti-x"></i></button>
+        </div>
+      }
+      @if (store.draft().axes.length < 3) {
+        <button type="button" class="zc-btn small" (click)="store.addAxis()"><i class="ti ti-plus"></i> Eje</button>
+      }
+    </div>
+
+    <div class="variant-table-wrap">
+      <table class="variant-table">
+        <thead>
+          <tr>
+            @for (axis of store.draft().axes; track $index) {
+              <th>{{ axis.name || 'Eje ' + ($index + 1) }}</th>
+            }
+            <th>SKU</th>
+            <th><span class="dot dot-ml"></span> Precio</th>
+            <th class="th-margin" title="Lo que te queda al precio de ML cargado, según el costo de arriba">Te queda</th>
+            <th class="th-tn">◆ Precio</th>
+            <th>Stock</th>
+            <th title="Vacío = usa el código de barras común">Cód. barras</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (v of store.draft().variants; track v.id) {
+            <tr>
+              @for (axis of store.draft().axes; track $index) {
+                <td><input class="zc-input cell" [(ngModel)]="v.values[$index]" /></td>
+              }
+              <td><input class="zc-input cell mono" [(ngModel)]="v.sku" /></td>
+              <td><input class="zc-input cell" type="number" [(ngModel)]="v.ml.price" (ngModelChange)="store.touch()" /></td>
+              <td class="cell-readonly">
+                @if (store.mlBreakdown(v.ml.price); as b) {
+                  <span [title]="b.marginPct != null ? 'margen real ' + (b.marginPct | number: '1.0-1') + '%' : ''">
+                    {{ b.net | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}
+                  </span>
+                } @else {
+                  <span class="muted">—</span>
+                }
+              </td>
+              <td><input class="zc-input cell" type="number" [(ngModel)]="v.tn.price" (ngModelChange)="store.touch()" /></td>
+              <td><input class="zc-input cell" type="number" [(ngModel)]="v.stock" /></td>
+              <td><input class="zc-input cell mono" [(ngModel)]="v.barcode" [placeholder]="store.draft().common.barcode || 'código común'" /></td>
+              <td><button type="button" class="icon-btn" (click)="store.removeVariant(v.id)" aria-label="Quitar variante"><i class="ti ti-trash"></i></button></td>
+            </tr>
+          }
+        </tbody>
+        <tfoot>
+          <tr>
+            <td class="add-variant-cell" [attr.colspan]="store.draft().axes.length + 7">
+              <button type="button" class="add-variant-row" (click)="store.addVariant()">
+                <i class="ti ti-plus"></i> Agregar variante
+              </button>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <zc-variant-titles />
+    <zc-variant-photos />
+  }
+</section>

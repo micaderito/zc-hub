@@ -1,0 +1,40 @@
+.results-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+  .ti-circle-check {
+    color: var(--ok);
+    font-size: 1.1rem;
+  }
+  .ti-alert-circle {
+    color: var(--warn);
+    font-size: 1.1rem;
+  }
+  .icon-btn {
+    margin-left: auto;
+  }
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.4rem;
+  font-size: 0.78rem;
+  &.ok {
+    background: var(--ok-bg);
+  }
+  &.err {
+    background: var(--err-bg);
+  }
+  .ch {
+    font-weight: 500;
+  }
+  .result-detail {
+    flex: 1;
+    color: var(--text-2);
+  }
+}

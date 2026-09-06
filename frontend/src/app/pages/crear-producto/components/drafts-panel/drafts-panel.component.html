@@ -1,0 +1,26 @@
+<section class="zc-card block drafts-panel">
+  <div class="block-head">
+    <i class="ti ti-files"></i>
+    <span class="block-title">Mis borradores</span>
+    <button type="button" class="icon-btn" (click)="store.toggleDraftsPanel()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+  </div>
+  @if (store.savedDrafts().length) {
+    @for (d of store.savedDrafts(); track d.id) {
+      <div class="draft-row" [class.is-current]="d.id === store.currentDraftId()">
+        <i class="ti ti-file-text"></i>
+        <div class="draft-info">
+          <span class="draft-name">{{ d.label }}</span>
+          <span class="hint">Guardado {{ d.savedAt | date: 'short' }}</span>
+        </div>
+        @if (d.id === store.currentDraftId()) {
+          <span class="zc-badge ok">editando</span>
+        } @else {
+          <button type="button" class="zc-btn small" (click)="store.openDraft(d.id)"><i class="ti ti-folder-open"></i> Abrir</button>
+        }
+        <button type="button" class="icon-btn" (click)="store.deleteDraft(d.id)" aria-label="Eliminar borrador"><i class="ti ti-trash"></i></button>
+      </div>
+    }
+  } @else {
+    <p class="muted">Todavía no guardaste ningún borrador. Usá "Guardar borrador" al final del formulario.</p>
+  }
+</section>

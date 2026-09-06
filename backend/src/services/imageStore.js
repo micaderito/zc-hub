@@ -20,8 +20,14 @@ const DIR = path.join(process.cwd(), 'data', 'tmp-images');
 export const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
 /** Tope por archivo (ML y TN: 10 MB). */
 export const MAX_BYTES = 10 * 1024 * 1024;
-/** TTL de limpieza de imágenes no publicadas (24 h). */
-const TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * TTL de limpieza de imágenes no publicadas (72 h). Hasta ahora `purgeOld()` no se llamaba desde
+ * ningún lado, así que un borrador de 2 días todavía tenía sus fotos; activar la purga con el TTL
+ * de 24 h le habría roto borradores que hoy funcionan.
+ */
+const TTL_MS = 72 * 60 * 60 * 1000;
+/** Tope de la miniatura: la genera el cliente (~40 KB a 320 px); 512 KB frena cualquier abuso. */
+export const MAX_THUMB_BYTES = 512 * 1024;
 
 function ensureDir() {
   if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
@@ -82,11 +88,50 @@ export function getImage(id) {
   }
 }
 
-/** Borra una imagen (binario + metadata). No falla si no existe. */
+/**
+ * Guarda la MINIATURA de una imagen ya subida (la genera el cliente en un Web Worker). Se guarda
+ * como un tercer archivo `<id>.thumb`, siempre JPEG.
+ *
+ * Existe para que restaurar un borrador no tenga que servir los originales: con 45 fotos eran
+ * ~225 MB de descarga para pintarlas en cajas de 40-84 px, y eso hacía que el navegador
+ * descartara la pestaña. La miniatura NUNCA se publica en ML ni en TN: `productPublish.js` usa
+ * `getImage()` (el original). Solo se le sirve de vuelta a la misma usuaria como preview.
+ */
+export function saveThumbBuffer(id, buffer) {
+  const safe = String(id || '').replace(/[^a-f0-9]/gi, '');
+  const meta = safe && path.join(DIR, `${safe}.json`);
+  if (!safe || !fs.existsSync(meta)) {
+    throw Object.assign(new Error('La imagen no existe'), { statusCode: 404 });
+  }
+  if (!buffer || !buffer.length) throw Object.assign(new Error('Miniatura vacía'), { statusCode: 400 });
+  if (buffer.length > MAX_THUMB_BYTES) {
+    throw Object.assign(new Error('La miniatura es demasiado grande'), { statusCode: 400 });
+  }
+  fs.writeFileSync(path.join(DIR, `${safe}.thumb`), buffer);
+  try {
+    fs.writeFileSync(meta, JSON.stringify({ ...JSON.parse(fs.readFileSync(meta, 'utf8')), hasThumb: true }));
+  } catch { /* el .thumb ya está en disco; el flag del meta es informativo */ }
+  return { ok: true, size: buffer.length };
+}
+
+/** Lee la miniatura. Devuelve { buffer, mime } o null si esa imagen todavía no tiene una. */
+export function getThumb(id) {
+  const safe = String(id || '').replace(/[^a-f0-9]/gi, '');
+  if (!safe) return null;
+  const thumb = path.join(DIR, `${safe}.thumb`);
+  if (!fs.existsSync(thumb)) return null;
+  try {
+    return { buffer: fs.readFileSync(thumb), mime: 'image/jpeg' };
+  } catch {
+    return null;
+  }
+}
+
+/** Borra una imagen (binario + metadata + miniatura). No falla si no existe. */
 export function removeImage(id) {
   const safe = String(id || '').replace(/[^a-f0-9]/gi, '');
   if (!safe) return;
-  for (const f of [path.join(DIR, safe), path.join(DIR, `${safe}.json`)]) {
+  for (const f of [path.join(DIR, safe), path.join(DIR, `${safe}.json`), path.join(DIR, `${safe}.thumb`)]) {
     try { fs.rmSync(f, { force: true }); } catch { /* noop */ }
   }
 }

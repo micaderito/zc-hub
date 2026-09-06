@@ -1,0 +1,65 @@
+.variant-photos {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.vph-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.vph-label {
+  min-width: 120px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.vph-counts {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-right: auto;
+  font-size: 0.72rem;
+  color: var(--text-2);
+}
+.vph-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.muted {
+  color: var(--text-3);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+  background: var(--ml);
+}
+.ico-tn {
+  color: var(--tn);
+}
+
+.lbl {
+  font-size: 0.7rem;
+  color: var(--text-2);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.hint {
+  font-size: 0.64rem;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}

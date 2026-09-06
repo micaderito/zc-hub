@@ -107,7 +107,11 @@ export class LayoutComponent {
   readonly notificationsQuery = injectQuery(() => ({
     queryKey: [...ALERTS_NOTIFICATIONS_QUERY_KEY, false],
     queryFn: () => this.alerts.getNotificationsPromise({ limit: 15 }),
-    refetchOnWindowFocus: true,
+    // Sin refetch al volver a la pestaña: el sondeo de abajo ya mantiene la campanita fresca, y
+    // como el layout está montado en todas las páginas, este refetch disparaba un ciclo de
+    // detección de cambios de toda la app cada vez que se volvía al navegador — carísimo en
+    // páginas pesadas como crear-producto.
+    refetchOnWindowFocus: false,
     staleTime: 30 * 1000,
     // Sondeo liviano para que la campanita se actualice sola con ventas nuevas.
     refetchInterval: 60 * 1000,

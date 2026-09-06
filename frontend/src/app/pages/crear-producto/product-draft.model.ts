@@ -55,6 +55,13 @@ export interface VariantAxis {
 export interface DraftImage {
   /** Id temporal devuelto por POST /api/products/images. Viaja en el payload al publicar. */
   id: string;
+  /**
+   * Identidad ESTABLE de la fila, para el `track` de los `@for`. El `id` cambia (de `local-…` al
+   * del backend) cuando termina la subida; si se trackea por él, Angular destruye y recrea el
+   * `<img>` de esa foto en la galería y en cada fila de variante, forzando una decodificación
+   * nueva por cada nodo. El `uid` se asigna una vez y no cambia nunca.
+   */
+  uid?: string;
   /** Nombre del archivo (para mostrar / accesibilidad). */
   name: string;
   /** URL para el <img> (object URL de la miniatura local, o /api/products/images/:id). */
@@ -279,5 +286,62 @@ export function emptyDraft(): ProductDraft {
       unitCost: null,
       marginPct: 100
     }
+  };
+}
+
+/**
+ * Límite de fotos saneado. `0`, `null`, `NaN` y los negativos NO son un límite válido: caen al
+ * fallback. Existe porque `??` **no** coalesce el cero, y la API de ML devuelve
+ * `max_pictures_per_item_var: 0` en categorías mal configuradas — con ese 0, la guarda
+ * `length >= limite` daba `0 >= 0` y bloqueaba en silencio TODA selección de fotos en ML.
+ */
+export function positiveLimit(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+/**
+ * Normaliza una variante que viene de `localStorage` (puede ser de una versión anterior del
+ * borrador, sin los campos que se fueron agregando). Sin esto, un borrador viejo sin
+ * `ml.pictureIds` hace explotar `new Set(v.ml.pictureIds)` y se cae el render de toda la página.
+ */
+export function normalizeVariant(raw: unknown, index = 0): ProductVariant {
+  /** Forma laxa de una variante guardada: cualquier campo puede faltar o venir de una versión vieja. */
+  type StoredTn = { price?: number | null; imageIds?: string[]; imageId?: string | null };
+  const v = (raw ?? {}) as Partial<Omit<ProductVariant, 'tn'>> & { tn?: StoredTn };
+  const tn: StoredTn = v.tn ?? {};
+  return {
+    id: v.id || `v${index + 1}`,
+    sku: v.sku ?? '',
+    values: Array.isArray(v.values) ? v.values : [],
+    stock: v.stock ?? null,
+    barcode: v.barcode ?? '',
+    ml: {
+      price: v.ml?.price ?? null,
+      pictureIds: Array.isArray(v.ml?.pictureIds) ? v.ml!.pictureIds : []
+    },
+    tn: {
+      price: tn.price ?? null,
+      // Compat: los borradores viejos guardaban una sola foto en `tn.imageId`.
+      imageIds: Array.isArray(tn.imageIds) ? tn.imageIds : tn.imageId ? [tn.imageId] : []
+    },
+    titles: {
+      ml: v.titles?.ml ?? inherited(''),
+      tn: v.titles?.tn ?? inherited('')
+    }
+  };
+}
+
+/** Normaliza un borrador guardado: mergea sobre `emptyDraft()` y sanea cada variante. */
+export function normalizeDraft(raw: unknown): ProductDraft {
+  const base = emptyDraft();
+  const d = (raw ?? {}) as Partial<ProductDraft>;
+  return {
+    common: { ...base.common, ...(d.common ?? {}) },
+    axes: Array.isArray(d.axes) ? d.axes : [],
+    variants: Array.isArray(d.variants) ? d.variants.map((v, i) => normalizeVariant(v, i)) : [],
+    ml: { ...base.ml, ...(d.ml ?? {}) },
+    tn: { ...base.tn, ...(d.tn ?? {}) },
+    cost: { ...base.cost, ...(d.cost ?? {}) }
   };
 }

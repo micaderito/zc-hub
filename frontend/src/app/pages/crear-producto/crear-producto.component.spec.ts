@@ -77,6 +77,7 @@ class CatalogServiceMock {
   uploadResponse: UploadedImage = { id: 'IMG1', name: 'a.jpg', mime: 'image/jpeg', size: 3 };
   uploadImage = jasmine.createSpy('upload').and.callFake(() => Promise.resolve(this.uploadResponse));
   uploadImageFile = jasmine.createSpy('uploadFile').and.callFake(() => Promise.resolve(this.uploadResponse));
+  uploadThumb = jasmine.createSpy('uploadThumb').and.callFake(() => Promise.resolve({ ok: true }));
   deleteImage = jasmine.createSpy('del').and.callFake(() => Promise.resolve({ ok: true }));
 
   listingPrices = { currency_id: 'ARS', sale_fee_amount: 130, listing_fee_amount: 0, percentage_fee: 13, net: 870 };
@@ -693,6 +694,309 @@ describe('CrearProductoComponent', () => {
       component.toggleVariantTnImage(v, 'a');
       expect(v.tn.imageIds).toEqual(['b']);
     });
+  });
+
+  describe('regresiones de fotos por variante (el bug reportado con 33 fotos)', () => {
+    it('con una categoría de ML que informa límite 0, la foto SÍ se puede seleccionar', () => {
+      // ML devuelve max_pictures_per_item_var: 0 en categorías mal configuradas. Antes ese 0
+      // llegaba entero y `0 >= 0` bloqueaba TODOS los clicks de ML (los de TN funcionaban).
+      seedImage(component, 'ml', 'a');
+      component.addAxis();
+      const v = component.draft().variants[0];
+      component.mlMaxPicturesPerVar.set(0);
+
+      component.toggleVariantMlImage(v, 'a');
+
+      expect(v.ml.pictureIds).toEqual(['a']);
+      expect(component.imageError()).toBeNull();
+    });
+
+    it('al topear el límite, el aviso se muestra junto a la grilla de variantes, no en la galería', () => {
+      seedImage(component, 'ml', 'a');
+      seedImage(component, 'ml', 'b');
+      component.addAxis();
+      const v = component.draft().variants[0];
+      component.mlMaxPicturesPerVar.set(1);
+
+      component.toggleVariantMlImage(v, 'a');
+      component.toggleVariantMlImage(v, 'b');
+
+      expect(v.ml.pictureIds).toEqual(['a']);
+      expect(component.imageError()).toContain('variación');
+      expect(component.imageErrorScope()).toBe('variant');
+    });
+
+    it('un borrador guardado con el límite en 0 se cura al restaurarlo', () => {
+      localStorage.setItem(
+        'zc-crear-producto-drafts',
+        JSON.stringify([
+          {
+            id: 'd1',
+            savedAt: Date.now(),
+            mlMaxPictures: 0,
+            mlMaxPicturesPerVar: 0,
+            draft: { ...emptyDraft(), ml: { ...emptyDraft().ml, images: [] }, tn: { ...emptyDraft().tn, images: [] } }
+          }
+        ])
+      );
+      const fx = TestBed.createComponent(CrearProductoComponent);
+      fx.detectChanges();
+
+      expect(fx.componentInstance.mlMaxPicturesPerVar()).toBe(10);
+      expect(fx.componentInstance.mlMaxPictures()).toBe(12);
+    });
+
+    it('restaurar un borrador viejo SIN ml.pictureIds no rompe el render', () => {
+      localStorage.setItem(
+        'zc-crear-producto-drafts',
+        JSON.stringify([
+          {
+            id: 'd2',
+            savedAt: Date.now(),
+            mlMaxPictures: 12,
+            mlMaxPicturesPerVar: 10,
+            draft: {
+              ...emptyDraft(),
+              axes: [{ name: 'Color' }],
+              // Variante de una versión anterior: sin ml, sin barcode, sin titles.
+              variants: [{ id: 'v1', sku: 'CUA-N', values: ['Negro'], stock: 1, tn: { imageId: 'img-1' } }],
+              ml: { ...emptyDraft().ml, images: [] },
+              tn: { ...emptyDraft().tn, images: [] }
+            }
+          }
+        ])
+      );
+      const fx = TestBed.createComponent(CrearProductoComponent);
+      expect(() => fx.detectChanges()).not.toThrow();
+
+      const v = fx.componentInstance.draft().variants[0];
+      expect(v.ml.pictureIds).toEqual([]);
+      expect(v.tn.imageIds).toEqual(['img-1']); // migrado desde el `imageId` viejo
+      expect(v.titles.ml).toEqual({ inherited: true, value: '' });
+    });
+
+    it('restaurar un borrador pide la MINIATURA, no el original', () => {
+      localStorage.setItem(
+        'zc-crear-producto-drafts',
+        JSON.stringify([
+          {
+            id: 'd3',
+            savedAt: Date.now(),
+            mlMaxPictures: 12,
+            mlMaxPicturesPerVar: 10,
+            draft: {
+              ...emptyDraft(),
+              ml: { ...emptyDraft().ml, images: [{ id: 'img-9', name: 'a.jpg' }] },
+              tn: { ...emptyDraft().tn, images: [] }
+            }
+          }
+        ])
+      );
+      const fx = TestBed.createComponent(CrearProductoComponent);
+      fx.detectChanges();
+
+      // Servir el original acá era ~5 MB por foto: con 45 fotos, Chrome descartaba la pestaña.
+      expect(fx.componentInstance.draft().ml.images[0].previewUrl).toContain('/products/images/img-9/thumb');
+    });
+
+    it('la selección hecha mientras la foto subía sigue viva cuando cambia el id', async () => {
+      const upload = deferredUpload(catalog);
+      const file = new File([new Uint8Array([1])], 'foto.jpg', { type: 'image/jpeg' });
+      component.addAxis();
+      const v = component.draft().variants[0];
+
+      const pending = component.onImageFiles('ml', [file] as unknown as FileList);
+      const localId = component.draft().ml.images[0].id;
+      expect(localId).toContain('local-');
+
+      // La usuaria la asigna a la variante mientras todavía sube.
+      component.toggleVariantMlImage(v, localId);
+      expect(v.ml.pictureIds).toEqual([localId]);
+
+      await upload.called;
+      upload.resolve({ id: 'IMG-REAL', name: 'foto.jpg', mime: 'image/jpeg', size: 1 });
+      await pending;
+
+      // Sin el remapeo, la selección quedaba apuntando al id local y desaparecía sola.
+      expect(component.draft().variants[0].ml.pictureIds).toEqual(['IMG-REAL']);
+    });
+
+    it('el uid de la foto NO cambia aunque cambie el id (evita recrear el <img>)', async () => {
+      const upload = deferredUpload(catalog);
+      const file = new File([new Uint8Array([1])], 'foto.jpg', { type: 'image/jpeg' });
+
+      const pending = component.onImageFiles('ml', [file] as unknown as FileList);
+      const uid = component.draft().ml.images[0].uid;
+      expect(uid).toBeTruthy();
+
+      await upload.called;
+      upload.resolve({ id: 'IMG-REAL', name: 'foto.jpg', mime: 'image/jpeg', size: 1 });
+      await pending;
+
+      expect(component.draft().ml.images[0].uid).toBe(uid);
+      expect(component.draft().ml.images[0].id).toBe('IMG-REAL');
+    });
+
+    it('la subida del original arranca ANTES de que esté lista la miniatura', async () => {
+      // El worker es una cola serial: esperarlo antes de subir dejaba los uploads concurrentes
+      // formados detrás de él (33 fotos = varios segundos hasta ver la última preview).
+      const upload = deferredUpload(catalog);
+      const file = new File([new Uint8Array([1])], 'foto.jpg', { type: 'image/jpeg' });
+
+      const pending = component.onImageFiles('ml', [file] as unknown as FileList);
+      await upload.called;
+
+      // Si todavía no hay preview cuando ya arrancó la subida, es que no la esperó.
+      expect(catalog.uploadImageFile).toHaveBeenCalled();
+
+      upload.resolve({ id: 'IMG-REAL', name: 'foto.jpg', mime: 'image/jpeg', size: 1 });
+      await pending;
+    });
+
+    it('startNewDraft() libera los object URLs del borrador anterior', () => {
+      const revoke = spyOn(URL, 'revokeObjectURL');
+      const d = component.draft();
+      d.ml.images.push({ id: 'a', uid: 'a', name: 'a.jpg', previewUrl: 'blob:http://x/1' });
+      d.tn.images.push({ id: 'b', uid: 'b', name: 'b.jpg', previewUrl: 'blob:http://x/2' });
+      component.touch();
+
+      component.startNewDraft();
+
+      expect(revoke).toHaveBeenCalledWith('blob:http://x/1');
+      expect(revoke).toHaveBeenCalledWith('blob:http://x/2');
+    });
+  });
+
+  describe('OnPush: los sub-componentes se refrescan cuando el store cambia desde afuera', () => {
+    /*
+     * La regla que hace que todo esto funcione: los hijos leen `store.draft()` en su template y NO
+     * reciben datos del borrador por `input()`. `touch()` clona solo la raíz, así que un
+     * `[algo]="draft().ml"` se compararía con Object.is, daría igual, y el hijo OnPush nunca se
+     * marcaría. Estos tests fallan si alguien cachea `draft()` en un field del componente.
+     */
+    function valorDe(selector: string): string | undefined {
+      return (fixture.nativeElement.querySelector(selector) as HTMLInputElement | null)?.value;
+    }
+
+    // ngModel sincroniza modelo→vista en un microtask, así que hay que dejarlo correr antes de
+    // mirar el `value` del input; por eso estos dos van con fakeAsync.
+    it('datos comunes: un cambio programático del nombre base se ve en el input del hijo', fakeAsync(() => {
+      component.draft().common.baseName = 'Cambiado desde afuera';
+      component.touch();
+      fixture.detectChanges();
+      flushMicrotasks();
+
+      expect(valorDe('zc-common-data-section input.zc-input')).toBe('Cambiado desde afuera');
+      component.store.cancelAutosave();
+    }));
+
+    it('sección TN: generateSeo() escribe el SEO y el input del hijo lo muestra', fakeAsync(() => {
+      component.draft().common.baseName = 'Cuaderno A4';
+      component.touch();
+      void component.generateSeo();
+      flushMicrotasks();
+      fixture.detectChanges();
+      flushMicrotasks();
+
+      const seo = fixture.nativeElement.querySelector('zc-tn-section input[maxlength="70"]') as HTMLInputElement;
+      expect(seo?.value).toBe(catalog.seoResponse.seoTitle);
+      component.store.cancelAutosave();
+    }));
+
+    it('sección de variantes: agregar un eje desde el store renderiza la tabla en el hijo', () => {
+      expect(fixture.nativeElement.querySelector('zc-variants-section .variant-table')).toBeNull();
+      component.addAxis();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('zc-variants-section .variant-table')).not.toBeNull();
+    });
+
+    it('galería de ML: una foto agregada al store aparece en el hijo', () => {
+      seedImage(component, 'ml', 'img-abc');
+      fixture.detectChanges();
+      const img = fixture.nativeElement.querySelector('zc-ml-section zc-image-gallery img') as HTMLImageElement;
+      expect(img).not.toBeNull();
+      expect(img.getAttribute('alt')).toBe('img-abc.jpg');
+    });
+
+    it('atributos de ML: los que carga la categoría se pintan en el hijo', fakeAsync(() => {
+      catalog.mlAttributes = [
+        { id: 'BRAND', name: 'Marca', valueType: 'string', required: true, allowedValues: [] }
+      ];
+      void component.loadMlAttributes('MLA388307');
+      flushMicrotasks();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('zc-ml-attributes')?.textContent).toContain('Marca');
+    }));
+  });
+
+  describe('autoguardado', () => {
+    it('guarda solo después de que se deja de escribir, y actualiza la MISMA entrada', fakeAsync(() => {
+      component.draft().common.baseName = 'Cuaderno A4';
+      component.touch();
+      expect(component.currentDraftId()).toBeNull(); // todavía no
+
+      tick(1500);
+      const id = component.currentDraftId();
+      expect(id).toBeTruthy();
+      expect(component.savedDrafts().length).toBe(1);
+
+      // Un segundo cambio actualiza la entrada existente, no crea otra.
+      component.draft().common.baseName = 'Cuaderno A4 Tapa Dura';
+      component.touch();
+      tick(1500);
+      expect(component.currentDraftId()).toBe(id);
+      expect(component.savedDrafts().length).toBe(1);
+    }));
+
+    it('escribir de nuevo antes del debounce reagenda: guarda una sola vez', fakeAsync(() => {
+      component.draft().common.baseName = 'A';
+      component.touch();
+      tick(500);
+      component.draft().common.baseName = 'AB';
+      component.touch();
+      tick(500);
+      expect(component.currentDraftId()).toBeNull(); // el timer se reinició
+
+      tick(1500);
+      expect(component.savedDrafts().length).toBe(1);
+      expect(component.savedDrafts()[0].label).toBe('AB');
+    }));
+
+    it('un borrador vacío NO se autoguarda (entrar a la página no ensucia "Mis borradores")', fakeAsync(() => {
+      component.touch();
+      tick(5000);
+      expect(component.savedDrafts().length).toBe(0);
+      expect(component.currentDraftId()).toBeNull();
+    }));
+
+    it('con fotos a medio subir no guarda (persistiría ids locales) y reagenda', fakeAsync(() => {
+      component.draft().common.baseName = 'Con fotos';
+      component.draft().ml.images.push({ id: 'local-1', uid: 'local-1', name: 'a.jpg', previewUrl: '', uploading: true });
+      component.touch();
+
+      tick(1500);
+      expect(component.savedDrafts().length).toBe(0);
+
+      // Cuando termina la subida, el siguiente ciclo del debounce sí guarda. El `touch()` es lo
+      // que hace el código real al resolver la subida (y lo que invalida `hasPendingUploads`).
+      component.draft().ml.images[0].uploading = false;
+      component.draft().ml.images[0].id = 'IMG-REAL';
+      component.touch();
+      tick(1500);
+      expect(component.savedDrafts().length).toBe(1);
+    }));
+
+    it('startNewDraft() cancela el autoguardado pendiente (no pisa la entrada nueva)', fakeAsync(() => {
+      component.draft().common.baseName = 'Viejo';
+      component.touch();
+      tick(500);
+
+      component.startNewDraft();
+      tick(5000);
+
+      expect(component.savedDrafts().length).toBe(0);
+    }));
   });
 
   describe('publish()', () => {
