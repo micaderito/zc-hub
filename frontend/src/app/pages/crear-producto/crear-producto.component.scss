@@ -306,8 +306,15 @@
   align-items: center;
   gap: 0.5rem;
   margin-right: auto;
+  /*
+   * `.hint` nunca se definía en este archivo (solo se le pisaba el margin acá), así que el
+   * span de "Guardado hh:mm" caía al tamaño default del navegador (16px) en vez del 0.64rem que
+   * usa el resto de los hints de la página (section-shared.scss).
+   */
   .hint {
     margin: 0;
+    font-size: 0.64rem;
+    color: var(--text-3);
   }
 }
 
