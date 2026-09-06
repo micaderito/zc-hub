@@ -1,7 +1,6 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
 import {
   CatalogService,
@@ -10,105 +9,80 @@ import {
   MlCategoryRef,
   TnCategory
 } from '../../core/services/catalog.service';
-import { PricingService } from '../../core/services/pricing.service';
-import {
-  DEFAULT_SETTINGS,
-  PricingSettings,
-  computePrices,
-  mlNetReceived,
-  tiersFromConfig,
-  tnNetReceived
-} from '../../core/pricing/pricing-math';
 import {
   Channel,
-  DraftImage,
-  MappingMode,
   MlAttribute,
   OverrideField,
   ProductDraft,
   ProductVariant,
   PublishResult,
-  defaultVariantTitle,
-  emptyDraft,
-  inherited,
   listingTypeLabel,
-  normalizeDraft,
-  positiveLimit,
-  projectionLabel,
-  variantLabel
+  positiveLimit
 } from './product-draft.model';
+import {
+  ML_MAX_PICTURES_FALLBACK,
+  ML_MAX_PICTURES_PER_VAR_FALLBACK,
+  ProductDraftStore
+} from './product-draft.store';
 
-/** Dónde se muestra el error de imágenes, para que el aviso aparezca donde se hizo el click. */
-export type ImageErrorScope = 'ml-gallery' | 'tn-gallery' | 'variant' | 'draft';
-
-/** Tope de fotos por publicación / por variación de ML cuando la categoría no informa uno válido. */
-const ML_MAX_PICTURES_FALLBACK = 12;
-const ML_MAX_PICTURES_PER_VAR_FALLBACK = 10;
-
-let variantSeq = 1;
-
-/** Imagen tal como se guarda en localStorage: sin `previewUrl` (se reconstruye al restaurar). */
-interface StoredImageRef {
-  id: string;
-  name: string;
-}
-
-/** Un borrador guardado en localStorage (dentro de la lista de "Mis borradores"). */
-interface StoredDraftEntry {
-  id: string;
-  savedAt: number;
-  mlMaxPictures: number;
-  mlMaxPicturesPerVar: number;
-  draft: Omit<ProductDraft, 'ml' | 'tn'> & {
-    ml: Omit<ProductDraft['ml'], 'images'> & { images: StoredImageRef[] };
-    tn: Omit<ProductDraft['tn'], 'images'> & { images: StoredImageRef[] };
-  };
-}
-
+/**
+ * Página de creación de producto.
+ *
+ * El ESTADO del borrador vive en `ProductDraftStore` (provisto acá abajo, una instancia por
+ * pantalla) y no en el componente: los sub-componentes lo inyectan y leen sus señales directo en
+ * sus templates, que es lo que los hace compatibles con `OnPush` — ver el comentario largo del
+ * store. Acá quedan las llamadas a las APIs (categorías de ML/TN, SEO), la publicación y el armado
+ * del payload.
+ */
 @Component({
   selector: 'app-crear-producto',
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './crear-producto.component.html',
-  styleUrl: './crear-producto.component.scss'
+  styleUrl: './crear-producto.component.scss',
+  providers: [ProductDraftStore],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class CrearProductoComponent implements OnInit, OnDestroy {
   private readonly catalog = inject(CatalogService);
   private readonly api = inject(ApiService);
-  private readonly pricingSvc = inject(PricingService);
+  /** Público: los sub-componentes y el template leen el estado del borrador de acá. */
+  readonly store = inject(ProductDraftStore);
 
-  readonly draft = signal<ProductDraft>(emptyDraft());
+  /* ---------- alias del store ----------
+   * El template y los tests siguen hablándole al componente; el estado vive en el store.
+   * `draft` es la MISMA WritableSignal, así que un `.set()` de un test sigue funcionando. */
+  readonly draft = this.store.draft;
+  readonly currentDraftId = this.store.currentDraftId;
+  readonly draftSavedAt = this.store.draftSavedAt;
+  readonly draftRestored = this.store.draftRestored;
+  readonly savedDrafts = this.store.savedDrafts;
+  readonly draftsPanelOpen = this.store.draftsPanelOpen;
+  readonly hasVariants = this.store.hasVariants;
+  readonly mlProjection = this.store.mlProjection;
+  readonly tnProjection = this.store.tnProjection;
+  readonly tnMultiPerVariant = this.store.tnMultiPerVariant;
+  readonly mlMaxPictures = this.store.mlMaxPictures;
+  readonly mlMaxPicturesPerVar = this.store.mlMaxPicturesPerVar;
+  readonly TN_MAX_PICTURES = this.store.TN_MAX_PICTURES;
+  readonly imageError = this.store.imageError;
+  readonly imageErrorScope = this.store.imageErrorScope;
+  readonly hasPendingUploads = this.store.hasPendingUploads;
+  readonly mlRequiredAttrs = this.store.mlRequiredAttrs;
+  readonly mlOptionalAttrs = this.store.mlOptionalAttrs;
+  readonly mlOptionalOpen = this.store.mlOptionalOpen;
+  readonly pricingSettings = this.store.pricingSettings;
+  readonly hasCost = this.store.hasCost;
+  readonly costPreview = this.store.costPreview;
+  readonly mlFreeShippingZone = this.store.mlFreeShippingZone;
+  readonly variantRows = this.store.variantRows;
+  readonly variantBreakdowns = this.store.variantBreakdowns;
 
-  /* ---------- borradores locales (localStorage, varios a la vez) ---------- */
-  private static readonly DRAFTS_KEY = 'zc-crear-producto-drafts';
-  /** Clave vieja (versión de un solo borrador): se migra una vez y se borra. */
-  private static readonly LEGACY_DRAFT_KEY = 'zc-crear-producto-draft';
-  private static readonly MAX_DRAFTS = 20;
-
-  /** Id del borrador que se está editando ahora (null = todavía no se guardó ninguno). */
-  readonly currentDraftId = signal<string | null>(null);
-  /** Momento del último guardado del borrador actual (null = no guardado en esta sesión). */
-  readonly draftSavedAt = signal<Date | null>(null);
-  /** true si al entrar se encontró y restauró el borrador más reciente. */
-  readonly draftRestored = signal(false);
-  /** Lista de borradores guardados (solo metadata, para el panel "Mis borradores"). */
-  readonly savedDrafts = signal<{ id: string; label: string; savedAt: Date }[]>([]);
-  readonly draftsPanelOpen = signal(false);
+  protected readonly listingTypeLabel = listingTypeLabel;
 
   /** Resultado de "Publicar en ambos" (null = todavía no se publicó). */
   readonly publishResults = signal<PublishResult[] | null>(null);
   readonly publishing = signal(false);
-
-  protected readonly listingTypeLabel = listingTypeLabel;
-
-  readonly hasVariants = computed(() => this.draft().axes.length > 0);
-
-  readonly mlProjection = computed(() =>
-    projectionLabel('ml', this.draft().ml.mappingMode, this.draft().variants.length)
-  );
-  readonly tnProjection = computed(() =>
-    projectionLabel('tn', this.draft().tn.mappingMode, this.draft().variants.length)
-  );
 
   /* ================= Categorías: estado ================= */
 
@@ -116,6 +90,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   readonly tnCategories = signal<TnCategory[]>([]);
   readonly tnCategoriesLoading = signal(false);
   readonly tnCategoriesError = signal<string | null>(null);
+  private readonly tnCategoryPathById = computed(() => new Map(this.tnCategories().map((c) => [c.id, c.path])));
 
   // --- Mercado Libre: predictor por título ---
   readonly mlPredictions = signal<MlCategoryPrediction[]>([]);
@@ -137,160 +112,62 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   readonly seoGenerating = signal(false);
   readonly seoError = signal<string | null>(null);
 
-  // Nota: el hint de "cuánto recibís" que vivía acá (comisión en vivo de la API de ML) se
-  // reemplazó por el desglose de rentabilidad (ver costPreview()/mlBreakdown()/tnBreakdown() más
-  // arriba): ese hint no restaba impuestos ni envío, así que no coincidía con "Te queda" de
-  // /precios y confundía más de lo que ayudaba.
-
-  // --- Imágenes ---
-  /** Límite de fotos por publicación ML (settings.max_pictures_per_item; fallback 12). */
-  readonly mlMaxPictures = signal(ML_MAX_PICTURES_FALLBACK);
-  /** Límite de fotos por variación ML (settings.max_pictures_per_item_var; fallback 10). */
-  readonly mlMaxPicturesPerVar = signal(ML_MAX_PICTURES_PER_VAR_FALLBACK);
-  /** Tope de fotos por producto en TN (fijo por la API; error 422 al superar 250). */
-  readonly TN_MAX_PICTURES = 250;
-  readonly imageError = signal<string | null>(null);
-  /**
-   * Dónde mostrar `imageError`. Sin esto el aviso se pintaba solo dentro de las galerías de ML y
-   * TN, o sea a cientos de píxeles del lugar donde se hizo el click (ej. al topear el límite de
-   * fotos por variante): el rechazo quedaba invisible y parecía que el click no hacía nada.
-   */
-  readonly imageErrorScope = signal<ImageErrorScope | null>(null);
-  /** true mientras haya al menos una foto subiendo (galería de cualquiera de los dos canales). */
-  readonly hasPendingUploads = computed(
-    () => this.draft().ml.images.some((i) => i.uploading) || this.draft().tn.images.some((i) => i.uploading)
-  );
-  /** Índice arrastrado en la galería (para reordenar con drag). */
-  private dragIndex: { channel: Channel; index: number } | null = null;
-  /** Pool de workers que generan la miniatura del preview sin tocar el hilo principal. */
-  private readonly thumbPool: Worker[] = [];
-  private thumbCursor = 0;
-  private thumbSeq = 0;
-  private readonly thumbWaiters = new Map<number, { resolve: (blob: Blob) => void; reject: (e: Error) => void }>();
-
   /** Hijos a mostrar en el modal: los del nodo actual, o las raíces si estamos en el inicio. */
   readonly currentMlChildren = computed<MlCategoryRef[]>(() => {
     const node = this.mlTreeNode();
     return node ? node.children_categories : this.mlTreeRoots();
   });
 
-  /*
-   * ---------- computeds "de índice": evitan que la grilla de fotos-por-variante y el picker de
-   * categorías de TN vuelvan a recorrer arrays completos en cada ciclo de detección de cambios.
-   * Antes eran métodos que hacían Array.includes()/find() sobre la lista entera; con 8+ variantes
-   * y 12+ fotos, o con decenas de categorías de tienda, eso se sentía como tipeo/scroll trabado
-   * porque zone.js dispara un ciclo por cada tecla y cada evento.
-   */
-  private readonly mlVariantImageSets = computed(() => {
-    const map = new Map<string, Set<string>>();
-    for (const v of this.draft().variants) map.set(v.id, new Set(v.ml?.pictureIds ?? []));
-    return map;
-  });
-  private readonly tnVariantImageSets = computed(() => {
-    const map = new Map<string, Set<string>>();
-    for (const v of this.draft().variants) map.set(v.id, new Set(v.tn?.imageIds ?? []));
-    return map;
-  });
-  private readonly tnCategoryPathById = computed(() => new Map(this.tnCategories().map((c) => [c.id, c.path])));
-  private readonly tnSelectedCategorySet = computed(() => new Set(this.draft().tn.categories));
-
-  /* ---------- rentabilidad (motor de precios de /precios, ver core/pricing/pricing-math.ts) ---------- */
-
-  /** Reglas de la sección Precios (comisión, impuestos, envío, tramos…), cargadas una sola vez. */
-  readonly pricingSettings = signal<PricingSettings>(DEFAULT_SETTINGS);
-  readonly pricingLoading = signal(false);
-
-  /** true si el costo cargado alcanza para calcular (bulto+cantidad, o costo unitario directo). */
-  readonly hasCost = computed(() => {
-    const c = this.draft().cost;
-    return c.mode === 'unit' ? c.unitCost != null && c.unitCost > 0 : c.bulkPrice != null && c.bulkQty != null && c.bulkQty > 0;
-  });
-
-  /** Costo unitario + valor final + sugeridos de ML/TN a partir del costo cargado. Null sin costo. */
-  readonly costPreview = computed(() => {
-    if (!this.hasCost()) return null;
-    const c = this.draft().cost;
-    try {
-      return computePrices(
-        c.mode === 'unit'
-          ? { unitCost: c.unitCost, marginPct: c.marginPct }
-          : { bulkPrice: c.bulkPrice, bulkQty: c.bulkQty, discount1: c.discount1, discount2: c.discount2, marginPct: c.marginPct },
-        this.pricingSettings()
-      );
-    } catch {
-      return null;
-    }
-  });
-
-  /** Desglose de "cuánto te queda" para el precio de ML realmente ingresado (no el sugerido). */
-  mlBreakdown(price: number | null): { net: number; marginPct: number | null } | null {
-    const preview = this.costPreview();
-    if (!price || price <= 0 || !preview) return null;
-    const net = mlNetReceived(price, this.pricingSettings());
-    const marginPct = preview.unitCost > 0 ? (net / preview.unitCost - 1) * 100 : null;
-    return { net, marginPct };
-  }
-
-  /** Desglose de "cuánto te queda" para el precio de TN realmente ingresado. */
-  tnBreakdown(price: number | null): { net: number; marginPct: number | null } | null {
-    const preview = this.costPreview();
-    if (!price || price <= 0 || !preview) return null;
-    const net = tnNetReceived(price, this.pricingSettings());
-    const marginPct = preview.unitCost > 0 ? (net / preview.unitCost - 1) * 100 : null;
-    return { net, marginPct };
-  }
-
-  /** true si el precio de ML ingresado cae en la "zona muerta" (arriba del umbral de envío gratis). */
-  readonly mlFreeShippingZone = computed(() => {
-    const price = this.draft().ml.basePrice;
-    return !!price && price > this.pricingSettings().freeShippingThreshold;
-  });
-
   async ngOnInit(): Promise<void> {
     // Precargamos las categorías de TN para poblar el multi-select (requiere estar conectado).
     void this.loadTnCategories();
-    this.migrateLegacyDraft();
-    this.refreshSavedDraftsList();
-    this.restoreMostRecentDraft();
-    void this.loadPricingSettings();
+    this.store.migrateLegacyDraft();
+    this.store.refreshSavedDraftsList();
+    this.store.restoreMostRecentDraft();
+    void this.store.loadPricingSettings();
   }
 
   ngOnDestroy(): void {
-    for (const worker of this.thumbPool) worker.terminate();
-    this.revokeDraftBlobs(this.draft());
+    this.store.destroy();
   }
 
-  /**
-   * Libera los object URLs (`blob:`) de las miniaturas del borrador. Hay que llamarlo ANTES de
-   * pisar el draft (abrir otro borrador, empezar uno nuevo): si no, esos blobs quedan retenidos
-   * hasta que se cierre la pestaña.
-   */
-  private revokeDraftBlobs(d: ProductDraft): void {
-    for (const img of [...(d.ml?.images ?? []), ...(d.tn?.images ?? [])]) {
-      if (img.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(img.previewUrl);
-    }
-  }
+  /* ---------- delegaciones al store (el template y los tests las llaman acá) ---------- */
 
-  /** Trae los valores fijos + tramos de comisión de ML que ya usa /precios (misma fuente de verdad). */
-  async loadPricingSettings(): Promise<void> {
-    this.pricingLoading.set(true);
-    try {
-      const config = await firstValueFrom(this.pricingSvc.getConfig());
-      this.pricingSettings.set({ ...config.settings, tiers: tiersFromConfig(config.tiers) });
-      const d = this.draft();
-      // Solo si el borrador todavía tiene los defaults de fábrica (no pisamos lo que ya se cargó/restauró).
-      if (d.cost.discount1 === 25 && d.cost.discount2 === 5 && d.cost.marginPct === 100) {
-        d.cost.discount1 = config.settings.defaultDiscount1;
-        d.cost.discount2 = config.settings.defaultDiscount2;
-        d.cost.marginPct = config.settings.defaultMarginPct;
-        this.touch();
-      }
-    } catch {
-      // Sin conexión a /precios: seguimos con los defaults de la planilla (DEFAULT_SETTINGS).
-    } finally {
-      this.pricingLoading.set(false);
-    }
-  }
+  touch(): void { this.store.touch(); }
+  effective(field: OverrideField<string>, common: string): string { return this.store.effective(field, common); }
+  makeOwn(field: OverrideField<string>, common: string): void { this.store.makeOwn(field, common); }
+  revert(field: OverrideField<string>): void { this.store.revert(field); }
+  setMode(channel: Channel, mode: Parameters<ProductDraftStore['setMode']>[1]): void { this.store.setMode(channel, mode); }
+  addAxis(): void { this.store.addAxis(); }
+  removeAxis(index: number): void { this.store.removeAxis(index); }
+  addVariant(): void { this.store.addVariant(); }
+  removeVariant(id: string): void { this.store.removeVariant(id); }
+  setMlAttributeValue(attr: MlAttribute, valueId: string): void { this.store.setMlAttributeValue(attr, valueId); }
+  variantDefaultTitle(channel: Channel, v: ProductVariant): string { return this.store.variantDefaultTitle(channel, v); }
+  variantTitle(channel: Channel, v: ProductVariant): string { return this.store.variantTitle(channel, v); }
+  variantChipLabel(v: ProductVariant): string { return this.store.variantChipLabel(v); }
+  mlBreakdown(price: number | null) { return this.store.mlBreakdown(price); }
+  tnBreakdown(price: number | null) { return this.store.tnBreakdown(price); }
+  images(channel: Channel) { return this.store.images(channel); }
+  imageLimit(channel: Channel): number { return this.store.imageLimit(channel); }
+  onImageFiles(channel: Channel, fileList: FileList | null): Promise<void> { return this.store.onImageFiles(channel, fileList); }
+  removeImage(channel: Channel, index: number): void { this.store.removeImage(channel, index); }
+  makeCover(channel: Channel, index: number): void { this.store.makeCover(channel, index); }
+  reorderImage(channel: Channel, from: number, to: number): void { this.store.reorderImage(channel, from, to); }
+  onImageDragStart(channel: Channel, index: number): void { this.store.onImageDragStart(channel, index); }
+  onImageDrop(channel: Channel, index: number): void { this.store.onImageDrop(channel, index); }
+  isVariantMlImage(v: ProductVariant, imageId: string): boolean { return this.store.isVariantMlImage(v, imageId); }
+  toggleVariantMlImage(v: ProductVariant, imageId: string): void { this.store.toggleVariantMlImage(v, imageId); }
+  isVariantTnImage(v: ProductVariant, imageId: string): boolean { return this.store.isVariantTnImage(v, imageId); }
+  toggleVariantTnImage(v: ProductVariant, imageId: string): void { this.store.toggleVariantTnImage(v, imageId); }
+  isTnCategorySelected(id: number): boolean { return this.store.isTnCategorySelected(id); }
+  toggleTnCategory(id: number): void { this.store.toggleTnCategory(id); }
+  saveDraft(): void { this.store.saveDraft(); }
+  openDraft(id: string): void { this.store.openDraft(id); }
+  deleteDraft(id: string): void { this.store.deleteDraft(id); }
+  startNewDraft(): void { this.store.startNewDraft(); }
+  toggleDraftsPanel(): void { this.store.toggleDraftsPanel(); }
+  loadPricingSettings(): Promise<void> { return this.store.loadPricingSettings(); }
 
   /* ================= Tienda Nube: multi-select ================= */
 
@@ -304,19 +181,6 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     } finally {
       this.tnCategoriesLoading.set(false);
     }
-  }
-
-  /** O(1) por índice precalculado (ver tnSelectedCategorySet): la tienda puede tener decenas de categorías. */
-  isTnCategorySelected(id: number): boolean {
-    return this.tnSelectedCategorySet().has(id);
-  }
-
-  toggleTnCategory(id: number): void {
-    const d = this.draft();
-    d.tn.categories = d.tn.categories.includes(id)
-      ? d.tn.categories.filter((x) => x !== id)
-      : [...d.tn.categories, id];
-    this.touch();
   }
 
   /** Nombre/path de una categoría TN por id (para los chips seleccionados). O(1) por índice. */
@@ -353,7 +217,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
     this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
     this.mlPredictions.set([]);
-    this.touch();
+    this.store.touch();
     await this.loadMlAttributes(p.category_id, p.attributes);
   }
 
@@ -413,7 +277,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     this.mlMaxPictures.set(positiveLimit(node.max_pictures, ML_MAX_PICTURES_FALLBACK));
     this.mlMaxPicturesPerVar.set(positiveLimit(node.max_pictures_per_var, ML_MAX_PICTURES_PER_VAR_FALLBACK));
     this.mlTreeOpen.set(false);
-    this.touch();
+    this.store.touch();
     await this.loadMlAttributes(node.id);
   }
 
@@ -424,7 +288,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     d.ml.attributes = [];
     this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
     this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
-    this.touch();
+    this.store.touch();
   }
 
   /* ================= Mercado Libre: atributos required ================= */
@@ -459,22 +323,13 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           allowedUnits: a.allowedUnits
         };
       });
-      const d = this.draft();
-      d.ml.attributes = mapped;
-      this.touch();
+      this.draft().ml.attributes = mapped;
+      this.store.touch();
     } catch (e) {
       this.mlAttrsError.set(this.errMsg(e));
     } finally {
       this.mlAttrsLoading.set(false);
     }
-  }
-
-  /** Al elegir un valor de un atributo tipo 'list', guardamos id y nombre. */
-  setMlAttributeValue(attr: MlAttribute, valueId: string): void {
-    const opt = attr.allowedValues?.find((v) => v.id === valueId);
-    attr.valueId = valueId || undefined;
-    attr.value = opt?.name ?? '';
-    this.touch();
   }
 
   /* ================= SEO con IA (título, descripción y tags de TN) ================= */
@@ -504,7 +359,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       d.tn.seoTitle = seo.seoTitle;
       d.tn.seoDescription = seo.seoDescription;
       if (seo.tags) d.tn.tags = seo.tags;
-      this.touch();
+      this.store.touch();
     } catch (e) {
       this.seoError.set(this.errMsg(e));
     } finally {
@@ -512,579 +367,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     }
   }
 
-
   private errMsg(e: unknown): string {
-    const err = e as { error?: { error?: string }; message?: string };
-    return err?.error?.error || err?.message || 'Error inesperado';
-  }
-
-  /* ---------- override-on-demand ---------- */
-
-  /** El valor a mostrar/usar: el propio si fue editado, o el común si hereda. */
-  effective(field: OverrideField<string>, common: string): string {
-    return field.inherited ? common : field.value;
-  }
-
-  /** Marca un campo como propio del canal (copia el común como punto de partida). */
-  makeOwn(field: OverrideField<string>, common: string): void {
-    field.inherited = false;
-    if (!field.value) field.value = common;
-    this.touch();
-  }
-
-  /** Vuelve a heredar el campo del dato común. */
-  revert(field: OverrideField<string>): void {
-    field.inherited = true;
-    this.touch();
-  }
-
-  /* ---------- títulos por variante (one_per_variant, uno por canal) ---------- */
-
-  /** Título automático de la publicación de una variante: "<título del canal> - <valores>". */
-  variantDefaultTitle(channel: Channel, v: ProductVariant): string {
-    const d = this.draft();
-    const base = channel === 'ml' ? this.effective(d.ml.title, d.common.baseName) : this.effective(d.tn.nameEs, d.common.baseName);
-    return defaultVariantTitle(base, v.values);
-  }
-
-  /** Título efectivo de la publicación de esta variante (propio si se cargó uno, si no el automático). */
-  variantTitle(channel: Channel, v: ProductVariant): string {
-    const field = channel === 'ml' ? v.titles.ml : v.titles.tn;
-    return this.effective(field, this.variantDefaultTitle(channel, v));
-  }
-
-  /** Etiqueta corta de la variante para listas/selectores ("Negro A4"). Única fuente en el front. */
-  variantChipLabel(v: ProductVariant): string {
-    return variantLabel(v.values) || v.sku || 'Variante';
-  }
-
-  /* ---------- mapping mode (Opción B) ---------- */
-
-  setMode(channel: Channel, mode: MappingMode): void {
-    const d = this.draft();
-    if (channel === 'ml') d.ml.mappingMode = mode;
-    else d.tn.mappingMode = mode;
-    this.touch();
-  }
-
-  /* ---------- variantes ---------- */
-
-  addAxis(): void {
-    const d = this.draft();
-    if (d.axes.length >= 3) return;
-    d.axes.push({ name: '' });
-    for (const v of d.variants) v.values.push('');
-    if (d.variants.length === 0) this.addVariant();
-    this.touch();
-  }
-
-  removeAxis(index: number): void {
-    const d = this.draft();
-    d.axes.splice(index, 1);
-    for (const v of d.variants) v.values.splice(index, 1);
-    if (d.axes.length === 0) d.variants = [];
-    this.touch();
-  }
-
-  addVariant(): void {
-    const d = this.draft();
-    const variant: ProductVariant = {
-      id: `v${variantSeq++}`,
-      sku: '',
-      values: d.axes.map(() => ''),
-      stock: null,
-      // Vacío = usa el código de barras común (ver common.barcode): no todas las variantes
-      // vienen con el mismo código del proveedor.
-      barcode: '',
-      ml: { price: null, pictureIds: [] },
-      tn: { price: null, imageIds: [] },
-      titles: { ml: inherited(''), tn: inherited('') }
-    };
-    d.variants.push(variant);
-    this.touch();
-  }
-
-  removeVariant(id: string): void {
-    const d = this.draft();
-    d.variants = d.variants.filter((v) => v.id !== id);
-    this.touch();
-  }
-
-  /* ---------- atributos ML ---------- */
-
-  /** Características obligatorias de la categoría (se muestran siempre). */
-  readonly mlRequiredAttrs = computed(() => this.draft().ml.attributes.filter((a) => a.required));
-  /** Características opcionales (se muestran en una sección colapsable para no saturar). */
-  readonly mlOptionalAttrs = computed(() => this.draft().ml.attributes.filter((a) => !a.required));
-  /**
-   * Categorías con muchos atributos meten 50-150 filas opcionales al DOM. Antes quedaban siempre
-   * renderizadas (aunque el `<details>` estuviera cerrado) y de paso change-detected en cada
-   * ciclo; ahora solo se arman cuando la usuaria los abre.
-   */
-  readonly mlOptionalOpen = signal(false);
-
-  /**
-   * Las características de la categoría no se agregan ni se quitan a mano: son las que define ML.
-   * Se completan las que se quieran y las vacías simplemente no se envían (ver buildPayloads).
-   */
-
-  /* ---------- imágenes: subida real, galería, portada (drag) y por variante ---------- */
-
-  /** Galería del canal. */
-  images(channel: Channel): DraftImage[] {
-    return channel === 'ml' ? this.draft().ml.images : this.draft().tn.images;
-  }
-
-  /** Tope de fotos de la galería del canal (ML depende de la categoría; TN es fijo). */
-  imageLimit(channel: Channel): number {
-    return channel === 'ml' ? this.mlMaxPictures() : this.TN_MAX_PICTURES;
-  }
-
-  /**
-   * Sube los archivos elegidos: valida formato/tamaño/tope y agrega de entrada una fila por foto
-   * (con `uploading: true`), en el orden elegido. La miniatura del preview se genera en un Web
-   * Worker (nunca bloquea el hilo principal) y el original se sube tal cual — sin pasar por
-   * base64/JSON — con una concurrencia acotada (varias en paralelo, no una detrás de la otra).
-   * Antes cada foto se leía entera a un data URL y se mandaba dentro de un JSON: con fotos de
-   * varios MB, ese `JSON.stringify` corría sincrónico en el hilo principal y era la causa
-   * principal del scroll/tipeo trabado al cargar varias fotos de una.
-   */
-  async onImageFiles(channel: Channel, fileList: FileList | null): Promise<void> {
-    if (!fileList || !fileList.length) return;
-    const galleryScope: ImageErrorScope = channel === 'ml' ? 'ml-gallery' : 'tn-gallery';
-    this.setImageError(null, null);
-    const list = this.images(channel);
-    const limit = this.imageLimit(channel);
-    const channelName = channel === 'ml' ? 'Mercado Libre' : 'Tienda Nube';
-
-    // 1) Validar todo primero (formato / WEBP en ML / tamaño / tope de galería).
-    const accepted: { file: File; localId: string }[] = [];
-    for (const file of Array.from(fileList)) {
-      if (list.length + accepted.length >= limit) {
-        this.setImageError(galleryScope, `Máximo ${limit} fotos en ${channelName}.`);
-        break;
-      }
-      if (!/^image\//.test(file.type)) {
-        this.setImageError(galleryScope, `"${file.name}" no es una imagen.`);
-        continue;
-      }
-      if (channel === 'ml' && file.type === 'image/webp') {
-        this.setImageError(galleryScope, 'Mercado Libre no acepta WEBP: convertí a JPG o PNG.');
-        continue;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        this.setImageError(galleryScope, `"${file.name}" supera los 10 MB.`);
-        continue;
-      }
-      accepted.push({ file, localId: `local-${this.genId()}` });
-    }
-    if (!accepted.length) return;
-
-    // 2) Placeholders visibles de entrada, en el orden elegido, mientras se genera la miniatura y
-    //    sube el original. El `uid` es la identidad estable para el `track` de los `@for`: el `id`
-    //    va a cambiar en el paso 3 cuando responda el backend.
-    for (const { file, localId } of accepted) {
-      list.push({ id: localId, uid: localId, name: file.name, previewUrl: '', uploading: true });
-    }
-    this.touch();
-
-    // 3) Subida + miniatura, con concurrencia acotada (3 a la vez).
-    const CONCURRENCY = 3;
-    let cursor = 0;
-    const runNext = async (): Promise<void> => {
-      while (cursor < accepted.length) {
-        const { file, localId } = accepted[cursor++];
-        try {
-          // La subida arranca PRIMERO y la miniatura se genera en paralelo: el worker es una cola
-          // serial, así que esperarlo antes de subir dejaba a los 3 uploads formados detrás de él.
-          const uploadPromise = this.catalog.uploadImageFile(file);
-          const thumb = await this.makeThumb(file);
-          const placeholder = list.find((i) => i.uid === localId);
-          if (placeholder) {
-            placeholder.previewUrl = thumb.url;
-            this.touch();
-          }
-          const up = await uploadPromise;
-          const idx = list.findIndex((i) => i.uid === localId);
-          if (idx >= 0) {
-            list[idx] = { ...list[idx], id: up.id, name: up.name, uploading: false };
-            // El id cambió: las variantes que ya tenían asignada esta foto tienen que seguirlo.
-            this.remapImageId(channel, localId, up.id);
-            this.touch();
-            // La miniatura se guarda en el backend para que al restaurar el borrador el preview
-            // NO sea el original de varios MB. Fire-and-forget: si falla, el endpoint del thumb
-            // cae al original y no se pierde nada.
-            if (thumb.blob) void this.catalog.uploadThumb(up.id, thumb.blob).catch(() => undefined);
-          }
-        } catch (e) {
-          const idx = list.findIndex((i) => i.uid === localId);
-          if (idx >= 0) {
-            const [removed] = list.splice(idx, 1);
-            if (removed?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
-            this.touch();
-          }
-          this.setImageError(galleryScope, this.errMsg(e));
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, accepted.length) }, () => runNext()));
-  }
-
-  /**
-   * Al terminar la subida, el id de la foto pasa de `local-…` al del backend. Si la usuaria ya la
-   * había asignado a una variante mientras subía, esa asignación apunta al id viejo: sin este
-   * remapeo la selección desaparece sola y la foto no viaja en el payload de publicación.
-   */
-  private remapImageId(channel: Channel, from: string, to: string): void {
-    if (from === to) return;
-    for (const v of this.draft().variants) {
-      if (channel === 'ml') {
-        if (v.ml.pictureIds.includes(from)) v.ml.pictureIds = v.ml.pictureIds.map((id) => (id === from ? to : id));
-      } else if (v.tn.imageIds.includes(from)) {
-        v.tn.imageIds = v.tn.imageIds.map((id) => (id === from ? to : id));
-      }
-    }
-  }
-
-  /** Setea el error de imágenes junto con dónde tiene que mostrarse. */
-  private setImageError(scope: ImageErrorScope | null, message: string | null): void {
-    this.imageError.set(message);
-    this.imageErrorScope.set(message ? scope : null);
-  }
-
-  /** Miniatura liviana (≤400px) para el `<img src>` del preview. Nunca el archivo original. */
-  private async makeThumb(file: File): Promise<{ url: string; blob: Blob | null }> {
-    const worker = this.nextThumbWorker();
-    // Sin worker mostramos el original: no es ideal, pero es preferible a no mostrar nada.
-    if (!worker) return { url: URL.createObjectURL(file), blob: null };
-    const id = ++this.thumbSeq;
-    try {
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        this.thumbWaiters.set(id, { resolve, reject });
-        worker.postMessage({ id, file });
-      });
-      return { url: URL.createObjectURL(blob), blob };
-    } catch {
-      // El worker falló (formato raro, etc.): mostramos el original antes que nada.
-      return { url: URL.createObjectURL(file), blob: null };
-    }
-  }
-
-  /**
-   * Devuelve el siguiente worker del pool (round-robin). Con un worker único, las N miniaturas se
-   * generaban de a una y las subidas concurrentes quedaban formadas detrás de esa cola.
-   */
-  private nextThumbWorker(): Worker | null {
-    if (typeof Worker === 'undefined') return null;
-    if (!this.thumbPool.length) {
-      const size = Math.min(3, Math.max(1, navigator.hardwareConcurrency || 2));
-      for (let i = 0; i < size; i++) {
-        const worker = this.createThumbWorker();
-        if (worker) this.thumbPool.push(worker);
-      }
-    }
-    if (!this.thumbPool.length) return null;
-    const worker = this.thumbPool[this.thumbCursor % this.thumbPool.length];
-    this.thumbCursor++;
-    return worker;
-  }
-
-  private createThumbWorker(): Worker | null {
-    try {
-      const worker = new Worker(new URL('./image-thumb.worker', import.meta.url), { type: 'module' });
-      // El `id` del mensaje identifica al waiter, así que da igual qué worker del pool conteste.
-      worker.onmessage = (ev: MessageEvent<{ id: number; blob?: Blob; error?: string }>) => {
-        const waiter = this.thumbWaiters.get(ev.data.id);
-        if (!waiter) return;
-        this.thumbWaiters.delete(ev.data.id);
-        if (ev.data.blob) waiter.resolve(ev.data.blob);
-        else waiter.reject(new Error(ev.data.error || 'No se pudo generar la miniatura'));
-      };
-      worker.onerror = () => {
-        // Worker roto por completo: los pendientes caen al fallback (createObjectURL directo).
-        for (const [, w] of this.thumbWaiters) w.reject(new Error('Worker de miniaturas no disponible'));
-        this.thumbWaiters.clear();
-      };
-      return worker;
-    } catch {
-      return null;
-    }
-  }
-
-  /** Quita una imagen de la galería, la desasigna de las variantes y la borra del backend. */
-  removeImage(channel: Channel, index: number): void {
-    const d = this.draft();
-    const list = channel === 'ml' ? d.ml.images : d.tn.images;
-    const [removed] = list.splice(index, 1);
-    if (removed) {
-      if (removed.previewUrl.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
-      for (const v of d.variants) {
-        if (channel === 'ml') v.ml.pictureIds = v.ml.pictureIds.filter((id) => id !== removed.id);
-        else v.tn.imageIds = v.tn.imageIds.filter((id) => id !== removed.id);
-      }
-      // Si todavía estaba subiendo, el id es local (no existe en el backend): no hay nada que borrar.
-      if (!removed.uploading) void this.catalog.deleteImage(removed.id).catch(() => undefined);
-    }
-    this.touch();
-  }
-
-  /** Mueve una imagen a la primera posición (= portada). */
-  makeCover(channel: Channel, index: number): void {
-    this.reorderImage(channel, index, 0);
-  }
-
-  /** Reordena la galería (base de la portada = primera). */
-  reorderImage(channel: Channel, from: number, to: number): void {
-    const list = this.images(channel);
-    if (from === to || from < 0 || from >= list.length || to < 0 || to >= list.length) return;
-    const [moved] = list.splice(from, 1);
-    list.splice(to, 0, moved);
-    this.touch();
-  }
-
-  /* drag & drop para reordenar (la primera queda de portada) */
-  onImageDragStart(channel: Channel, index: number): void {
-    this.dragIndex = { channel, index };
-  }
-  onImageDrop(channel: Channel, index: number): void {
-    if (this.dragIndex && this.dragIndex.channel === channel) {
-      this.reorderImage(channel, this.dragIndex.index, index);
-    }
-    this.dragIndex = null;
-  }
-
-  /* asignación de fotos por variante */
-  /** O(1) por índice precalculado (ver mlVariantImageSets): se llama por cada celda de la grilla. */
-  isVariantMlImage(v: ProductVariant, imageId: string): boolean {
-    return this.mlVariantImageSets().get(v.id)?.has(imageId) ?? false;
-  }
-  toggleVariantMlImage(v: ProductVariant, imageId: string): void {
-    if (v.ml.pictureIds.includes(imageId)) {
-      v.ml.pictureIds = v.ml.pictureIds.filter((id) => id !== imageId);
-    } else {
-      const max = positiveLimit(this.mlMaxPicturesPerVar(), ML_MAX_PICTURES_PER_VAR_FALLBACK);
-      if (v.ml.pictureIds.length >= max) {
-        this.setImageError('variant', `Máximo ${max} fotos por variación en Mercado Libre.`);
-        return;
-      }
-      v.ml.pictureIds = [...v.ml.pictureIds, imageId];
-    }
-    this.touch();
-  }
-  /** En one_per_variant cada variante es su propio producto TN → admite varias fotos. */
-  readonly tnMultiPerVariant = computed(() => this.draft().tn.mappingMode === 'one_per_variant');
-
-  /** O(1) por índice precalculado (ver tnVariantImageSets): se llama por cada celda de la grilla. */
-  isVariantTnImage(v: ProductVariant, imageId: string): boolean {
-    return this.tnVariantImageSets().get(v.id)?.has(imageId) ?? false;
-  }
-  /**
-   * Asigna/desasigna una foto a la variante en TN. En single_with_variants es de a UNA (TN solo
-   * admite `image_id` por variante); en one_per_variant es multi (cada variante = un producto).
-   */
-  toggleVariantTnImage(v: ProductVariant, imageId: string): void {
-    if (v.tn.imageIds.includes(imageId)) {
-      v.tn.imageIds = v.tn.imageIds.filter((id) => id !== imageId);
-    } else if (this.tnMultiPerVariant()) {
-      v.tn.imageIds = [...v.tn.imageIds, imageId];
-    } else {
-      v.tn.imageIds = [imageId];
-    }
-    this.touch();
-  }
-
-  /* ---------- borradores locales (varios a la vez, localStorage) ---------- */
-
-  private genId(): string {
-    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  }
-
-  /** Nombre para mostrar en la lista: nombre base, o SKU, o un genérico. */
-  private draftLabel(d: ProductDraft): string {
-    const name = d.common.baseName?.trim();
-    if (name) return name;
-    const sku = d.common.sku?.trim();
-    if (sku) return `SKU ${sku}`;
-    return 'Borrador sin nombre';
-  }
-
-  /** Lee todos los borradores guardados. Tolerante a datos corruptos: devuelve []. */
-  private readAllDrafts(): StoredDraftEntry[] {
-    try {
-      const raw = localStorage.getItem(CrearProductoComponent.DRAFTS_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-
-  private writeAllDrafts(list: StoredDraftEntry[]): void {
-    try {
-      localStorage.setItem(CrearProductoComponent.DRAFTS_KEY, JSON.stringify(list));
-    } catch {
-      // localStorage no disponible (modo privado, cuota llena, etc.): no bloqueamos al usuario.
-      this.setImageError('draft', 'No se pudo guardar el borrador en este navegador.');
-    }
-  }
-
-  /** Migra el borrador único de la versión anterior (si existe) a la lista nueva, una sola vez. */
-  private migrateLegacyDraft(): void {
-    let raw: string | null;
-    try {
-      raw = localStorage.getItem(CrearProductoComponent.LEGACY_DRAFT_KEY);
-    } catch {
-      return;
-    }
-    if (!raw) return;
-    try {
-      const legacy = JSON.parse(raw);
-      if (legacy?.draft) {
-        const entry: StoredDraftEntry = {
-          id: this.genId(),
-          savedAt: legacy.savedAt ?? Date.now(),
-          mlMaxPictures: legacy.mlMaxPictures ?? 12,
-          mlMaxPicturesPerVar: legacy.mlMaxPicturesPerVar ?? 10,
-          draft: legacy.draft
-        };
-        const list = this.readAllDrafts();
-        list.unshift(entry);
-        this.writeAllDrafts(list);
-      }
-    } catch {
-      // Borrador viejo corrupto: se descarta sin romper la página.
-    } finally {
-      try {
-        localStorage.removeItem(CrearProductoComponent.LEGACY_DRAFT_KEY);
-      } catch {
-        /* noop */
-      }
-    }
-  }
-
-  /** Refresca la metadata para el panel "Mis borradores" (más reciente primero). */
-  private refreshSavedDraftsList(): void {
-    const list = this.readAllDrafts()
-      .slice()
-      .sort((a, b) => b.savedAt - a.savedAt)
-      .map((e) => ({ id: e.id, label: this.draftLabel(e.draft as ProductDraft), savedAt: new Date(e.savedAt) }));
-    this.savedDrafts.set(list);
-  }
-
-  /**
-   * Guarda el borrador actual (nada se publica). Si ya se venía editando un borrador guardado
-   * (currentDraftId), actualiza esa misma entrada; si no, crea una nueva. Las imágenes ya viven
-   * en el store temporal del backend (POST /api/products/images): acá solo persistimos su
-   * `id`/`name` — el `previewUrl` (puede ser un data: URL pesado) se reconstruye al restaurar.
-   */
-  saveDraft(): void {
-    if (this.hasPendingUploads()) {
-      this.setImageError('draft', 'Esperá a que terminen de subirse las fotos antes de guardar el borrador.');
-      return;
-    }
-    const d = this.draft();
-    const stripPreview = (images: DraftImage[]) => images.map(({ id, name }) => ({ id, name }));
-    const id = this.currentDraftId() ?? this.genId();
-    const entry: StoredDraftEntry = {
-      id,
-      savedAt: Date.now(),
-      mlMaxPictures: this.mlMaxPictures(),
-      mlMaxPicturesPerVar: this.mlMaxPicturesPerVar(),
-      draft: {
-        ...d,
-        ml: { ...d.ml, images: stripPreview(d.ml.images) },
-        tn: { ...d.tn, images: stripPreview(d.tn.images) }
-      }
-    };
-    const list = this.readAllDrafts();
-    const idx = list.findIndex((e) => e.id === id);
-    if (idx >= 0) list[idx] = entry;
-    else list.unshift(entry);
-    // Tope de borradores guardados: si se supera, se descartan los más viejos.
-    this.writeAllDrafts(list.slice(0, CrearProductoComponent.MAX_DRAFTS));
-    this.currentDraftId.set(id);
-    this.draftSavedAt.set(new Date(entry.savedAt));
-    this.refreshSavedDraftsList();
-  }
-
-  /** Carga un borrador guardado en el formulario (reconstruye los previews de imágenes). */
-  private applyDraftEntry(entry: StoredDraftEntry): void {
-    // El preview apunta a la MINIATURA, no al original: restaurar un borrador con 45 fotos servía
-    // ~225 MB de archivos de resolución completa para pintarlos en cajas de 40-84 px.
-    const restorePreview = (images: { id: string; name: string }[] = []): DraftImage[] =>
-      images.map((img) => ({
-        ...img,
-        uid: img.id,
-        previewUrl: `${this.api.baseUrl}/products/images/${img.id}/thumb`
-      }));
-    // Los blobs del borrador que estaba abierto ya no se usan más.
-    this.revokeDraftBlobs(this.draft());
-    // normalizeDraft rellena lo que falte: los borradores guardados por versiones anteriores no
-    // traen `cost`, `barcode`/`titles` por variante ni, en los más viejos, `ml.pictureIds` — y sin
-    // ese array los computeds de selección tiraban TypeError y se caía el render de la página.
-    const d = normalizeDraft(entry.draft);
-    d.ml.images = restorePreview(entry.draft.ml.images as { id: string; name: string }[]);
-    d.tn.images = restorePreview(entry.draft.tn.images as { id: string; name: string }[]);
-    this.draft.set(d);
-    // positiveLimit (y no `??`) porque un 0 guardado por una versión anterior dejaba el límite de
-    // fotos por variación en cero, y con eso NINGUNA foto de ML se podía seleccionar nunca más.
-    this.mlMaxPictures.set(positiveLimit(entry.mlMaxPictures, ML_MAX_PICTURES_FALLBACK));
-    this.mlMaxPicturesPerVar.set(positiveLimit(entry.mlMaxPicturesPerVar, ML_MAX_PICTURES_PER_VAR_FALLBACK));
-    this.currentDraftId.set(entry.id);
-    this.draftSavedAt.set(new Date(entry.savedAt));
-  }
-
-  /** Al entrar a la página, restaura automáticamente el borrador guardado más reciente (si hay). */
-  private restoreMostRecentDraft(): void {
-    const list = this.readAllDrafts();
-    if (!list.length) return;
-    const latest = list.reduce((a, b) => (b.savedAt > a.savedAt ? b : a));
-    this.applyDraftEntry(latest);
-    this.draftRestored.set(true);
-  }
-
-  /** Abre un borrador elegido desde el panel "Mis borradores". */
-  openDraft(id: string): void {
-    const entry = this.readAllDrafts().find((e) => e.id === id);
-    if (!entry) return;
-    this.applyDraftEntry(entry);
-    this.draftRestored.set(false);
-    this.draftsPanelOpen.set(false);
-  }
-
-  toggleDraftsPanel(): void {
-    this.draftsPanelOpen.set(!this.draftsPanelOpen());
-  }
-
-  /** Elimina un borrador guardado para siempre. Si es el que se está editando, limpia el formulario. */
-  deleteDraft(id: string): void {
-    this.writeAllDrafts(this.readAllDrafts().filter((e) => e.id !== id));
-    this.refreshSavedDraftsList();
-    if (this.currentDraftId() === id) this.startNewDraft();
-  }
-
-  /** Limpia el formulario para empezar un producto nuevo (no borra nada de lo ya guardado). */
-  startNewDraft(): void {
-    this.revokeDraftBlobs(this.draft());
-    this.draft.set(emptyDraft());
-    this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
-    this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
-    this.currentDraftId.set(null);
-    this.draftSavedAt.set(null);
-    this.draftRestored.set(false);
-  }
-
-  /** Borra el borrador actual de la lista guardada (se llama tras publicar con éxito). */
-  private clearSavedDraft(): void {
-    const id = this.currentDraftId();
-    if (id) {
-      this.writeAllDrafts(this.readAllDrafts().filter((e) => e.id !== id));
-      this.refreshSavedDraftsList();
-    }
-    this.currentDraftId.set(null);
-    this.draftSavedAt.set(null);
-    this.draftRestored.set(false);
+    return this.store.errMsg(e);
   }
 
   /* ---------- publicar ---------- */
@@ -1096,7 +380,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
    */
   async publish(channels?: Channel[]): Promise<void> {
     if (this.hasPendingUploads()) {
-      this.setImageError('draft', 'Esperá a que terminen de subirse las fotos antes de publicar.');
+      this.store.setImageError('draft', 'Esperá a que terminen de subirse las fotos antes de publicar.');
       return;
     }
     this.publishing.set(true);
@@ -1130,7 +414,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       this.publishResults.set(merged);
     }
     // Ya no hace falta el borrador local si los dos canales quedaron publicados.
-    if (merged.length === 2 && merged.every((r) => r.status === 'ok')) this.clearSavedDraft();
+    if (merged.length === 2 && merged.every((r) => r.status === 'ok')) this.store.clearSavedDraft();
   }
 
   /**
@@ -1268,16 +552,5 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   /** Reintenta la publicación solo del canal que falló (vuelve a llamar al backend). */
   retry(channel: Channel): void {
     void this.publish([channel]);
-  }
-
-  /**
-   * Fuerza una nueva referencia de la señal tras mutar el draft en sitio. Pública (no solo de uso
-   * interno): el template la llama directo en los campos de precio/costo para que los `computed()`
-   * de rentabilidad (costPreview, mlBreakdown, tnBreakdown) se actualicen mientras se tipea — un
-   * `computed()` sólo vuelve a calcular cuando la señal `draft` cambia de referencia, no cuando
-   * `[(ngModel)]` muta una propiedad anidada en el lugar.
-   */
-  touch(): void {
-    this.draft.set({ ...this.draft() });
   }
 }

@@ -1,4 +1,9 @@
-<div class="page">
+<!--
+  Autoguardado: `input`/`change` burbujean, así que un solo handler acá cubre todos los campos del
+  formulario (incluidos los que viven dentro de sub-componentes). La alternativa era sembrar
+  `(ngModelChange)` en ~60 inputs. El debounce y las guardas viven en el store.
+-->
+<div class="page" (input)="store.scheduleAutosave()" (change)="store.scheduleAutosave()">
   <header class="page-head">
     <div>
       <h1>Crear producto</h1>

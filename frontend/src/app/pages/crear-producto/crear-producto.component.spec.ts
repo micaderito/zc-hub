@@ -867,6 +867,75 @@ describe('CrearProductoComponent', () => {
     });
   });
 
+  describe('autoguardado', () => {
+    it('guarda solo después de que se deja de escribir, y actualiza la MISMA entrada', fakeAsync(() => {
+      component.draft().common.baseName = 'Cuaderno A4';
+      component.touch();
+      expect(component.currentDraftId()).toBeNull(); // todavía no
+
+      tick(1500);
+      const id = component.currentDraftId();
+      expect(id).toBeTruthy();
+      expect(component.savedDrafts().length).toBe(1);
+
+      // Un segundo cambio actualiza la entrada existente, no crea otra.
+      component.draft().common.baseName = 'Cuaderno A4 Tapa Dura';
+      component.touch();
+      tick(1500);
+      expect(component.currentDraftId()).toBe(id);
+      expect(component.savedDrafts().length).toBe(1);
+    }));
+
+    it('escribir de nuevo antes del debounce reagenda: guarda una sola vez', fakeAsync(() => {
+      component.draft().common.baseName = 'A';
+      component.touch();
+      tick(500);
+      component.draft().common.baseName = 'AB';
+      component.touch();
+      tick(500);
+      expect(component.currentDraftId()).toBeNull(); // el timer se reinició
+
+      tick(1500);
+      expect(component.savedDrafts().length).toBe(1);
+      expect(component.savedDrafts()[0].label).toBe('AB');
+    }));
+
+    it('un borrador vacío NO se autoguarda (entrar a la página no ensucia "Mis borradores")', fakeAsync(() => {
+      component.touch();
+      tick(5000);
+      expect(component.savedDrafts().length).toBe(0);
+      expect(component.currentDraftId()).toBeNull();
+    }));
+
+    it('con fotos a medio subir no guarda (persistiría ids locales) y reagenda', fakeAsync(() => {
+      component.draft().common.baseName = 'Con fotos';
+      component.draft().ml.images.push({ id: 'local-1', uid: 'local-1', name: 'a.jpg', previewUrl: '', uploading: true });
+      component.touch();
+
+      tick(1500);
+      expect(component.savedDrafts().length).toBe(0);
+
+      // Cuando termina la subida, el siguiente ciclo del debounce sí guarda. El `touch()` es lo
+      // que hace el código real al resolver la subida (y lo que invalida `hasPendingUploads`).
+      component.draft().ml.images[0].uploading = false;
+      component.draft().ml.images[0].id = 'IMG-REAL';
+      component.touch();
+      tick(1500);
+      expect(component.savedDrafts().length).toBe(1);
+    }));
+
+    it('startNewDraft() cancela el autoguardado pendiente (no pisa la entrada nueva)', fakeAsync(() => {
+      component.draft().common.baseName = 'Viejo';
+      component.touch();
+      tick(500);
+
+      component.startNewDraft();
+      tick(5000);
+
+      expect(component.savedDrafts().length).toBe(0);
+    }));
+  });
+
   describe('publish()', () => {
     it('marca publishing en true y limpia publishResults al iniciar', () => {
       component.publish();
