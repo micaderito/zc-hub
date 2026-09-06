@@ -692,51 +692,7 @@
         </div>
       }
 
-      @if (draft().ml.images.length || draft().tn.images.length) {
-        <div class="variant-images field">
-          <span class="lbl">Fotos por variante</span>
-          <span class="hint">
-            Elegí qué fotos muestra cada variante. ML admite varias (hasta {{ mlMaxPicturesPerVar() }});
-            TN {{ tnMultiPerVariant() ? 'admite varias (1 producto por variante)' : 'admite una (1 publicación con variantes)' }}.
-          </span>
-          @if (imageError() && imageErrorScope() === 'variant') {
-            <span class="hint error">{{ imageError() }}</span>
-          }
-          @for (v of draft().variants; track v.id) {
-            <div class="vimg-row">
-              <span class="vimg-label">{{ variantChipLabel(v) }}</span>
-              @if (draft().ml.images.length) {
-                <div class="vimg-group">
-                  <span class="vimg-ch"><span class="dot dot-ml"></span> ML</span>
-                  @for (img of draft().ml.images; track img.uid || img.id) {
-                    <button type="button" class="vimg-thumb" [class.sel]="isVariantMlImage(v, img.id)"
-                            (click)="toggleVariantMlImage(v, img.id)" [title]="img.name">
-                      @if (img.previewUrl) {
-                        <img [src]="img.previewUrl" [alt]="img.name" width="40" height="40" loading="lazy" decoding="async" />
-                      }
-                      @if (isVariantMlImage(v, img.id)) { <i class="ti ti-check"></i> }
-                    </button>
-                  }
-                </div>
-              }
-              @if (draft().tn.images.length) {
-                <div class="vimg-group">
-                  <span class="vimg-ch">◆ TN</span>
-                  @for (img of draft().tn.images; track img.uid || img.id) {
-                    <button type="button" class="vimg-thumb" [class.sel]="isVariantTnImage(v, img.id)"
-                            (click)="toggleVariantTnImage(v, img.id)" [title]="img.name">
-                      @if (img.previewUrl) {
-                        <img [src]="img.previewUrl" [alt]="img.name" width="40" height="40" loading="lazy" decoding="async" />
-                      }
-                      @if (isVariantTnImage(v, img.id)) { <i class="ti ti-check"></i> }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          }
-        </div>
-      }
+      <zc-variant-photos />
     }
   </section>
 

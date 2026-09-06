@@ -24,6 +24,7 @@ import {
   ML_MAX_PICTURES_PER_VAR_FALLBACK,
   ProductDraftStore
 } from './product-draft.store';
+import { VariantPhotosComponent } from './components/variant-photos/variant-photos.component';
 
 /**
  * Página de creación de producto.
@@ -37,7 +38,7 @@ import {
 @Component({
   selector: 'app-crear-producto',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, VariantPhotosComponent],
   templateUrl: './crear-producto.component.html',
   styleUrl: './crear-producto.component.scss',
   providers: [ProductDraftStore],
