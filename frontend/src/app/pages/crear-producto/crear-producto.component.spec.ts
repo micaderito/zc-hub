@@ -867,6 +867,69 @@ describe('CrearProductoComponent', () => {
     });
   });
 
+  describe('OnPush: los sub-componentes se refrescan cuando el store cambia desde afuera', () => {
+    /*
+     * La regla que hace que todo esto funcione: los hijos leen `store.draft()` en su template y NO
+     * reciben datos del borrador por `input()`. `touch()` clona solo la raíz, así que un
+     * `[algo]="draft().ml"` se compararía con Object.is, daría igual, y el hijo OnPush nunca se
+     * marcaría. Estos tests fallan si alguien cachea `draft()` en un field del componente.
+     */
+    function valorDe(selector: string): string | undefined {
+      return (fixture.nativeElement.querySelector(selector) as HTMLInputElement | null)?.value;
+    }
+
+    // ngModel sincroniza modelo→vista en un microtask, así que hay que dejarlo correr antes de
+    // mirar el `value` del input; por eso estos dos van con fakeAsync.
+    it('datos comunes: un cambio programático del nombre base se ve en el input del hijo', fakeAsync(() => {
+      component.draft().common.baseName = 'Cambiado desde afuera';
+      component.touch();
+      fixture.detectChanges();
+      flushMicrotasks();
+
+      expect(valorDe('zc-common-data-section input.zc-input')).toBe('Cambiado desde afuera');
+      component.store.cancelAutosave();
+    }));
+
+    it('sección TN: generateSeo() escribe el SEO y el input del hijo lo muestra', fakeAsync(() => {
+      component.draft().common.baseName = 'Cuaderno A4';
+      component.touch();
+      void component.generateSeo();
+      flushMicrotasks();
+      fixture.detectChanges();
+      flushMicrotasks();
+
+      const seo = fixture.nativeElement.querySelector('zc-tn-section input[maxlength="70"]') as HTMLInputElement;
+      expect(seo?.value).toBe(catalog.seoResponse.seoTitle);
+      component.store.cancelAutosave();
+    }));
+
+    it('sección de variantes: agregar un eje desde el store renderiza la tabla en el hijo', () => {
+      expect(fixture.nativeElement.querySelector('zc-variants-section .variant-table')).toBeNull();
+      component.addAxis();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('zc-variants-section .variant-table')).not.toBeNull();
+    });
+
+    it('galería de ML: una foto agregada al store aparece en el hijo', () => {
+      seedImage(component, 'ml', 'img-abc');
+      fixture.detectChanges();
+      const img = fixture.nativeElement.querySelector('zc-ml-section zc-image-gallery img') as HTMLImageElement;
+      expect(img).not.toBeNull();
+      expect(img.getAttribute('alt')).toBe('img-abc.jpg');
+    });
+
+    it('atributos de ML: los que carga la categoría se pintan en el hijo', fakeAsync(() => {
+      catalog.mlAttributes = [
+        { id: 'BRAND', name: 'Marca', valueType: 'string', required: true, allowedValues: [] }
+      ];
+      void component.loadMlAttributes('MLA388307');
+      flushMicrotasks();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('zc-ml-attributes')?.textContent).toContain('Marca');
+    }));
+  });
+
   describe('autoguardado', () => {
     it('guarda solo después de que se deja de escribir, y actualiza la MISMA entrada', fakeAsync(() => {
       component.draft().common.baseName = 'Cuaderno A4';

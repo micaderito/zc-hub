@@ -1,0 +1,126 @@
+/* Movido desde crear-producto.component.scss junto con la galería. */
+.gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.gimg {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2, var(--surface));
+  cursor: grab;
+  &:active {
+    cursor: grabbing;
+  }
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  &.is-cover {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px var(--brand);
+  }
+  .cover-badge {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    font-size: 0.62rem;
+    padding: 0.12rem 0.2rem;
+    background: color-mix(in srgb, var(--brand) 85%, transparent);
+    color: #fff;
+  }
+  .gimg-uploading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    color: #fff;
+    background: color-mix(in srgb, var(--text-1, #000) 35%, transparent);
+    i {
+      animation: zc-gimg-spin 0.8s linear infinite;
+    }
+  }
+  .gimg-actions {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  &:hover .gimg-actions {
+    opacity: 1;
+  }
+  .gicon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.75rem;
+    &:hover {
+      background: rgba(0, 0, 0, 0.8);
+    }
+  }
+}
+
+.gadd {
+  width: 84px;
+  height: 84px;
+  border-radius: 10px;
+  border: 1.5px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  color: var(--text-3);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+  i {
+    font-size: 1.2rem;
+  }
+  &:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+  }
+}
+
+@keyframes zc-gimg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.hint {
+  font-size: 0.64rem;
+  color: var(--text-3);
+  margin-top: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  i { font-size: 0.72rem; }
+  &.error { color: var(--err); }
+}

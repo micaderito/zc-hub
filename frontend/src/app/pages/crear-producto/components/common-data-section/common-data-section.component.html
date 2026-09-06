@@ -1,0 +1,50 @@
+<section class="zc-card block">
+  <div class="block-head">
+    <i class="ti ti-stack-2 ico-brand"></i>
+    <span class="block-title">Datos comunes</span>
+    <span class="block-note">— se comparten en ambos canales</span>
+  </div>
+
+  <label class="field">
+    <span class="lbl">Nombre base <span class="req">*</span></span>
+    <input class="zc-input" [(ngModel)]="store.draft().common.baseName" placeholder="Ej. Cuaderno A4 Tapa Dura" />
+    <span class="hint"><i class="ti ti-info-circle"></i> el SKU va por variante; si el producto no tiene variantes se carga abajo, en «Variantes»</span>
+  </label>
+
+  <div class="grid-3 field">
+    <label>
+      <span class="lbl">Marca</span>
+      <input class="zc-input" [(ngModel)]="store.draft().common.brand" placeholder="Ej. Zona Cuaderno" />
+    </label>
+    <label>
+      <span class="lbl">Código de barras (GTIN/EAN)</span>
+      <input class="zc-input" [(ngModel)]="store.draft().common.barcode" placeholder="Ej. 7791234567890" />
+      @if (store.hasVariants()) {
+        <span class="hint"><i class="ti ti-info-circle"></i> por default para todas las variantes — cada una puede tener el suyo propio en la tabla de Variantes</span>
+      }
+    </label>
+    <label>
+      <span class="lbl">Condición <span class="req">*</span></span>
+      <select class="zc-select" [(ngModel)]="store.draft().common.condition">
+        <option value="new">Nuevo</option>
+        <option value="used">Usado</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="field">
+    <span class="lbl">Peso y dimensiones <span class="req">*</span></span>
+    <div class="grid-4">
+      <input class="zc-input" type="number" [(ngModel)]="store.draft().common.weightG" placeholder="Peso (g)" />
+      <input class="zc-input" type="number" [(ngModel)]="store.draft().common.lengthCm" placeholder="Largo (cm)" />
+      <input class="zc-input" type="number" [(ngModel)]="store.draft().common.widthCm" placeholder="Ancho (cm)" />
+      <input class="zc-input" type="number" [(ngModel)]="store.draft().common.heightCm" placeholder="Alto (cm)" />
+    </div>
+    <span class="hint"><i class="ti ti-arrows-shuffle"></i> ML: «30x22x3,480» (g/cm) · TN: kg + cm — se convierte automáticamente</span>
+  </div>
+
+  <label class="field no-mb">
+    <span class="lbl">Palabras clave / SEO</span>
+    <input class="zc-input" [(ngModel)]="store.draft().common.seoKeywords" placeholder="Ej. cuaderno, tapa dura, a4, oficina" />
+  </label>
+</section>

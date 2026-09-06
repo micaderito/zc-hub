@@ -1,0 +1,50 @@
+<div class="cat-modal-backdrop" (click)="close.emit()">
+  <div class="cat-modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-label="Elegí una categoría de Mercado Libre">
+    <header class="cat-modal-head">
+      <span><i class="ti ti-list-tree"></i> Elegí una categoría de Mercado Libre</span>
+      <button type="button" class="icon-btn" (click)="close.emit()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+    </header>
+
+    <nav class="cat-breadcrumb">
+      <button type="button" class="crumb" (click)="breadcrumb.emit(null)">Inicio</button>
+      @for (c of node()?.path_from_root ?? []; track c.id) {
+        <span class="sep">›</span>
+        <button type="button" class="crumb" (click)="breadcrumb.emit(c.id)">{{ c.name }}</button>
+      }
+    </nav>
+
+    <div class="cat-modal-body">
+      @if (loading()) {
+        <div class="cat-loading"><i class="ti ti-loader"></i> cargando…</div>
+      } @else if (error()) {
+        <div class="cat-error">{{ error() }}</div>
+      } @else if (node()?.leaf) {
+        <div class="cat-leaf">
+          <p class="muted">Categoría hoja (publicable):</p>
+          <strong>{{ node()?.name }}</strong>
+          <code>{{ node()?.id }}</code>
+          @if (node()?.listing_allowed === false) {
+            <p class="hint error"><i class="ti ti-alert-triangle"></i> ML marca esta categoría como no publicable.</p>
+          }
+          <button type="button" class="zc-btn primary" (click)="select.emit()" [disabled]="node()?.listing_allowed === false">
+            <i class="ti ti-check"></i> Usar esta categoría
+          </button>
+        </div>
+      } @else {
+        <ul class="cat-children">
+          @for (c of children(); track c.id) {
+            <li>
+              <button type="button" class="cat-child" (click)="navigate.emit(c.id)">
+                <span>{{ c.name }}</span>
+                <i class="ti ti-chevron-right"></i>
+              </button>
+            </li>
+          }
+          @if (!children().length) {
+            <li class="muted">Sin subcategorías.</li>
+          }
+        </ul>
+      }
+    </div>
+  </div>
+</div>

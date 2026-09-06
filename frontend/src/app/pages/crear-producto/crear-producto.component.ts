@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
+import { DatePipe } from '@angular/common';
 import { ApiService } from '../../core/services/api.service';
 import {
   CatalogService,
@@ -24,7 +23,14 @@ import {
   ML_MAX_PICTURES_PER_VAR_FALLBACK,
   ProductDraftStore
 } from './product-draft.store';
-import { VariantPhotosComponent } from './components/variant-photos/variant-photos.component';
+import { CommonDataSectionComponent } from './components/common-data-section/common-data-section.component';
+import { DraftsPanelComponent } from './components/drafts-panel/drafts-panel.component';
+import { MlCategoryDialogComponent } from './components/ml-category-dialog/ml-category-dialog.component';
+import { MlSectionComponent } from './components/ml-section/ml-section.component';
+import { PriceProfitSectionComponent } from './components/price-profit-section/price-profit-section.component';
+import { PublishResultsComponent } from './components/publish-results/publish-results.component';
+import { TnSectionComponent } from './components/tn-section/tn-section.component';
+import { VariantsSectionComponent } from './components/variants-section/variants-section.component';
 
 /**
  * Página de creación de producto.
@@ -38,7 +44,17 @@ import { VariantPhotosComponent } from './components/variant-photos/variant-phot
 @Component({
   selector: 'app-crear-producto',
   standalone: true,
-  imports: [CommonModule, FormsModule, VariantPhotosComponent],
+  imports: [
+    DatePipe,
+    CommonDataSectionComponent,
+    DraftsPanelComponent,
+    MlCategoryDialogComponent,
+    MlSectionComponent,
+    PriceProfitSectionComponent,
+    PublishResultsComponent,
+    TnSectionComponent,
+    VariantsSectionComponent
+  ],
   templateUrl: './crear-producto.component.html',
   styleUrl: './crear-producto.component.scss',
   providers: [ProductDraftStore],
