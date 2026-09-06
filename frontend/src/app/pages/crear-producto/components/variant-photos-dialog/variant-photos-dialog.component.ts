@@ -58,6 +58,39 @@ export class VariantPhotosDialogComponent {
   protected readonly tnSelectedCount = computed(() => this.liveVariant().tn.imageIds.length);
   protected readonly mlAtLimit = computed(() => this.mlSelectedCount() >= this.mlLimit());
 
+  /**
+   * Las fotos YA elegidas para esta variante, en el orden en que se publican (la primera es la
+   * portada de esa publicación puntual — no la portada del canal). Solo tiene sentido reordenar
+   * con 2+: con 0 o 1 no hay nada que decidir, y en TN de a una (`single_with_variants`) nunca
+   * pasa de 1.
+   */
+  protected readonly mlOrderedImages = computed(() => this.resolveSelected('ml'));
+  protected readonly tnOrderedImages = computed(() => this.resolveSelected('tn'));
+
+  private resolveSelected(channel: Channel): DraftImage[] {
+    const v = this.liveVariant();
+    const ids = channel === 'ml' ? v.ml.pictureIds : v.tn.imageIds;
+    const byId = new Map((channel === 'ml' ? this.mlImages() : this.tnImages()).map((img) => [img.id, img]));
+    return ids.map((id) => byId.get(id)).filter((img): img is DraftImage => !!img);
+  }
+
+  private dragOrderFrom: { channel: Channel; index: number } | null = null;
+
+  protected onOrderDragStart(channel: Channel, index: number): void {
+    this.dragOrderFrom = { channel, index };
+  }
+
+  protected onOrderDrop(channel: Channel, index: number): void {
+    if (this.dragOrderFrom && this.dragOrderFrom.channel === channel) {
+      this.store.reorderVariantImage(channel, this.liveVariant(), this.dragOrderFrom.index, index);
+    }
+    this.dragOrderFrom = null;
+  }
+
+  protected makeVariantCover(channel: Channel, index: number): void {
+    this.store.makeVariantCover(channel, this.liveVariant(), index);
+  }
+
   /* Paginación local, con la página clampeada contra el total (patrón de packs-tab). */
   protected readonly mlTotalPages = computed(() => Math.max(1, Math.ceil(this.mlImages().length / PAGE_SIZE)));
   protected readonly tnTotalPages = computed(() => Math.max(1, Math.ceil(this.tnImages().length / PAGE_SIZE)));

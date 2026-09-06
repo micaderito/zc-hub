@@ -31,7 +31,7 @@
           }
         </label>
         <label>
-          <span class="lbl">◆ Precio TN <span class="req">*</span></span>
+          <span class="lbl"><span class="dot dot-tn"></span> Precio TN <span class="req">*</span></span>
           <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().tn.basePrice" (ngModelChange)="store.touch()" />
           @if (store.tnBreakdown(store.draft().tn.basePrice); as b) {
             <span class="hint fee-hint">
@@ -71,7 +71,7 @@
             <th>SKU</th>
             <th><span class="dot dot-ml"></span> Precio</th>
             <th class="th-margin" title="Lo que te queda al precio de ML cargado, según el costo de arriba">Te queda</th>
-            <th class="th-tn">◆ Precio</th>
+            <th class="th-tn"><span class="dot dot-tn"></span> Precio</th>
             <th>Stock</th>
             <th title="Vacío = usa el código de barras común">Cód. barras</th>
             <th></th>
