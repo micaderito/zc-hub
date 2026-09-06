@@ -4,23 +4,32 @@ import { tokens, getMlToken } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { publishProduct } from '../services/productPublish.js';
-import { saveImage, saveImageBuffer, getImage, removeImage } from '../services/imageStore.js';
+import { saveImage, saveImageBuffer, saveThumbBuffer, getImage, getThumb, removeImage } from '../services/imageStore.js';
 import { generateSeo, isLlmConfigured } from '../lib/llm.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { listPacksWithStock, savePack, removePack, assignSkuPack } from '../services/packsService.js';
 
 export const productRoutes = Router();
 
-// Todo el router exige sesión, EXCEPTO GET /images/:id: se usa como <img src> en el front
-// (crear-producto) y una etiqueta <img> no puede mandar el header Authorization. Los ids son
-// aleatorios, en memoria y de vida corta (services/imageStore.js) — se deja abierto a propósito.
+// Todo el router exige sesión, EXCEPTO los GET de imagen (`/images/:id` y `/images/:id/thumb`):
+// se usan como <img src> en el front (crear-producto) y una etiqueta <img> no puede mandar el
+// header Authorization. Los ids son aleatorios y de vida corta (services/imageStore.js) — se deja
+// abierto a propósito. Ojo: el POST del thumb NO entra acá, sigue exigiendo sesión.
+const PUBLIC_IMAGE_GET = /^\/images\/[^/]+(\/thumb)?$/;
 productRoutes.use((req, res, next) => {
-  if (req.method === 'GET' && /^\/images\/[^/]+$/.test(req.path)) return next();
+  if (req.method === 'GET' && PUBLIC_IMAGE_GET.test(req.path)) return next();
   return requireAuth(req, res, next);
 });
 
 /** Sitio de ML de la cuenta (Argentina). Si algún día se opera en otro país, parametrizar. */
 const ML_SITE = 'MLA';
+
+/**
+ * Límite saneado: el 0 que ML devuelve en categorías mal configuradas NO es un límite real, y
+ * `??` no lo atrapa. Con ese 0 llegando al front, la guarda `length >= limite` daba `0 >= 0` y
+ * bloqueaba en silencio toda selección de fotos por variación.
+ */
+const positiveOr = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : fallback);
 
 /**
  * Atributos de categoría que NO se le piden al usuario porque ya los completamos nosotros
@@ -80,6 +89,43 @@ productRoutes.get('/images/:id', (req, res) => {
   if (!img) return res.status(404).end();
   res.setHeader('Content-Type', img.mime);
   res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.send(img.buffer);
+});
+
+/**
+ * Guarda la miniatura que generó el cliente para una imagen ya subida. Body: binario `image/*`.
+ * Exige sesión (a diferencia del GET). La miniatura es solo para el preview del borrador: NUNCA
+ * se publica en ML ni en TN — el fan-out usa `getImage()`, el original.
+ */
+productRoutes.post('/images/:id/thumb', express.raw({ type: 'image/*', limit: '1mb' }), (req, res) => {
+  if (!Buffer.isBuffer(req.body) || !req.body.length) {
+    return res.status(400).json({ error: 'Falta la miniatura' });
+  }
+  try {
+    res.json(saveThumbBuffer(req.params.id, req.body));
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+/**
+ * Sirve la miniatura de una imagen temporal. Si esa imagen todavía no tiene una (borradores
+ * guardados antes de que existieran), cae al ORIGINAL: así no hay regresión, solo deja de haber
+ * mejora para esos casos.
+ */
+productRoutes.get('/images/:id/thumb', (req, res) => {
+  const thumb = getThumb(req.params.id);
+  if (thumb) {
+    res.setHeader('Content-Type', thumb.mime);
+    // El contenido de un id nunca cambia, así que se puede cachear agresivo.
+    res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
+    return res.send(thumb.buffer);
+  }
+  const img = getImage(req.params.id);
+  if (!img) return res.status(404).end();
+  res.setHeader('Content-Type', img.mime);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.setHeader('X-Thumb', 'original');
   res.send(img.buffer);
 });
 
@@ -216,8 +262,8 @@ productRoutes.get('/categories/mercadolibre/:id', async (req, res) => {
       leaf: children.length === 0,
       listing_allowed: cat.settings?.listing_allowed !== false,
       // Límite de fotos por ítem y por variación (fallback 12/10 si la categoría no lo trae).
-      max_pictures: cat.settings?.max_pictures_per_item ?? 12,
-      max_pictures_per_var: cat.settings?.max_pictures_per_item_var ?? 10,
+      max_pictures: positiveOr(cat.settings?.max_pictures_per_item, 12),
+      max_pictures_per_var: positiveOr(cat.settings?.max_pictures_per_item_var, 10),
       settings: cat.settings || null
     });
   } catch (e) {

@@ -32,9 +32,18 @@ import {
   emptyDraft,
   inherited,
   listingTypeLabel,
+  normalizeDraft,
+  positiveLimit,
   projectionLabel,
   variantLabel
 } from './product-draft.model';
+
+/** Dónde se muestra el error de imágenes, para que el aviso aparezca donde se hizo el click. */
+export type ImageErrorScope = 'ml-gallery' | 'tn-gallery' | 'variant' | 'draft';
+
+/** Tope de fotos por publicación / por variación de ML cuando la categoría no informa uno válido. */
+const ML_MAX_PICTURES_FALLBACK = 12;
+const ML_MAX_PICTURES_PER_VAR_FALLBACK = 10;
 
 let variantSeq = 1;
 
@@ -135,20 +144,27 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
 
   // --- Imágenes ---
   /** Límite de fotos por publicación ML (settings.max_pictures_per_item; fallback 12). */
-  readonly mlMaxPictures = signal(12);
+  readonly mlMaxPictures = signal(ML_MAX_PICTURES_FALLBACK);
   /** Límite de fotos por variación ML (settings.max_pictures_per_item_var; fallback 10). */
-  readonly mlMaxPicturesPerVar = signal(10);
+  readonly mlMaxPicturesPerVar = signal(ML_MAX_PICTURES_PER_VAR_FALLBACK);
   /** Tope de fotos por producto en TN (fijo por la API; error 422 al superar 250). */
   readonly TN_MAX_PICTURES = 250;
   readonly imageError = signal<string | null>(null);
+  /**
+   * Dónde mostrar `imageError`. Sin esto el aviso se pintaba solo dentro de las galerías de ML y
+   * TN, o sea a cientos de píxeles del lugar donde se hizo el click (ej. al topear el límite de
+   * fotos por variante): el rechazo quedaba invisible y parecía que el click no hacía nada.
+   */
+  readonly imageErrorScope = signal<ImageErrorScope | null>(null);
   /** true mientras haya al menos una foto subiendo (galería de cualquiera de los dos canales). */
   readonly hasPendingUploads = computed(
     () => this.draft().ml.images.some((i) => i.uploading) || this.draft().tn.images.some((i) => i.uploading)
   );
   /** Índice arrastrado en la galería (para reordenar con drag). */
   private dragIndex: { channel: Channel; index: number } | null = null;
-  /** Worker que genera la miniatura del preview sin tocar el hilo principal (ver onImageFiles). */
-  private thumbWorker: Worker | null = null;
+  /** Pool de workers que generan la miniatura del preview sin tocar el hilo principal. */
+  private readonly thumbPool: Worker[] = [];
+  private thumbCursor = 0;
   private thumbSeq = 0;
   private readonly thumbWaiters = new Map<number, { resolve: (blob: Blob) => void; reject: (e: Error) => void }>();
 
@@ -167,12 +183,12 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
    */
   private readonly mlVariantImageSets = computed(() => {
     const map = new Map<string, Set<string>>();
-    for (const v of this.draft().variants) map.set(v.id, new Set(v.ml.pictureIds));
+    for (const v of this.draft().variants) map.set(v.id, new Set(v.ml?.pictureIds ?? []));
     return map;
   });
   private readonly tnVariantImageSets = computed(() => {
     const map = new Map<string, Set<string>>();
-    for (const v of this.draft().variants) map.set(v.id, new Set(v.tn.imageIds));
+    for (const v of this.draft().variants) map.set(v.id, new Set(v.tn?.imageIds ?? []));
     return map;
   });
   private readonly tnCategoryPathById = computed(() => new Map(this.tnCategories().map((c) => [c.id, c.path])));
@@ -240,10 +256,18 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.thumbWorker?.terminate();
-    // Los previews son object URLs (blob:): liberarlos evita que se acumulen en memoria.
-    for (const img of [...this.draft().ml.images, ...this.draft().tn.images]) {
-      if (img.previewUrl.startsWith('blob:')) URL.revokeObjectURL(img.previewUrl);
+    for (const worker of this.thumbPool) worker.terminate();
+    this.revokeDraftBlobs(this.draft());
+  }
+
+  /**
+   * Libera los object URLs (`blob:`) de las miniaturas del borrador. Hay que llamarlo ANTES de
+   * pisar el draft (abrir otro borrador, empezar uno nuevo): si no, esos blobs quedan retenidos
+   * hasta que se cierre la pestaña.
+   */
+  private revokeDraftBlobs(d: ProductDraft): void {
+    for (const img of [...(d.ml?.images ?? []), ...(d.tn?.images ?? [])]) {
+      if (img.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(img.previewUrl);
     }
   }
 
@@ -326,8 +350,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     d.ml.categoryId = p.category_id;
     d.ml.categoryName = p.category_name;
     // El predictor no trae los límites de fotos: usamos el fallback (12/10, casi universal en MLA).
-    this.mlMaxPictures.set(12);
-    this.mlMaxPicturesPerVar.set(10);
+    this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
+    this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
     this.mlPredictions.set([]);
     this.touch();
     await this.loadMlAttributes(p.category_id, p.attributes);
@@ -384,9 +408,10 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     const d = this.draft();
     d.ml.categoryId = node.id;
     d.ml.categoryName = node.name;
-    // La categoría define cuántas fotos admite (galería y por variación).
-    this.mlMaxPictures.set(node.max_pictures ?? 12);
-    this.mlMaxPicturesPerVar.set(node.max_pictures_per_var ?? 10);
+    // La categoría define cuántas fotos admite (galería y por variación). positiveLimit y no
+    // `??`: ML devuelve 0 en categorías mal configuradas, y un 0 acá bloqueaba toda selección.
+    this.mlMaxPictures.set(positiveLimit(node.max_pictures, ML_MAX_PICTURES_FALLBACK));
+    this.mlMaxPicturesPerVar.set(positiveLimit(node.max_pictures_per_var, ML_MAX_PICTURES_PER_VAR_FALLBACK));
     this.mlTreeOpen.set(false);
     this.touch();
     await this.loadMlAttributes(node.id);
@@ -397,8 +422,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     d.ml.categoryId = '';
     d.ml.categoryName = '';
     d.ml.attributes = [];
-    this.mlMaxPictures.set(12);
-    this.mlMaxPicturesPerVar.set(10);
+    this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
+    this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
     this.touch();
   }
 
@@ -626,7 +651,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
    */
   async onImageFiles(channel: Channel, fileList: FileList | null): Promise<void> {
     if (!fileList || !fileList.length) return;
-    this.imageError.set(null);
+    const galleryScope: ImageErrorScope = channel === 'ml' ? 'ml-gallery' : 'tn-gallery';
+    this.setImageError(null, null);
     const list = this.images(channel);
     const limit = this.imageLimit(channel);
     const channelName = channel === 'ml' ? 'Mercado Libre' : 'Tienda Nube';
@@ -635,103 +661,154 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     const accepted: { file: File; localId: string }[] = [];
     for (const file of Array.from(fileList)) {
       if (list.length + accepted.length >= limit) {
-        this.imageError.set(`Máximo ${limit} fotos en ${channelName}.`);
+        this.setImageError(galleryScope, `Máximo ${limit} fotos en ${channelName}.`);
         break;
       }
       if (!/^image\//.test(file.type)) {
-        this.imageError.set(`"${file.name}" no es una imagen.`);
+        this.setImageError(galleryScope, `"${file.name}" no es una imagen.`);
         continue;
       }
       if (channel === 'ml' && file.type === 'image/webp') {
-        this.imageError.set('Mercado Libre no acepta WEBP: convertí a JPG o PNG.');
+        this.setImageError(galleryScope, 'Mercado Libre no acepta WEBP: convertí a JPG o PNG.');
         continue;
       }
       if (file.size > 10 * 1024 * 1024) {
-        this.imageError.set(`"${file.name}" supera los 10 MB.`);
+        this.setImageError(galleryScope, `"${file.name}" supera los 10 MB.`);
         continue;
       }
       accepted.push({ file, localId: `local-${this.genId()}` });
     }
     if (!accepted.length) return;
 
-    // 2) Placeholders visibles de entrada, en el orden elegido, mientras se genera la miniatura y sube el original.
+    // 2) Placeholders visibles de entrada, en el orden elegido, mientras se genera la miniatura y
+    //    sube el original. El `uid` es la identidad estable para el `track` de los `@for`: el `id`
+    //    va a cambiar en el paso 3 cuando responda el backend.
     for (const { file, localId } of accepted) {
-      list.push({ id: localId, name: file.name, previewUrl: '', uploading: true });
+      list.push({ id: localId, uid: localId, name: file.name, previewUrl: '', uploading: true });
     }
     this.touch();
 
-    // 3) Miniatura + subida real, con concurrencia acotada (3 a la vez).
+    // 3) Subida + miniatura, con concurrencia acotada (3 a la vez).
     const CONCURRENCY = 3;
     let cursor = 0;
     const runNext = async (): Promise<void> => {
       while (cursor < accepted.length) {
         const { file, localId } = accepted[cursor++];
         try {
-          const previewUrl = await this.makeThumb(file);
-          const placeholder = list.find((i) => i.id === localId);
+          // La subida arranca PRIMERO y la miniatura se genera en paralelo: el worker es una cola
+          // serial, así que esperarlo antes de subir dejaba a los 3 uploads formados detrás de él.
+          const uploadPromise = this.catalog.uploadImageFile(file);
+          const thumb = await this.makeThumb(file);
+          const placeholder = list.find((i) => i.uid === localId);
           if (placeholder) {
-            placeholder.previewUrl = previewUrl;
+            placeholder.previewUrl = thumb.url;
             this.touch();
           }
-          const up = await this.catalog.uploadImageFile(file);
-          const idx = list.findIndex((i) => i.id === localId);
+          const up = await uploadPromise;
+          const idx = list.findIndex((i) => i.uid === localId);
           if (idx >= 0) {
             list[idx] = { ...list[idx], id: up.id, name: up.name, uploading: false };
+            // El id cambió: las variantes que ya tenían asignada esta foto tienen que seguirlo.
+            this.remapImageId(channel, localId, up.id);
             this.touch();
+            // La miniatura se guarda en el backend para que al restaurar el borrador el preview
+            // NO sea el original de varios MB. Fire-and-forget: si falla, el endpoint del thumb
+            // cae al original y no se pierde nada.
+            if (thumb.blob) void this.catalog.uploadThumb(up.id, thumb.blob).catch(() => undefined);
           }
         } catch (e) {
-          const idx = list.findIndex((i) => i.id === localId);
+          const idx = list.findIndex((i) => i.uid === localId);
           if (idx >= 0) {
             const [removed] = list.splice(idx, 1);
-            if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+            if (removed?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
             this.touch();
           }
-          this.imageError.set(this.errMsg(e));
+          this.setImageError(galleryScope, this.errMsg(e));
         }
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, accepted.length) }, () => runNext()));
   }
 
+  /**
+   * Al terminar la subida, el id de la foto pasa de `local-…` al del backend. Si la usuaria ya la
+   * había asignado a una variante mientras subía, esa asignación apunta al id viejo: sin este
+   * remapeo la selección desaparece sola y la foto no viaja en el payload de publicación.
+   */
+  private remapImageId(channel: Channel, from: string, to: string): void {
+    if (from === to) return;
+    for (const v of this.draft().variants) {
+      if (channel === 'ml') {
+        if (v.ml.pictureIds.includes(from)) v.ml.pictureIds = v.ml.pictureIds.map((id) => (id === from ? to : id));
+      } else if (v.tn.imageIds.includes(from)) {
+        v.tn.imageIds = v.tn.imageIds.map((id) => (id === from ? to : id));
+      }
+    }
+  }
+
+  /** Setea el error de imágenes junto con dónde tiene que mostrarse. */
+  private setImageError(scope: ImageErrorScope | null, message: string | null): void {
+    this.imageError.set(message);
+    this.imageErrorScope.set(message ? scope : null);
+  }
+
   /** Miniatura liviana (≤400px) para el `<img src>` del preview. Nunca el archivo original. */
-  private async makeThumb(file: File): Promise<string> {
-    const worker = this.getThumbWorker();
-    if (!worker) return URL.createObjectURL(file);
+  private async makeThumb(file: File): Promise<{ url: string; blob: Blob | null }> {
+    const worker = this.nextThumbWorker();
+    // Sin worker mostramos el original: no es ideal, pero es preferible a no mostrar nada.
+    if (!worker) return { url: URL.createObjectURL(file), blob: null };
     const id = ++this.thumbSeq;
     try {
       const blob = await new Promise<Blob>((resolve, reject) => {
         this.thumbWaiters.set(id, { resolve, reject });
         worker.postMessage({ id, file });
       });
-      return URL.createObjectURL(blob);
+      return { url: URL.createObjectURL(blob), blob };
     } catch {
       // El worker falló (formato raro, etc.): mostramos el original antes que nada.
-      return URL.createObjectURL(file);
+      return { url: URL.createObjectURL(file), blob: null };
     }
   }
 
-  private getThumbWorker(): Worker | null {
+  /**
+   * Devuelve el siguiente worker del pool (round-robin). Con un worker único, las N miniaturas se
+   * generaban de a una y las subidas concurrentes quedaban formadas detrás de esa cola.
+   */
+  private nextThumbWorker(): Worker | null {
     if (typeof Worker === 'undefined') return null;
-    if (!this.thumbWorker) {
-      try {
-        this.thumbWorker = new Worker(new URL('./image-thumb.worker', import.meta.url), { type: 'module' });
-        this.thumbWorker.onmessage = (ev: MessageEvent<{ id: number; blob?: Blob; error?: string }>) => {
-          const waiter = this.thumbWaiters.get(ev.data.id);
-          if (!waiter) return;
-          this.thumbWaiters.delete(ev.data.id);
-          if (ev.data.blob) waiter.resolve(ev.data.blob);
-          else waiter.reject(new Error(ev.data.error || 'No se pudo generar la miniatura'));
-        };
-        this.thumbWorker.onerror = () => {
-          // Worker roto por completo: los pendientes caen al fallback (createObjectURL directo).
-          for (const [, w] of this.thumbWaiters) w.reject(new Error('Worker de miniaturas no disponible'));
-          this.thumbWaiters.clear();
-        };
-      } catch {
-        this.thumbWorker = null;
+    if (!this.thumbPool.length) {
+      const size = Math.min(3, Math.max(1, navigator.hardwareConcurrency || 2));
+      for (let i = 0; i < size; i++) {
+        const worker = this.createThumbWorker();
+        if (worker) this.thumbPool.push(worker);
       }
     }
-    return this.thumbWorker;
+    if (!this.thumbPool.length) return null;
+    const worker = this.thumbPool[this.thumbCursor % this.thumbPool.length];
+    this.thumbCursor++;
+    return worker;
+  }
+
+  private createThumbWorker(): Worker | null {
+    try {
+      const worker = new Worker(new URL('./image-thumb.worker', import.meta.url), { type: 'module' });
+      // El `id` del mensaje identifica al waiter, así que da igual qué worker del pool conteste.
+      worker.onmessage = (ev: MessageEvent<{ id: number; blob?: Blob; error?: string }>) => {
+        const waiter = this.thumbWaiters.get(ev.data.id);
+        if (!waiter) return;
+        this.thumbWaiters.delete(ev.data.id);
+        if (ev.data.blob) waiter.resolve(ev.data.blob);
+        else waiter.reject(new Error(ev.data.error || 'No se pudo generar la miniatura'));
+      };
+      worker.onerror = () => {
+        // Worker roto por completo: los pendientes caen al fallback (createObjectURL directo).
+        for (const [, w] of this.thumbWaiters) w.reject(new Error('Worker de miniaturas no disponible'));
+        this.thumbWaiters.clear();
+      };
+      return worker;
+    } catch {
+      return null;
+    }
   }
 
   /** Quita una imagen de la galería, la desasigna de las variantes y la borra del backend. */
@@ -785,8 +862,9 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     if (v.ml.pictureIds.includes(imageId)) {
       v.ml.pictureIds = v.ml.pictureIds.filter((id) => id !== imageId);
     } else {
-      if (v.ml.pictureIds.length >= this.mlMaxPicturesPerVar()) {
-        this.imageError.set(`Máximo ${this.mlMaxPicturesPerVar()} fotos por variación en Mercado Libre.`);
+      const max = positiveLimit(this.mlMaxPicturesPerVar(), ML_MAX_PICTURES_PER_VAR_FALLBACK);
+      if (v.ml.pictureIds.length >= max) {
+        this.setImageError('variant', `Máximo ${max} fotos por variación en Mercado Libre.`);
         return;
       }
       v.ml.pictureIds = [...v.ml.pictureIds, imageId];
@@ -847,7 +925,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       localStorage.setItem(CrearProductoComponent.DRAFTS_KEY, JSON.stringify(list));
     } catch {
       // localStorage no disponible (modo privado, cuota llena, etc.): no bloqueamos al usuario.
-      this.imageError.set('No se pudo guardar el borrador en este navegador.');
+      this.setImageError('draft', 'No se pudo guardar el borrador en este navegador.');
     }
   }
 
@@ -902,7 +980,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
    */
   saveDraft(): void {
     if (this.hasPendingUploads()) {
-      this.imageError.set('Esperá a que terminen de subirse las fotos antes de guardar el borrador.');
+      this.setImageError('draft', 'Esperá a que terminen de subirse las fotos antes de guardar el borrador.');
       return;
     }
     const d = this.draft();
@@ -932,28 +1010,27 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
 
   /** Carga un borrador guardado en el formulario (reconstruye los previews de imágenes). */
   private applyDraftEntry(entry: StoredDraftEntry): void {
+    // El preview apunta a la MINIATURA, no al original: restaurar un borrador con 45 fotos servía
+    // ~225 MB de archivos de resolución completa para pintarlos en cajas de 40-84 px.
     const restorePreview = (images: { id: string; name: string }[] = []): DraftImage[] =>
-      images.map((img) => ({ ...img, previewUrl: `${this.api.baseUrl}/products/images/${img.id}` }));
-    const d = entry.draft as ProductDraft;
+      images.map((img) => ({
+        ...img,
+        uid: img.id,
+        previewUrl: `${this.api.baseUrl}/products/images/${img.id}/thumb`
+      }));
+    // Los blobs del borrador que estaba abierto ya no se usan más.
+    this.revokeDraftBlobs(this.draft());
+    // normalizeDraft rellena lo que falte: los borradores guardados por versiones anteriores no
+    // traen `cost`, `barcode`/`titles` por variante ni, en los más viejos, `ml.pictureIds` — y sin
+    // ese array los computeds de selección tiraban TypeError y se caía el render de la página.
+    const d = normalizeDraft(entry.draft);
     d.ml.images = restorePreview(entry.draft.ml.images as { id: string; name: string }[]);
     d.tn.images = restorePreview(entry.draft.tn.images as { id: string; name: string }[]);
-    // Compat: borradores viejos guardaban `tn.imageId` (una sola); migramos a `imageIds` (array).
-    // También migramos borradores de antes de `barcode`/`titles` por variante y de `cost` (rentabilidad).
-    for (const v of d.variants) {
-      const tn = v.tn as { imageIds?: string[]; imageId?: string | null };
-      if (!Array.isArray(tn.imageIds)) {
-        tn.imageIds = tn.imageId ? [tn.imageId] : [];
-        delete tn.imageId;
-      }
-      if (v.barcode == null) v.barcode = '';
-      if (!v.titles) v.titles = { ml: inherited(''), tn: inherited('') };
-    }
-    if (!d.cost) {
-      d.cost = { mode: 'bulk', bulkPrice: null, bulkQty: null, discount1: 25, discount2: 5, unitCost: null, marginPct: 100 };
-    }
     this.draft.set(d);
-    this.mlMaxPictures.set(entry.mlMaxPictures ?? 12);
-    this.mlMaxPicturesPerVar.set(entry.mlMaxPicturesPerVar ?? 10);
+    // positiveLimit (y no `??`) porque un 0 guardado por una versión anterior dejaba el límite de
+    // fotos por variación en cero, y con eso NINGUNA foto de ML se podía seleccionar nunca más.
+    this.mlMaxPictures.set(positiveLimit(entry.mlMaxPictures, ML_MAX_PICTURES_FALLBACK));
+    this.mlMaxPicturesPerVar.set(positiveLimit(entry.mlMaxPicturesPerVar, ML_MAX_PICTURES_PER_VAR_FALLBACK));
     this.currentDraftId.set(entry.id);
     this.draftSavedAt.set(new Date(entry.savedAt));
   }
@@ -989,9 +1066,10 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
 
   /** Limpia el formulario para empezar un producto nuevo (no borra nada de lo ya guardado). */
   startNewDraft(): void {
+    this.revokeDraftBlobs(this.draft());
     this.draft.set(emptyDraft());
-    this.mlMaxPictures.set(12);
-    this.mlMaxPicturesPerVar.set(10);
+    this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
+    this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
     this.currentDraftId.set(null);
     this.draftSavedAt.set(null);
     this.draftRestored.set(false);
@@ -1018,7 +1096,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
    */
   async publish(channels?: Channel[]): Promise<void> {
     if (this.hasPendingUploads()) {
-      this.imageError.set('Esperá a que terminen de subirse las fotos antes de publicar.');
+      this.setImageError('draft', 'Esperá a que terminen de subirse las fotos antes de publicar.');
       return;
     }
     this.publishing.set(true);

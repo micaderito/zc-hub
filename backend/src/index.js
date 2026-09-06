@@ -26,6 +26,7 @@ import { usersRoutes } from './routes/users.js';
 import { salesRoutes } from './routes/sales.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import { sweepRecentSales, getSyncState } from './services/salesService.js';
+import { purgeOld } from './services/imageStore.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -128,6 +129,24 @@ function scheduleSalesSweep() {
   setInterval(check, SALES_SWEEP_CHECK_INTERVAL_MS);
 }
 
+/**
+ * Limpieza del store temporal de imágenes de crear-producto. `purgeOld()` existía desde siempre
+ * pero no se llamaba desde ningún lado, así que data/tmp-images/ crecía sin límite.
+ */
+const TMP_IMAGES_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+function scheduleTmpImagesPurge() {
+  const run = () => {
+    try {
+      const removed = purgeOld();
+      if (removed) console.log(`[Imágenes] ${removed} imágenes temporales purgadas.`);
+    } catch (e) {
+      console.error('[Imágenes] purgeOld:', e.message);
+    }
+  };
+  run();
+  setInterval(run, TMP_IMAGES_PURGE_INTERVAL_MS);
+}
+
 (async () => {
   const ok = await initDb();
   if (ok) {
@@ -141,5 +160,6 @@ function scheduleSalesSweep() {
     console.log(`Backend escuchando en http://0.0.0.0:${PORT}`);
     scheduleMlTokenRefresh();
     scheduleSalesSweep();
+    scheduleTmpImagesPurge();
   });
 })();

@@ -694,16 +694,21 @@
             Elegí qué fotos muestra cada variante. ML admite varias (hasta {{ mlMaxPicturesPerVar() }});
             TN {{ tnMultiPerVariant() ? 'admite varias (1 producto por variante)' : 'admite una (1 publicación con variantes)' }}.
           </span>
+          @if (imageError() && imageErrorScope() === 'variant') {
+            <span class="hint error">{{ imageError() }}</span>
+          }
           @for (v of draft().variants; track v.id) {
             <div class="vimg-row">
               <span class="vimg-label">{{ variantChipLabel(v) }}</span>
               @if (draft().ml.images.length) {
                 <div class="vimg-group">
                   <span class="vimg-ch"><span class="dot dot-ml"></span> ML</span>
-                  @for (img of draft().ml.images; track img.id) {
+                  @for (img of draft().ml.images; track img.uid || img.id) {
                     <button type="button" class="vimg-thumb" [class.sel]="isVariantMlImage(v, img.id)"
                             (click)="toggleVariantMlImage(v, img.id)" [title]="img.name">
-                      <img [src]="img.previewUrl" [alt]="img.name" width="40" height="40" loading="lazy" decoding="async" />
+                      @if (img.previewUrl) {
+                        <img [src]="img.previewUrl" [alt]="img.name" width="40" height="40" loading="lazy" decoding="async" />
+                      }
                       @if (isVariantMlImage(v, img.id)) { <i class="ti ti-check"></i> }
                     </button>
                   }
@@ -712,10 +717,12 @@
               @if (draft().tn.images.length) {
                 <div class="vimg-group">
                   <span class="vimg-ch">◆ TN</span>
-                  @for (img of draft().tn.images; track img.id) {
+                  @for (img of draft().tn.images; track img.uid || img.id) {
                     <button type="button" class="vimg-thumb" [class.sel]="isVariantTnImage(v, img.id)"
                             (click)="toggleVariantTnImage(v, img.id)" [title]="img.name">
-                      <img [src]="img.previewUrl" [alt]="img.name" width="40" height="40" loading="lazy" decoding="async" />
+                      @if (img.previewUrl) {
+                        <img [src]="img.previewUrl" [alt]="img.name" width="40" height="40" loading="lazy" decoding="async" />
+                      }
                       @if (isVariantTnImage(v, img.id)) { <i class="ti ti-check"></i> }
                     </button>
                   }
@@ -760,6 +767,12 @@
       (Mercado Libre y Tienda Nube). Revisá los datos antes de continuar.
     </span>
   </div>
+  @if (imageError() && imageErrorScope() === 'draft') {
+    <div class="publish-warning">
+      <i class="ti ti-alert-triangle"></i>
+      <span>{{ imageError() }}</span>
+    </div>
+  }
   @if (hasPendingUploads()) {
     <div class="publish-warning">
       <i class="ti ti-loader"></i>
@@ -823,7 +836,7 @@
 <!-- galería reutilizable (ML y TN): subir archivos, reordenar con drag, portada = primera -->
 <ng-template #gallery let-channel="channel" let-limit="limit">
   <div class="gallery">
-    @for (img of images(channel); track img.id; let i = $index) {
+    @for (img of images(channel); track img.uid || img.id; let i = $index) {
       <div class="gimg" [class.is-cover]="i === 0" [class.is-uploading]="img.uploading" draggable="true"
            (dragstart)="onImageDragStart(channel, i)"
            (dragover)="$event.preventDefault()"
@@ -855,7 +868,9 @@
     }
   </div>
   @if (hasPendingUploads()) { <span class="hint"><i class="ti ti-loader"></i> subiendo fotos… podés seguir completando el resto mientras tanto</span> }
-  @if (imageError()) { <span class="hint error">{{ imageError() }}</span> }
+  @if (imageError() && imageErrorScope() === (channel === 'ml' ? 'ml-gallery' : 'tn-gallery')) {
+    <span class="hint error">{{ imageError() }}</span>
+  }
   <span class="hint"><i class="ti ti-arrows-move"></i> arrastrá para reordenar · la primera es la portada · {{ images(channel).length }}/{{ limit }}</span>
 </ng-template>
 
