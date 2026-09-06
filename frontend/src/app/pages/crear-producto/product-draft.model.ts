@@ -34,6 +34,7 @@ export interface CommonData {
   /** SKU base (producto sin variantes). Con variantes, el SKU vive en cada variante. */
   sku: string;
   brand: string;
+  /** Código de barras por default: se aplica a toda variante que no ponga el suyo propio. */
   barcode: string;
   condition: Condition;
   weightG: number | null;
@@ -56,8 +57,29 @@ export interface DraftImage {
   id: string;
   /** Nombre del archivo (para mostrar / accesibilidad). */
   name: string;
-  /** URL para el <img> (object URL local o /api/products/images/:id). */
+  /** URL para el <img> (object URL de la miniatura local, o /api/products/images/:id). */
   previewUrl: string;
+  /**
+   * true mientras el archivo original todavía se está subiendo al backend (la miniatura y el
+   * `id` temporal ya están listos, así que la fila se puede mostrar de entrada). No viaja en el
+   * payload de publicación: `hasPendingUploads()` bloquea publicar/guardar mientras exista una.
+   */
+  uploading?: boolean;
+}
+
+/** Costo del producto (compartido por todas sus variantes) para calcular ganancia/margen. */
+export interface DraftCost {
+  /** 'bulk': se carga precio por bulto + unidades. 'unit': costo unitario directo. */
+  mode: 'bulk' | 'unit';
+  bulkPrice: number | null;
+  bulkQty: number | null;
+  /** Descuentos de ESTA compra, en cadena (%). */
+  discount1: number;
+  discount2: number;
+  /** Costo unitario directo (modo 'unit'). */
+  unitCost: number | null;
+  /** Ganancia deseada (%) sobre el costo unitario. */
+  marginPct: number;
 }
 
 export interface ProductVariant {
@@ -69,6 +91,11 @@ export interface ProductVariant {
   values: string[];
   /** Stock: el mismo en ambos canales (no tiene sentido tenerlo por separado). */
   stock: number | null;
+  /**
+   * Código de barras propio de esta variante. Vacío = usa `common.barcode` (no todas las
+   * variantes vienen con el mismo código del proveedor).
+   */
+  barcode: string;
   /** ML admite VARIAS fotos por variación (`picture_ids`); referencian ids de `ml.images`. */
   ml: { price: number | null; pictureIds: string[] };
   /**
@@ -77,6 +104,11 @@ export interface ProductVariant {
    * - `one_per_variant`: cada variante es su propio producto → admite VARIAS (galería del producto).
    */
   tn: { price: number | null; imageIds: string[] };
+  /**
+   * Título propio de la publicación de esta variante cuando el canal está en `one_per_variant`.
+   * `inherited: true` = se arma solo (ver `defaultVariantTitle`); no aplica en `single_with_variants`.
+   */
+  titles: { ml: OverrideField<string>; tn: OverrideField<string> };
 }
 
 /** Atributo de categoría de ML (se descubren con GET /categories/{id}/attributes). */
@@ -142,6 +174,7 @@ export interface ProductDraft {
   variants: ProductVariant[];
   ml: MlListing;
   tn: TnListing;
+  cost: DraftCost;
 }
 
 /** Resultado por canal al publicar (cada uno informa por separado). */
@@ -171,6 +204,20 @@ export function projectionLabel(channel: Channel, mode: MappingMode, variantCoun
     return n > 1 ? `1 ${unit} con ${n} variantes` : `1 ${unit}`;
   }
   return n > 1 ? `${n} ${unitPlural} (uno por variante)` : `1 ${unit}`;
+}
+
+/** Nombre legible de una variante a partir de sus valores de eje, ej. ["Negro","A4"] → "Negro A4". */
+export function variantLabel(values: string[]): string {
+  return (values || []).map((v) => (v ?? '').trim()).filter(Boolean).join(' ');
+}
+
+/** Título por default de la publicación de una variante en modo one_per_variant. */
+export function defaultVariantTitle(baseTitle: string, values: string[]): string {
+  const label = variantLabel(values);
+  const base = (baseTitle || '').trim();
+  if (!base) return label;
+  if (!label) return base;
+  return `${base} - ${label}`;
 }
 
 /** Borrador vacío con valores por defecto razonables. */
@@ -222,6 +269,15 @@ export function emptyDraft(): ProductDraft {
       description: inherited(''),
       images: [],
       basePrice: null
+    },
+    cost: {
+      mode: 'bulk',
+      bulkPrice: null,
+      bulkQty: null,
+      discount1: 25,
+      discount2: 5,
+      unitCost: null,
+      marginPct: 100
     }
   };
 }
