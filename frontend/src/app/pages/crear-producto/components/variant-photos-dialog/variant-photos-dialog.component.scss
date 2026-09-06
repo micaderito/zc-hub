@@ -88,14 +88,32 @@
   overflow: hidden;
   background: var(--surface-2);
   cursor: pointer;
-  transition: border-color 0.12s ease;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
 
   &:hover:not(:disabled) {
     border-color: var(--border-strong);
   }
+
+  /*
+   * Antes esto era solo `border-color: var(--brand)`: un borde de 2px casi imperceptible sobre
+   * una miniatura que ya ocupa todo el tile. Ahora, además del borde, hay un anillo (box-shadow,
+   * no se recorta con `overflow: hidden`), un velo de color sobre la foto y el tile se achica un
+   * poco — la misma regla sirve para ML y para TN, es el mismo `.vpd-tile` en los dos canales.
+   */
   &.sel {
     border-color: var(--brand);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 45%, transparent);
+    transform: scale(0.96);
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: color-mix(in srgb, var(--brand) 22%, transparent);
+      pointer-events: none;
+    }
   }
+
   &:disabled {
     cursor: not-allowed;
     opacity: 0.45;
@@ -109,15 +127,18 @@
     position: absolute;
     top: 4px;
     right: 4px;
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 50%;
     background: var(--brand);
     color: #fff;
-    font-size: 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    z-index: 1;
   }
 }
 
