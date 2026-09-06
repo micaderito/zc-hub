@@ -154,6 +154,7 @@
 
   <!-- Historial del producto (ML y TN juntos, por SKU) -->
   @if (historySku(); as sku) {
-    <zc-product-history-dialog [sku]="sku" (closed)="historySku.set(null)" />
+    <zc-product-history-dialog [sku]="sku" [mlStock]="historyStock().ml" [tnStock]="historyStock().tn"
+                                (closed)="historySku.set(null)" />
   }
 </div>

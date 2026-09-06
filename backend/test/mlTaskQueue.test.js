@@ -13,11 +13,14 @@
  */
 import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import * as stockEcho from '../src/lib/stockEcho.js';
 
 const dbState = { claimedTask: null, statusUpdates: [], auditLogs: [], priceAudits: [], hasDb: true, heartbeats: [] };
-// mlStockBefore / mlPriceBefore: lo que patchMlStock / patchMlPrice devuelven como estado previo
-// del snapshot (null = fila ausente).
-const patchState = { calls: [], mlStockBefore: null, mlPriceBefore: null };
+// mlSnapshotRow: lo que readMlSnapshotRow devuelve como fila previa (null = no está en el
+// snapshot). Se lee ANTES del PUT a ML — ver conflictsService.js — así que ya no depende de lo
+// que devuelva patchMlStock/patchMlPrice (que ahora solo mantienen la foto al día, corren DESPUÉS
+// del PUT y su valor de retorno se ignora para el historial).
+const patchState = { calls: [], mlSnapshotRow: null };
 // stock_probe: relee el canal (refresh*) y atribuye el movimiento a la venta (attribute*).
 const probeState = { refreshMlOk: true, refreshTnOk: true, refreshCalls: [], attributions: [], attributionMatches: true };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '55' } } };
@@ -49,8 +52,9 @@ before(async () => {
   });
   mock.module('../src/services/conflictsService.js', {
     exports: {
-      patchMlPrice: async (...a) => { patchState.calls.push(['patchMlPrice', ...a]); return patchState.mlPriceBefore; },
-      patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); return patchState.mlStockBefore; },
+      readMlSnapshotRow: async (...a) => { patchState.calls.push(['readMlSnapshotRow', ...a]); return patchState.mlSnapshotRow; },
+      patchMlPrice: async (...a) => { patchState.calls.push(['patchMlPrice', ...a]); },
+      patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); },
       patchMlSku: async (...a) => { patchState.calls.push(['patchMlSku', ...a]); },
       patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
       refreshMlItemInSnapshot: async (...a) => {
@@ -72,7 +76,12 @@ before(async () => {
   mock.module('../src/lib/mercadolibre.js', {
     exports: {
       getItem: async () => mlState.item,
-      updateItemOrVariationStock: async () => mlState.updateStockResult,
+      updateItemOrVariationStock: async () => {
+        // Hook sincrónico: corre ANTES del await, así un test puede chequear que el eco ya está
+        // anotado (o que el snapshot todavía no se leyó) mientras el PUT está en vuelo.
+        if (mlState.onUpdateStock) mlState.onUpdateStock();
+        return mlState.updateStockResult;
+      },
       updateVariationSku: async () => mlState.updateVariationSkuResult,
       updateItemSku: async () => mlState.updateItemSkuResult,
       updateItemOrVariationPrice: async () => {
@@ -96,8 +105,7 @@ beforeEach(() => {
   dbState.priceAudits = [];
   dbState.heartbeats = [];
   patchState.calls = [];
-  patchState.mlStockBefore = null;
-  patchState.mlPriceBefore = null;
+  patchState.mlSnapshotRow = null;
   probeState.refreshMlOk = true;
   probeState.refreshTnOk = true;
   probeState.refreshCalls = [];
@@ -111,7 +119,9 @@ beforeEach(() => {
   mlState.updateVariationSkuResult = true;
   mlState.updateItemSkuResult = true;
   mlState.updatePriceError = null;
+  mlState.onUpdateStock = null;
   tnState.updateVariantSkuResult = true;
+  stockEcho.__resetStockEchoesForTests();
 });
 
 // ─── processTask: stock_ml ────────────────────────────────────────────────
@@ -164,7 +174,7 @@ test('stock_ml: updateItemOrVariationStock devuelve false → failed', async () 
 test('stock_ml_set: fija el valor absoluto (no depende del stock previo) → done y parcha el snapshot', async () => {
   await mlTaskQueue.processTask({ id: 20, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 7, attempts: 0 });
   assert.deepEqual(dbState.statusUpdates, [{ id: 20, status: 'done', err: undefined }]);
-  assert.deepEqual(patchState.calls[0], ['patchMlStock', 'MLA1', null, 7]);
+  assert.ok(patchState.calls.some((c) => c[0] === 'patchMlStock' && c[1] === 'MLA1' && c[2] === null && c[3] === 7));
 });
 
 test('stock_ml_set: con variación pasa el variationId a updateItemOrVariationStock', async () => {
@@ -172,10 +182,17 @@ test('stock_ml_set: con variación pasa el variationId a updateItemOrVariationSt
   assert.equal(dbState.statusUpdates[0].status, 'done');
 });
 
+test('stock_ml_set: lee el valor previo ANTES del PUT (readMlSnapshotRow antes que patchMlStock)', async () => {
+  await mlTaskQueue.processTask({ id: 34, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 7, attempts: 0 });
+  const names = patchState.calls.map((c) => c[0]);
+  assert.ok(names.indexOf('readMlSnapshotRow') < names.indexOf('patchMlStock'),
+    `readMlSnapshotRow debe llamarse antes que patchMlStock (orden real: ${names.join(', ')})`);
+});
+
 // ─── processTask: stock_ml_set → historial de cambios manuales ─────────────
 
 test('stock_ml_set: registra el cambio en el historial como manual, con el stock previo del snapshot', async () => {
-  patchState.mlStockBefore = { stockBefore: 9, sku: 'SKU-1' };
+  patchState.mlSnapshotRow = { stock: 9, price: null, sku: 'SKU-1' };
   await mlTaskQueue.processTask({ id: 30, kind: 'stock_ml_set', itemId: 'MLA1', variationId: '111', targetQty: 4, attempts: 0 });
 
   assert.equal(dbState.auditLogs.length, 1);
@@ -190,8 +207,25 @@ test('stock_ml_set: registra el cambio en el historial como manual, con el stock
   });
 });
 
+/**
+ * El caso del incidente 2026-09-05: para cuando el worker llegaba a mirar "de cuánto venía" (antes,
+ * leyendo el snapshot DESPUÉS del PUT vía patchMlStock), el webhook `items` de ML ya había movido
+ * la foto al valor nuevo — el cambio parecía un no-op y la fila del historial se perdía. El fix lee
+ * el valor previo ANTES del PUT (readMlSnapshotRow); lo que devuelva patchMlStock (que sigue
+ * corriendo después, solo para mantener la foto al día) ya no importa para el historial.
+ */
+test('stock_ml_set: usa el valor leído ANTES del PUT para el historial, no lo que devuelva el parche posterior', async () => {
+  // El snapshot, leído ANTES de escribir, todavía dice 0 (el valor real previo).
+  patchState.mlSnapshotRow = { stock: 0, price: null, sku: 'SKU-1' };
+  await mlTaskQueue.processTask({ id: 35, kind: 'stock_ml_set', itemId: 'MLA1', variationId: '111', targetQty: 2, attempts: 0 });
+
+  assert.equal(dbState.auditLogs.length, 1, 'tiene que quedar registrada la fila de ML');
+  assert.equal(dbState.auditLogs[0].stockBefore, 0);
+  assert.equal(dbState.auditLogs[0].stockAfter, 2);
+});
+
 test('stock_ml_set: si el stock ya estaba en el valor pedido no registra nada (no fue un cambio)', async () => {
-  patchState.mlStockBefore = { stockBefore: 4, sku: 'SKU-1' };
+  patchState.mlSnapshotRow = { stock: 4, price: null, sku: 'SKU-1' };
   await mlTaskQueue.processTask({ id: 31, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 4, attempts: 0 });
 
   assert.equal(dbState.statusUpdates[0].status, 'done');
@@ -199,7 +233,7 @@ test('stock_ml_set: si el stock ya estaba en el valor pedido no registra nada (n
 });
 
 test('stock_ml_set: sin snapshot previo no inventa un stock anterior — no registra', async () => {
-  patchState.mlStockBefore = null;
+  patchState.mlSnapshotRow = null;
   await mlTaskQueue.processTask({ id: 32, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 4, attempts: 0 });
 
   assert.equal(dbState.statusUpdates[0].status, 'done');
@@ -207,7 +241,7 @@ test('stock_ml_set: sin snapshot previo no inventa un stock anterior — no regi
 });
 
 test('stock_ml_set: si ML rechaza el write no se registra el cambio (nunca pasó)', async () => {
-  patchState.mlStockBefore = { stockBefore: 9, sku: 'SKU-1' };
+  patchState.mlSnapshotRow = { stock: 9, price: null, sku: 'SKU-1' };
   mlState.updateStockResult = false;
   await mlTaskQueue.processTask({ id: 33, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 4, attempts: 0 });
 
@@ -226,7 +260,38 @@ test('stock_ml_set: updateItemOrVariationStock devuelve false (429 con reintento
   mlState.updateStockResult = false;
   await mlTaskQueue.processTask({ id: 23, kind: 'stock_ml_set', itemId: 'MLA1', targetQty: 5, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'failed');
-  assert.equal(patchState.calls.length, 0, 'si ML no aplicó el stock, no se parcha el snapshot');
+  assert.equal(patchState.calls.filter((c) => c[0] === 'patchMlStock').length, 0, 'si ML no aplicó el stock, no se parcha el snapshot');
+});
+
+// ─── processTask: stock_ml_set → eco (rememberStockWrite / forgetStockWrite) ────
+
+/**
+ * El eco tiene que anotarse ANTES del PUT, no en patchMlStock (que corre después): si el webhook
+ * `items` de ML llegara en la ventana entre el PUT y patchMlStock sin el eco ya puesto, registraría
+ * la escritura propia como "Cambio en ML" (externo) — ver conflictsService.js / stockEcho.js.
+ */
+test('stock_ml_set: el eco ya está anotado mientras el PUT está en vuelo', async () => {
+  let echoDuringPut = null;
+  mlState.onUpdateStock = () => {
+    echoDuringPut = stockEcho.consumeStockEcho(stockEcho.mlStockEchoKey('MLA1', null), 6);
+  };
+  await mlTaskQueue.processTask({ id: 36, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 6, attempts: 0 });
+  assert.equal(echoDuringPut, true, 'el eco tiene que estar anotado antes de que el PUT termine');
+});
+
+test('stock_ml_set: si el PUT falla (lanza), el eco se olvida — no debe tapar un cambio externo real', async () => {
+  mlState.onUpdateStock = () => { throw new Error('ML caído'); };
+  await mlTaskQueue.processTask({ id: 37, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 6, attempts: 0 });
+  assert.equal(dbState.statusUpdates[0].status, 'failed');
+  const stillEchoed = stockEcho.consumeStockEcho(stockEcho.mlStockEchoKey('MLA1', null), 6);
+  assert.equal(stillEchoed, false, 'el eco de un PUT que falló no debe seguir en pie');
+});
+
+test('stock_ml_set: si el PUT devuelve false, el eco también se olvida', async () => {
+  mlState.updateStockResult = false;
+  await mlTaskQueue.processTask({ id: 38, kind: 'stock_ml_set', itemId: 'MLA1', variationId: null, targetQty: 6, attempts: 0 });
+  const stillEchoed = stockEcho.consumeStockEcho(stockEcho.mlStockEchoKey('MLA1', null), 6);
+  assert.equal(stillEchoed, false);
 });
 
 // ─── processTask: latido del lock ──────────────────────────────────────────
@@ -275,7 +340,14 @@ test('sku_ml: si el update devuelve false → failed', async () => {
 test('price_ml: precio válido → done y parcha el precio en el snapshot', async () => {
   await mlTaskQueue.processTask({ id: 10, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'done');
-  assert.deepEqual(patchState.calls[0], ['patchMlPrice', 'MLA1', 150]);
+  assert.ok(patchState.calls.some((c) => c[0] === 'patchMlPrice' && c[1] === 'MLA1' && c[2] === 150));
+});
+
+test('price_ml: lee el valor previo ANTES del PUT (readMlSnapshotRow antes que patchMlPrice)', async () => {
+  await mlTaskQueue.processTask({ id: 18, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
+  const names = patchState.calls.map((c) => c[0]);
+  assert.ok(names.indexOf('readMlSnapshotRow') < names.indexOf('patchMlPrice'),
+    `readMlSnapshotRow debe llamarse antes que patchMlPrice (orden real: ${names.join(', ')})`);
 });
 
 test('price_ml: precio inválido (<=0) → failed sin llamar a ML', async () => {
@@ -292,7 +364,7 @@ test('price_ml: ML rechaza el precio (lanza) → failed con el mensaje real', as
 });
 
 test('price_ml: registra el cambio en el historial de precios con el valor previo', async () => {
-  patchState.mlPriceBefore = { priceBefore: 120, sku: 'SKU-1' };
+  patchState.mlSnapshotRow = { stock: null, price: 120, sku: 'SKU-1' };
   await mlTaskQueue.processTask({
     id: 14, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0,
     contextJson: JSON.stringify({ sku: 'SKU-1', source: 'bulk' }),
@@ -307,21 +379,21 @@ test('price_ml: registra el cambio en el historial de precios con el valor previ
 });
 
 test('price_ml: si el precio no cambió, no ensucia el historial', async () => {
-  patchState.mlPriceBefore = { priceBefore: 150, sku: 'SKU-1' };
+  patchState.mlSnapshotRow = { stock: null, price: 150, sku: 'SKU-1' };
   await mlTaskQueue.processTask({ id: 15, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'done');
   assert.equal(dbState.priceAudits.length, 0);
 });
 
 test('price_ml: sin fila en el snapshot no registra historial (no hay valor previo que contar)', async () => {
-  patchState.mlPriceBefore = null;
+  patchState.mlSnapshotRow = null;
   await mlTaskQueue.processTask({ id: 16, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'done');
   assert.equal(dbState.priceAudits.length, 0);
 });
 
 test('price_ml: si ML rechaza, no registra historial', async () => {
-  patchState.mlPriceBefore = { priceBefore: 120, sku: 'SKU-1' };
+  patchState.mlSnapshotRow = { stock: null, price: 120, sku: 'SKU-1' };
   mlState.updatePriceError = new Error('rechazado');
   await mlTaskQueue.processTask({ id: 17, kind: 'price_ml', itemId: 'MLA1', variationId: null, targetPrice: 150, attempts: 0 });
   assert.equal(dbState.statusUpdates[0].status, 'failed');

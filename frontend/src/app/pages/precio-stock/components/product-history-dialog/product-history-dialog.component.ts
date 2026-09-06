@@ -183,6 +183,15 @@ const GROUP_WINDOW_MS = 60_000;
 })
 export class ProductHistoryDialogComponent {
   readonly sku = input.required<string>();
+  /**
+   * Stock ACTUAL de cada canal, si quien abre el diálogo ya lo tiene a mano (viene del catálogo,
+   * no del historial). El chip de arriba responde "¿cómo están los canales HOY?", y esa pregunta
+   * se contesta mejor con el dato real que arrastrándolo del historial: un movimiento que no quedó
+   * registrado (una carrera de webhook, una tarea que sigue en cola) haría que el chip mintiera
+   * aunque los canales ya estén iguales. Si no vienen, se cae al valor derivado del historial.
+   */
+  readonly mlStock = input<number | null>(null);
+  readonly tnStock = input<number | null>(null);
   readonly closed = output<void>();
 
   private readonly sync = inject(SyncService);
@@ -324,17 +333,35 @@ export class ProductHistoryDialogComponent {
   }
 
   /**
-   * Canal que no aparece en un evento que venía de una venta: la sincronización tendría que haber
-   * escrito ahí y no quedó registro. Es el caso más común de desincronización, y por eso se muestra
-   * como un lado más del evento en vez de dejar un hueco.
+   * Canal que no aparece con una cara propia en el evento: la sincronización tendría que haber
+   * escrito ahí. Puede ser porque de verdad no quedó registro (la escritura falló, el SKU no está
+   * vinculado) o porque ese canal ya estaba en el número pedido y "no es un cambio" no genera fila
+   * (ver mlTaskQueue.js / routes/conflicts.js).
+   *
+   * Solo aplica a eventos que POR DISEÑO escriben los dos canales — una venta (`packId`) o un
+   * "sincronizar stock" manual (`source === 'manual'`) — nunca a un cambio externo suelto
+   * (`source === 'externo'`, alguien editó un solo canal desde su panel): ahí no hay espejo que
+   * esperar, y mostrar "sin cambio" del otro lado insinuaría un problema que no existe. Antes esto
+   * solo cubría el caso de venta; un cambio manual de una sola cara quedaba con un hueco sin
+   * explicar (incidente 2026-09-05: la cara de ML se descartaba en silencio por una carrera con el
+   * webhook, y el modal no daba ninguna pista).
    */
   protected missingChannel(ev: TimelineEvent): Channel | null {
-    if (ev.kind !== 'stock' || !ev.packId || ev.stockRows.length !== 1) return null;
+    if (ev.kind !== 'stock' || ev.stockRows.length !== 1) return null;
+    if (!ev.packId && ev.source !== 'manual') return null;
     return ev.stockRows[0].updatedChannel === 'mercadolibre' ? 'tiendanube' : 'mercadolibre';
   }
 
-  /** Estado de los dos canales según lo último que sabemos, para el resumen de arriba. */
+  /**
+   * Estado de los dos canales para el resumen de arriba. Preferimos el stock real (input), que es
+   * el dato de catálogo del momento; si no vino, caemos al último valor que arrastra el historial
+   * (ver el comentario de `mlStock`/`tnStock`).
+   */
   protected readonly latestState = computed<{ ml: number; tn: number; desync: boolean } | null>(() => {
+    const ml = this.mlStock();
+    const tn = this.tnStock();
+    if (ml !== null && tn !== null) return { ml, tn, desync: ml !== tn };
+
     const newest = this.events()[0];
     if (!newest || newest.mlAfter === null || newest.tnAfter === null) return null;
     return { ml: newest.mlAfter, tn: newest.tnAfter, desync: newest.mlAfter !== newest.tnAfter };

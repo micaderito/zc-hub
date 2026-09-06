@@ -267,6 +267,44 @@ de la orden. `stockEcho.js` evita contar dos veces lo que escribió el propio hu
 En el modal de historial por SKU las dos caras se muestran agrupadas como un solo evento, con el
 número en que quedó cada canal y un chip **desincronizado** cuando no coinciden o falta una cara.
 
+#### El valor previo se lee ANTES de escribir en el canal, no después
+
+Incidente 2026-09-05: se sincronizó a mano el stock de un producto (mismo valor en ML y TN) y quedó
+actualizado en los dos canales, pero el historial solo registró la fila de TN — el modal mostraba
+"Desincronizado" arrastrando un número de ML de días atrás. Confirmado con logs reales de
+producción: el webhook `items` de ML (disparado por nuestro propio `PUT`) llegaba y refrescaba el
+snapshot **antes** de que el worker mirara "de cuánto venía" para armar el audit. Como el snapshot
+ya tenía el valor nuevo, el cambio parecía un no-op y la fila se descartaba.
+
+`readMlSnapshotRow` / `readTnSnapshotRow` (`conflictsService.js`) leen el valor previo de la foto
+**antes** de mandar el `PUT`/`PATCH` al canal — a diferencia de `patchMlStock`/`patchTnStock`/
+`patchMlPrice`/`patchTnPrice`, que corren después y solo sirven para mantener la foto al día (su
+valor de retorno ya no se usa para el historial). El eco (`rememberStockWrite`) también se anota
+antes de escribir, y se olvida (`forgetStockWrite`) si el canal rechaza el write, para no tapar un
+cambio externo real que después deje el stock en ese mismo valor. **Esto no adelanta cuándo se
+escribe el historial**: la fila se sigue insertando solo después de que el canal confirma el
+cambio (la regla que evita registrar un cambio que ML terminó rechazando con un 409 de concurrencia
+sigue intacta) — lo único que cambia es de dónde sale el "antes". Sin requests extra a ML/TN: el
+valor previo sale de la foto local, no de un GET adicional.
+
+Aplica a los 4 puntos donde se lee "de cuánto venía" antes de escribir manualmente: stock ML
+(`mlTaskQueue.js`, kind `stock_ml_set`), stock TN (`routes/conflicts.js`), precio ML
+(`mlTaskQueue.js`, kind `price_ml`) y precio TN masivo (`pricingService.js`). No se tocó el camino
+de venta/devolución (`stock_ml`, `deductStockTiendaNube`, etc.): ahí no hay una escritura manual del
+usuario que dispare esta carrera de la misma forma, y ya tienen su propia cobertura de tests.
+
+En el modal, `missingChannel()` (`product-history-dialog.component.ts`) ahora también muestra
+"sin cambio" para un cambio **manual** de una sola cara (antes solo lo hacía para ventas, con
+`packId`) — sigue sin mostrarlo para un cambio **externo** suelto (alguien editó un canal desde su
+panel), porque ahí no hay espejo que esperar. El chip del header (`latestState()`) puede recibir el
+stock real de catálogo por input (`mlStock`/`tnStock`, pasado desde Precio y stock) y lo prefiere
+sobre el valor arrastrado del historial — así un evento viejo sin fila no deja "mintiendo" el chip
+de arriba aunque los canales ya estén iguales.
+
+No se hizo backfill de los eventos ya perdidos (no hay dato real que reconstruir) ni se agregó diff
+en el crawl completo (nadie edita stock a mano en los paneles de ML/TN; todo pasa por la app o por
+webhooks de venta/devolución).
+
 ### Alertas de stock: sugerencia de reposición por pack, no por modelo
 
 En "Para reponer" (`backend/src/services/alertsService.js`, `frontend/.../pages/alertas/`), cuando
@@ -390,7 +428,14 @@ despachado, envío no consultable, caché por pack, cancelación del vendedor, r
 y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
 ajuste rápido de cantidad, filas inexistentes). El historial de los dos canales está cubierto
 además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no tocan el snapshot),
-y la sugerencia de "Para reponer" (por SKU sin pack, por pack completo tomando el mayor faltante,
+y el fix de leer el valor previo ANTES de escribir (`readMlSnapshotRow`/`readTnSnapshotRow`, sin
+esperar un crawl en curso). El caso puntual del incidente 2026-09-05 (la foto ya movida cuando se
+arma el audit del cambio manual, y el eco anotado/olvidado alrededor del PUT) está cubierto en
+`backend/test/mlTaskQueue.test.js` (stock y precio de ML), `backend/test/routesConflicts.test.js`
+(stock de TN) y `backend/test/pricingService.test.js` (precio TN masivo); el frontend lo cubre
+`product-history-dialog.component.spec.ts` ("sin cambio" en un evento manual de una sola cara y el
+chip del header con el stock real por input). La sugerencia de "Para reponer" (por SKU sin pack,
+por pack completo tomando el mayor faltante,
 ajustes manuales por SKU/pack y su borrado, stock de Depósito Marañón por SKU, descartar una fila
 y que vuelva sola tras un nuevo disparo, limpieza al cerrar el período) en
 `backend/test/alertsService.test.js`. El dashboard de ventas por provincia está cubierto en

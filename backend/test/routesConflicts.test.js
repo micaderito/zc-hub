@@ -25,8 +25,10 @@ const analysisState = {
 
 const syncServiceState = { persistResult: { ml: true, tn: true } };
 const dbState = { enqueueResult: 5, taskStatus: null, auditRows: [] };
-// tnStockBefore: lo que patchTnStock devuelve como stock previo (null = fila no encontrada en el snapshot).
-const patchState = { calls: [], tnStockBefore: null };
+// tnSnapshotRow: lo que readTnSnapshotRow devuelve como fila previa (null = no está en el snapshot).
+// Se lee ANTES de escribir en TN — ver conflictsService.js — así que ya no depende de lo que
+// devuelva patchTnStock (que ahora solo mantiene la foto al día, ignorado por el historial).
+const patchState = { calls: [], tnSnapshotRow: null };
 const mlState = {
   updateVariationSkuError: null,
   updateItemSkuError: null,
@@ -66,7 +68,8 @@ before(async () => {
       patchTnSku: async (...a) => { patchState.calls.push(['patchTnSku', ...a]); },
       patchMlStock: async (...a) => { patchState.calls.push(['patchMlStock', ...a]); },
       patchTnPrice: async (...a) => { patchState.calls.push(['patchTnPrice', ...a]); },
-      patchTnStock: async (...a) => { patchState.calls.push(['patchTnStock', ...a]); return patchState.tnStockBefore; },
+      patchTnStock: async (...a) => { patchState.calls.push(['patchTnStock', ...a]); },
+      readTnSnapshotRow: async (...a) => { patchState.calls.push(['readTnSnapshotRow', ...a]); return patchState.tnSnapshotRow; },
     },
   });
   mock.module('../src/services/syncService.js', {
@@ -119,7 +122,7 @@ beforeEach(() => {
   };
   syncServiceState.persistResult = { ml: true, tn: true };
   patchState.calls = [];
-  patchState.tnStockBefore = null;
+  patchState.tnSnapshotRow = null;
   dbState.enqueueResult = 5;
   dbState.taskStatus = null;
   dbState.auditRows = [];
@@ -346,7 +349,7 @@ test('POST /update-prices: stock ML se encola (no se aplica inline) → ok con m
 
 test('POST /update-prices: el stock TN se escribe inline y queda registrado como cambio manual', async () => {
   storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
-  patchState.tnStockBefore = { stockBefore: 10, sku: 'SKU-1' };
+  patchState.tnSnapshotRow = { stock: 10, price: null, sku: 'SKU-1' };
   await fetch(`${baseUrl}/update-prices`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockTN: 4 }),
@@ -363,15 +366,61 @@ test('POST /update-prices: el stock TN se escribe inline y queda registrado como
   });
 });
 
+test('POST /update-prices: lee el valor previo de TN ANTES de escribir, no después', async () => {
+  // El caso que rompía el historial: patchTnStock (que corre DESPUÉS del write) puede ver la foto
+  // ya movida por el webhook de TN. readTnSnapshotRow tiene que leerse antes de llamar a
+  // tn.updateVariantStock — lo verificamos por el orden de las llamadas registradas.
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  patchState.tnSnapshotRow = { stock: 10, price: null, sku: 'SKU-1' };
+  patchState.calls = [];
+  const callOrder = [];
+  const originalUpdateStock = tnState.updateVariantStockResult;
+  await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockTN: 4 }),
+  });
+  tnState.updateVariantStockResult = originalUpdateStock;
+  const names = patchState.calls.map((c) => c[0]);
+  assert.ok(names.indexOf('readTnSnapshotRow') < names.indexOf('patchTnStock'),
+    `readTnSnapshotRow debe llamarse antes que patchTnStock (orden real: ${names.join(', ')})`);
+});
+
 test('POST /update-prices: si el stock TN ya estaba en el valor pedido no registra nada', async () => {
   storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
-  patchState.tnStockBefore = { stockBefore: 4, sku: 'SKU-1' };
+  patchState.tnSnapshotRow = { stock: 4, price: null, sku: 'SKU-1' };
   await fetch(`${baseUrl}/update-prices`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockTN: 4 }),
   });
 
   assert.deepEqual(dbState.auditRows, []);
+});
+
+test('POST /update-prices: sin fila en el snapshot de TN → no registra (no hay SKU que mostrar)', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  patchState.tnSnapshotRow = null;
+  await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockTN: 4 }),
+  });
+
+  assert.deepEqual(dbState.auditRows, []);
+});
+
+test('POST /update-prices: si tn.updateVariantStock falla no registra nada en el historial', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  patchState.tnSnapshotRow = { stock: 10, price: null, sku: 'SKU-1' };
+  tnState.updateVariantStockResult = false;
+  try {
+    const res = await fetch(`${baseUrl}/update-prices`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 0, stockTN: 4 }),
+    });
+    assert.equal(res.status, 502, 'sin ningún canal actualizado, la ruta responde error');
+    assert.deepEqual(dbState.auditRows, []);
+  } finally {
+    tnState.updateVariantStockResult = true;
+  }
 });
 
 test('POST /update-prices: no se pudo encolar el stock ML (sin DB) → 502, no ok:true', async () => {

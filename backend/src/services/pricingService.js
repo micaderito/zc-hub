@@ -17,7 +17,7 @@ import {
   getPackCodeMap, upsertPackCodeMap, deletePackCodeMap, listPacks,
   getPriceOverrides, upsertPriceOverride, deletePriceOverride,
 } from '../db.js';
-import { patchTnPrice } from './conflictsService.js';
+import { patchTnPrice, readTnSnapshotRow } from './conflictsService.js';
 import { getMlItemBySku, getTnVariantBySku, getResolvedSkus, getMlToken } from '../store.js';
 import { parseSupplierList, parseSupplierCsv } from '../lib/supplierListParser.js';
 import { buildMappingSuggestions } from '../lib/skuMatcher.js';
@@ -245,27 +245,39 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
     if (!access_token) {
       for (const r of results) if (r.channel === 'tn' && r.ok) { r.ok = false; r.reason = 'sin token TN'; }
     } else {
+      // El precio previo se lee de la foto ANTES del bulk, no después: la escritura dispara el
+      // webhook `product/updated` de TN por cada variante casi en el acto, y ese refresh puede
+      // mover la foto al valor nuevo antes de que este loop llegue a leerla (mismo motivo que en
+      // ML — ver readTnSnapshotRow).
+      const beforeByKey = new Map();
+      for (const b of tnBatch) {
+        const before = await readTnSnapshotRow(b.productId, b.variantId).catch((e) => {
+          console.error('[Pricing] readTnSnapshotRow:', e.message);
+          return null;
+        });
+        beforeByKey.set(`${b.productId}:${b.variantId}`, before);
+      }
       try {
         await tn.updateVariantsStockPrice(access_token, store_id, tnBatch.map((b) => ({
           productId: b.productId, variantId: b.variantId, price: b.price,
         })));
-        // Aplicado en TN: parchamos el snapshot y registramos el historial por variante. El
-        // parche devuelve el precio previo (igual que en ML), así el historial cuenta el cambio
-        // sin gastar un GET extra. Solo se registra si el precio efectivamente se movió.
+        // Aplicado en TN: parchamos el snapshot por variante para que quede al día. La foto ya
+        // puede estar al día por el webhook; el historial usa el valor previo leído arriba, no lo
+        // que devuelva este parche.
         for (const b of tnBatch) {
-          const before = await patchTnPrice(b.productId, b.variantId, b.price).catch((e) => {
-            console.error('[Pricing] patchTnPrice:', e.message);
-            return null;
-          });
-          if (before && before.priceBefore !== b.price) {
+          await patchTnPrice(b.productId, b.variantId, b.price).catch((e) => console.error('[Pricing] patchTnPrice:', e.message));
+          const before = beforeByKey.get(`${b.productId}:${b.variantId}`);
+          if (before && before.price !== b.price) {
             await insertPriceAudit({
               sku: b.sku,
               channel: 'tiendanube',
-              priceBefore: before.priceBefore,
+              priceBefore: before.price,
               priceAfter: b.price,
               source: 'bulk',
               productLabel: b.label ?? null,
             }).catch((e) => console.error('[Pricing] insertPriceAudit:', e.message));
+          } else if (!before) {
+            console.warn(`[Pricing] bulk TN: sin fila en el snapshot para ${b.productId}/${b.variantId}, no se registra en el historial.`);
           }
         }
       } catch (e) {

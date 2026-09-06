@@ -688,3 +688,91 @@ test('refreshMlItemInSnapshot: un 404 real SÍ vacía las filas (el ítem se bor
   const result = await conflictsService.getAnalysis();
   assert.equal(result.onlyML.length, 0);
 });
+
+// ─── readMlSnapshotRow / readTnSnapshotRow ───────────────────────────────────
+// Se leen ANTES de escribir en el canal (a diferencia de patch* que devuelven el previo DESPUÉS
+// del parche): incidente 2026-09-05, el webhook `items` de ML movía la foto al valor nuevo antes
+// de que el worker mirara "de cuánto venía", y el cambio manual quedaba sin registrar.
+
+function snapshotWithTnVariant() {
+  return {
+    at: Date.now(),
+    data: {
+      mlRows: [],
+      tnRows: [{ type: 'tn', productId: 5, variantId: 50, productName: 'X', sku: 'TN-SKU', hasSku: true, price: 200, stock: 7 }],
+      mlConnected: true,
+    },
+  };
+}
+
+test('readMlSnapshotRow: devuelve stock/precio/sku de la variación pedida', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  const row = await conflictsService.readMlSnapshotRow('MLA1', '10');
+  assert.deepEqual(row, { stock: 5, price: 100, sku: 'A' });
+});
+
+test('readMlSnapshotRow: ítem sin variación (variationId null) matchea la fila sin variación', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = {
+    at: Date.now(),
+    data: {
+      mlRows: [{ type: 'ml', itemId: 'MLA-SIMPLE', variationId: null, title: 'X', sku: 'S', hasSku: true, price: 50, stock: 2 }],
+      tnRows: [],
+      mlConnected: true,
+    },
+  };
+  const row = await conflictsService.readMlSnapshotRow('MLA-SIMPLE', null);
+  assert.deepEqual(row, { stock: 2, price: 50, sku: 'S' });
+});
+
+test('readMlSnapshotRow: fila inexistente en el snapshot → null', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  const row = await conflictsService.readMlSnapshotRow('MLA-INEXISTENTE', null);
+  assert.equal(row, null);
+});
+
+test('readMlSnapshotRow: sin snapshot todavía → null', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = null;
+  const row = await conflictsService.readMlSnapshotRow('MLA1', '10');
+  assert.equal(row, null);
+});
+
+test('readMlSnapshotRow: no espera un crawl en curso (a diferencia de patchMlStock)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  let releaseCrawl;
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) {
+      return new Promise((resolve) => { releaseCrawl = () => resolve(makeRes({ json: { results: [], paging: { total: 0 } } })); });
+    }
+    return makeRes({ json: [] });
+  };
+  const crawlPromise = conflictsService.getAnalysis({ force: true });
+  // readMlSnapshotRow no debería quedar colgado esperando al crawl.
+  const row = await Promise.race([
+    conflictsService.readMlSnapshotRow('MLA1', '10'),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout: quedó esperando el crawl')), 200)),
+  ]);
+  assert.deepEqual(row, { stock: 5, price: 100, sku: 'A' });
+  releaseCrawl();
+  await crawlPromise;
+});
+
+test('readTnSnapshotRow: devuelve stock/precio/sku de la variante pedida', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithTnVariant();
+  const row = await conflictsService.readTnSnapshotRow(5, 50);
+  assert.deepEqual(row, { stock: 7, price: 200, sku: 'TN-SKU' });
+});
+
+test('readTnSnapshotRow: fila inexistente en el snapshot → null', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithTnVariant();
+  const row = await conflictsService.readTnSnapshotRow(999, 999);
+  assert.equal(row, null);
+});

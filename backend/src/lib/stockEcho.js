@@ -51,6 +51,15 @@ export function rememberStockWrite(key, stock) {
 }
 
 /**
+ * Borra un eco anotado. Se usa cuando la escritura que lo motivó no llegó a concretarse (el canal
+ * rechazó el PUT): sin esto el eco quedaría 2 minutos tapando un cambio externo real que dejara el
+ * stock en ese mismo valor.
+ */
+export function forgetStockWrite(key) {
+  echoes.delete(key);
+}
+
+/**
  * ¿Este cambio de stock lo escribió el hub? Si sí, consume el eco y devuelve true.
  * Se prueba la clave exacta y la del ítem entero (una escritura sin variación las afecta a todas).
  */
