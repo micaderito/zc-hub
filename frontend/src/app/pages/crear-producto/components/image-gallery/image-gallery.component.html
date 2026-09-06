@@ -1,0 +1,37 @@
+<div class="gallery">
+  @for (img of images(); track img.uid || img.id; let i = $index) {
+    <div class="gimg" [class.is-cover]="i === 0" [class.is-uploading]="img.uploading" draggable="true"
+         (dragstart)="store.onImageDragStart(channel(), i)"
+         (dragover)="$event.preventDefault()"
+         (drop)="store.onImageDrop(channel(), i)">
+      <!-- previewUrl arranca vacío hasta que el worker termina la miniatura (ver onImageFiles). -->
+      @if (img.previewUrl) {
+        <img [src]="img.previewUrl" [alt]="img.name" width="84" height="84" loading="lazy" decoding="async" draggable="false" />
+      }
+      @if (img.uploading) {
+        <span class="gimg-uploading" title="Subiendo…"><i class="ti ti-loader"></i></span>
+      } @else if (i === 0) {
+        <span class="cover-badge"><i class="ti ti-star-filled"></i> Portada</span>
+      }
+      <div class="gimg-actions">
+        @if (i !== 0) {
+          <button type="button" class="gicon" (click)="store.makeCover(channel(), i)" title="Hacer portada" aria-label="Hacer portada"><i class="ti ti-star"></i></button>
+        }
+        <button type="button" class="gicon" (click)="store.removeImage(channel(), i)" title="Quitar" aria-label="Quitar"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+  }
+  @if (images().length < limit()) {
+    <label class="gadd">
+      <input type="file" accept="image/*" multiple hidden
+             (change)="store.onImageFiles(channel(), $any($event.target).files); $any($event.target).value = ''" />
+      <i class="ti ti-camera-plus"></i>
+      <span>Subir</span>
+    </label>
+  }
+</div>
+@if (store.hasPendingUploads()) {
+  <span class="hint"><i class="ti ti-loader"></i> subiendo fotos… podés seguir completando el resto mientras tanto</span>
+}
+@if (ownError(); as err) { <span class="hint error">{{ err }}</span> }
+<span class="hint"><i class="ti ti-arrows-move"></i> arrastrá para reordenar · la primera es la portada · {{ images().length }}/{{ limit() }}</span>

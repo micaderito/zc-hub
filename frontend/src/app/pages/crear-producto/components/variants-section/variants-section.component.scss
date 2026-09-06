@@ -1,0 +1,127 @@
+.empty-variants {
+  text-align: center;
+  padding: 0.5rem 0 0.25rem;
+  p {
+    font-size: 0.78rem;
+    color: var(--text-2);
+    margin: 0 0 0.7rem;
+  }
+}
+
+.axes {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.axis-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.axis-input {
+  width: 150px;
+}
+
+.variant-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 0.6rem;
+}
+
+.variant-table {
+  width: 100%;
+  border-collapse: collapse;
+  th {
+    font-size: 0.62rem;
+    color: var(--text-3);
+    font-weight: 500;
+    text-align: left;
+    padding: 0.4rem 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .th-tn {
+    color: var(--tn);
+  }
+  td {
+    padding: 0.25rem 0.4rem;
+    border-top: 0.5px solid var(--border);
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+  }
+}
+
+.cell {
+  padding: 0.3rem 0.45rem;
+  font-size: 0.74rem;
+  min-width: 80px;
+  &.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+}
+
+.cell-readonly {
+  padding: 0.3rem 0.45rem;
+  font-size: 0.74rem;
+  color: var(--text-2);
+  white-space: nowrap;
+  .muted {
+    color: var(--text-3);
+  }
+}
+
+.th-margin {
+  color: var(--text-3);
+}
+
+.add-variant-cell {
+  padding: 0 !important;
+  border-top: none !important;
+}
+
+.add-variant-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.55rem;
+  margin-top: 0.3rem;
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--brand);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  &:hover {
+    border-color: var(--brand);
+    background: color-mix(in srgb, var(--brand) 6%, transparent);
+  }
+}
+
+.simple-pricing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  p {
+    margin: 0;
+  }
+}
+
+.simple-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.6rem;
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}

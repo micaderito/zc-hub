@@ -1,0 +1,70 @@
+<section class="zc-card block">
+  <div class="block-head">
+    <i class="ti ti-calculator"></i>
+    <span class="block-title">Precios y ganancia</span>
+    <span class="block-note">— mismo cálculo que la sección Precios; sirve para elegir el precio de cada canal</span>
+  </div>
+
+  <div class="field">
+    <span class="lbl">Costo</span>
+    <div class="mode-toggle cost-mode">
+      <button type="button" class="mode-opt" [class.on]="store.draft().cost.mode === 'bulk'" (click)="store.draft().cost.mode = 'bulk'; store.touch()">
+        <i class="ti ti-package"></i> Por bulto
+      </button>
+      <button type="button" class="mode-opt" [class.on]="store.draft().cost.mode === 'unit'" (click)="store.draft().cost.mode = 'unit'; store.touch()">
+        <i class="ti ti-coin"></i> Costo unitario directo
+      </button>
+    </div>
+  </div>
+
+  @if (store.draft().cost.mode === 'bulk') {
+    <div class="grid-4 field">
+      <label>
+        <span class="lbl">Precio por bulto</span>
+        <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().cost.bulkPrice" (ngModelChange)="store.touch()" />
+      </label>
+      <label>
+        <span class="lbl">Unidades por bulto</span>
+        <input class="zc-input" type="number" min="1" [(ngModel)]="store.draft().cost.bulkQty" (ngModelChange)="store.touch()" />
+      </label>
+      <label>
+        <span class="lbl">Descuento 1 (%)</span>
+        <input class="zc-input" type="number" min="0" max="100" [(ngModel)]="store.draft().cost.discount1" (ngModelChange)="store.touch()" />
+      </label>
+      <label>
+        <span class="lbl">Descuento 2 (%)</span>
+        <input class="zc-input" type="number" min="0" max="100" [(ngModel)]="store.draft().cost.discount2" (ngModelChange)="store.touch()" />
+      </label>
+    </div>
+  } @else {
+    <label class="field">
+      <span class="lbl">Costo unitario</span>
+      <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().cost.unitCost" (ngModelChange)="store.touch()" />
+    </label>
+  }
+
+  <label class="field">
+    <span class="lbl">Ganancia deseada (%)</span>
+    <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().cost.marginPct" (ngModelChange)="store.touch()" />
+  </label>
+
+  @if (store.costPreview(); as cp) {
+    <div class="field no-mb cost-summary">
+      <span class="hint">
+        <i class="ti ti-receipt"></i>
+        Costo unitario <strong>{{ cp.unitCost | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+        · valor a netear <strong>{{ cp.valorFinal | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+      </span>
+      <span class="hint fee-hint">
+        <span class="dot dot-ml"></span> ML sugerido <strong>{{ cp.ml | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+        · te quedan <strong>{{ cp.mlNet | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+      </span>
+      <span class="hint fee-hint">
+        ◆ TN sugerido (lista) <strong>{{ cp.tn.list | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+        (transferencia {{ cp.tn.transfer | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }})
+      </span>
+    </div>
+  } @else {
+    <span class="hint muted"><i class="ti ti-info-circle"></i> cargá el costo para ver el precio sugerido y cuánto te queda en cada canal</span>
+  }
+</section>

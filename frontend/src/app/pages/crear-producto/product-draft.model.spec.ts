@@ -1,4 +1,14 @@
-import { defaultVariantTitle, emptyDraft, inherited, listingTypeLabel, projectionLabel, variantLabel } from './product-draft.model';
+import {
+  defaultVariantTitle,
+  emptyDraft,
+  inherited,
+  listingTypeLabel,
+  normalizeDraft,
+  normalizeVariant,
+  positiveLimit,
+  projectionLabel,
+  variantLabel
+} from './product-draft.model';
 
 describe('product-draft.model', () => {
   describe('inherited()', () => {
@@ -161,6 +171,69 @@ describe('product-draft.model', () => {
 
     it('devuelve vacío sin valores', () => {
       expect(variantLabel([])).toBe('');
+    });
+  });
+
+  describe('positiveLimit()', () => {
+    it('deja pasar un límite válido', () => {
+      expect(positiveLimit(6, 10)).toBe(6);
+      expect(positiveLimit('8', 10)).toBe(8);
+      expect(positiveLimit(4.7, 10)).toBe(4);
+    });
+
+    it('el 0 NO es un límite válido: cae al fallback', () => {
+      // Es el bug que hacía que ninguna foto de ML se pudiera seleccionar: ML devuelve 0 en
+      // categorías mal configuradas, `??` no lo atrapa, y `0 >= 0` bloqueaba todos los clicks.
+      expect(positiveLimit(0, 10)).toBe(10);
+    });
+
+    it('null, undefined, NaN y negativos también caen al fallback', () => {
+      expect(positiveLimit(null, 10)).toBe(10);
+      expect(positiveLimit(undefined, 10)).toBe(10);
+      expect(positiveLimit('no es un número', 10)).toBe(10);
+      expect(positiveLimit(-3, 10)).toBe(10);
+    });
+  });
+
+  describe('normalizeVariant()', () => {
+    it('rellena una variante sin ml/tn sin romper', () => {
+      const v = normalizeVariant({ sku: 'CUA-N' });
+      expect(v.ml.pictureIds).toEqual([]);
+      expect(v.tn.imageIds).toEqual([]);
+      expect(v.barcode).toBe('');
+      expect(v.titles.ml).toEqual({ inherited: true, value: '' });
+      expect(v.id).toBeTruthy();
+    });
+
+    it('migra el `tn.imageId` de una sola foto de los borradores viejos', () => {
+      const v = normalizeVariant({ sku: 'X', tn: { imageId: 'img-1' } });
+      expect(v.tn.imageIds).toEqual(['img-1']);
+    });
+
+    it('conserva lo que ya está bien cargado', () => {
+      const v = normalizeVariant({
+        id: 'v9', sku: 'X', values: ['Negro'], stock: 3, barcode: '779',
+        ml: { price: 100, pictureIds: ['a'] },
+        tn: { price: 90, imageIds: ['b'] },
+        titles: { ml: { inherited: false, value: 'Propio' }, tn: inherited('') }
+      });
+      expect(v.id).toBe('v9');
+      expect(v.ml.pictureIds).toEqual(['a']);
+      expect(v.titles.ml.value).toBe('Propio');
+    });
+  });
+
+  describe('normalizeDraft()', () => {
+    it('un borrador vacío o basura devuelve un draft usable', () => {
+      expect(normalizeDraft({}).cost.marginPct).toBe(100);
+      expect(normalizeDraft(null).variants).toEqual([]);
+      expect(normalizeDraft('basura' as unknown).ml.images).toEqual([]);
+    });
+
+    it('un borrador viejo sin `cost` ni `ml.pictureIds` no rompe', () => {
+      const d = normalizeDraft({ variants: [{ sku: 'A' }, { sku: 'B', ml: {} }] });
+      expect(d.cost.mode).toBe('bulk');
+      expect(d.variants.map((v) => v.ml.pictureIds)).toEqual([[], []]);
     });
   });
 

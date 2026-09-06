@@ -1,0 +1,66 @@
+.cat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.3rem 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--tn-bg);
+  color: var(--tn-text);
+  font-size: 0.72rem;
+  .chip-x {
+    display: inline-flex;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0.7;
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+
+.cat-picker {
+  margin-top: 0.3rem;
+  summary {
+    cursor: pointer;
+    font-size: 0.76rem;
+    color: var(--brand);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    user-select: none;
+  }
+  .cat-picker-list {
+    margin-top: 0.4rem;
+    max-height: 220px;
+    overflow-y: auto;
+    border: 0.5px solid var(--border);
+    border-radius: 8px;
+    padding: 0.3rem;
+  }
+}
+
+.cat-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.35rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  &:hover {
+    background: var(--surface-2);
+  }
+  input {
+    accent-color: var(--tn);
+  }
+}

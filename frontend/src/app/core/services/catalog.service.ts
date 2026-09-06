@@ -159,6 +159,17 @@ export class CatalogService {
     return lastValueFrom(this.http.post<UploadedImage>(`${this.api.baseUrl}/products/images`, file, { headers }));
   }
 
+  /**
+   * Guarda la miniatura (la que generó el worker) junto al original ya subido. Sirve para que al
+   * restaurar un borrador el preview sea de ~40 KB y no el archivo de varios MB.
+   */
+  uploadThumb(id: string, blob: Blob): Promise<{ ok: boolean }> {
+    const headers = { 'Content-Type': blob.type || 'image/jpeg' };
+    return lastValueFrom(
+      this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/products/images/${id}/thumb`, blob, { headers })
+    );
+  }
+
   /** Sube una imagen (base64) al store temporal del backend y devuelve su id. */
   uploadImage(file: { filename: string; mime: string; data: string }): Promise<UploadedImage> {
     return lastValueFrom(this.http.post<UploadedImage>(`${this.api.baseUrl}/products/images`, file));

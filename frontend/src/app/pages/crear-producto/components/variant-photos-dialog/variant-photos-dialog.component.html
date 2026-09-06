@@ -1,0 +1,101 @@
+<div class="vpd-backdrop" (click)="close.emit()">
+  <div class="vpd-card" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-label="Fotos de la variante">
+    <header class="vpd-head">
+      <span class="vpd-title">
+        <i class="ti ti-photo" aria-hidden="true"></i>
+        Fotos de «{{ store.variantChipLabel(variant()) }}»
+      </span>
+      <button type="button" class="icon-btn" (click)="close.emit()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+    </header>
+
+    <div class="vpd-body">
+      @if (!mlImages().length && !tnImages().length) {
+        <p class="muted">
+          Todavía no cargaste fotos. Subilas en las secciones de Mercado Libre y Tienda Nube y volvé acá
+          para elegir cuáles muestra cada variante.
+        </p>
+      }
+
+      @if (mlImages().length) {
+        <section class="vpd-channel">
+          <div class="vpd-channel-head">
+            <span class="vpd-ch"><span class="dot dot-ml"></span> Mercado Libre</span>
+            <span class="vpd-count" [class.warn]="mlAtLimit()">{{ mlSelectedCount() }} / {{ mlLimit() }}</span>
+          </div>
+          <!-- El aviso del tope va acá, a centímetros del click: antes se pintaba en la galería
+               de la sección de ML, cientos de píxeles más arriba, y parecía que no pasaba nada. -->
+          @if (mlAtLimit()) {
+            <span class="hint">
+              <i class="ti ti-info-circle" aria-hidden="true"></i>
+              Llegaste al máximo de {{ mlLimit() }} fotos por variación. Sacá una para poder elegir otra.
+            </span>
+          }
+          <div class="vpd-grid">
+            @for (img of mlPageImages(); track img.uid || img.id) {
+              <button
+                type="button"
+                class="vpd-tile"
+                [class.sel]="isSelected('ml', img.id)"
+                [disabled]="isDisabled('ml', img.id)"
+                [attr.aria-pressed]="isSelected('ml', img.id)"
+                [title]="img.name"
+                (click)="toggle('ml', img.id)"
+              >
+                <zc-product-thumb [src]="img.previewUrl" />
+                @if (isSelected('ml', img.id)) { <i class="ti ti-check" aria-hidden="true"></i> }
+              </button>
+            }
+          </div>
+          <zc-pagination
+            [currentPage]="mlEffectivePage()"
+            [totalPages]="mlTotalPages()"
+            [total]="mlImages().length"
+            (prev)="mlPage.set(mlEffectivePage() - 1)"
+            (next)="mlPage.set(mlEffectivePage() + 1)"
+          />
+        </section>
+      }
+
+      @if (tnImages().length) {
+        <section class="vpd-channel">
+          <div class="vpd-channel-head">
+            <span class="vpd-ch"><i class="ti ti-shopping-bag ico-tn" aria-hidden="true"></i> Tienda Nube</span>
+            <span class="vpd-count">{{ tnSelectedCount() }} elegida{{ tnSelectedCount() === 1 ? '' : 's' }}</span>
+          </div>
+          <span class="hint">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            {{ store.tnMultiPerVariant()
+              ? 'Cada variante es su propio producto: podés elegir varias.'
+              : 'TN admite una sola foto por variante: al elegir otra, reemplaza la actual.' }}
+          </span>
+          <div class="vpd-grid">
+            @for (img of tnPageImages(); track img.uid || img.id) {
+              <button
+                type="button"
+                class="vpd-tile"
+                [class.sel]="isSelected('tn', img.id)"
+                [attr.aria-pressed]="isSelected('tn', img.id)"
+                [title]="img.name"
+                (click)="toggle('tn', img.id)"
+              >
+                <zc-product-thumb [src]="img.previewUrl" />
+                @if (isSelected('tn', img.id)) { <i class="ti ti-check" aria-hidden="true"></i> }
+              </button>
+            }
+          </div>
+          <zc-pagination
+            [currentPage]="tnEffectivePage()"
+            [totalPages]="tnTotalPages()"
+            [total]="tnImages().length"
+            (prev)="tnPage.set(tnEffectivePage() - 1)"
+            (next)="tnPage.set(tnEffectivePage() + 1)"
+          />
+        </section>
+      }
+    </div>
+
+    <footer class="vpd-foot">
+      <button type="button" class="zc-btn primary" (click)="close.emit()">Listo</button>
+    </footer>
+  </div>
+</div>

@@ -1,0 +1,153 @@
+<section class="zc-card block channel-ml">
+  <div class="block-head">
+    <span class="dot dot-ml"></span>
+    <span class="block-title">Mercado Libre</span>
+    <span class="mode-badge ml">{{ store.mlProjection() }}</span>
+  </div>
+
+  <div class="field mode-row">
+    <span class="lbl">¿Cómo se publica este grupo en ML?</span>
+    <div class="mode-toggle">
+      <button
+        type="button"
+        class="mode-opt"
+        [class.on]="store.draft().ml.mappingMode === 'single_with_variants'"
+        (click)="store.setMode('ml', 'single_with_variants')"
+      >
+        <i class="ti ti-layers-subtract"></i> 1 publicación con variantes
+      </button>
+      <button
+        type="button"
+        class="mode-opt"
+        [class.on]="store.draft().ml.mappingMode === 'one_per_variant'"
+        (click)="store.setMode('ml', 'one_per_variant')"
+      >
+        <i class="ti ti-layout-grid"></i> 1 publicación por variante
+      </button>
+    </div>
+  </div>
+
+  <!-- override: título -->
+  <div class="field">
+    <span class="lbl">
+      Título de la publicación <span class="req">*</span>
+      <zc-override-tag [field]="store.draft().ml.title" />
+    </span>
+    @if (store.draft().ml.title.inherited) {
+      <div class="inherited" (click)="store.makeOwn(store.draft().ml.title, store.draft().common.baseName)">
+        <span [class.muted]="!store.draft().common.baseName">{{ store.draft().common.baseName || 'Se toma del nombre base — clic para escribir uno propio' }}</span>
+        <i class="ti ti-pencil"></i>
+      </div>
+    } @else {
+      <input class="zc-input is-own" [(ngModel)]="store.draft().ml.title.value" placeholder="Ej. Cuaderno A4 Tapa Dura Premium Anillado 480g" />
+      <span class="hint revert" (click)="store.revert(store.draft().ml.title)"><i class="ti ti-rotate"></i> común: {{ store.draft().common.baseName }}</span>
+    }
+  </div>
+
+  <div class="grid-2 field">
+    <div class="cat-field">
+      <span class="lbl">Categoría ML <span class="req">*</span></span>
+
+      @if (store.draft().ml.categoryId) {
+        <div class="cat-selected">
+          <i class="ti ti-category"></i>
+          <span class="cat-selected-name">{{ store.draft().ml.categoryName || store.draft().ml.categoryId }}</span>
+          <code>{{ store.draft().ml.categoryId }}</code>
+          <button type="button" class="icon-btn" (click)="clearCategory.emit()" aria-label="Quitar categoría"><i class="ti ti-x"></i></button>
+        </div>
+      } @else {
+        <span class="hint muted">Todavía no elegiste una categoría.</span>
+      }
+
+      <div class="with-btn">
+        <button type="button" class="zc-btn small" (click)="predict.emit()" [disabled]="predicting()">
+          <i class="ti ti-wand"></i> Sugerir por título
+        </button>
+        <button type="button" class="zc-btn small" (click)="openTree.emit()">
+          <i class="ti ti-list-tree"></i> Explorar categorías
+        </button>
+      </div>
+
+      @if (predicting()) { <span class="hint"><i class="ti ti-loader"></i> buscando categorías…</span> }
+      @if (predictError()) { <span class="hint error">{{ predictError() }}</span> }
+      @if (predictions().length) {
+        <ul class="pred-list">
+          @for (p of predictions(); track p.category_id) {
+            <li class="pred-item" (click)="applyPrediction.emit(p)">
+              <span class="pred-name">{{ p.category_name }}</span>
+              <span class="pred-domain">{{ p.domain_name }}</span>
+              <code>{{ p.category_id }}</code>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+    <label>
+      <span class="lbl">Tipo de publicación <span class="req">*</span></span>
+      <select class="zc-select" [(ngModel)]="store.draft().ml.listingType">
+        <option value="gold_special">Clásica (gold_special)</option>
+        <option value="gold_pro">Premium (gold_pro)</option>
+        <option value="free">Gratuita (free)</option>
+      </select>
+      <span class="hint">
+        <i class="ti ti-info-circle"></i>
+        define exposición y comisión: Clásica es la estándar (menor comisión); Premium mejora el
+        posicionamiento (mayor comisión); Gratuita solo aplica a categorías específicas de ML
+        (inmuebles, vehículos, empleos) — no a productos como los tuyos.
+      </span>
+    </label>
+  </div>
+
+  <zc-ml-attributes [loading]="attrsLoading()" [error]="attrsError()" />
+
+  <div class="grid-2 field">
+    <label>
+      <span class="lbl">Garantía — tipo</span>
+      <select class="zc-select" [(ngModel)]="store.draft().ml.warrantyType">
+        <option>Garantía del vendedor</option>
+        <option>Garantía de fábrica</option>
+        <option>Sin garantía</option>
+      </select>
+    </label>
+    @if (store.draft().ml.warrantyType !== 'Sin garantía') {
+      <label>
+        <span class="lbl">Garantía — tiempo</span>
+        <input class="zc-input" [(ngModel)]="store.draft().ml.warrantyTime" placeholder="Ej. 90 días" />
+      </label>
+    }
+  </div>
+
+  <div class="field">
+    <span class="lbl">Envío</span>
+    <div class="ship-row">
+      <select class="zc-select" [(ngModel)]="store.draft().ml.shippingMode">
+        <option value="me2">Mercado Envíos (me2)</option>
+        <option value="custom">A convenir (custom)</option>
+      </select>
+      <label class="check"><input type="checkbox" [(ngModel)]="store.draft().ml.freeShipping" /> Envío gratis</label>
+      <label class="check"><input type="checkbox" [(ngModel)]="store.draft().ml.localPickup" /> Retiro en persona</label>
+    </div>
+  </div>
+
+  <!-- override: descripción -->
+  <div class="field">
+    <span class="lbl">
+      Descripción (texto plano)
+      <zc-override-tag [field]="store.draft().ml.description" />
+    </span>
+    @if (store.draft().ml.description.inherited) {
+      <div class="inherited" (click)="store.makeOwn(store.draft().ml.description, '')">
+        <span class="muted">Sin descripción común — clic para escribir una propia</span>
+        <i class="ti ti-pencil"></i>
+      </div>
+    } @else {
+      <textarea class="zc-textarea is-own" rows="2" [(ngModel)]="store.draft().ml.description.value" placeholder="Describí el producto para la publicación de ML"></textarea>
+      <span class="hint revert" (click)="store.revert(store.draft().ml.description)"><i class="ti ti-rotate"></i> volver a heredar</span>
+    }
+  </div>
+
+  <div class="field no-mb">
+    <span class="lbl">Imágenes <span class="tag tag-own"><i class="ti ti-pencil"></i> propias de ML</span></span>
+    <zc-image-gallery channel="ml" [limit]="store.mlMaxPictures()" />
+  </div>
+</section>

@@ -1,0 +1,20 @@
+<section class="zc-card block results">
+  <div class="results-head">
+    <i class="ti" [class.ti-circle-check]="results().length && (results()[0].status === 'ok' && results()[1].status === 'ok')"
+       [class.ti-alert-circle]="!(results()[0].status === 'ok' && results()[1].status === 'ok')"></i>
+    <span class="block-title">Resultado de la publicación</span>
+    <button type="button" class="icon-btn" (click)="dismiss.emit()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+  </div>
+  @for (r of results(); track r.channel) {
+    <div class="result-row" [class.ok]="r.status === 'ok'" [class.err]="r.status === 'error'">
+      @if (r.channel === 'ml') { <span class="dot dot-ml"></span><span class="ch">Mercado Libre</span> }
+      @else { <i class="ti ti-shopping-bag ico-tn"></i><span class="ch">Tienda Nube</span> }
+      <span class="result-detail">{{ r.detail }}</span>
+      @if (r.status === 'ok') {
+        <span class="zc-badge ok"><i class="ti ti-check"></i> publicado</span>
+      } @else {
+        <button type="button" class="zc-btn small" (click)="retry.emit(r.channel)"><i class="ti ti-refresh"></i> Reintentar</button>
+      }
+    </div>
+  }
+</section>

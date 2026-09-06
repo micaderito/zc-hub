@@ -1,0 +1,35 @@
+@if (hasImages()) {
+  <div class="variant-photos field">
+    <span class="lbl">Fotos por variante</span>
+    <span class="hint">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      Elegí qué fotos muestra cada variante. ML admite varias (hasta {{ store.mlMaxPicturesPerVar() }});
+      TN {{ store.tnMultiPerVariant() ? 'admite varias (1 producto por variante)' : 'admite una (1 publicación con variantes)' }}.
+    </span>
+
+    @for (row of store.variantRows(); track row.id) {
+      <div class="vph-row">
+        <span class="vph-label">{{ row.label }}</span>
+        <span class="vph-counts">
+          @if (row.mlCount || row.tnCount) {
+            @if (row.mlCount) {
+              <span class="vph-count"><span class="dot dot-ml"></span> {{ row.mlCount }} foto{{ row.mlCount === 1 ? '' : 's' }}</span>
+            }
+            @if (row.tnCount) {
+              <span class="vph-count"><i class="ti ti-shopping-bag ico-tn" aria-hidden="true"></i> {{ row.tnCount }} foto{{ row.tnCount === 1 ? '' : 's' }}</span>
+            }
+          } @else {
+            <span class="muted">Sin fotos</span>
+          }
+        </span>
+        <button type="button" class="zc-btn small" (click)="open(row.id)">
+          <i class="ti ti-photo" aria-hidden="true"></i> Elegir fotos
+        </button>
+      </div>
+    }
+  </div>
+}
+
+@if (openVariant(); as v) {
+  <zc-variant-photos-dialog [variant]="v" (close)="close()" />
+}

@@ -1,0 +1,12 @@
+.cost-mode {
+  margin-bottom: 0.2rem;
+}
+
+.cost-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  .hint {
+    margin-top: 0;
+  }
+}

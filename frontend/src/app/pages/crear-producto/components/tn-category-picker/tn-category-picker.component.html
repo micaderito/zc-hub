@@ -1,0 +1,37 @@
+<div class="field">
+  <span class="lbl">Categorías TN</span>
+  @if (loading()) {
+    <span class="hint"><i class="ti ti-loader"></i> cargando categorías de la tienda…</span>
+  } @else if (error()) {
+    <span class="hint error">
+      {{ error() }}
+      <button type="button" class="zc-btn small" (click)="reload.emit()"><i class="ti ti-refresh"></i> Reintentar</button>
+    </span>
+  } @else {
+    @if (store.draft().tn.categories.length) {
+      <div class="cat-chips">
+        @for (id of store.draft().tn.categories; track id) {
+          <span class="chip">
+            {{ categoryName(id) }}
+            <button type="button" class="chip-x" (click)="store.toggleTnCategory(id)" aria-label="Quitar"><i class="ti ti-x"></i></button>
+          </span>
+        }
+      </div>
+    }
+    <details class="cat-picker">
+      <summary><i class="ti ti-plus"></i> Elegir categorías existentes</summary>
+      <div class="cat-picker-list">
+        @for (c of categories(); track c.id) {
+          <label class="cat-option">
+            <input type="checkbox" [checked]="store.isTnCategorySelected(c.id)" (change)="store.toggleTnCategory(c.id)" />
+            <span>{{ c.path }}</span>
+          </label>
+        }
+        @if (!categories().length) {
+          <span class="muted">La tienda no tiene categorías. Creá una desde el panel de Tienda Nube.</span>
+        }
+      </div>
+    </details>
+    <span class="hint"><i class="ti ti-info-circle"></i> se guardan como IDs de categorías existentes; podés elegir varias</span>
+  }
+</div>

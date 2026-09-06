@@ -1,0 +1,43 @@
+@if (visible()) {
+  <div class="variant-images field">
+    <span class="lbl">Títulos de las publicaciones</span>
+    <span class="hint">
+      Por default es "título/nombre base - variante"; se puede escribir uno propio por publicación y por canal.
+    </span>
+    @for (row of store.variantRows(); track row.id) {
+      <div class="vimg-row">
+        <span class="vimg-label">{{ row.label }}</span>
+        @if (store.draft().ml.mappingMode === 'one_per_variant') {
+          <div class="vimg-group vtitle-group">
+            <span class="vimg-ch"><span class="dot dot-ml"></span> ML</span>
+            @if (row.v.titles.ml.inherited) {
+              <div class="inherited" (click)="store.makeOwn(row.v.titles.ml, row.mlDefaultTitle)">
+                <span [class.muted]="!row.mlDefaultTitle">{{ row.mlDefaultTitle || 'automático' }}</span>
+                <i class="ti ti-pencil"></i>
+              </div>
+            } @else {
+              <input class="zc-input is-own" maxlength="60" [(ngModel)]="row.v.titles.ml.value" />
+              <span class="hint revert" (click)="store.revert(row.v.titles.ml)">
+                <i class="ti ti-rotate"></i> automático · {{ row.v.titles.ml.value.length }}/60
+              </span>
+            }
+          </div>
+        }
+        @if (store.draft().tn.mappingMode === 'one_per_variant') {
+          <div class="vimg-group vtitle-group">
+            <span class="vimg-ch">◆ TN</span>
+            @if (row.v.titles.tn.inherited) {
+              <div class="inherited" (click)="store.makeOwn(row.v.titles.tn, row.tnDefaultTitle)">
+                <span [class.muted]="!row.tnDefaultTitle">{{ row.tnDefaultTitle || 'automático' }}</span>
+                <i class="ti ti-pencil"></i>
+              </div>
+            } @else {
+              <input class="zc-input is-own" [(ngModel)]="row.v.titles.tn.value" />
+              <span class="hint revert" (click)="store.revert(row.v.titles.tn)"><i class="ti ti-rotate"></i> automático</span>
+            }
+          </div>
+        }
+      </div>
+    }
+  </div>
+}

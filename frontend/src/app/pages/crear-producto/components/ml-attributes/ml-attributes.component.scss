@@ -1,0 +1,61 @@
+.attrs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.attr-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem;
+  font-size: 0.74rem;
+}
+
+.attr-name {
+  color: var(--text-2);
+  flex: 1;
+}
+
+.attr-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.attr-input {
+  width: 110px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.72rem;
+}
+
+.attrs-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.attrs-optional {
+  margin-top: 0.5rem;
+  summary {
+    cursor: pointer;
+    font-size: 0.76rem;
+    color: var(--brand);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    user-select: none;
+    padding: 0.2rem 0;
+  }
+  .attrs {
+    margin-top: 0.5rem;
+  }
+}
+
+.attr-unit {
+  display: flex;
+  flex: 1;
+}

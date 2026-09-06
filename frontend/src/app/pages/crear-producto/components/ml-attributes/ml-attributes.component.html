@@ -1,0 +1,59 @@
+<div class="field">
+  <span class="lbl">Características de la categoría</span>
+  @if (loading()) { <span class="hint"><i class="ti ti-loader"></i> cargando características de la categoría…</span> }
+  @if (error()) { <span class="hint error">{{ error() }}</span> }
+  @if (!store.draft().ml.attributes.length && !loading()) {
+    <span class="hint muted">Elegí una categoría para cargar sus características.</span>
+  }
+
+  @if (store.mlRequiredAttrs().length) {
+    <div class="attrs">
+      @for (attr of store.mlRequiredAttrs(); track attr) {
+        <ng-container [ngTemplateOutlet]="attrRow" [ngTemplateOutletContext]="{ attr }"></ng-container>
+      }
+    </div>
+  }
+
+  @if (store.mlOptionalAttrs().length) {
+    <details class="attrs-optional" [open]="store.mlOptionalOpen()" (toggle)="store.mlOptionalOpen.set($any($event.target).open)">
+      <summary><i class="ti ti-adjustments"></i> Más características (opcionales) · {{ store.mlOptionalAttrs().length }}</summary>
+      @if (store.mlOptionalOpen()) {
+        <div class="attrs">
+          @for (attr of store.mlOptionalAttrs(); track attr) {
+            <ng-container [ngTemplateOutlet]="attrRow" [ngTemplateOutletContext]="{ attr }"></ng-container>
+          }
+        </div>
+      }
+    </details>
+  }
+
+  @if (store.draft().ml.attributes.length) {
+    <span class="hint"><i class="ti ti-info-circle"></i> las que dejes vacías no se envían</span>
+  }
+</div>
+
+<ng-template #attrRow let-attr="attr">
+  <div class="attr-row">
+    <span class="attr-name">
+      {{ attr.name || attr.id }}
+      @if (attr.required) { <span class="req">*</span> }
+    </span>
+    @if (attr.inherited) {
+      <span class="attr-val">{{ attr.value }} <span class="tag tag-com"><i class="ti ti-link"></i></span></span>
+    } @else if (attr.allowedValues?.length) {
+      <!-- Cualquier atributo con valores cerrados (list, boolean Sí/No, etc.) va como desplegable. -->
+      <select class="zc-select attr-input" [ngModel]="attr.valueId ?? ''" (ngModelChange)="store.setMlAttributeValue(attr, $event)">
+        <option value="">{{ attr.valueType === 'boolean' ? 'Sí / No…' : 'Elegí una opción…' }}</option>
+        @for (opt of attr.allowedValues; track opt.id) {
+          <option [value]="opt.id">{{ opt.name }}</option>
+        }
+      </select>
+    } @else if (attr.valueType === 'number_unit' && attr.allowedUnits?.length) {
+      <span class="attr-unit">
+        <input class="zc-input attr-input" [(ngModel)]="attr.value" placeholder="ej. 20 {{ attr.allowedUnits![0] }}" />
+      </span>
+    } @else {
+      <input class="zc-input attr-input" [(ngModel)]="attr.value" [attr.type]="attr.valueType === 'number' ? 'number' : 'text'" />
+    }
+  </div>
+</ng-template>
