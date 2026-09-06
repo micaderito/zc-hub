@@ -837,6 +837,45 @@ describe('CrearProductoComponent', () => {
       expect(ids).toContain('v2');
     });
 
+    it('un borrador guardado con ids de variante duplicados (por el bug ya arreglado) se cura al restaurarlo', () => {
+      // Borradores guardados ANTES del fix de `addVariant()` pueden tener el bug ya cristalizado
+      // en el JSON: dos variantes con el mismo id. `dedupeVariantIds` los separa al restaurar, sin
+      // pedirle a la usuaria que empiece un producto nuevo ni tocar sus fotos/SKUs/precios.
+      localStorage.setItem(
+        'zc-crear-producto-drafts',
+        JSON.stringify([
+          {
+            id: 'd5',
+            savedAt: Date.now(),
+            mlMaxPictures: 12,
+            mlMaxPicturesPerVar: 10,
+            draft: {
+              ...emptyDraft(),
+              axes: [{ name: 'Color' }],
+              variants: [
+                { id: 'v1', sku: 'STARDUST', values: ['Stardust'], stock: 5, ml: { price: 1000, pictureIds: ['a', 'b'] }, tn: { price: 1000, imageIds: [] } },
+                { id: 'v2', sku: 'ROSIE', values: ['Rosie'], stock: 5, ml: { price: 1000, pictureIds: ['c'] }, tn: { price: 1000, imageIds: [] } },
+                { id: 'v1', sku: 'AURORA', values: ['Aurora'], stock: 5, ml: { price: 1000, pictureIds: [] }, tn: { price: 1000, imageIds: [] } }
+              ],
+              ml: { ...emptyDraft().ml, images: [] },
+              tn: { ...emptyDraft().tn, images: [] }
+            }
+          }
+        ])
+      );
+      const fx = TestBed.createComponent(CrearProductoComponent);
+      fx.detectChanges();
+
+      const variants = fx.componentInstance.draft().variants;
+      const ids = variants.map((v) => v.id);
+      expect(new Set(ids).size).toBe(3);
+      // La primera ocurrencia conserva su id; solo la repetida cambia.
+      expect(variants[0].id).toBe('v1');
+      expect(variants[0].sku).toBe('STARDUST');
+      expect(variants[2].id).not.toBe('v1');
+      expect(variants[2].sku).toBe('AURORA');
+    });
+
     it('la selección hecha mientras la foto subía sigue viva cuando cambia el id', async () => {
       const upload = deferredUpload(catalog);
       const file = new File([new Uint8Array([1])], 'foto.jpg', { type: 'image/jpeg' });

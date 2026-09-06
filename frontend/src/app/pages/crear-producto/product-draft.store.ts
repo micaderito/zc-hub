@@ -667,6 +667,15 @@ export class ProductDraftStore {
     return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   }
 
+  /** Reasigna id a cualquier variante repetida, dejando la primera ocurrencia tal cual. */
+  private dedupeVariantIds(d: ProductDraft): void {
+    const seen = new Set<string>();
+    for (const v of d.variants) {
+      if (seen.has(v.id)) v.id = `v${this.genId()}`;
+      seen.add(v.id);
+    }
+  }
+
   /** Nombre para mostrar en la lista: nombre base, o SKU, o un genérico. */
   private draftLabel(d: ProductDraft): string {
     const name = d.common?.baseName?.trim();
@@ -849,6 +858,11 @@ export class ProductDraftStore {
     // ni `barcode`/`titles` por variante ni, en los más viejos, `ml.pictureIds` — y sin ese array
     // los computeds de selección tiraban TypeError y se caía el render de la página.
     const d = normalizeDraft(entry.draft);
+    // Borradores guardados antes del fix de `addVariant()` (contador secuencial que se reiniciaba
+    // en cada carga) pueden traer dos variantes con el mismo id — sin esto, el modal de "Elegir
+    // fotos" de una seguía resolviendo a la otra para siempre. Se cura solo al restaurar, sin
+    // tocar SKU/precio/fotos: sana la instancia en memoria del array, no el JSON guardado.
+    this.dedupeVariantIds(d);
     d.ml.images = restorePreview(entry.draft.ml.images as { id: string; name: string }[]);
     d.tn.images = restorePreview(entry.draft.tn.images as { id: string; name: string }[]);
     this.draft.set(d);
