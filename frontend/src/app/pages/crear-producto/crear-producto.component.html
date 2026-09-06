@@ -78,6 +78,9 @@
       <label>
         <span class="lbl">Código de barras (GTIN/EAN)</span>
         <input class="zc-input" [(ngModel)]="draft().common.barcode" placeholder="Ej. 7791234567890" />
+        @if (hasVariants()) {
+          <span class="hint"><i class="ti ti-info-circle"></i> por default para todas las variantes — cada una puede tener el suyo propio en la tabla de Variantes</span>
+        }
       </label>
       <label>
         <span class="lbl">Condición <span class="req">*</span></span>
@@ -192,7 +195,7 @@
       </div>
       <label>
         <span class="lbl">Tipo de publicación <span class="req">*</span></span>
-        <select class="zc-select" [(ngModel)]="draft().ml.listingType" (ngModelChange)="onMlPriceChange()">
+        <select class="zc-select" [(ngModel)]="draft().ml.listingType">
           <option value="gold_special">Clásica (gold_special)</option>
           <option value="gold_pro">Premium (gold_pro)</option>
           <option value="free">Gratuita (free)</option>
@@ -224,13 +227,15 @@
       }
 
       @if (mlOptionalAttrs().length) {
-        <details class="attrs-optional">
+        <details class="attrs-optional" [open]="mlOptionalOpen()" (toggle)="mlOptionalOpen.set($any($event.target).open)">
           <summary><i class="ti ti-adjustments"></i> Más características (opcionales) · {{ mlOptionalAttrs().length }}</summary>
-          <div class="attrs">
-            @for (attr of mlOptionalAttrs(); track attr) {
-              <ng-container [ngTemplateOutlet]="attrRow" [ngTemplateOutletContext]="{ attr }"></ng-container>
-            }
-          </div>
+          @if (mlOptionalOpen()) {
+            <div class="attrs">
+              @for (attr of mlOptionalAttrs(); track attr) {
+                <ng-container [ngTemplateOutlet]="attrRow" [ngTemplateOutletContext]="{ attr }"></ng-container>
+              }
+            </div>
+          }
         </details>
       }
 
@@ -450,6 +455,78 @@
     </div>
   </section>
 
+  <!-- ===== Precios y ganancia ===== -->
+  <section class="zc-card block">
+    <div class="block-head">
+      <i class="ti ti-calculator"></i>
+      <span class="block-title">Precios y ganancia</span>
+      <span class="block-note">— mismo cálculo que la sección Precios; sirve para elegir el precio de cada canal</span>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Costo</span>
+      <div class="mode-toggle cost-mode">
+        <button type="button" class="mode-opt" [class.on]="draft().cost.mode === 'bulk'" (click)="draft().cost.mode = 'bulk'; touch()">
+          <i class="ti ti-package"></i> Por bulto
+        </button>
+        <button type="button" class="mode-opt" [class.on]="draft().cost.mode === 'unit'" (click)="draft().cost.mode = 'unit'; touch()">
+          <i class="ti ti-coin"></i> Costo unitario directo
+        </button>
+      </div>
+    </div>
+
+    @if (draft().cost.mode === 'bulk') {
+      <div class="grid-4 field">
+        <label>
+          <span class="lbl">Precio por bulto</span>
+          <input class="zc-input" type="number" min="0" [(ngModel)]="draft().cost.bulkPrice" (ngModelChange)="touch()" />
+        </label>
+        <label>
+          <span class="lbl">Unidades por bulto</span>
+          <input class="zc-input" type="number" min="1" [(ngModel)]="draft().cost.bulkQty" (ngModelChange)="touch()" />
+        </label>
+        <label>
+          <span class="lbl">Descuento 1 (%)</span>
+          <input class="zc-input" type="number" min="0" max="100" [(ngModel)]="draft().cost.discount1" (ngModelChange)="touch()" />
+        </label>
+        <label>
+          <span class="lbl">Descuento 2 (%)</span>
+          <input class="zc-input" type="number" min="0" max="100" [(ngModel)]="draft().cost.discount2" (ngModelChange)="touch()" />
+        </label>
+      </div>
+    } @else {
+      <label class="field">
+        <span class="lbl">Costo unitario</span>
+        <input class="zc-input" type="number" min="0" [(ngModel)]="draft().cost.unitCost" (ngModelChange)="touch()" />
+      </label>
+    }
+
+    <label class="field">
+      <span class="lbl">Ganancia deseada (%)</span>
+      <input class="zc-input" type="number" min="0" [(ngModel)]="draft().cost.marginPct" (ngModelChange)="touch()" />
+    </label>
+
+    @if (costPreview(); as cp) {
+      <div class="field no-mb cost-summary">
+        <span class="hint">
+          <i class="ti ti-receipt"></i>
+          Costo unitario <strong>{{ cp.unitCost | currency: draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+          · valor a netear <strong>{{ cp.valorFinal | currency: draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+        </span>
+        <span class="hint fee-hint">
+          <span class="dot dot-ml"></span> ML sugerido <strong>{{ cp.ml | currency: draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+          · te quedan <strong>{{ cp.mlNet | currency: draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+        </span>
+        <span class="hint fee-hint">
+          ◆ TN sugerido (lista) <strong>{{ cp.tn.list | currency: draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+          (transferencia {{ cp.tn.transfer | currency: draft().ml.currency : 'symbol' : '1.0-0' }})
+        </span>
+      </div>
+    } @else {
+      <span class="hint muted"><i class="ti ti-info-circle"></i> cargá el costo para ver el precio sugerido y cuánto te queda en cada canal</span>
+    }
+  </section>
+
   <!-- ===== Variantes ===== -->
   <section class="zc-card block">
     <div class="block-head">
@@ -469,25 +546,29 @@
         <div class="simple-grid">
           <label>
             <span class="lbl"><span class="dot dot-ml"></span> Precio ML ({{ draft().ml.currency }}) <span class="req">*</span></span>
-            <input class="zc-input" type="number" min="0" [(ngModel)]="draft().ml.basePrice" (ngModelChange)="onMlPriceChange()" />
-            @if (mlFeeLoading()) {
-              <span class="hint"><i class="ti ti-loader"></i> calculando comisión…</span>
-            }
-            @if (!mlFeeLoading() && mlFee(); as fee) {
+            <input class="zc-input" type="number" min="0" [(ngModel)]="draft().ml.basePrice" (ngModelChange)="touch()" />
+            @if (mlBreakdown(draft().ml.basePrice); as b) {
               <span class="hint fee-hint">
                 <i class="ti ti-receipt-2"></i>
-                Comisión ML{{ fee.percentage != null ? ' (' + fee.percentage + '%)' : '' }}:
-                {{ fee.saleFee | currency: fee.currency : 'symbol' : '1.0-0' }} · recibís
-                <strong>{{ fee.net | currency: fee.currency : 'symbol' : '1.0-0' }}</strong>
+                Te quedan <strong>{{ b.net | currency: draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+                @if (b.marginPct != null) { · margen real <strong>{{ b.marginPct | number: '1.0-1' }}%</strong> }
               </span>
-            }
-            @if (!mlFeeLoading() && !mlFee() && !draft().ml.categoryId && draft().ml.basePrice) {
-              <span class="hint muted">elegí la categoría de ML para ver cuánto recibís</span>
+              @if (mlFreeShippingZone()) {
+                <span class="hint"><i class="ti ti-truck"></i> zona de envío gratis (arriba de {{ pricingSettings().freeShippingThreshold | currency: draft().ml.currency : 'symbol' : '1.0-0' }})</span>
+              }
+            } @else if (draft().ml.basePrice && !hasCost()) {
+              <span class="hint muted">cargá el costo (arriba) para ver cuánto te queda</span>
             }
           </label>
           <label>
             <span class="lbl">◆ Precio TN <span class="req">*</span></span>
-            <input class="zc-input" type="number" min="0" [(ngModel)]="draft().tn.basePrice" />
+            <input class="zc-input" type="number" min="0" [(ngModel)]="draft().tn.basePrice" (ngModelChange)="touch()" />
+            @if (tnBreakdown(draft().tn.basePrice); as b) {
+              <span class="hint fee-hint">
+                Te quedan <strong>{{ b.net | currency: draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
+                @if (b.marginPct != null) { · margen real <strong>{{ b.marginPct | number: '1.0-1' }}%</strong> }
+              </span>
+            }
           </label>
           <label>
             <span class="lbl">Stock <span class="req">*</span></span>
@@ -519,8 +600,10 @@
               }
               <th>SKU</th>
               <th><span class="dot dot-ml"></span> Precio</th>
+              <th class="th-margin" title="Lo que te queda al precio de ML cargado, según el costo de arriba">Te queda</th>
               <th class="th-tn">◆ Precio</th>
               <th>Stock</th>
+              <th title="Vacío = usa el código de barras común">Cód. barras</th>
               <th></th>
             </tr>
           </thead>
@@ -531,16 +614,26 @@
                   <td><input class="zc-input cell" [(ngModel)]="v.values[$index]" /></td>
                 }
                 <td><input class="zc-input cell mono" [(ngModel)]="v.sku" /></td>
-                <td><input class="zc-input cell" type="number" [(ngModel)]="v.ml.price" /></td>
-                <td><input class="zc-input cell" type="number" [(ngModel)]="v.tn.price" /></td>
+                <td><input class="zc-input cell" type="number" [(ngModel)]="v.ml.price" (ngModelChange)="touch()" /></td>
+                <td class="cell-readonly">
+                  @if (mlBreakdown(v.ml.price); as b) {
+                    <span [title]="b.marginPct != null ? 'margen real ' + (b.marginPct | number: '1.0-1') + '%' : ''">
+                      {{ b.net | currency: draft().ml.currency : 'symbol' : '1.0-0' }}
+                    </span>
+                  } @else {
+                    <span class="muted">—</span>
+                  }
+                </td>
+                <td><input class="zc-input cell" type="number" [(ngModel)]="v.tn.price" (ngModelChange)="touch()" /></td>
                 <td><input class="zc-input cell" type="number" [(ngModel)]="v.stock" /></td>
+                <td><input class="zc-input cell mono" [(ngModel)]="v.barcode" [placeholder]="draft().common.barcode || 'código común'" /></td>
                 <td><button type="button" class="icon-btn" (click)="removeVariant(v.id)" aria-label="Quitar variante"><i class="ti ti-trash"></i></button></td>
               </tr>
             }
           </tbody>
           <tfoot>
             <tr>
-              <td class="add-variant-cell" [attr.colspan]="draft().axes.length + 5">
+              <td class="add-variant-cell" [attr.colspan]="draft().axes.length + 7">
                 <button type="button" class="add-variant-row" (click)="addVariant()">
                   <i class="ti ti-plus"></i> Agregar variante
                 </button>
@@ -549,6 +642,50 @@
           </tfoot>
         </table>
       </div>
+
+      @if (draft().ml.mappingMode === 'one_per_variant' || draft().tn.mappingMode === 'one_per_variant') {
+        <div class="variant-images field">
+          <span class="lbl">Títulos de las publicaciones</span>
+          <span class="hint">
+            Por default es "título/nombre base - variante"; se puede escribir uno propio por publicación y por canal.
+          </span>
+          @for (v of draft().variants; track v.id) {
+            <div class="vimg-row">
+              <span class="vimg-label">{{ variantChipLabel(v) }}</span>
+              @if (draft().ml.mappingMode === 'one_per_variant') {
+                <div class="vimg-group vtitle-group">
+                  <span class="vimg-ch"><span class="dot dot-ml"></span> ML</span>
+                  @if (v.titles.ml.inherited) {
+                    <div class="inherited" (click)="makeOwn(v.titles.ml, variantDefaultTitle('ml', v))">
+                      <span [class.muted]="!variantDefaultTitle('ml', v)">{{ variantDefaultTitle('ml', v) || 'automático' }}</span>
+                      <i class="ti ti-pencil"></i>
+                    </div>
+                  } @else {
+                    <input class="zc-input is-own" maxlength="60" [(ngModel)]="v.titles.ml.value" />
+                    <span class="hint revert" (click)="revert(v.titles.ml)">
+                      <i class="ti ti-rotate"></i> automático · {{ v.titles.ml.value.length }}/60
+                    </span>
+                  }
+                </div>
+              }
+              @if (draft().tn.mappingMode === 'one_per_variant') {
+                <div class="vimg-group vtitle-group">
+                  <span class="vimg-ch">◆ TN</span>
+                  @if (v.titles.tn.inherited) {
+                    <div class="inherited" (click)="makeOwn(v.titles.tn, variantDefaultTitle('tn', v))">
+                      <span [class.muted]="!variantDefaultTitle('tn', v)">{{ variantDefaultTitle('tn', v) || 'automático' }}</span>
+                      <i class="ti ti-pencil"></i>
+                    </div>
+                  } @else {
+                    <input class="zc-input is-own" [(ngModel)]="v.titles.tn.value" />
+                    <span class="hint revert" (click)="revert(v.titles.tn)"><i class="ti ti-rotate"></i> automático</span>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
 
       @if (draft().ml.images.length || draft().tn.images.length) {
         <div class="variant-images field">
@@ -559,14 +696,14 @@
           </span>
           @for (v of draft().variants; track v.id) {
             <div class="vimg-row">
-              <span class="vimg-label">{{ v.sku || v.values.join(' / ') || 'Variante' }}</span>
+              <span class="vimg-label">{{ variantChipLabel(v) }}</span>
               @if (draft().ml.images.length) {
                 <div class="vimg-group">
                   <span class="vimg-ch"><span class="dot dot-ml"></span> ML</span>
                   @for (img of draft().ml.images; track img.id) {
                     <button type="button" class="vimg-thumb" [class.sel]="isVariantMlImage(v, img.id)"
                             (click)="toggleVariantMlImage(v, img.id)" [title]="img.name">
-                      <img [src]="img.previewUrl" [alt]="img.name" />
+                      <img [src]="img.previewUrl" [alt]="img.name" width="40" height="40" loading="lazy" decoding="async" />
                       @if (isVariantMlImage(v, img.id)) { <i class="ti ti-check"></i> }
                     </button>
                   }
@@ -578,7 +715,7 @@
                   @for (img of draft().tn.images; track img.id) {
                     <button type="button" class="vimg-thumb" [class.sel]="isVariantTnImage(v, img.id)"
                             (click)="toggleVariantTnImage(v, img.id)" [title]="img.name">
-                      <img [src]="img.previewUrl" [alt]="img.name" />
+                      <img [src]="img.previewUrl" [alt]="img.name" width="40" height="40" loading="lazy" decoding="async" />
                       @if (isVariantTnImage(v, img.id)) { <i class="ti ti-check"></i> }
                     </button>
                   }
@@ -623,9 +760,15 @@
       (Mercado Libre y Tienda Nube). Revisá los datos antes de continuar.
     </span>
   </div>
+  @if (hasPendingUploads()) {
+    <div class="publish-warning">
+      <i class="ti ti-loader"></i>
+      <span>Esperando a que terminen de subirse las fotos antes de poder guardar o publicar.</span>
+    </div>
+  }
   <div class="actions">
     <div class="draft-actions">
-      <button type="button" class="zc-btn" (click)="saveDraft()"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
+      <button type="button" class="zc-btn" (click)="saveDraft()" [disabled]="hasPendingUploads()"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
       @if (currentDraftId()) {
         <button type="button" class="zc-btn" (click)="startNewDraft()" title="Empezar un producto nuevo (este borrador queda guardado)">
           <i class="ti ti-plus"></i> Nuevo producto
@@ -635,7 +778,7 @@
         <span class="hint">Guardado {{ draftSavedAt()! | date: 'short' }}</span>
       }
     </div>
-    <button type="button" class="zc-btn primary" (click)="publish()" [disabled]="publishing()">
+    <button type="button" class="zc-btn primary" (click)="publish()" [disabled]="publishing() || hasPendingUploads()">
       <i class="ti ti-rocket"></i> {{ publishing() ? 'Publicando…' : 'Publicar en ambos' }}
     </button>
   </div>
@@ -681,12 +824,19 @@
 <ng-template #gallery let-channel="channel" let-limit="limit">
   <div class="gallery">
     @for (img of images(channel); track img.id; let i = $index) {
-      <div class="gimg" [class.is-cover]="i === 0" draggable="true"
+      <div class="gimg" [class.is-cover]="i === 0" [class.is-uploading]="img.uploading" draggable="true"
            (dragstart)="onImageDragStart(channel, i)"
            (dragover)="$event.preventDefault()"
            (drop)="onImageDrop(channel, i)">
-        <img [src]="img.previewUrl" [alt]="img.name" draggable="false" />
-        @if (i === 0) { <span class="cover-badge"><i class="ti ti-star-filled"></i> Portada</span> }
+        <!-- previewUrl arranca vacío hasta que el worker termina la miniatura (ver onImageFiles). -->
+        @if (img.previewUrl) {
+          <img [src]="img.previewUrl" [alt]="img.name" width="84" height="84" loading="lazy" decoding="async" draggable="false" />
+        }
+        @if (img.uploading) {
+          <span class="gimg-uploading" title="Subiendo…"><i class="ti ti-loader"></i></span>
+        } @else if (i === 0) {
+          <span class="cover-badge"><i class="ti ti-star-filled"></i> Portada</span>
+        }
         <div class="gimg-actions">
           @if (i !== 0) {
             <button type="button" class="gicon" (click)="makeCover(channel, i)" title="Hacer portada" aria-label="Hacer portada"><i class="ti ti-star"></i></button>
@@ -704,7 +854,7 @@
       </label>
     }
   </div>
-  @if (uploadingImage()) { <span class="hint"><i class="ti ti-loader"></i> subiendo…</span> }
+  @if (hasPendingUploads()) { <span class="hint"><i class="ti ti-loader"></i> subiendo fotos… podés seguir completando el resto mientras tanto</span> }
   @if (imageError()) { <span class="hint error">{{ imageError() }}</span> }
   <span class="hint"><i class="ti ti-arrows-move"></i> arrastrá para reordenar · la primera es la portada · {{ images(channel).length }}/{{ limit }}</span>
 </ng-template>

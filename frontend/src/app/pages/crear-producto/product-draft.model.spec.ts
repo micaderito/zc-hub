@@ -1,4 +1,4 @@
-import { emptyDraft, inherited, listingTypeLabel, projectionLabel } from './product-draft.model';
+import { defaultVariantTitle, emptyDraft, inherited, listingTypeLabel, projectionLabel, variantLabel } from './product-draft.model';
 
 describe('product-draft.model', () => {
   describe('inherited()', () => {
@@ -134,6 +134,47 @@ describe('product-draft.model', () => {
 
       a.axes.push({ name: 'Color' });
       expect(b.axes).toEqual([]);
+    });
+
+    it('inicializa cost en modo bulto con los descuentos y la ganancia por default de la planilla', () => {
+      const draft = emptyDraft();
+      expect(draft.cost).toEqual({
+        mode: 'bulk',
+        bulkPrice: null,
+        bulkQty: null,
+        discount1: 25,
+        discount2: 5,
+        unitCost: null,
+        marginPct: 100
+      });
+    });
+  });
+
+  describe('variantLabel()', () => {
+    it('une los valores de eje con un espacio', () => {
+      expect(variantLabel(['Negro', 'A4'])).toBe('Negro A4');
+    });
+
+    it('descarta valores vacíos y recorta espacios', () => {
+      expect(variantLabel([' Negro ', '', 'A4'])).toBe('Negro A4');
+    });
+
+    it('devuelve vacío sin valores', () => {
+      expect(variantLabel([])).toBe('');
+    });
+  });
+
+  describe('defaultVariantTitle()', () => {
+    it('combina el título base con la etiqueta de la variante', () => {
+      expect(defaultVariantTitle('Cuaderno A4', ['Negro'])).toBe('Cuaderno A4 - Negro');
+    });
+
+    it('usa solo la etiqueta si no hay título base', () => {
+      expect(defaultVariantTitle('', ['Negro'])).toBe('Negro');
+    });
+
+    it('usa solo el título base si la variante no tiene valores', () => {
+      expect(defaultVariantTitle('Cuaderno A4', [])).toBe('Cuaderno A4');
     });
   });
 });

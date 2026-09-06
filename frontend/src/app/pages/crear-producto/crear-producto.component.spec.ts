@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed, fakeAsync, flushMicrotasks, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { of } from 'rxjs';
 
 import { CrearProductoComponent } from './crear-producto.component';
 import {
@@ -13,7 +14,34 @@ import {
   TnCategory,
   UploadedImage
 } from '../../core/services/catalog.service';
-import { Channel, emptyDraft } from './product-draft.model';
+import { PricingConfig, PricingService } from '../../core/services/pricing.service';
+import { Channel, ProductVariant, emptyDraft, inherited } from './product-draft.model';
+
+/** Config default de /precios (idéntica a DEFAULT_SETTINGS de pricing-math.ts). */
+const PRICING_CONFIG: PricingConfig = {
+  settings: {
+    commissionPct: 15,
+    taxes: 300,
+    shippingCost: 6500,
+    freeShippingThreshold: 33000,
+    cardMultiplier: 1.3,
+    roundStep: 50,
+    defaultMarginPct: 100,
+    defaultDiscount1: 25,
+    defaultDiscount2: 5
+  },
+  tiers: [
+    { maxPrice: 15000, fixedFee: 1115 },
+    { maxPrice: 25000, fixedFee: 2300 },
+    { maxPrice: 33000, fixedFee: 2810 },
+    { maxPrice: null, fixedFee: 0 }
+  ],
+  updatedAt: null
+};
+
+class PricingServiceMock {
+  getConfig = jasmine.createSpy('getConfig').and.callFake(() => of(PRICING_CONFIG));
+}
 
 /** Mock de CatalogService con respuestas controlables por test. */
 class CatalogServiceMock {
@@ -48,6 +76,7 @@ class CatalogServiceMock {
 
   uploadResponse: UploadedImage = { id: 'IMG1', name: 'a.jpg', mime: 'image/jpeg', size: 3 };
   uploadImage = jasmine.createSpy('upload').and.callFake(() => Promise.resolve(this.uploadResponse));
+  uploadImageFile = jasmine.createSpy('uploadFile').and.callFake(() => Promise.resolve(this.uploadResponse));
   deleteImage = jasmine.createSpy('del').and.callFake(() => Promise.resolve({ ok: true }));
 
   listingPrices = { currency_id: 'ARS', sale_fee_amount: 130, listing_fee_amount: 0, percentage_fee: 13, net: 870 };
@@ -72,6 +101,35 @@ function seedImage(component: CrearProductoComponent, channel: Channel, id: stri
   component.draft.set({ ...d });
 }
 
+/**
+ * Mock controlable de `uploadImageFile`: la subida queda pendiente hasta llamar a `.resolve()`.
+ * `onImageFiles()` genera la miniatura en un Worker real antes de llamar a `uploadImageFile`
+ * (createImageBitmap corre en el browser real de Karma), así que hay un salto async genuino entre
+ * "se agregó el placeholder" y "se llamó a uploadImageFile" — `.called` deja esperar ese salto en
+ * vez de asumir que ya pasó (evita un test flaky por timing del worker).
+ */
+function deferredUpload(catalog: CatalogServiceMock): { called: Promise<void>; resolve(v: UploadedImage): void } {
+  let resolveFn: ((v: UploadedImage) => void) | null = null;
+  let notifyCalled!: () => void;
+  const called = new Promise<void>((res) => {
+    notifyCalled = res;
+  });
+  catalog.uploadImageFile.and.callFake(
+    () =>
+      new Promise<UploadedImage>((res) => {
+        resolveFn = res;
+        notifyCalled();
+      })
+  );
+  return {
+    called,
+    resolve(v: UploadedImage) {
+      if (!resolveFn) throw new Error('uploadImageFile todavía no fue llamado');
+      resolveFn(v);
+    }
+  };
+}
+
 describe('CrearProductoComponent', () => {
   let component: CrearProductoComponent;
   let fixture: ComponentFixture<CrearProductoComponent>;
@@ -91,7 +149,8 @@ describe('CrearProductoComponent', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: CatalogService, useValue: catalog }
+        { provide: CatalogService, useValue: catalog },
+        { provide: PricingService, useValue: new PricingServiceMock() }
       ]
     }).compileComponents();
 
@@ -423,50 +482,85 @@ describe('CrearProductoComponent', () => {
     });
   });
 
-  describe('ML: "cuánto recibís" (comisiones)', () => {
-    it('loadMlFee() con precio y categoría consulta las comisiones y setea el neto', async () => {
-      component.draft().ml.basePrice = 1000;
-      component.draft().ml.categoryId = 'MLA388307';
-      catalog.listingPrices = { currency_id: 'ARS', sale_fee_amount: 130, listing_fee_amount: 0, percentage_fee: 13, net: 870 };
-
-      await component.loadMlFee();
-
-      expect(catalog.getMlListingPrices).toHaveBeenCalledWith(1000, 'MLA388307', component.draft().ml.listingType);
-      expect(component.mlFee()).toEqual({ saleFee: 130, net: 870, currency: 'ARS', percentage: 13 });
+  describe('rentabilidad: costPreview() / mlBreakdown() / tnBreakdown()', () => {
+    it('sin costo cargado, no hay preview ni desglose', () => {
+      expect(component.hasCost()).toBeFalse();
+      expect(component.costPreview()).toBeNull();
+      expect(component.mlBreakdown(19900)).toBeNull();
     });
 
-    it('loadMlFee() no consulta si falta precio o categoría (limpia el estado)', async () => {
-      component.draft().ml.basePrice = null;
-      component.draft().ml.categoryId = 'MLA388307';
-      await component.loadMlFee();
-      expect(catalog.getMlListingPrices).not.toHaveBeenCalled();
-      expect(component.mlFee()).toBeNull();
+    it('con costo por bulto, calcula lo mismo que el motor de /precios (fila 30700 de Punto Cero)', () => {
+      const d = component.draft();
+      d.cost = { mode: 'bulk', bulkPrice: 70400, bulkQty: 8, discount1: 25, discount2: 5, unitCost: null, marginPct: 100 };
+      component.touch();
 
-      component.draft().ml.basePrice = 1000;
-      component.draft().ml.categoryId = '';
-      await component.loadMlFee();
-      expect(catalog.getMlListingPrices).not.toHaveBeenCalled();
-      expect(component.mlFee()).toBeNull();
+      const cp = component.costPreview();
+      expect(cp).toBeTruthy();
+      expect(cp!.unitCost).toBe(6270);
+      expect(cp!.valorFinal).toBe(12540);
+      expect(cp!.tn.transfer).toBe(12550);
+      expect(cp!.tn.list).toBe(16350);
+    });
+
+    it('con costo unitario directo, mlBreakdown() del precio ingresado neteá al menos el costo con la ganancia pedida', () => {
+      const d = component.draft();
+      d.cost = { mode: 'unit', bulkPrice: null, bulkQty: null, discount1: 0, discount2: 0, unitCost: 7000, marginPct: 100 };
+      component.touch();
+
+      const cp = component.costPreview()!;
+      const b = component.mlBreakdown(cp.ml)!;
+      expect(b.net).toBeGreaterThanOrEqual(cp.valorFinal - 1e-6);
+      expect(b.marginPct).not.toBeNull();
+    });
+
+    it('mlFreeShippingZone() es true solo cuando el precio de ML supera el umbral de envío gratis', () => {
+      component.draft().ml.basePrice = 20000;
+      component.touch(); // computed() solo recalcula cuando cambia la referencia de la señal draft
+      expect(component.mlFreeShippingZone()).toBeFalse();
+      component.draft().ml.basePrice = 40000;
+      component.touch();
+      expect(component.mlFreeShippingZone()).toBeTrue();
     });
   });
 
   describe('imágenes: subida, galería, portada y por variante', () => {
-    it('onImageFiles() sube el archivo al backend y agrega la imagen a la galería del canal', async () => {
+    it('onImageFiles() sube el archivo ORIGINAL (sin base64/JSON) y agrega la imagen a la galería del canal', async () => {
       catalog.uploadResponse = { id: 'IMGX', name: 'foto.jpg', mime: 'image/jpeg', size: 3 };
       const file = new File([new Uint8Array([1, 2, 3])], 'foto.jpg', { type: 'image/jpeg' });
 
       await component.onImageFiles('ml', [file] as unknown as FileList);
 
-      expect(catalog.uploadImage).toHaveBeenCalled();
+      expect(catalog.uploadImageFile).toHaveBeenCalledWith(file);
       expect(component.draft().ml.images.length).toBe(1);
       expect(component.draft().ml.images[0].id).toBe('IMGX');
+      expect(component.draft().ml.images[0].uploading).toBeFalse();
       expect(component.draft().tn.images.length).toBe(0);
+    });
+
+    it('onImageFiles() marca la fila como uploading mientras el original se sube (bloquea publish/saveDraft)', async () => {
+      const upload = deferredUpload(catalog);
+      const file = new File([new Uint8Array([1, 2, 3])], 'foto.jpg', { type: 'image/jpeg' });
+
+      // El placeholder se agrega SINCRÓNICAMENTE (antes de la primera pausa async): se puede
+      // ver de entrada, incluso mientras el original todavía se está subiendo.
+      const pending = component.onImageFiles('ml', [file] as unknown as FileList);
+      expect(component.draft().ml.images.length).toBe(1);
+      expect(component.draft().ml.images[0].uploading).toBeTrue();
+      expect(component.hasPendingUploads()).toBeTrue();
+
+      await upload.called; // espera a que termine la miniatura y arranque la subida del original
+      upload.resolve({ id: 'IMGY', name: 'foto.jpg', mime: 'image/jpeg', size: 3 });
+      await pending;
+
+      expect(component.draft().ml.images[0].uploading).toBeFalse();
+      expect(component.draft().ml.images[0].id).toBe('IMGY');
+      expect(component.hasPendingUploads()).toBeFalse();
     });
 
     it('onImageFiles() rechaza WEBP en ML con error inline y no sube', async () => {
       const file = new File([new Uint8Array([1])], 'x.webp', { type: 'image/webp' });
       await component.onImageFiles('ml', [file] as unknown as FileList);
-      expect(catalog.uploadImage).not.toHaveBeenCalled();
+      expect(catalog.uploadImageFile).not.toHaveBeenCalled();
       expect(component.imageError()).toContain('WEBP');
     });
 
@@ -475,9 +569,60 @@ describe('CrearProductoComponent', () => {
       seedImage(component, 'ml', 'ya-hay');
       const file = new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' });
       await component.onImageFiles('ml', [file] as unknown as FileList);
-      expect(catalog.uploadImage).not.toHaveBeenCalled();
+      expect(catalog.uploadImageFile).not.toHaveBeenCalled();
       expect(component.draft().ml.images.length).toBe(1);
       expect(component.imageError()).toContain('Máximo');
+    });
+
+    it('onImageFiles() sube varias fotos EN PARALELO, no una detrás de la otra', async () => {
+      const files = [1, 2, 3].map((n) => new File([new Uint8Array([n])], `f${n}.jpg`, { type: 'image/jpeg' }));
+      let inFlight = 0;
+      let maxInFlight = 0;
+      catalog.uploadImageFile.and.callFake(
+        (f: File) =>
+          new Promise<UploadedImage>((resolve) => {
+            inFlight++;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            setTimeout(() => {
+              inFlight--;
+              resolve({ id: `IMG-${f.name}`, name: f.name, mime: 'image/jpeg', size: 1 });
+            }, 0);
+          })
+      );
+
+      await component.onImageFiles('ml', files as unknown as FileList);
+
+      expect(maxInFlight).toBeGreaterThan(1);
+      expect(component.draft().ml.images.map((i) => i.id).sort()).toEqual(['IMG-f1.jpg', 'IMG-f2.jpg', 'IMG-f3.jpg']);
+    });
+
+    it('publish() y saveDraft() se bloquean mientras haya fotos subiendo', async () => {
+      const upload = deferredUpload(catalog);
+      const file = new File([new Uint8Array([1])], 'foto.jpg', { type: 'image/jpeg' });
+      const pending = component.onImageFiles('ml', [file] as unknown as FileList);
+
+      await component.publish();
+      expect(catalog.publishProduct).not.toHaveBeenCalled();
+      expect(component.imageError()).toContain('publicar');
+
+      component.saveDraft();
+      expect(component.currentDraftId()).toBeNull();
+      expect(component.imageError()).toContain('guardar');
+
+      await upload.called;
+      upload.resolve({ id: 'IMGZ', name: 'foto.jpg', mime: 'image/jpeg', size: 1 });
+      await pending;
+    });
+
+    it('removeImage() de una foto todavía "uploading" no intenta borrarla del backend (el id es local)', async () => {
+      catalog.uploadImageFile.and.callFake(() => new Promise<UploadedImage>(() => {}));
+      component.onImageFiles('ml', [new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' })] as unknown as FileList);
+      expect(component.draft().ml.images[0].uploading).toBeTrue();
+
+      component.removeImage('ml', 0);
+
+      expect(component.draft().ml.images.length).toBe(0);
+      expect(catalog.deleteImage).not.toHaveBeenCalled();
     });
 
     it('makeCover() mueve la imagen elegida a la primera posición (portada)', () => {
@@ -718,6 +863,78 @@ describe('CrearProductoComponent', () => {
       const payload = component.buildPayloads();
       const tn = payload.tn as any;
       expect(tn.variants[0].weight).toBeNull();
+    });
+  });
+
+  describe('títulos por variante y por canal (one_per_variant) + código de barras', () => {
+    let v1: ProductVariant;
+    let v2: ProductVariant;
+
+    beforeEach(() => {
+      const d = component.draft();
+      d.common = { ...d.common, baseName: 'Cuaderno A4', sku: '', barcode: '7790000000000' };
+      d.ml.title = inherited('');
+      d.tn.nameEs = inherited('');
+      component.addAxis();
+      component.draft().axes[0].name = 'Color';
+      v1 = component.draft().variants[0];
+      v1.sku = 'CUA-N';
+      v1.values = ['Negro'];
+      component.addVariant();
+      v2 = component.draft().variants[1];
+      v2.sku = 'CUA-R';
+      v2.values = ['Rojo'];
+      component.touch();
+    });
+
+    it('variantDefaultTitle() combina el título/nombre base efectivo con los valores de la variante', () => {
+      expect(component.variantDefaultTitle('ml', v1)).toBe('Cuaderno A4 - Negro');
+      expect(component.variantDefaultTitle('tn', v1)).toBe('Cuaderno A4 - Negro');
+    });
+
+    it('buildPayloads() manda el título automático por variante mientras titles quede heredado', () => {
+      const payload = component.buildPayloads();
+      const variants = payload.variants as any[];
+      expect(variants[0].ml.title).toBe('Cuaderno A4 - Negro');
+      expect(variants[0].name).toBe('Cuaderno A4 - Negro');
+      expect(variants[1].ml.title).toBe('Cuaderno A4 - Rojo');
+      expect(variants[1].name).toBe('Cuaderno A4 - Rojo');
+    });
+
+    it('buildPayloads() manda el título propio de ML sin afectar el de TN de la misma variante (uno por canal)', () => {
+      component.makeOwn(v1.titles.ml, component.variantDefaultTitle('ml', v1));
+      v1.titles.ml.value = 'Cuaderno A4 Negro Edición Especial';
+      component.touch();
+
+      const payload = component.buildPayloads();
+      const variants = payload.variants as any[];
+      expect(variants[0].ml.title).toBe('Cuaderno A4 Negro Edición Especial');
+      // TN de la MISMA variante sigue en automático: el override es por canal, no global.
+      expect(variants[0].name).toBe('Cuaderno A4 - Negro');
+    });
+
+    it('revert() vuelve el título de la variante al automático', () => {
+      component.makeOwn(v1.titles.ml, 'algo propio');
+      component.revert(v1.titles.ml);
+      component.touch();
+      const payload = component.buildPayloads();
+      expect((payload.variants as any[])[0].ml.title).toBe('Cuaderno A4 - Negro');
+    });
+
+    it('buildPayloads() manda el código de barras propio de la variante si se cargó uno', () => {
+      v1.barcode = '7791111111111';
+      component.touch();
+      const payload = component.buildPayloads();
+      const variants = payload.variants as any[];
+      expect(variants[0].barcode).toBe('7791111111111');
+      // v2 no tiene propio: cae al común.
+      expect(variants[1].barcode).toBe('7790000000000');
+    });
+
+    it('variantChipLabel() antepone los valores de eje; sin valores cae al SKU', () => {
+      expect(component.variantChipLabel(v1)).toBe('Negro');
+      v2.values = [''];
+      expect(component.variantChipLabel(v2)).toBe('CUA-R');
     });
   });
 

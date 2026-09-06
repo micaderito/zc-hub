@@ -78,6 +78,11 @@ function toMlPictures(tempIds, picMap) {
     .map((id) => ({ id }));
 }
 
+/** Atributo GTIN (código de barras). ML lo rechaza vacío, así que solo se manda si hay dato. */
+function gtinAttr(barcode) {
+  return barcode ? [{ id: 'GTIN', value_name: String(barcode) }] : [];
+}
+
 /**
  * Construye la(s) publicación(es) de ML según el modo de mapeo.
  * `picMap` mapea id temporal → picture_id ya subido a ML (para `pictures[]` y `picture_ids`).
@@ -101,20 +106,35 @@ export function buildMlItems(payload, picMap = new Map()) {
 
   const hasVariants = Array.isArray(variants) && variants.length > 0;
 
-  // Producto simple: precio/stock base + SELLER_SKU + paquete al nivel del item.
+  // Producto simple: precio/stock base + SELLER_SKU + paquete al nivel del item + GTIN si hay código.
   if (!hasVariants) {
-    return [{ ...base, price: m.base_price, available_quantity: m.base_stock, attributes: [...(m.attributes || []), ...pkgAttrs] }];
+    return [
+      {
+        ...base,
+        price: m.base_price,
+        available_quantity: m.base_stock,
+        attributes: [...(m.attributes || []), ...pkgAttrs, ...gtinAttr(common?.barcode)]
+      }
+    ];
   }
 
   if (m.mapping_mode === 'one_per_variant') {
     return variants.map((v) => {
       const own = toMlPictures(v.ml?.picture_ids, picMap);
+      // Título propio de la variante si se cargó uno; si no, el automático de siempre (base + valores).
+      const autoTitle = [m.title, ...(v.values || [])].filter(Boolean).join(' ').trim();
+      const title = v.ml?.title && String(v.ml.title).trim() ? String(v.ml.title).trim() : autoTitle;
       return {
         ...base,
-        title: [m.title, ...(v.values || [])].filter(Boolean).join(' ').trim(),
+        title,
         price: v.ml?.price,
         available_quantity: v.ml?.stock,
-        attributes: [...categoryAttrs(m.attributes), ...pkgAttrs, { id: 'SELLER_SKU', value_name: v.sku }],
+        attributes: [
+          ...categoryAttrs(m.attributes),
+          ...pkgAttrs,
+          { id: 'SELLER_SKU', value_name: v.sku },
+          ...gtinAttr(v.barcode)
+        ],
         pictures: own.length ? own : galleryPics
       };
     });
@@ -131,7 +151,7 @@ export function buildMlItems(payload, picMap = new Map()) {
           attribute_combinations: attributeCombinations(axes, v.values),
           price: v.ml?.price,
           available_quantity: v.ml?.stock,
-          attributes: [{ id: 'SELLER_SKU', value_name: v.sku }]
+          attributes: [{ id: 'SELLER_SKU', value_name: v.sku }, ...gtinAttr(v.barcode)]
         };
         if (picIds.length) variation.picture_ids = picIds;
         return variation;
@@ -261,8 +281,15 @@ export function buildTnProducts(payload) {
 
   if (t.mapping_mode === 'one_per_variant') {
     return tnVariants.map((v, i) => {
-      const suffix = (variants[i]?.values || []).join(' ').trim();
-      const name = suffix ? { ...t.name, es: `${t.name?.es ?? ''} ${suffix}`.trim() } : t.name;
+      const raw = variants[i] || {};
+      const suffix = (raw.values || []).join(' ').trim();
+      // Nombre propio de la variante si se cargó uno; si no, el automático (base + sufijo de valores).
+      const ownName = raw.name && String(raw.name).trim();
+      const es = ownName || (suffix ? `${t.name?.es ?? ''} ${suffix}`.trim() : t.name?.es);
+      // El pt no tiene override propio: siempre lleva el sufijo automático, para que los N
+      // productos no terminen compartiendo el mismo nombre en portugués.
+      const pt = t.name?.pt ? (suffix ? `${t.name.pt} ${suffix}`.trim() : t.name.pt) : t.name?.pt;
+      const name = { ...t.name, es, pt };
       const { values, ...single } = normalizeTnVariant(v);
       return { ...baseProduct, name, handle: undefined, variants: [single] };
     });

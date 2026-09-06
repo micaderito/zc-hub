@@ -149,6 +149,16 @@ export class CatalogService {
 
   /* ---------- Imágenes ---------- */
 
+  /**
+   * Sube el archivo original tal cual (sin pasar por base64/JSON): el body es el propio `File` y
+   * el nombre va en un header. Evita el `JSON.stringify` de un data URL de varios MB, que es lo
+   * que trababa la página al cargar muchas fotos a la vez.
+   */
+  uploadImageFile(file: File): Promise<UploadedImage> {
+    const headers = { 'Content-Type': file.type || 'application/octet-stream', 'X-Image-Filename': encodeURIComponent(file.name) };
+    return lastValueFrom(this.http.post<UploadedImage>(`${this.api.baseUrl}/products/images`, file, { headers }));
+  }
+
   /** Sube una imagen (base64) al store temporal del backend y devuelve su id. */
   uploadImage(file: { filename: string; mime: string; data: string }): Promise<UploadedImage> {
     return lastValueFrom(this.http.post<UploadedImage>(`${this.api.baseUrl}/products/images`, file));
