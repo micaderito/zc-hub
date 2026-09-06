@@ -360,7 +360,7 @@ describe('CrearProductoComponent', () => {
       expect(nueva.stock).toBeNull();
       expect(nueva.ml).toEqual({ price: null, pictureIds: [] });
       expect(nueva.tn).toEqual({ price: null, imageIds: [] });
-      expect(nueva.id).toMatch(/^v\d+$/);
+      expect(nueva.id).toMatch(/^v[a-z0-9]+$/);
     });
 
     it('addVariant() genera ids únicos entre llamadas sucesivas', () => {
@@ -797,6 +797,44 @@ describe('CrearProductoComponent', () => {
 
       // Servir el original acá era ~5 MB por foto: con 45 fotos, Chrome descartaba la pestaña.
       expect(fx.componentInstance.draft().ml.images[0].previewUrl).toContain('/products/images/img-9/thumb');
+    });
+
+    it('agregar una variante después de restaurar un borrador no colisiona con sus ids ("v1", "v2")', () => {
+      // Bug reportado: con 3+ variantes el modal de "Elegir fotos" de la fila nueva abría los
+      // datos de la primera. Causa: `addVariant()` generaba ids con un contador que se reinicia a
+      // 1 en cada carga de página (`v${variantSeq++}`), así que agregar una variante después de
+      // restaurar un borrador con variantes "v1"/"v2" (mismo esquema de ids) volvía a generar "v1"
+      // — dos filas con el mismo id, y `.find(id)` resolvía siempre a la primera.
+      localStorage.setItem(
+        'zc-crear-producto-drafts',
+        JSON.stringify([
+          {
+            id: 'd4',
+            savedAt: Date.now(),
+            mlMaxPictures: 12,
+            mlMaxPicturesPerVar: 10,
+            draft: {
+              ...emptyDraft(),
+              axes: [{ name: 'Color' }],
+              variants: [
+                { id: 'v1', sku: 'A', values: ['Rojo'], stock: 1, ml: { price: null, pictureIds: [] }, tn: { price: null, imageIds: [] } },
+                { id: 'v2', sku: 'B', values: ['Azul'], stock: 1, ml: { price: null, pictureIds: [] }, tn: { price: null, imageIds: [] } }
+              ],
+              ml: { ...emptyDraft().ml, images: [] },
+              tn: { ...emptyDraft().tn, images: [] }
+            }
+          }
+        ])
+      );
+      const fx = TestBed.createComponent(CrearProductoComponent);
+      fx.detectChanges();
+
+      fx.componentInstance.addVariant();
+
+      const ids = fx.componentInstance.draft().variants.map((v) => v.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids).toContain('v1');
+      expect(ids).toContain('v2');
     });
 
     it('la selección hecha mientras la foto subía sigue viva cuando cambia el id', async () => {
