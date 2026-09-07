@@ -95,6 +95,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   readonly mlFreeShippingZone = this.store.mlFreeShippingZone;
   readonly variantRows = this.store.variantRows;
   readonly variantBreakdowns = this.store.variantBreakdowns;
+  readonly publishBlockers = this.store.publishBlockers;
+  readonly canPublish = this.store.canPublish;
 
   protected readonly listingTypeLabel = listingTypeLabel;
 
@@ -113,6 +115,10 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   private static readonly JOB_POLL_MS = 1500;
   /** Id del último job que ya reconstruimos/retomamos al abrir el borrador — evita repetirlo. */
   private resumedJobId: string | null = null;
+  /** Job que está polleando ahora mismo — para poder cancelarlo. */
+  readonly activeJobId = signal<string | null>(null);
+  /** true cuando la usuaria canceló el job en curso (fase `cancelled` del panel). */
+  readonly publishCancelled = signal(false);
 
   /**
    * Conteo del progreso: total de unidades planificadas y cuántas ya terminaron (ok o error).
@@ -133,7 +139,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
    *  - `done`: terminó y todas las unidades quedaron ok (ícono check)
    *  - `idle`: no hay nada que mostrar
    */
-  readonly publishPhase = computed<'running' | 'partial' | 'done' | 'idle'>(() => {
+  readonly publishPhase = computed<'running' | 'partial' | 'done' | 'cancelled' | 'idle'>(() => {
+    if (this.publishCancelled()) return 'cancelled';
     if (this.publishing()) return 'running';
     const results = this.publishResults();
     if (results?.length) return results.every((r) => r.status === 'ok') ? 'done' : 'partial';
@@ -529,6 +536,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       return;
     }
     this.publishing.set(true);
+    this.publishCancelled.set(false);
     if (!channels) {
       this.publishResults.set(null);
       this.publishProgress.set([]);
@@ -539,6 +547,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       if (!draftId) throw new Error('No se pudo guardar el borrador antes de publicar');
       const payload = this.buildPayloads();
       const { jobId } = await this.catalog.publishDraft(draftId, payload, channels);
+      this.activeJobId.set(jobId);
       await this.pollJob(jobId, channels);
     } catch (e) {
       // Falla de red / servidor (guardando el borrador o encolando el job): marcamos error en
@@ -565,6 +574,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     // mientras se trae el de éste.
     this.publishResults.set(null);
     this.publishProgress.set([]);
+    this.publishCancelled.set(false);
+    this.activeJobId.set(job.id);
     const running = job.status === 'pending' || job.status === 'processing';
     try {
       if (running) {
@@ -584,17 +595,43 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Pollea el job hasta que termina (done/error), actualizando el progreso en cada vuelta. */
+  /** Pollea el job hasta que termina (done/error/cancelled), actualizando el progreso en cada vuelta. */
   private async pollJob(jobId: string, channels?: Channel[]): Promise<void> {
-    for (;;) {
-      const { job, units } = await this.catalog.getPublishJob(jobId);
-      this.publishProgress.set(units);
-      if (job.status === 'done' || job.status === 'error') {
-        this.applyResults(this.resultsFromJob(job, units, channels), channels);
-        return;
+    try {
+      for (;;) {
+        if (this.publishCancelled()) return; // canceló mientras esperábamos el próximo poll
+        const { job, units } = await this.catalog.getPublishJob(jobId);
+        this.publishProgress.set(units);
+        if (job.status === 'cancelled') {
+          this.publishCancelled.set(true);
+          return;
+        }
+        if (job.status === 'done' || job.status === 'error') {
+          this.applyResults(this.resultsFromJob(job, units, channels), channels);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, CrearProductoComponent.JOB_POLL_MS));
       }
-      await new Promise((resolve) => setTimeout(resolve, CrearProductoComponent.JOB_POLL_MS));
+    } finally {
+      this.activeJobId.set(null);
     }
+  }
+
+  /**
+   * Cancela el job en curso (o trabado de una corrida anterior). No revierte lo ya creado en ML/TN
+   * — solo frena el fan-out y saca el panel de "Publicando…". El worker corta entre unidad y unidad.
+   */
+  async cancelPublish(): Promise<void> {
+    const jobId = this.activeJobId();
+    if (!jobId) return;
+    this.publishCancelled.set(true); // corta el polling ya, sin esperar la respuesta
+    try {
+      await this.catalog.cancelPublishJob(jobId);
+    } catch {
+      // aunque falle el request, para la usuaria el panel ya quedó cancelado; puede volver a publicar
+    }
+    this.publishing.set(false);
+    void this.store.refreshSavedDraftsList();
   }
 
   /** Arma el `PublishResult` por canal a partir de las unidades del job (ok solo si TODAS lo están). */
@@ -780,6 +817,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   dismissResults(): void {
     this.publishResults.set(null);
     this.publishProgress.set([]);
+    this.publishCancelled.set(false);
+    this.activeJobId.set(null);
   }
 
   /**

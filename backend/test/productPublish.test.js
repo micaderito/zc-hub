@@ -162,7 +162,7 @@ test('buildMlItems: si viene SALE_FORMAT sin UNITS_PER_PACK, agrega UNITS_PER_PA
   assert.ok(items[0].attributes.some((a) => a.id === 'UNITS_PER_PACK' && a.value_name === '1'));
 });
 
-test('buildMlItems: NO toca UNITS_PER_PACK si el usuario ya lo mandó', () => {
+test('buildMlItems: respeta un UNITS_PER_PACK válido que ya mandó el usuario', () => {
   const items = buildMlItems(
     {
       ml: {
@@ -177,6 +177,33 @@ test('buildMlItems: NO toca UNITS_PER_PACK si el usuario ya lo mandó', () => {
   const ups = items[0].attributes.filter((a) => a.id === 'UNITS_PER_PACK');
   assert.equal(ups.length, 1);
   assert.equal(ups[0].value_name, '6');
+});
+
+test('buildMlItems: normaliza un UNITS_PER_PACK inválido (vacío / value_id espurio) a 1', () => {
+  const conValueId = buildMlItems(
+    {
+      ml: {
+        ...mlBase,
+        // borrador migrado: quedó con un value_id que ML rechaza para un atributo numérico
+        attributes: [...mlBase.attributes, { id: 'SALE_FORMAT', value_id: '1359391' }, { id: 'UNITS_PER_PACK', value_id: '1359391' }]
+      },
+      axes: [],
+      variants: []
+    },
+    picMap
+  );
+  const a1 = conValueId[0].attributes.filter((a) => a.id === 'UNITS_PER_PACK');
+  assert.equal(a1.length, 1);
+  assert.deepEqual(a1[0], { id: 'UNITS_PER_PACK', value_name: '1' });
+
+  const vacio = buildMlItems(
+    { ml: { ...mlBase, attributes: [...mlBase.attributes, { id: 'SALE_FORMAT', value_id: '1359391' }, { id: 'UNITS_PER_PACK', value_name: '' }] }, axes: [], variants: [] },
+    picMap
+  );
+  assert.deepEqual(
+    vacio[0].attributes.find((a) => a.id === 'UNITS_PER_PACK'),
+    { id: 'UNITS_PER_PACK', value_name: '1' }
+  );
 });
 
 test('buildMlItems: sin SALE_FORMAT no inventa UNITS_PER_PACK', () => {

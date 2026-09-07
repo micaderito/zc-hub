@@ -84,7 +84,7 @@ export interface PublishJobSummary {
   id: string;
   draftId: string;
   channels: string;
-  status: 'pending' | 'processing' | 'done' | 'error';
+  status: 'pending' | 'processing' | 'done' | 'error' | 'cancelled';
   attempts: number;
   lastError: string | null;
   createdAt: string;
@@ -268,6 +268,10 @@ export class CatalogService {
 
   retryPublishJob(jobId: string): Promise<{ ok: boolean }> {
     return lastValueFrom(this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/products/jobs/${jobId}/retry`, {}));
+  }
+
+  cancelPublishJob(jobId: string): Promise<{ ok: boolean }> {
+    return lastValueFrom(this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/products/jobs/${jobId}/cancel`, {}));
   }
 
   deletePublishJob(jobId: string): Promise<{ ok: boolean }> {

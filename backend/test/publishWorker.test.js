@@ -17,7 +17,8 @@ const dbState = {
   finished: null,
   heartbeats: [],
   recomputed: null,
-  hasDb: true
+  hasDb: true,
+  cancelledAfter: null // si es N, isPublishJobCancelled devuelve true a partir de la llamada N (1-based)
 };
 const publishState = {
   mlUnits: [{ unitKey: 'CUA-N', body: { a: 1 } }],
@@ -47,6 +48,10 @@ before(async () => {
       seedPublishUnits: async (jobId, channel, unitKeys) => {
         dbState.seeded.push({ jobId, channel, unitKeys });
         return true;
+      },
+      isPublishJobCancelled: async () => {
+        dbState.cancelCheckCalls = (dbState.cancelCheckCalls || 0) + 1;
+        return dbState.cancelledAfter != null && dbState.cancelCheckCalls >= dbState.cancelledAfter;
       },
       upsertPublishUnit: async (u) => {
         dbState.upserts.push(u);
@@ -97,6 +102,8 @@ beforeEach(() => {
   dbState.existingUnits = [];
   dbState.upserts = [];
   dbState.seeded = [];
+  dbState.cancelledAfter = null;
+  dbState.cancelCheckCalls = 0;
   dbState.finished = null;
   dbState.heartbeats = [];
   dbState.recomputed = null;
@@ -150,6 +157,27 @@ test('processJob: si falla armando las unidades (planMlUnits) NO se siembra nada
   publishState.planMlThrows = new Error('categoría no es hoja');
   await publishWorker.processJob(baseJob);
   assert.equal(dbState.seeded.find((s) => s.channel === 'ml'), undefined);
+});
+
+test('processJob: si el job se cancela, el worker corta el fan-out entre unidad y unidad (lo ya creado queda)', async () => {
+  publishState.mlUnits = [
+    { unitKey: 'CUA-1', body: { a: 1 } },
+    { unitKey: 'CUA-2', body: { a: 2 } },
+    { unitKey: 'CUA-3', body: { a: 3 } }
+  ];
+  dbState.cancelledAfter = 2; // 1ª unidad pasa el chequeo, la 2ª lo encuentra cancelado
+  await publishWorker.processJob({ ...baseJob, channels: 'ml' });
+  const mlUpserts = dbState.upserts.filter((u) => u.channel === 'ml' && u.status === 'ok');
+  assert.equal(mlUpserts.length, 1); // solo CUA-1 alcanzó a publicarse
+  assert.equal(mlUpserts[0].unitKey, 'CUA-1');
+});
+
+test('processJob: job cancelado desde el arranque → no publica ninguna unidad', async () => {
+  publishState.mlUnits = [{ unitKey: 'CUA-1', body: { a: 1 } }];
+  dbState.cancelledAfter = 1;
+  await publishWorker.processJob({ ...baseJob, channels: 'ml' });
+  assert.equal(dbState.upserts.filter((u) => u.channel === 'ml').length, 0);
+  assert.equal(publishState.mlCallCount, 0); // publishMlUnit nunca se llamó
 });
 
 test('processJob: channels=["tn"] NO toca ML (reintento de un solo canal)', async () => {

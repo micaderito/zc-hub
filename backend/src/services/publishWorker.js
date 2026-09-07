@@ -19,6 +19,7 @@ import {
   seedPublishUnits,
   upsertPublishUnit,
   getPublishUnits,
+  isPublishJobCancelled,
   recomputeDraftStatus,
   hasDatabase,
   PUBLISH_JOB_HEARTBEAT_MS
@@ -41,6 +42,11 @@ async function runChannel(channel, job, payload, units, doneKeys, describe) {
     if (doneKeys.has(unit.unitKey)) {
       created.push(unit.unitKey); // ya estaba 'ok' de un intento anterior: se saltea, no se duplica
       continue;
+    }
+    // La usuaria puede cancelar el job desde la UI mientras el fan-out corre: cortamos entre unidad
+    // y unidad (no se puede interrumpir un POST a mitad). Lo ya creado queda; el resto no se toca.
+    if (await isPublishJobCancelled(job.id)) {
+      return { channel, status: 'cancelled', detail: `cancelado (${created.length} creadas antes)` };
     }
     try {
       const { externalId, detail } = await describe(unit);

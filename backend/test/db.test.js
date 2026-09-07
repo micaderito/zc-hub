@@ -83,6 +83,8 @@ test('sin DATABASE_URL: las funciones devuelven su valor por defecto sin tocar l
   assert.equal(await db.createPublishJob({ id: 'j1', draftId: 'd1', channels: 'ml', payloadJson: '{}' }), null);
   assert.equal(await db.claimNextPublishJob(), null);
   assert.equal(await db.retryPublishJob('j1'), false);
+  assert.equal(await db.cancelPublishJob('j1'), false);
+  assert.equal(await db.isPublishJobCancelled('j1'), false);
   assert.equal(await db.getPublishJob('j1'), null);
   assert.deepEqual(await db.listPublishJobsForDraft('d1'), []);
   assert.equal(await db.upsertPublishUnit({ jobId: 'j1', channel: 'ml', unitKey: '', seq: 0, status: 'ok' }), false);
@@ -879,6 +881,30 @@ test('retryPublishJob: solo re-encola un job error o processing con lock vencido
   assert.equal(await db.retryPublishJob('j1'), true);
   state.responder = () => ({ rowCount: 0 });
   assert.equal(await db.retryPublishJob('j-vivo'), false);
+});
+
+test('cancelPublishJob: cancela pending/processing/error (rowCount>0 → true); un job ya terminado → false', async () => {
+  const calls = [];
+  state.responder = (sql, params) => { calls.push({ sql, params }); return { rowCount: 1 }; };
+  assert.equal(await db.cancelPublishJob('j1'), true);
+  assert.match(calls[0].sql, /status = 'cancelled'/);
+  assert.match(calls[0].sql, /status IN \('pending', 'processing', 'error'\)/);
+  state.responder = () => ({ rowCount: 0 });
+  assert.equal(await db.cancelPublishJob('j-done'), false);
+});
+
+test('finishPublishJob: no revive un job cancelado (WHERE status <> cancelled)', async () => {
+  const calls = [];
+  state.responder = (sql, params) => { calls.push(sql); return { rowCount: 1 }; };
+  await db.finishPublishJob('j1', 'error', 'boom');
+  assert.match(calls[0], /status <> 'cancelled'/);
+});
+
+test('isPublishJobCancelled: true si la fila existe con status cancelled', async () => {
+  state.responder = (sql) => (sql.includes("status = 'cancelled'") ? { rows: [{ '?column?': 1 }] } : { rows: [] });
+  assert.equal(await db.isPublishJobCancelled('j1'), true);
+  state.responder = () => ({ rows: [] });
+  assert.equal(await db.isPublishJobCancelled('j2'), false);
 });
 
 test('getPublishJob / listPublishJobsForDraft / deletePublishJob', async () => {

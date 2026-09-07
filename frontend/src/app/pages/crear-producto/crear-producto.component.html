@@ -70,6 +70,7 @@
       [class.is-running]="publishPhase() === 'running'"
       [class.is-partial]="publishPhase() === 'partial'"
       [class.is-done]="publishPhase() === 'done'"
+      [class.is-cancelled]="publishPhase() === 'cancelled'"
     >
       <div class="block-head">
         @switch (publishPhase()) {
@@ -83,6 +84,14 @@
               }
             </span>
             <span class="block-note">— podés cerrar esta pestaña, sigue en el servidor</span>
+            <button type="button" class="zc-btn small cancel-btn" (click)="cancelPublish()">
+              <i class="ti ti-x"></i> Cancelar
+            </button>
+          }
+          @case ('cancelled') {
+            <i class="ti ti-ban"></i>
+            <span class="block-title">Publicación cancelada</span>
+            <button type="button" class="icon-btn" (click)="dismissResults()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
           }
           @case ('partial') {
             <i class="ti ti-alert-triangle"></i>
@@ -129,6 +138,13 @@
               </button>
             }
           }
+        </div>
+      }
+      @if (publishPhase() === 'cancelled') {
+        <div class="progress-actions">
+          <span class="retry-hint">
+            Se frenó la publicación. Lo que ya se había creado en ML/TN sigue publicado (revisá el detalle de arriba).
+          </span>
         </div>
       }
     </div>
@@ -190,6 +206,17 @@
       <span>Esperando a que terminen de subirse las fotos antes de poder guardar o publicar.</span>
     </div>
   }
+  @if (publishBlockers().length) {
+    <div class="publish-warning publish-blockers">
+      <i class="ti ti-alert-triangle"></i>
+      <div>
+        <strong>Faltan datos para publicar:</strong>
+        <ul>
+          @for (b of publishBlockers(); track b) { <li>{{ b }}</li> }
+        </ul>
+      </div>
+    </div>
+  }
   <div class="actions">
     <div class="draft-actions">
       <button type="button" class="zc-btn" (click)="saveDraft()" [disabled]="hasPendingUploads()"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
@@ -207,7 +234,7 @@
         type="button"
         class="zc-btn primary"
         (click)="publish()"
-        [disabled]="publishing() || hasPendingUploads()"
+        [disabled]="publishing() || hasPendingUploads() || !canPublish()"
       >
         <i class="ti ti-rocket"></i> {{ publishing() ? 'Publicando…' : 'Publicar en ambos' }}
       </button>
@@ -215,7 +242,7 @@
         type="button"
         class="zc-btn primary publish-split-toggle"
         (click)="publishMenuOpen.set(!publishMenuOpen())"
-        [disabled]="publishing() || hasPendingUploads()"
+        [disabled]="publishing() || hasPendingUploads() || !canPublish()"
         aria-label="Elegir canal"
       >
         <i class="ti" [class.ti-chevron-down]="!publishMenuOpen()" [class.ti-chevron-up]="publishMenuOpen()"></i>
