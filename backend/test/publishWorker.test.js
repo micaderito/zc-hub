@@ -62,6 +62,10 @@ before(async () => {
         dbState.recomputed = draftId;
         return 'done';
       },
+      reconcileStalePublishJobs: async () => {
+        dbState.staleSweeps = (dbState.staleSweeps || 0) + 1;
+        return 0;
+      },
       hasDatabase: () => dbState.hasDb,
       PUBLISH_JOB_HEARTBEAT_MS: 30_000
     }

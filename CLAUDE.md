@@ -623,12 +623,41 @@ sin variantes generadas. `canPublish` = lista vacía. La lista se muestra arriba
 **el botón "Publicar en ambos" (y el ▾) quedan deshabilitados** con `!canPublish()`. `publish()` no
 se auto-bloquea (el gate es el botón; el reintento de un canal no pasa por la validación).
 
-**Idempotencia de la creación en TN.** TN a veces devuelve 5xx habiendo creado el producto igual;
-el job se marcaba error y el reintento re-encolado volvía a llamar `createProduct` → "me creó 3
-veces la misma variante". `publishTnUnit` ahora busca por SKU (`tn.findProductBySku`, `GET
-/products?q=<sku>`) **antes** de crear —y **después** si `createProduct` tira— y adopta el producto
-existente en vez de duplicar (sin re-subir imágenes). Si `q` no matchea el SKU en la tienda,
-`findProductBySku` devuelve `null` y el flujo cae al de antes (sin verificar contra la API real).
+**Idempotencia de la creación en TN + fotos de a una.** Dos problemas encontrados probando en prod:
+TN devolvía 500 en `POST /products` (baja las imágenes DENTRO del request; su doc recomienda máx. 9
+y nosotros mandábamos 10+) dejando el producto creado con fotos incompletas, y el reintento
+re-encolado volvía a llamar `createProduct` → "me creó 3 veces la misma variante". Cambios en
+`productPublish.js` + `tiendanube.js`:
+- **`publishTnUnit` crea el producto PELADO** (sin `images` en el body) y sube las fotos **de a una**
+  con `tn.createProductImage({src, position})` — `src` = URL pública de Supabase (descarga
+  server-to-server). Función nueva `syncTnProductImages`: lee las que el producto ya tiene
+  (`getProductImages`), sube solo las que faltan (por posición, en orden) y corrige el orden. Reusa
+  `getImageUrl`/`getImage` de `imageStore`. Reemplaza a `embedTnImages` + `tnImageMapFromCreated`
+  (que mapeaba por índice y descolocaba las fotos si TN creaba menos de las pedidas) +
+  `uploadTnImages` + `reconcileTnImageOrder`.
+- **Idempotencia**: busca por SKU (`tn.findProductBySku`, `GET /products?q=<sku>`, con `retries` por
+  el lag del índice de TN) **antes** de crear —y **después** si `createProduct` tira— y adopta el
+  producto existente; en el camino adoptado **igual completa las fotos que falten** (antes las
+  salteaba todas). Si `q` no matchea el SKU en la tienda, `findProductBySku` devuelve `null` y el
+  flujo cae al de antes (sin verificar contra la API real).
+- **`fetchTn`**: ahora tiene `AbortSignal.timeout` (30s, 60s en `createProductImage`) y reintenta
+  5xx transitorio, además de 429. `fetchWith429Retry` de ML también tiene timeout (`mlFetch`). Sin
+  esto un request colgado dejaba a `processJob` esperando para siempre.
+
+**El job que quedaba en `processing` para siempre.** Un request colgado (sin timeout, ver arriba) o
+un `finishPublishJob` que fallaba en silencio dejaban el job abierto y el panel "Publicando…" con
+spinner eterno. Tres piezas:
+- **Timeouts de red** en ML y TN (arriba).
+- **Techo al latido** (`publishWorker.processJob`): pasado `PUBLISH_JOB_MAX_RUNTIME_MS` (15 min) el
+  latido deja de refrescar `locked_at`, así el job vuelve a ser reclamable por lock vencido.
+- **`reconcileStalePublishJobs()`** (`db.js`, la corre el worker 1 vez/min): cierra jobs
+  `pending`/`processing` con lock vencido cuyas unidades están **todas** en estado terminal
+  (`done` si todas ok, si no `error`) y marca `error` los zombis (`processing` con `attempts >= 5`,
+  que `claimNextPublishJob` ya no toma). `finishPublishJob` ahora devuelve `rowCount > 0` y loguea
+  cuando no actualizó nada.
+- **Front**: `getPublishJob` tiene `timeout(10s)` + reintentos; `pollJob` cuenta fallos consecutivos
+  y tras 5 pasa a la fase nueva **`unknown`** ("No pudimos confirmar el estado" + botón
+  **Actualizar** = `retryPoll()`), en vez de spinner infinito.
 
 **Default de tipo de publicación = "Clásica" (`gold_special`).** Antes era `gold_pro` ("Premium"),
 que activa "cuotas sin interés" (las financia ML y el vendedor paga más comisión) — salía sin que
@@ -640,6 +669,19 @@ NO el worker de `ml_pending_tasks` (haría cambios de stock reales), NI el auto-
 ML (el refresh token es de un solo uso — si local lo rota, prod pierde la sesión), NI el barrido de
 ventas ni el purgado de imágenes. Nunca ponerla en el deploy. Durante la prueba conviene pausar
 Railway para que el job lo tome el worker local (`FOR UPDATE SKIP LOCKED` lo da a cualquiera de los dos).
+
+### Página "Publicaciones" (`/publicaciones`): historial de lo publicado
+
+`product_publish_jobs` + `product_publish_units` ya guardaban todo (incl. `external_id` = id de ML/TN
+por unidad), faltaba la pantalla. `db.listPublishJobs(limit, offset, {search, status, channel})`
+(molde de `getAuditLog`: `where[]`/`params[]` + `COUNT(*)` + `{ rows, total }`) hace JOIN a
+`product_drafts` para nombre/SKU y subqueries de conteo de unidades (sin `payload_json`); `channels`
+es CSV, se filtra con `LIKE`. Ruta `GET /api/products/publish-jobs`. Front:
+`pages/publicaciones/publicaciones.component.*` (standalone + `injectQuery`, patrón de `pages/deposito`
++ chips de filtro tipo `pages/sync`), reusa `zc-search-bar`/`zc-pagination`. Cada fila es un job; al
+expandirla (`getPublishJob`) muestra las unidades con su id externo (link a ML; TN sin URL pública
+deducible, solo el id) y `detail`. Reintentar/cancelar/borrar reusan `/jobs/:id/*`. Ítem de nav en
+`layout.component.ts` (debajo de "Crear producto"), ruta en `app.routes.ts`.
 
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
@@ -683,9 +725,12 @@ uno inválido (vacío / `value_id` espurio) a `1`, no lo inventa sin `SALE_FORMA
 de una familia `one_per_variant`), `backend/test/richText.test.js`
 (texto plano → HTML, HTML existente intacto), `backend/test/mlUserProducts.test.js` (detección del
 tag + caché), `backend/test/productPublishTnEmbed.test.js` (imágenes embebidas por URL, portada =
-orden de la variante y no de la galería), `backend/test/publishTnUnit.test.js` (idempotencia:
-adopta un producto que ya existe por SKU / 5xx-pero-creado lo adopta / 5xx real propaga / camino
-feliz), `backend/test/imageStore.test.js` +
+orden de la variante y no de la galería, ahora subidas de a una y NO embebidas en el POST),
+`backend/test/publishTnUnit.test.js` (el POST de creación va sin `images`; idempotencia: adopta un
+producto que ya existe por SKU y **le completa las fotos que falten** / 5xx-pero-creado lo adopta y
+completa / 5xx real propaga / camino feliz sube las N),
+`backend/test/tiendanube.test.js` (`fetchTn` aborta por timeout con `.timeout=true` / reintenta 5xx),
+`backend/test/imageStore.test.js` +
 `imageStoreSupabase.test.js` (backend de disco vs. Supabase, purgado respetando lo referenciado),
 `backend/test/publishWorker.test.js` (skip de unidades ya `ok` en un reintento, error parcial que
 no frena el otro canal, latido sin dejar intervals colgados, que `seedPublishUnits` siembre TODAS
@@ -693,21 +738,28 @@ las unidades planificadas como `pending` antes de publicar / no siembre nada si 
 planificado, y que un job `cancelled` corte el fan-out entre unidad y unidad / desde el arranque),
 `backend/test/db.test.js` (lock vencido de `product_publish_jobs` con umbral propio,
 `recomputeDraftStatus` con reintento de un solo canal, `cancelPublishJob` sobre
-`pending`/`processing`/`error`, `finishPublishJob` que no revive un cancelado, `isPublishJobCancelled`)
-y `backend/test/routesProductsDrafts.test.js` (CRUD de borradores + jobs por HTTP, `POST
-/jobs/:id/cancel` 200/409, borrar un borrador limpia sus imágenes). El frontend lo cubre
+`pending`/`processing`/`error`, `finishPublishJob` que no revive un cancelado y que devuelve `false`
+con `rowCount 0`, `isPublishJobCancelled`, `reconcileStalePublishJobs` cierra un job trabado con
+unidades terminales y marca `error` los zombis, `listPublishJobs` pagina y filtra con `LIKE` de
+canal / ignora status y canal inválidos) y `backend/test/routesProductsDrafts.test.js` (CRUD de
+borradores + jobs por HTTP, `POST /jobs/:id/cancel` 200/409, `GET /publish-jobs` con paginación y
+filtros, borrar un borrador limpia sus imágenes). El frontend lo cubre
 `crear-producto.component.spec.ts` (borradores en el backend en vez de `localStorage`, migración
 única, polling de `publish()` con progreso parcial, selector de eje, el panel persistente:
 reabrir un borrador reconstruye un job terminado sin republicar / retoma el polling de uno en
 curso / no muestra nada sin jobs previos, `publishErrorSummary`, `cancelPublish()` que corta el
-polling y pasa a `cancelled`, `publishBlockers`/`canPublish` (borrador completo sin bloqueadores /
+polling y pasa a `cancelled`, el poll que tras N fallos pasa a fase `unknown` y `retryPoll()` que lo
+recupera, `publishBlockers`/`canPublish` (borrador completo sin bloqueadores /
 lista de faltantes / atributo obligatorio de ML / SKU+precio por variante / botón deshabilitado),
 `UNITS_PER_PACK`
 condicional: sube a obligatorios + se precarga en 1 cuando `SALE_FORMAT` tiene valor, sigue
 opcional si no, y los atributos `allowVariations`: entran a `ml.attributes` + son candidatos a eje,
 se ven como opcionales si NO son eje y se esconden si lo son, y `refreshMlVariationAttrs` mergea
 atributos nuevos de la categoría sin pisar valores) y `catalog.service.spec.ts` (los endpoints
-nuevos). `product-draft.model.spec.ts` fija el default `gold_special`.
+nuevos, incl. `listPublishJobs` con y sin filtros y `cancelPublishJob`). `product-draft.model.spec.ts`
+fija el default `gold_special`. `publicaciones.component.spec.ts` cubre la página nueva (carga y
+pinta el historial, expandir una fila trae el detalle con el id externo, `externalUrl` arma el link
+de ML y no el de TN, reset de página al cambiar un filtro, Reintentar refetchea).
 `backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
 
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

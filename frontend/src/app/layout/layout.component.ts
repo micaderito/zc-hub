@@ -92,6 +92,7 @@ export class LayoutComponent {
     { path: '/precios', label: 'Precios', icon: 'ti-tag' },
     { path: '/deposito', label: 'Depósito Marañón', icon: 'ti-building-warehouse' },
     { path: '/crear', label: 'Crear producto', icon: 'ti-plus' },
+    { path: '/publicaciones', label: 'Publicaciones', icon: 'ti-rocket' },
     { path: '/alertas', label: 'Alertas', icon: 'ti-bell' },
     { path: '/ventas', label: 'Ventas', icon: 'ti-map-pin' },
     { path: '/conflictos', label: 'Conflictos', icon: 'ti-alert-triangle' },

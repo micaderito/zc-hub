@@ -71,6 +71,7 @@
       [class.is-partial]="publishPhase() === 'partial'"
       [class.is-done]="publishPhase() === 'done'"
       [class.is-cancelled]="publishPhase() === 'cancelled'"
+      [class.is-unknown]="publishPhase() === 'unknown'"
     >
       <div class="block-head">
         @switch (publishPhase()) {
@@ -91,6 +92,15 @@
           @case ('cancelled') {
             <i class="ti ti-ban"></i>
             <span class="block-title">Publicación cancelada</span>
+            <button type="button" class="icon-btn" (click)="dismissResults()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+          }
+          @case ('unknown') {
+            <i class="ti ti-alert-circle"></i>
+            <span class="block-title">No pudimos confirmar el estado de la publicación</span>
+            <span class="block-note">— sigue corriendo en el servidor</span>
+            <button type="button" class="zc-btn small primary" (click)="retryPoll()">
+              <i class="ti ti-refresh"></i> Actualizar
+            </button>
             <button type="button" class="icon-btn" (click)="dismissResults()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
           }
           @case ('partial') {

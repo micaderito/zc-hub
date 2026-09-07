@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { lastValueFrom } from 'rxjs';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { lastValueFrom, retry, timeout } from 'rxjs';
 import { ApiService } from './api.service';
 
 /** Categoría existente de Tienda Nube (para el multi-select). */
@@ -112,6 +112,15 @@ export interface PublishUnit {
 export interface PublishJobDetail {
   job: PublishJobSummary;
   units: PublishUnit[];
+}
+
+/** Fila del historial de publicaciones (GET /publish-jobs) — job + datos del borrador + conteo de unidades. */
+export interface PublishJobRow extends PublishJobSummary {
+  draftName: string | null;
+  draftSku: string | null;
+  unitsTotal: number;
+  unitsOk: number;
+  unitsErr: number;
 }
 
 /** Imagen subida al store temporal del backend. */
@@ -262,8 +271,16 @@ export class CatalogService {
     return lastValueFrom(this.http.post<{ jobId: string }>(`${this.api.baseUrl}/products/drafts/${id}/publish`, { payload, channels }));
   }
 
+  /**
+   * Progreso de un job. Lo pollea `crear-producto` en loop, así que un request colgado congelaría
+   * el panel: le ponemos `timeout` (10s) + 2 reintentos. Si igual falla, propaga y el poll lo cuenta.
+   */
   getPublishJob(jobId: string): Promise<PublishJobDetail> {
-    return lastValueFrom(this.http.get<PublishJobDetail>(`${this.api.baseUrl}/products/jobs/${jobId}`));
+    return lastValueFrom(
+      this.http
+        .get<PublishJobDetail>(`${this.api.baseUrl}/products/jobs/${jobId}`)
+        .pipe(timeout(10_000), retry({ count: 2, delay: 800 }))
+    );
   }
 
   retryPublishJob(jobId: string): Promise<{ ok: boolean }> {
@@ -276,5 +293,20 @@ export class CatalogService {
 
   deletePublishJob(jobId: string): Promise<{ ok: boolean }> {
     return lastValueFrom(this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/products/jobs/${jobId}`));
+  }
+
+  /** Historial de publicaciones de todos los borradores (página "Publicaciones"). */
+  listPublishJobs(
+    limit: number,
+    offset: number,
+    filters: { q?: string; status?: string; channel?: string } = {}
+  ): Promise<{ rows: PublishJobRow[]; total: number }> {
+    let params = new HttpParams().set('limit', limit).set('offset', offset);
+    if (filters.q) params = params.set('q', filters.q);
+    if (filters.status) params = params.set('status', filters.status);
+    if (filters.channel) params = params.set('channel', filters.channel);
+    return lastValueFrom(
+      this.http.get<{ rows: PublishJobRow[]; total: number }>(`${this.api.baseUrl}/products/publish-jobs`, { params })
+    );
   }
 }

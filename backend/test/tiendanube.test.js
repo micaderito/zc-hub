@@ -176,3 +176,35 @@ test('updateVariant reintenta ante 429 y respeta x-rate-limit-reset', async () =
   assert.equal(ok, true);
   assert.equal(n, 2, 'un 429 dispara exactamente un reintento que sale OK');
 });
+
+/**
+ * `node-fetch` v3 no trae timeout: sin AbortSignal un request colgado dejaba al worker de
+ * publicación esperando para siempre y el job nunca cerraba. Ahora fetchTn aborta y tira un error
+ * distinguible (`.timeout = true`).
+ */
+test('fetchTn: aborta por timeout y tira un error con .timeout = true', async () => {
+  // el mock respeta el AbortSignal que le pasa fetchTn
+  state.responder = (_url, opts) =>
+    new Promise((_, reject) => {
+      opts.signal?.addEventListener('abort', () => {
+        const e = new Error('The operation was aborted');
+        e.name = 'AbortError';
+        reject(e);
+      });
+    });
+  await assert.rejects(
+    () => tn.fetchTn('https://api.tiendanube.com/v1/1/products', { method: 'GET' }, { timeoutMs: 15, retries: 0 }),
+    (e) => e.timeout === true && /timeout/i.test(e.message)
+  );
+});
+
+test('fetchTn: reintenta ante 5xx transitorio y devuelve el 2xx', async () => {
+  let n = 0;
+  state.responder = () => {
+    n++;
+    return n === 1 ? makeRes({ status: 502, json: {} }) : makeRes({ status: 200, json: { ok: 1 } });
+  };
+  const res = await tn.fetchTn('https://api.tiendanube.com/v1/1/x', { method: 'GET' }, { timeoutMs: 5000 });
+  assert.equal(res.status, 200);
+  assert.equal(n, 2, 'un 502 dispara un reintento que sale OK');
+});

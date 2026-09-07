@@ -9,23 +9,49 @@ const delay = sleep;
 
 /** Máximo de reintentos ante 429 (intentos totales = MAX_429_RETRIES + 1). */
 const MAX_429_RETRIES = 4;
+/** Reintentos ante 5xx transitorio (TN a veces devuelve 500/502/504 y anda al toque). */
+const MAX_5XX_RETRIES = 2;
+/**
+ * Timeout de red por request. `node-fetch` v3 NO trae timeout, así que sin esto un request colgado
+ * deja al worker de publicación esperando para siempre y el job nunca cierra. El caller puede subirlo
+ * para operaciones más pesadas (ej. `POST /products`).
+ */
+const TN_DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
  * Toda request a la API de TN pasa por acá: la encola en el limitador global (tnSchedule, que
- * espacia a ~2 req/s y respeta el cooldown por 429) y reintenta ante 429 respetando el header
- * `x-rate-limit-reset` (ms hasta que el leaky bucket se vacíe). Al reintentar pausa TODO el caño
- * (pauseTnFor) para que un solo 429 frene también a las demás llamadas pendientes, no solo a esta.
- * Devuelve el `res` final (los callers manejan .ok/.json).
+ * espacia a ~2 req/s y respeta el cooldown por 429), le pone un timeout de red, y reintenta ante
+ * 429 (respetando `x-rate-limit-reset`) y ante 5xx transitorio. Al reintentar por 429 pausa TODO el
+ * caño (pauseTnFor). Devuelve el `res` final (los callers manejan .ok/.json). Un timeout tira un
+ * Error con `.timeout = true` (no un FetchError genérico), para que los callers lo distingan.
  */
-async function fetchTn(url, options, retries = MAX_429_RETRIES) {
-  let res = await tnSchedule(() => fetch(url, options));
+export async function fetchTn(url, options = {}, { retries = MAX_429_RETRIES, timeoutMs = TN_DEFAULT_TIMEOUT_MS } = {}) {
+  const doFetch = async () => {
+    try {
+      return await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      if (e?.name === 'AbortError' || e?.name === 'TimeoutError' || e?.code === 'ABORT_ERR') {
+        const err = new Error(`TN request timeout (${Math.round(timeoutMs / 1000)}s): ${options.method || 'GET'} ${url}`);
+        err.timeout = true;
+        throw err;
+      }
+      throw e;
+    }
+  };
+  let res = await tnSchedule(doFetch);
   for (let r = 0; r < retries && res.status === 429; r++) {
     const resetMs = Number(res.headers.get('x-rate-limit-reset'));
     const waitMsVal = Number.isFinite(resetMs) && resetMs > 0 ? Math.min(resetMs, 15000) : 2000;
     pauseTnFor(waitMsVal / 1000);
     console.warn(`[TN] 429, esperando ${Math.round(waitMsVal / 1000)}s antes de reintentar (x-rate-limit-reset)`);
     await delay(waitMsVal);
-    res = await tnSchedule(() => fetch(url, options));
+    res = await tnSchedule(doFetch);
+  }
+  for (let r = 0; r < MAX_5XX_RETRIES && res.status >= 500; r++) {
+    const wait = 1000 * (r + 1);
+    console.warn(`[TN] ${res.status} en ${options.method || 'GET'} ${url} — reintento ${r + 1}/${MAX_5XX_RETRIES} en ${wait}ms`);
+    await delay(wait);
+    res = await tnSchedule(doFetch);
   }
   return res;
 }
@@ -323,15 +349,20 @@ export async function createProductImage(accessToken, storeId, productId, { file
   }
   if (position != null) body.position = position;
   const url = `${getBaseUrl(storeId)}/products/${productId}/images`;
-  const res = await fetchTn(url, {
-    method: 'POST',
-    headers: {
-      Authentication: `bearer ${accessToken}`,
-      'User-Agent': 'ZonacuadernoSync/1.0',
-      'Content-Type': 'application/json'
+  const res = await fetchTn(
+    url,
+    {
+      method: 'POST',
+      headers: {
+        Authentication: `bearer ${accessToken}`,
+        'User-Agent': 'ZonacuadernoSync/1.0',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
     },
-    body: JSON.stringify(body)
-  });
+    // Con `src`, TN descarga la imagen dentro del request: le damos más aire que a un GET normal.
+    { timeoutMs: 60_000 }
+  );
   if (!res.ok) {
     const errText = await res.text();
     if (res.status === 401) { const err = new Error(errText); err.status = 401; throw err; }
@@ -411,24 +442,28 @@ export async function getCategories(accessToken, storeId) {
 }
 
 /**
- * Busca un producto por SKU de variante. TN indexa el SKU en el parámetro `q`, así que una sola
- * página alcanza. Sirve para la IDEMPOTENCIA de la creación: TN a veces devuelve 5xx habiendo
- * creado igual, y sin este chequeo un reintento duplicaría el producto. null si no aparece.
+ * Busca un producto por SKU de variante. TN indexa el SKU en el parámetro `q`. Sirve para la
+ * IDEMPOTENCIA de la creación: TN a veces devuelve 5xx habiendo creado igual, y sin este chequeo un
+ * reintento duplicaría el producto. `retries` reintenta con delay: el índice de búsqueda de TN es
+ * eventualmente consistente, así que un producto recién creado puede tardar unos segundos en
+ * aparecer en `q`. null si no aparece.
  * OJO: que `q` matchee el SKU está sin verificar contra la API real de esta tienda — si no lo
  * hiciera, esta función devuelve `null` y el flujo cae al comportamiento de antes (no rompe nada).
  */
-export async function findProductBySku(accessToken, storeId, sku) {
+export async function findProductBySku(accessToken, storeId, sku, { retries = 0, delayMs = 2000 } = {}) {
   const norm = String(sku || '').trim().toLowerCase();
   if (!norm) return null;
   const url = `${getBaseUrl(storeId)}/products?q=${encodeURIComponent(sku)}&per_page=50`;
-  const res = await fetchTn(url, {
-    headers: { Authentication: `bearer ${accessToken}`, 'User-Agent': 'ZonacuadernoSync/1.0' }
-  });
-  if (!res.ok) return null;
-  const list = toList(await res.json());
-  return (
-    list.find((p) => (p.variants || []).some((v) => String(v.sku || '').trim().toLowerCase() === norm)) || null
-  );
+  const headers = { Authentication: `bearer ${accessToken}`, 'User-Agent': 'ZonacuadernoSync/1.0' };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await delay(delayMs);
+    const res = await fetchTn(url, { headers });
+    if (!res.ok) continue;
+    const list = toList(await res.json());
+    const hit = list.find((p) => (p.variants || []).some((v) => String(v.sku || '').trim().toLowerCase() === norm));
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** GET /products/:id — un producto con sus variants e images embebidos (para refrescar el snapshot). */
