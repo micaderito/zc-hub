@@ -410,6 +410,50 @@ export class ProductDraftStore {
    */
   readonly mlOptionalOpen = signal(false);
 
+  /**
+   * Faltantes que impiden publicar (campos requeridos vacíos). Lista de mensajes cortos; el botón
+   * "Publicar" queda deshabilitado mientras tenga elementos. Cubre lo estructural que ML/TN rechazan
+   * sí o sí — no replica toda la validación de cada API.
+   */
+  readonly publishBlockers = computed<string[]>(() => {
+    const d = this.draft();
+    const out: string[] = [];
+    const hasVariants = d.variants.length > 0;
+
+    const name = this.effective(d.ml.title, d.common.baseName).trim() || this.effective(d.tn.nameEs, d.common.baseName).trim();
+    if (!name) out.push('Falta el nombre del producto');
+    if (!hasVariants && !d.common.sku.trim()) out.push('Falta el SKU');
+
+    if (!d.ml.categoryId) out.push('Elegí una categoría de Mercado Libre');
+    const missingAttrs = d.ml.attributes
+      .filter((a) => this.attrIsRequired(a, d.ml.attributes) && !a.valueId && !a.value.trim())
+      .map((a) => a.name || a.id);
+    if (missingAttrs.length) out.push(`Completá en Mercado Libre: ${missingAttrs.join(', ')}`);
+
+    if (!d.tn.categories.length) out.push('Elegí al menos una categoría de Tienda Nube');
+
+    if (d.axes.length && !hasVariants) out.push('Generá las variantes de los ejes que definiste');
+
+    if (!hasVariants) {
+      if (d.ml.basePrice == null || d.ml.basePrice <= 0) out.push('Falta el precio de Mercado Libre');
+      if (d.tn.basePrice == null || d.tn.basePrice <= 0) out.push('Falta el precio de Tienda Nube');
+      if (d.common.baseStock == null) out.push('Falta el stock');
+    } else {
+      const n = (pred: (v: (typeof d.variants)[number]) => boolean) => d.variants.filter(pred).length;
+      const noSku = n((v) => !v.sku.trim());
+      if (noSku) out.push(`${noSku} variante(s) sin SKU`);
+      const noMl = n((v) => v.ml.price == null || v.ml.price <= 0);
+      if (noMl) out.push(`${noMl} variante(s) sin precio de Mercado Libre`);
+      const noTn = n((v) => v.tn.price == null || v.tn.price <= 0);
+      if (noTn) out.push(`${noTn} variante(s) sin precio de Tienda Nube`);
+      const skus = d.variants.map((v) => v.sku.trim()).filter(Boolean);
+      if (new Set(skus).size !== skus.length) out.push('Hay SKUs de variante repetidos');
+    }
+
+    return out;
+  });
+  readonly canPublish = computed(() => this.publishBlockers().length === 0);
+
   /** Al elegir un valor de un atributo tipo 'list', guardamos id y nombre. */
   setMlAttributeValue(attr: MlAttribute, valueId: string): void {
     const opt = attr.allowedValues?.find((v) => v.id === valueId);

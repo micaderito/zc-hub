@@ -73,6 +73,12 @@ before(async () => {
         j.status = 'pending';
         return true;
       },
+      cancelPublishJob: async (id) => {
+        const j = db.jobs.get(id);
+        if (!j || !['pending', 'processing', 'error'].includes(j.status)) return false;
+        j.status = 'cancelled';
+        return true;
+      },
       getPublishUnits: async (id) => db.jobs.get(id)?.units ?? []
     }
   });
@@ -241,6 +247,18 @@ test('POST /jobs/:id/retry: 200 si el job estaba en error; 409 si no es reintent
   assert.equal(notRetryable.status, 409);
 });
 
+test('POST /jobs/:id/cancel: 200 si estaba pending/processing/error; 409 si ya terminó', async () => {
+  db.jobs.set('j-run', { id: 'j-run', draftId: 'd1', channels: 'ml,tn', status: 'processing', units: [] });
+  db.jobs.set('j-fin', { id: 'j-fin', draftId: 'd1', channels: 'ml,tn', status: 'done', units: [] });
+
+  const ok = await fetch(`${baseUrl}/jobs/j-run/cancel`, { method: 'POST', headers: AUTH });
+  assert.equal(ok.status, 200);
+  assert.equal(db.jobs.get('j-run').status, 'cancelled');
+
+  const done = await fetch(`${baseUrl}/jobs/j-fin/cancel`, { method: 'POST', headers: AUTH });
+  assert.equal(done.status, 409);
+});
+
 test('DELETE /jobs/:id borra la entrada del historial; 404 si no existe', async () => {
   db.jobs.set('j1', { id: 'j1', draftId: 'd1', channels: 'ml', status: 'done', units: [] });
   const res = await fetch(`${baseUrl}/jobs/j1`, { method: 'DELETE', headers: AUTH });
@@ -262,6 +280,7 @@ test('todos los endpoints de drafts/jobs exigen sesión', async () => {
     ['PUT', `/drafts/${id}`],
     ['DELETE', `/drafts/${id}`],
     ['POST', `/drafts/${id}/publish`],
+    ['POST', '/jobs/x/cancel'],
     ['GET', '/jobs/x'],
     ['POST', '/jobs/x/retry'],
     ['DELETE', '/jobs/x']

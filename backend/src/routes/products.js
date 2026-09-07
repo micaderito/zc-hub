@@ -21,6 +21,7 @@ import {
   listPublishJobsForDraft,
   deletePublishJob,
   retryPublishJob,
+  cancelPublishJob,
   getPublishUnits
 } from '../db.js';
 
@@ -293,6 +294,20 @@ productRoutes.post('/jobs/:id/retry', async (req, res) => {
   try {
     const ok = await retryPublishJob(req.params.id);
     if (!ok) return res.status(409).json({ error: 'El job no está en un estado reintentable' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Cancela un job en curso o trabado (`pending`/`processing`/`error`). No revierte lo ya creado en
+ * ML/TN — solo lo saca de la cola y del recálculo de estado del borrador. 409 si el job ya terminó.
+ */
+productRoutes.post('/jobs/:id/cancel', async (req, res) => {
+  try {
+    const ok = await cancelPublishJob(req.params.id);
+    if (!ok) return res.status(409).json({ error: 'El job no está en un estado cancelable' });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

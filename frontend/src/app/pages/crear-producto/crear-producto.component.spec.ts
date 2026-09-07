@@ -122,6 +122,7 @@ class CatalogServiceMock {
 
   retryPublishJob = jasmine.createSpy('retryPublishJob').and.callFake(() => Promise.resolve({ ok: true }));
   deletePublishJob = jasmine.createSpy('deletePublishJob').and.callFake(() => Promise.resolve({ ok: true }));
+  cancelPublishJob = jasmine.createSpy('cancelPublishJob').and.callFake(() => Promise.resolve({ ok: true }));
 
   publishDraft = jasmine
     .createSpy('publishDraft')
@@ -1545,6 +1546,93 @@ describe('CrearProductoComponent', () => {
       v2.values = [''];
       expect(component.variantChipLabel(v2)).toBe('CUA-R');
     });
+  });
+
+  describe('publishBlockers() / canPublish()', () => {
+    const fillValid = () => {
+      const d = component.draft();
+      d.common.baseName = 'Cuaderno A4';
+      d.common.sku = 'CUA-1';
+      d.common.baseStock = 10;
+      d.ml.categoryId = 'MLA388307';
+      d.ml.basePrice = 3500;
+      d.tn.basePrice = 3200;
+      d.tn.categories = [10];
+      component.touch(); // fuerza el recálculo del computed publishBlockers
+    };
+
+    it('un borrador completo sin variantes no tiene bloqueadores', () => {
+      fillValid();
+      expect(component.publishBlockers()).toEqual([]);
+      expect(component.canPublish()).toBeTrue();
+    });
+
+    it('lista los faltantes de un borrador vacío', () => {
+      const b = component.publishBlockers();
+      expect(b.some((x) => x.includes('nombre'))).toBeTrue();
+      expect(b.some((x) => x.includes('SKU'))).toBeTrue();
+      expect(b.some((x) => x.includes('categoría de Mercado Libre'))).toBeTrue();
+      expect(b.some((x) => x.includes('categoría de Tienda Nube'))).toBeTrue();
+      expect(b.some((x) => x.includes('precio de Mercado Libre'))).toBeTrue();
+      expect(component.canPublish()).toBeFalse();
+    });
+
+    it('marca un atributo obligatorio de ML sin completar y lo saca al llenarlo', fakeAsync(() => {
+      fillValid();
+      catalog.mlAttributes = [{ id: 'BRAND', name: 'Marca', valueType: 'string', required: true, allowedValues: [] }];
+      void component.loadMlAttributes('MLA388307');
+      flushMicrotasks();
+      expect(component.publishBlockers().some((x) => x.includes('Marca'))).toBeTrue();
+      component.draft().ml.attributes.find((a) => a.id === 'BRAND')!.value = 'ZC';
+      component.touch();
+      expect(component.publishBlockers().some((x) => x.includes('Marca'))).toBeFalse();
+      tick(1600);
+    }));
+
+    it('con variantes exige SKU y precio en cada una', () => {
+      fillValid();
+      component.addAxis(); // crea una variante vacía
+      component.touch();
+      expect(component.publishBlockers().some((x) => x.includes('sin SKU'))).toBeTrue();
+      const v = component.draft().variants[0];
+      v.sku = 'V1';
+      v.ml.price = 100;
+      v.tn.price = 90;
+      component.touch();
+      expect(component.publishBlockers()).toEqual([]);
+    });
+
+    it('deshabilita el botón "Publicar en ambos" mientras haya bloqueadores', () => {
+      fixture.detectChanges();
+      const btn = fixture.nativeElement.querySelector('.publish-split .zc-btn.primary') as HTMLButtonElement;
+      expect(btn.disabled).toBeTrue();
+      fillValid();
+      fixture.detectChanges();
+      expect(btn.disabled).toBeFalse();
+    });
+  });
+
+  describe('cancelPublish()', () => {
+    it('llama al endpoint, corta el polling y pasa el panel a "cancelled"', fakeAsync(() => {
+      catalog.getPublishJob.and.callFake((id: string) =>
+        Promise.resolve({
+          job: { id, draftId: 'd', channels: 'ml,tn', status: 'processing', attempts: 1, lastError: null, createdAt: '', updatedAt: '', finishedAt: null },
+          units: [{ channel: 'ml', unitKey: '', seq: 0, status: 'pending', externalId: null, detail: null, updatedAt: '' }]
+        })
+      );
+      component.publish();
+      flushMicrotasks();
+      expect(component.publishing()).toBeTrue();
+      expect(component.activeJobId()).toBeTruthy();
+
+      component.cancelPublish();
+      flushMicrotasks();
+      expect(catalog.cancelPublishJob).toHaveBeenCalled();
+      expect(component.publishCancelled()).toBeTrue();
+      expect(component.publishPhase()).toBe('cancelled');
+      expect(component.publishing()).toBeFalse();
+      flush();
+    }));
   });
 
   describe('dismissResults() / retry()', () => {

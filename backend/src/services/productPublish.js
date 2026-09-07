@@ -142,11 +142,18 @@ function gtinAttr(barcode) {
  */
 function withUnitsPerPack(attributes) {
   const attrs = attributes || [];
-  const has = (id) => attrs.some((a) => a.id === id && (a.value_id || a.value_name));
-  if (has('SALE_FORMAT') && !has('UNITS_PER_PACK')) {
-    return [...attrs, { id: 'UNITS_PER_PACK', value_name: '1' }];
-  }
-  return attrs;
+  const hasSaleFormat = attrs.some((a) => a.id === 'SALE_FORMAT' && (a.value_id || a.value_name));
+  if (!hasSaleFormat) return attrs;
+  // ML quiere un entero positivo por `value_name` (nunca `value_id`). Un borrador migrado de antes
+  // del fix puede traer `UNITS_PER_PACK` vacío, con basura o con un `value_id` espurio (que ML
+  // rechaza con "El valor que ingresaste … es incorrecto"): lo normalizamos, no solo lo agregamos.
+  const cleanCount = (raw) => {
+    const n = parseInt(String(raw ?? '').trim(), 10);
+    return Number.isFinite(n) && n >= 1 && n <= 1000 ? String(n) : '1';
+  };
+  const idx = attrs.findIndex((a) => a.id === 'UNITS_PER_PACK');
+  if (idx === -1) return [...attrs, { id: 'UNITS_PER_PACK', value_name: '1' }];
+  return attrs.map((a, i) => (i === idx ? { id: 'UNITS_PER_PACK', value_name: cleanCount(a.value_name) } : a));
 }
 
 /**

@@ -457,8 +457,10 @@ condición en el payload (solo el tag), así que el par conocido va hardcodeado 
   `prefillConditionalRequired()` precarga `UNITS_PER_PACK` en `1` (lo llama `setMlAttributeValue` y
   la carga inicial de atributos) — correcto para "Unidad" y para esta app (se publica por unidad).
 - **Backend, red de seguridad**: `withUnitsPerPack()` en `productPublish.js` — si el body lleva
-  `SALE_FORMAT` sin `UNITS_PER_PACK`, agrega `UNITS_PER_PACK=1` (no pisa el valor si el usuario ya
-  lo mandó). Garantiza que un borrador viejo, previo al fix del front, también publique.
+  `SALE_FORMAT` y `UNITS_PER_PACK` falta, viene vacío, con basura o con un `value_id` espurio (que
+  ML rechaza con *"El valor que ingresaste … es incorrecto"*, típico de un borrador migrado de
+  antes del fix), lo **normaliza** a un entero positivo por `value_name` (default `1`). No pisa un
+  entero válido que ya mandó el usuario.
 
 **Otros tres bugs del mismo reporte, sin relación con User Products:**
 
@@ -591,6 +593,26 @@ se fusionó en este panel (`.publish-progress`): las filas en error muestran un 
 resumen en castellano (`publishErrorSummary`, ej. `UNITS_PER_PACK` → "Falta completar 'Unidades por
 pack'") y el texto crudo de la API colapsado en `<details>`; con todo `ok` las N filas se pliegan.
 
+**Cancelar una publicación (en curso o trabada).** El worker corta el fan-out de un canal en el
+primer error, así que las unidades que venían después quedan `pending` para siempre; y un deploy a
+mitad de un job lo deja en `processing` hasta que vence el lock (~5 min). `cancelPublishJob()`
+(`db.js`) marca el job `cancelled` — `claimNextPublishJob` no lo re-toma (solo mira
+`pending`/`processing` con lock vencido), `recomputeDraftStatus` lo ignora (solo `done`/`error`), y
+`finishPublishJob` no lo revive (`WHERE status <> 'cancelled'`). El worker consulta
+`isPublishJobCancelled(job.id)` **entre unidad y unidad** (`runChannel`) para frenar un fan-out en
+vivo — lo ya creado en ML/TN NO se revierte (son publicaciones reales). Ruta
+`POST /api/products/jobs/:id/cancel` (409 si el job ya terminó). En el front: `publishPhase()` suma
+`'cancelled'`, hay botón "Cancelar" mientras corre (`cancelPublish()` → corta el polling ya, sin
+esperar la respuesta) y el panel explica que lo publicado queda.
+
+**Validación pre-publicar (botón deshabilitado).** `ProductDraftStore.publishBlockers` (computed)
+arma la lista de faltantes que ML/TN rechazan sí o sí — nombre, SKU, categoría de ML, atributos
+obligatorios de ML sin completar (usa `attrIsRequired`, así entran los `conditionalRequired`
+disparados), categorías de TN, precio/stock (base o por variante), SKUs de variante repetidos, ejes
+sin variantes generadas. `canPublish` = lista vacía. La lista se muestra arriba de las acciones y
+**el botón "Publicar en ambos" (y el ▾) quedan deshabilitados** con `!canPublish()`. `publish()` no
+se auto-bloquea (el gate es el botón; el reintento de un canal no pasa por la validación).
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
@@ -628,22 +650,29 @@ cubiertos en `backend/test/productPublish.test.js` (family_name vs. title, misma
 `single_with_variants`, familia propia por variante en `one_per_variant`, `axisAttributes` con y
 sin `mlAttributeId`, matcheo de `value_id` ignorando acentos/mayúsculas, `attributes`/`mpn`/
 `age_group`/`gender` de TN, la descripción como objeto por idioma, y `withUnitsPerPack`:
-`SALE_FORMAT` sin `UNITS_PER_PACK` → agrega `=1`, no lo pisa si ya vino, no lo inventa sin
-`SALE_FORMAT`, aplica a cada ítem de una familia `one_per_variant`), `backend/test/richText.test.js`
+`SALE_FORMAT` sin `UNITS_PER_PACK` → agrega `=1`, respeta un entero válido que ya vino, **normaliza**
+uno inválido (vacío / `value_id` espurio) a `1`, no lo inventa sin `SALE_FORMAT`, aplica a cada ítem
+de una familia `one_per_variant`), `backend/test/richText.test.js`
 (texto plano → HTML, HTML existente intacto), `backend/test/mlUserProducts.test.js` (detección del
 tag + caché), `backend/test/productPublishTnEmbed.test.js` (imágenes embebidas por URL, portada =
 orden de la variante y no de la galería), `backend/test/imageStore.test.js` +
 `imageStoreSupabase.test.js` (backend de disco vs. Supabase, purgado respetando lo referenciado),
 `backend/test/publishWorker.test.js` (skip de unidades ya `ok` en un reintento, error parcial que
-no frena el otro canal, latido sin dejar intervals colgados, y que `seedPublishUnits` siembre
-TODAS las unidades planificadas como `pending` antes de publicar / no siembre nada si falla el
-planificado), `backend/test/db.test.js` (lock vencido de `product_publish_jobs` con umbral propio,
-`recomputeDraftStatus` con reintento de un solo canal) y `backend/test/routesProductsDrafts.test.js`
-(CRUD de borradores + jobs por HTTP, borrar un borrador limpia sus imágenes). El frontend lo cubre
+no frena el otro canal, latido sin dejar intervals colgados, que `seedPublishUnits` siembre TODAS
+las unidades planificadas como `pending` antes de publicar / no siembre nada si falla el
+planificado, y que un job `cancelled` corte el fan-out entre unidad y unidad / desde el arranque),
+`backend/test/db.test.js` (lock vencido de `product_publish_jobs` con umbral propio,
+`recomputeDraftStatus` con reintento de un solo canal, `cancelPublishJob` sobre
+`pending`/`processing`/`error`, `finishPublishJob` que no revive un cancelado, `isPublishJobCancelled`)
+y `backend/test/routesProductsDrafts.test.js` (CRUD de borradores + jobs por HTTP, `POST
+/jobs/:id/cancel` 200/409, borrar un borrador limpia sus imágenes). El frontend lo cubre
 `crear-producto.component.spec.ts` (borradores en el backend en vez de `localStorage`, migración
 única, polling de `publish()` con progreso parcial, selector de eje, el panel persistente:
 reabrir un borrador reconstruye un job terminado sin republicar / retoma el polling de uno en
-curso / no muestra nada sin jobs previos, más `publishErrorSummary`, y `UNITS_PER_PACK`
+curso / no muestra nada sin jobs previos, `publishErrorSummary`, `cancelPublish()` que corta el
+polling y pasa a `cancelled`, `publishBlockers`/`canPublish` (borrador completo sin bloqueadores /
+lista de faltantes / atributo obligatorio de ML / SKU+precio por variante / botón deshabilitado),
+y `UNITS_PER_PACK`
 condicional: sube a obligatorios + se precarga en 1 cuando `SALE_FORMAT` tiene valor, sigue
 opcional si no) y `catalog.service.spec.ts` (los endpoints nuevos).
 `backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
