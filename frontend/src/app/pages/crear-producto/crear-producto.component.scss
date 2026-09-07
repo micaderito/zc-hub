@@ -180,37 +180,227 @@
   margin-top: 0.25rem;
 }
 
-/* Progreso de publicación (mientras el job corre en background). */
+/* Progreso / resultado de publicación (el job corre en background; el panel sobrevive a recargar
+   la pantalla — ver resumeLastPublishJob en el componente). */
 .publish-progress {
-  .progress-row {
+  margin-top: 0.8rem;
+  padding: 0.85rem 1rem;
+  border-left: 3px solid var(--border);
+
+  &.is-running {
+    border-left-color: var(--brand);
+  }
+  &.is-partial {
+    border-left-color: var(--err);
+  }
+  &.is-done {
+    border-left-color: var(--ok);
+  }
+
+  .block-head {
     display: flex;
     align-items: center;
+    gap: 0.4rem;
+    font-size: 0.86rem;
+    > i {
+      font-size: 1.05rem;
+    }
+  }
+  &.is-running .block-head > i {
+    color: var(--brand);
+  }
+  &.is-partial .block-head > i {
+    color: var(--err);
+  }
+  &.is-done .block-head > i {
+    color: var(--ok);
+  }
+  .block-title {
+    font-weight: 600;
+  }
+  .block-note {
+    color: var(--text-3);
+    font-size: 0.72rem;
+    font-weight: 400;
+  }
+  .icon-btn {
+    margin-left: auto;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--text-3);
+    padding: 0.15rem;
+    &:hover {
+      color: var(--err);
+    }
+  }
+
+  .spin {
+    animation: publish-spin 0.9s linear infinite;
+  }
+
+  /* Barra de progreso: cuántas unidades planificadas ya terminaron (ok o error). */
+  .progress-bar {
+    position: relative;
+    height: 6px;
+    margin: 0.6rem 0 0.2rem;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+    .fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      border-radius: 999px;
+      background: var(--brand);
+      transition: width 0.3s ease;
+    }
+  }
+  &.is-partial .progress-bar .fill {
+    background: var(--err);
+  }
+  &.is-done .progress-bar .fill {
+    background: var(--ok);
+  }
+
+  .progress-collapsed {
+    margin-top: 0.3rem;
+    font-size: 0.76rem;
+    summary {
+      cursor: pointer;
+      color: var(--text-2);
+      padding: 0.3rem 0;
+    }
+  }
+
+  .progress-row {
+    display: flex;
+    align-items: flex-start;
     gap: 0.5rem;
-    padding: 0.4rem 0;
+    padding: 0.45rem 0;
     font-size: 0.78rem;
     border-top: 1px solid var(--border);
-    &:first-of-type {
-      border-top: none;
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      margin-top: 0.28rem;
+      flex: none;
+      background: var(--text-3);
+      &.dot-ml {
+        background: var(--ml);
+      }
+      &.dot-tn {
+        background: var(--tn);
+      }
+    }
+    .ch-chip {
+      flex: none;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      padding: 0.1rem 0.3rem;
+      border-radius: 5px;
+      line-height: 1.3;
+      &.ml {
+        background: var(--ml-bg);
+        color: var(--ml-text);
+      }
+      &.tn {
+        background: var(--tn-bg);
+        color: var(--tn-text);
+      }
     }
     .unit-key {
+      flex: none;
       font-weight: 600;
+      font-variant-numeric: tabular-nums;
     }
     .unit-detail {
       color: var(--text-2);
       flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      &.muted {
+        color: var(--text-3);
+      }
     }
-    i {
-      font-size: 0.9rem;
+    .state-icon {
+      flex: none;
+      font-size: 0.95rem;
+      margin-top: 0.05rem;
     }
-    &.ok i {
+    &.ok .state-icon {
       color: var(--ok);
     }
-    &.err i {
+    &.err .state-icon {
       color: var(--err);
     }
+    &.pending {
+      opacity: 0.7;
+      .state-icon {
+        color: var(--text-3);
+      }
+    }
+
+    /* Fila que falló: bloque legible, no una línea cortada con "…". */
+    .unit-err {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.25rem 0.4rem;
+      .err-label {
+        font-size: 0.62rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #fff;
+        background: var(--err);
+        padding: 0.05rem 0.35rem;
+        border-radius: 5px;
+      }
+      .err-summary {
+        color: var(--text);
+        overflow-wrap: anywhere;
+      }
+      .err-raw {
+        flex-basis: 100%;
+        font-size: 0.72rem;
+        summary {
+          cursor: pointer;
+          color: var(--text-3);
+        }
+        p {
+          margin: 0.3rem 0 0;
+          color: var(--text-2);
+          overflow-wrap: anywhere;
+          white-space: pre-wrap;
+        }
+      }
+    }
+  }
+
+  .progress-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+    .retry-hint {
+      font-size: 0.74rem;
+      color: var(--text-2);
+      margin-right: auto;
+    }
+  }
+}
+
+@keyframes publish-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

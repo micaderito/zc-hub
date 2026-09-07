@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ApiService } from '../../core/services/api.service';
 import {
   CatalogService,
@@ -30,7 +30,6 @@ import { DraftsPanelComponent } from './components/drafts-panel/drafts-panel.com
 import { MlCategoryDialogComponent } from './components/ml-category-dialog/ml-category-dialog.component';
 import { MlSectionComponent } from './components/ml-section/ml-section.component';
 import { PriceProfitSectionComponent } from './components/price-profit-section/price-profit-section.component';
-import { PublishResultsComponent } from './components/publish-results/publish-results.component';
 import { TnSectionComponent } from './components/tn-section/tn-section.component';
 import { VariantsSectionComponent } from './components/variants-section/variants-section.component';
 
@@ -48,12 +47,12 @@ import { VariantsSectionComponent } from './components/variants-section/variants
   standalone: true,
   imports: [
     DatePipe,
+    NgTemplateOutlet,
     CommonDataSectionComponent,
     DraftsPanelComponent,
     MlCategoryDialogComponent,
     MlSectionComponent,
     PriceProfitSectionComponent,
-    PublishResultsComponent,
     TnSectionComponent,
     VariantsSectionComponent
   ],
@@ -112,6 +111,55 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   readonly publishProgress = signal<PublishUnit[]>([]);
   /** Cuánto esperar entre cada `GET /jobs/:id` mientras el job sigue en curso. */
   private static readonly JOB_POLL_MS = 1500;
+  /** Id del último job que ya reconstruimos/retomamos al abrir el borrador — evita repetirlo. */
+  private resumedJobId: string | null = null;
+
+  /**
+   * Conteo del progreso: total de unidades planificadas y cuántas ya terminaron (ok o error).
+   * El backend siembra TODAS como 'pending' al arrancar (ver seedPublishUnits), así que
+   * `total` es real desde la primera vuelta del polling y se puede mostrar "3 de 8" + barra.
+   */
+  readonly publishTotals = computed(() => {
+    const units = this.publishProgress();
+    const ok = units.filter((u) => u.status === 'ok').length;
+    const err = units.filter((u) => u.status === 'error').length;
+    return { total: units.length, done: ok + err, ok, err, pending: units.length - ok - err };
+  });
+
+  /**
+   * Fase visible del bloque de publicación:
+   *  - `running`: el job sigue en curso (spinner + "X de Y")
+   *  - `partial`: terminó con al menos una unidad en error (ícono alerta, botón Reintentar)
+   *  - `done`: terminó y todas las unidades quedaron ok (ícono check)
+   *  - `idle`: no hay nada que mostrar
+   */
+  readonly publishPhase = computed<'running' | 'partial' | 'done' | 'idle'>(() => {
+    if (this.publishing()) return 'running';
+    const results = this.publishResults();
+    if (results?.length) return results.every((r) => r.status === 'ok') ? 'done' : 'partial';
+    if (this.publishProgress().length) return this.publishTotals().err ? 'partial' : 'done';
+    return 'idle';
+  });
+
+  constructor() {
+    // Al abrir/restaurar un borrador con un intento de publicación previo, reconstruimos el panel
+    // (qué pasó, con detalle por unidad) o retomamos el polling si el job sigue corriendo en el
+    // servidor. Un `effect` cubre las dos vías de apertura por igual: el restore automático de
+    // ngOnInit y "Mis borradores" (que llama a store.openDraft sin pasar por el componente).
+    // `allowSignalWrites`: el resume arranca sincrónicamente poniendo `publishing` en true antes
+    // del primer await (para mostrar el spinner ya), y eso es una escritura de señal dentro del
+    // effect. Es justamente el caso para el que existe la opción: disparar un trabajo async que
+    // actualiza señales.
+    effect(
+      () => {
+        const job = this.store.lastPublishJob();
+        if (job && !this.publishing() && this.resumedJobId !== job.id) {
+          void this.resumeLastPublishJob(job);
+        }
+      },
+      { allowSignalWrites: true }
+    );
+  }
 
   /* ================= Categorías: estado ================= */
 
@@ -206,7 +254,12 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   saveDraft(): Promise<void> { return this.store.saveDraft(); }
   openDraft(id: string): Promise<void> { return this.store.openDraft(id); }
   deleteDraft(id: string): Promise<void> { return this.store.deleteDraft(id); }
-  startNewDraft(): void { this.store.startNewDraft(); }
+  startNewDraft(): void {
+    this.store.startNewDraft();
+    // El panel de publicación es del borrador anterior: se va con él.
+    this.resumedJobId = null;
+    this.dismissResults();
+  }
   toggleDraftsPanel(): void { this.store.toggleDraftsPanel(); }
   loadPricingSettings(): Promise<void> { return this.store.loadPricingSettings(); }
 
@@ -359,6 +412,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           value: pred?.value_name ?? (isBrand ? brand : ''),
           valueId: pred?.value_id,
           required: a.required,
+          conditionalRequired: a.conditionalRequired,
           inherited: isBrand,
           valueType: a.valueType,
           allowedValues: a.allowedValues,
@@ -371,6 +425,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       // el mismo atributo (ej. COLOR) dos veces al publicar.
       this.draft().ml.attributes = mapped.filter((a) => !a.allowVariations);
       this.store.mlVariationAttrs.set(mapped.filter((a) => a.allowVariations));
+      // Si el predictor ya dejó SALE_FORMAT con valor, UNITS_PER_PACK queda obligatorio → precarga 1.
+      this.store.prefillConditionalRequired();
       this.store.touch();
     } catch (e) {
       this.mlAttrsError.set(this.errMsg(e));
@@ -393,6 +449,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           name: a.name,
           value: '',
           required: a.required,
+          conditionalRequired: a.conditionalRequired,
           inherited: false,
           valueType: a.valueType,
           allowedValues: a.allowedValues,
@@ -493,6 +550,37 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       this.applyResults(failed, channels);
     } finally {
       this.publishing.set(false);
+    }
+  }
+
+  /**
+   * Reconstruye el estado de publicación de un borrador recién abierto a partir de su último job:
+   * si sigue `pending`/`processing` retoma el polling (el job vive en el servidor); si ya terminó,
+   * repuebla el progreso y el resultado SIN republicar nada. Nunca tira: un fallo acá no debe
+   * romper la carga del borrador.
+   */
+  private async resumeLastPublishJob(job: PublishJobSummary): Promise<void> {
+    this.resumedJobId = job.id;
+    // Arrancamos de cero: si veníamos de otro borrador, no queremos que su resultado quede colgado
+    // mientras se trae el de éste.
+    this.publishResults.set(null);
+    this.publishProgress.set([]);
+    const running = job.status === 'pending' || job.status === 'processing';
+    try {
+      if (running) {
+        this.publishing.set(true);
+        try {
+          await this.pollJob(job.id);
+        } finally {
+          this.publishing.set(false);
+        }
+      } else {
+        const { job: fresh, units } = await this.catalog.getPublishJob(job.id);
+        this.publishProgress.set(units);
+        this.applyResults(this.resultsFromJob(fresh, units), undefined);
+      }
+    } catch {
+      // sin conexión / job borrado: se sigue mostrando solo el borrador, sin panel de publicación
     }
   }
 
@@ -691,6 +779,32 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
 
   dismissResults(): void {
     this.publishResults.set(null);
+    this.publishProgress.set([]);
+  }
+
+  /**
+   * Traduce los errores de publicación más comunes a una frase corta en castellano. El detalle
+   * crudo de la API (útil para soporte) se sigue mostrando, colapsado bajo "Ver detalle técnico".
+   * Devuelve `null` cuando no reconocemos el error → se muestra el texto crudo tal cual.
+   */
+  publishErrorSummary(detail: string | null | undefined): string | null {
+    if (!detail) return null;
+    const d = detail.toLowerCase();
+    if (d.includes('units_per_pack') || d.includes('unidades por pack')) {
+      return 'Falta completar "Unidades por pack" en los datos de Mercado Libre.';
+    }
+    if (d.includes('no conectado a mercado libre')) return 'No estás conectado a Mercado Libre.';
+    if (d.includes('no conectado a tienda nube')) return 'No estás conectado a Tienda Nube.';
+    if (d.includes('family name') || d.includes('family_name')) {
+      return 'Mercado Libre rechazó las variantes (familia). Revisá los ejes de variante y la categoría.';
+    }
+    if (d.includes('leaf') || d.includes('categoría hoja') || d.includes('category_invalid')) {
+      return 'La categoría de Mercado Libre no es una categoría final (hoja).';
+    }
+    if (/\b429\b/.test(d) || d.includes('rate limit') || d.includes('too many requests')) {
+      return 'Mercado Libre está limitando los pedidos. Esperá un minuto y reintentá.';
+    }
+    return null;
   }
 
   /** Reintenta la publicación solo del canal que falló (vuelve a llamar al backend). */

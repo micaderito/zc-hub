@@ -13,6 +13,7 @@ const dbState = {
   claimedJob: null,
   existingUnits: [],
   upserts: [],
+  seeded: [],
   finished: null,
   heartbeats: [],
   recomputed: null,
@@ -41,6 +42,10 @@ before(async () => {
       },
       finishPublishJob: async (jobId, status, error) => {
         dbState.finished = { jobId, status, error };
+        return true;
+      },
+      seedPublishUnits: async (jobId, channel, unitKeys) => {
+        dbState.seeded.push({ jobId, channel, unitKeys });
         return true;
       },
       upsertPublishUnit: async (u) => {
@@ -91,6 +96,7 @@ beforeEach(() => {
   dbState.claimedJob = null;
   dbState.existingUnits = [];
   dbState.upserts = [];
+  dbState.seeded = [];
   dbState.finished = null;
   dbState.heartbeats = [];
   dbState.recomputed = null;
@@ -125,6 +131,25 @@ test('processJob: ambos canales ok → registra cada unidad, termina el job "don
   assert.equal(tn.externalId, '501');
   assert.equal(dbState.finished.status, 'done');
   assert.equal(dbState.recomputed, 'd1');
+});
+
+test('processJob: siembra TODAS las unidades planificadas como "pending" antes de publicarlas (para el "X de Y" del front)', async () => {
+  publishState.mlUnits = [
+    { unitKey: 'CUA-N', body: { a: 1 } },
+    { unitKey: 'CUA-R', body: { a: 2 } }
+  ];
+  publishState.tnUnits = [{ unitKey: '', body: { b: 1 }, uploadIds: [], forVariants: [] }];
+  await publishWorker.processJob(baseJob);
+  const mlSeed = dbState.seeded.find((s) => s.channel === 'ml');
+  const tnSeed = dbState.seeded.find((s) => s.channel === 'tn');
+  assert.deepEqual(mlSeed, { jobId: 'j1', channel: 'ml', unitKeys: ['CUA-N', 'CUA-R'] });
+  assert.deepEqual(tnSeed, { jobId: 'j1', channel: 'tn', unitKeys: [''] });
+});
+
+test('processJob: si falla armando las unidades (planMlUnits) NO se siembra nada de ese canal', async () => {
+  publishState.planMlThrows = new Error('categoría no es hoja');
+  await publishWorker.processJob(baseJob);
+  assert.equal(dbState.seeded.find((s) => s.channel === 'ml'), undefined);
 });
 
 test('processJob: channels=["tn"] NO toca ML (reintento de un solo canal)', async () => {

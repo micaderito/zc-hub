@@ -16,6 +16,7 @@ import {
   claimNextPublishJob,
   touchPublishJobLock,
   finishPublishJob,
+  seedPublishUnits,
   upsertPublishUnit,
   getPublishUnits,
   recomputeDraftStatus,
@@ -76,6 +77,7 @@ async function runMlChannel(job, payload, doneKeys) {
     await upsertPublishUnit({ jobId: job.id, channel: 'ml', unitKey: '', seq: 0, status: 'error', detail: e.message });
     return { channel: 'ml', status: 'error', detail: e.message };
   }
+  await seedPublishUnits(job.id, 'ml', units.map((u) => u.unitKey));
   const descriptionText = payload.ml?.description?.plain_text || '';
   return runChannel('ml', job, payload, units, doneKeys, (unit) => publishMlUnit(unit.body, mlToken, descriptionText));
 }
@@ -94,6 +96,7 @@ async function runTnChannel(job, payload, doneKeys) {
     await upsertPublishUnit({ jobId: job.id, channel: 'tn', unitKey: '', seq: 0, status: 'error', detail: e.message });
     return { channel: 'tn', status: 'error', detail: e.message };
   }
+  await seedPublishUnits(job.id, 'tn', units.map((u) => u.unitKey));
   return runChannel('tn', job, payload, units, doneKeys, (unit) => publishTnUnit(tnToken, storeId, unit));
 }
 
