@@ -3279,6 +3279,37 @@ export async function deletePublishJob(jobId) {
 }
 
 /**
+ * Siembra TODAS las unidades planificadas de un canal como 'pending' antes de empezar a
+ * publicarlas — así el front tiene el total desde la primera vuelta del polling y puede mostrar
+ * "3 de 8" / barra de progreso en vez de solo un spinner. `ON CONFLICT DO NOTHING`: en un
+ * reintento las que ya quedaron 'ok'/'error' de un intento anterior NO se pisan (el worker las
+ * saltea igual por `getPublishUnits`).
+ */
+export async function seedPublishUnits(jobId, channel, unitKeys) {
+  const p = getPool();
+  if (!p || !unitKeys.length) return false;
+  try {
+    const values = [];
+    const params = [];
+    unitKeys.forEach((unitKey, i) => {
+      const base = i * 3;
+      values.push(`($${base + 1}, $${base + 2}, $${base + 3}, ${i}, 'pending')`);
+      params.push(jobId, channel, unitKey);
+    });
+    await p.query(
+      `INSERT INTO product_publish_units (job_id, channel, unit_key, seq, status)
+       VALUES ${values.join(', ')}
+       ON CONFLICT (job_id, channel, unit_key) DO NOTHING`,
+      params
+    );
+    return true;
+  } catch (e) {
+    console.error('seedPublishUnits:', e.message);
+    return false;
+  }
+}
+
+/**
  * Registra o actualiza el estado de UNA unidad publicada (un ítem ML, un producto TN) dentro de
  * un job. Es la pieza de idempotencia: el worker la llama con status='ok' apenas confirma la
  * creación, y en un reintento arranca leyendo `getPublishUnits` para saltear las que ya están 'ok'.

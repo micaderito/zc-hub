@@ -1,7 +1,7 @@
 import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
-import { CatalogService, DraftDetail, DraftSummary } from '../../core/services/catalog.service';
+import { CatalogService, DraftDetail, DraftSummary, PublishJobSummary } from '../../core/services/catalog.service';
 import { PricingService } from '../../core/services/pricing.service';
 import {
   DEFAULT_SETTINGS,
@@ -117,6 +117,13 @@ export class ProductDraftStore {
   readonly currentDraftId = signal<string | null>(null);
   readonly draftSavedAt = signal<Date | null>(null);
   readonly draftRestored = signal(false);
+  /**
+   * Último job de publicación del borrador abierto (el más reciente de `entry.jobs`), o `null` si
+   * nunca se intentó publicar. Lo usa `crear-producto.component` al restaurar/abrir un borrador
+   * para volver a mostrar "qué pasó con la última publicación" (o retomar el polling si sigue en
+   * curso) — sin esto, salir y volver a la pantalla perdía todo rastro del intento.
+   */
+  readonly lastPublishJob = signal<PublishJobSummary | null>(null);
   readonly savedDrafts = signal<{ id: string; label: string; savedAt: Date; status: DraftSummary['status'] }[]>([]);
   readonly draftsPanelOpen = signal(false);
 
@@ -929,6 +936,8 @@ export class ProductDraftStore {
     this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
     this.currentDraftId.set(entry.id);
     this.draftSavedAt.set(new Date(entry.updatedAt));
+    // `jobs` viene ordenado por created_at DESC (ver listPublishJobsForDraft): [0] es el último intento.
+    this.lastPublishJob.set(entry.jobs?.[0] ?? null);
     // El snapshot es el draft TAL COMO LLEGÓ del backend (imágenes ya en formato {id,name}), para
     // que comparar contra él en el próximo autosave dé igual que si se acabara de guardar.
     this.lastSavedSnapshot = JSON.stringify(rawDraft);
@@ -986,6 +995,7 @@ export class ProductDraftStore {
     this.currentDraftId.set(null);
     this.draftSavedAt.set(null);
     this.draftRestored.set(false);
+    this.lastPublishJob.set(null);
     this.lastSavedSnapshot = null;
   }
 

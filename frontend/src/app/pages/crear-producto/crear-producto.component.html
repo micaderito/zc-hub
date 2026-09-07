@@ -64,32 +64,110 @@
 
   <zc-variants-section />
 
-  @if (publishing() && publishProgress().length) {
-    <div class="publish-progress zc-card block">
+  @if (publishPhase() !== 'idle') {
+    <div
+      class="publish-progress zc-card block"
+      [class.is-running]="publishPhase() === 'running'"
+      [class.is-partial]="publishPhase() === 'partial'"
+      [class.is-done]="publishPhase() === 'done'"
+    >
       <div class="block-head">
-        <i class="ti ti-loader-2"></i>
-        <span class="block-title">Publicando…</span>
-        <span class="block-note">— podés cerrar esta pestaña, sigue en el servidor</span>
+        @switch (publishPhase()) {
+          @case ('running') {
+            <i class="ti ti-loader-2 spin"></i>
+            <span class="block-title">
+              @if (publishTotals().total) {
+                Publicando… ({{ publishTotals().done }} de {{ publishTotals().total }})
+              } @else {
+                Preparando la publicación…
+              }
+            </span>
+            <span class="block-note">— podés cerrar esta pestaña, sigue en el servidor</span>
+          }
+          @case ('partial') {
+            <i class="ti ti-alert-triangle"></i>
+            <span class="block-title">Se publicó con errores — {{ publishTotals().ok }} de {{ publishTotals().total }} ok</span>
+            <button type="button" class="icon-btn" (click)="dismissResults()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+          }
+          @case ('done') {
+            <i class="ti ti-circle-check"></i>
+            <span class="block-title">Publicado — {{ publishTotals().total }} de {{ publishTotals().total }}</span>
+            <button type="button" class="icon-btn" (click)="dismissResults()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+          }
+        }
       </div>
-      @for (u of publishProgress(); track u.channel + u.unitKey + u.seq) {
-        <div class="progress-row" [class.ok]="u.status === 'ok'" [class.err]="u.status === 'error'">
-          @if (u.channel === 'ml') { <span class="dot dot-ml"></span> } @else { <span class="dot dot-tn"></span> }
-          <span class="unit-key">{{ u.unitKey || 'producto' }}</span>
-          <span class="unit-detail">{{ u.detail }}</span>
-          @if (u.status === 'ok') {
-            <i class="ti ti-check"></i>
-          } @else if (u.status === 'error') {
-            <i class="ti ti-x"></i>
-          } @else {
-            <i class="ti ti-loader"></i>
+
+      @if (publishTotals().total) {
+        <div
+          class="progress-bar"
+          role="progressbar"
+          [attr.aria-valuenow]="publishTotals().done"
+          [attr.aria-valuemin]="0"
+          [attr.aria-valuemax]="publishTotals().total"
+        >
+          <span class="fill" [style.width.%]="(publishTotals().done / publishTotals().total) * 100"></span>
+        </div>
+      }
+
+      <!-- Con todo ok no hace falta ver las N filas: se colapsan. Con errores/en curso, se muestran. -->
+      @if (publishPhase() === 'done' && publishTotals().total > 1) {
+        <details class="progress-collapsed">
+          <summary>Ver las {{ publishTotals().total }} publicaciones creadas</summary>
+          <ng-container [ngTemplateOutlet]="progressRows" />
+        </details>
+      } @else {
+        <ng-container [ngTemplateOutlet]="progressRows" />
+      }
+
+      @if (publishPhase() === 'partial') {
+        <div class="progress-actions">
+          <span class="retry-hint">Corregí lo marcado y volvé a publicar el canal que falló:</span>
+          @for (r of publishResults() ?? []; track r.channel) {
+            @if (r.status === 'error') {
+              <button type="button" class="zc-btn small primary" (click)="retry(r.channel)">
+                <i class="ti ti-refresh"></i> Reintentar {{ r.channel === 'ml' ? 'Mercado Libre' : 'Tienda Nube' }}
+              </button>
+            }
           }
         </div>
       }
     </div>
-  }
 
-  @if (publishResults(); as results) {
-    <zc-publish-results [results]="results" (dismiss)="dismissResults()" (retry)="retry($event)" />
+    <ng-template #progressRows>
+      @for (u of publishProgress(); track u.channel + u.unitKey + u.seq) {
+        <div
+          class="progress-row"
+          [class.ok]="u.status === 'ok'"
+          [class.err]="u.status === 'error'"
+          [class.pending]="u.status === 'pending'"
+        >
+          <span class="dot" [class.dot-ml]="u.channel === 'ml'" [class.dot-tn]="u.channel === 'tn'"></span>
+          <span class="ch-chip" [class.ml]="u.channel === 'ml'" [class.tn]="u.channel === 'tn'">
+            {{ u.channel === 'ml' ? 'ML' : 'TN' }}
+          </span>
+          <span class="unit-key">{{ u.unitKey || 'producto' }}</span>
+          @if (u.status === 'ok') {
+            <span class="unit-detail">{{ u.detail }}</span>
+            <i class="ti ti-check state-icon"></i>
+          } @else if (u.status === 'error') {
+            <div class="unit-err">
+              <span class="err-label">Falló</span>
+              <span class="err-summary">{{ publishErrorSummary(u.detail) || u.detail }}</span>
+              @if (publishErrorSummary(u.detail) && u.detail) {
+                <details class="err-raw">
+                  <summary>Ver detalle técnico</summary>
+                  <p>{{ u.detail }}</p>
+                </details>
+              }
+            </div>
+            <i class="ti ti-x state-icon"></i>
+          } @else {
+            <span class="unit-detail muted">En espera…</span>
+            <i class="ti ti-clock state-icon"></i>
+          }
+        </div>
+      }
+    </ng-template>
   }
 
   <!-- ===== Acciones ===== -->

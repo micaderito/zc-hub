@@ -548,6 +548,30 @@ una publicación ya creada, actualizando ambos canales) queda fuera de esta rama
 tiene reglas propias (no se puede tocar `title`, `family_name` solo se cambia sin ventas) que
 ameritan su propio diseño.
 
+**El panel de publicación sobrevive a cerrar la pantalla.** Antes, `publishing`/`publishProgress`/
+`publishResults` eran señales en memoria: salir de `/crear` y volver cargaba el borrador y nada más
+—no se sabía si el último intento anduvo, falló o seguía corriendo—. Ahora `GET /drafts/:id` ya
+traía `jobs[]`; `ProductDraftStore.lastPublishJob` guarda el más reciente y un `effect` en
+`crear-producto.component.ts` (una sola vía para el restore de `ngOnInit` y para "Mis borradores",
+que llama a `store.openDraft` sin pasar por el componente) llama a `resumeLastPublishJob`: si el
+job sigue `pending`/`processing` retoma el polling (el job vive en el server), y si ya terminó
+repuebla `publishProgress` + `publishResults` desde `GET /jobs/:id` **sin republicar**. El guard
+`resumedJobId` evita rehacerlo; el `effect` usa `allowSignalWrites` porque el resume pone
+`publishing` en true antes del primer await. "Reintentar" desde ese panel reusa `publish([canal])`
+(job nuevo con los datos actuales del borrador) — así toma una corrección de datos (ej. el atributo
+que faltaba), a diferencia de `POST /jobs/:id/retry`, que reusa el `payload_json` congelado.
+
+**Progreso real "X de Y" + barra.** `runChannel` solo insertaba una fila en `product_publish_units`
+al confirmar/fallar cada unidad, así que el front nunca tenía el total. Ahora `runMlChannel`/
+`runTnChannel` llaman a `seedPublishUnits(jobId, canal, unitKeys)` **antes** de publicar —
+`INSERT ... ON CONFLICT DO NOTHING`, así un reintento no pisa las que ya quedaron `ok`/`error`—.
+Con eso `publishTotals()` (computed) da `total`/`done`/`ok`/`err`/`pending` desde la primera vuelta
+y `publishPhase()` (`running`/`partial`/`done`/`idle`) decide el encabezado (spinner "Publicando…
+(3 de 8)" / alerta "Se publicó con errores" / check "Publicado"). El viejo `<zc-publish-results>`
+se fusionó en este panel (`.publish-progress`): las filas en error muestran un chip "Falló", un
+resumen en castellano (`publishErrorSummary`, ej. `UNITS_PER_PACK` → "Falta completar 'Unidades por
+pack'") y el texto crudo de la API colapsado en `<details>`; con todo `ok` las N filas se pliegan.
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
@@ -590,11 +614,15 @@ tag + caché), `backend/test/productPublishTnEmbed.test.js` (imágenes embebidas
 orden de la variante y no de la galería), `backend/test/imageStore.test.js` +
 `imageStoreSupabase.test.js` (backend de disco vs. Supabase, purgado respetando lo referenciado),
 `backend/test/publishWorker.test.js` (skip de unidades ya `ok` en un reintento, error parcial que
-no frena el otro canal, latido sin dejar intervals colgados), `backend/test/db.test.js` (lock
-vencido de `product_publish_jobs` con umbral propio, `recomputeDraftStatus` con reintento de un
-solo canal) y `backend/test/routesProductsDrafts.test.js` (CRUD de borradores + jobs por HTTP,
-borrar un borrador limpia sus imágenes). El frontend lo cubre `crear-producto.component.spec.ts`
-(borradores en el backend en vez de `localStorage`, migración única, polling de `publish()` con
-progreso parcial, selector de eje) y `catalog.service.spec.ts` (los endpoints nuevos).
+no frena el otro canal, latido sin dejar intervals colgados, y que `seedPublishUnits` siembre
+TODAS las unidades planificadas como `pending` antes de publicar / no siembre nada si falla el
+planificado), `backend/test/db.test.js` (lock vencido de `product_publish_jobs` con umbral propio,
+`recomputeDraftStatus` con reintento de un solo canal) y `backend/test/routesProductsDrafts.test.js`
+(CRUD de borradores + jobs por HTTP, borrar un borrador limpia sus imágenes). El frontend lo cubre
+`crear-producto.component.spec.ts` (borradores en el backend en vez de `localStorage`, migración
+única, polling de `publish()` con progreso parcial, selector de eje, y el panel persistente:
+reabrir un borrador reconstruye un job terminado sin republicar / retoma el polling de uno en
+curso / no muestra nada sin jobs previos, más `publishErrorSummary`) y `catalog.service.spec.ts`
+(los endpoints nuevos).
 
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).
