@@ -3186,7 +3186,9 @@ export async function touchPublishJobLock(jobId) {
 }
 
 /** Marca un job como done/failed. Sin backoff con tiempo (a diferencia de ml_pending_tasks): el
- *  reintento de un job de publicación lo dispara la usuaria a mano, no un timer. */
+ *  reintento de un job de publicación lo dispara la usuaria a mano, no un timer.
+ *  `AND status <> 'cancelled'`: si la usuaria canceló mientras el worker todavía estaba creando
+ *  unidades, el `finishPublishJob` del final NO debe revivir el job a done/error. */
 export async function finishPublishJob(jobId, status, errorMsg = null) {
   const p = getPool();
   if (!p) return false;
@@ -3195,12 +3197,49 @@ export async function finishPublishJob(jobId, status, errorMsg = null) {
       `UPDATE product_publish_jobs
        SET status = $1, last_error = $2, locked_at = NULL, updated_at = NOW(),
            finished_at = CASE WHEN $1 IN ('done', 'error') THEN NOW() ELSE finished_at END
-       WHERE id = $3`,
+       WHERE id = $3 AND status <> 'cancelled'`,
       [status, errorMsg, jobId]
     );
     return true;
   } catch (e) {
     console.error('finishPublishJob:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Cancela un job de publicación: lo saca de la cola (`claimNextPublishJob` solo toma
+ * `pending`/`processing` con lock vencido) y del recálculo de estado del borrador
+ * (`recomputeDraftStatus` solo mira `done`/`error`). NO revierte lo que ya se creó en ML/TN —
+ * esas publicaciones son reales; las unidades ya `ok`/`error` quedan en el historial. Sirve para
+ * un job trabado de una corrida anterior, o para frenar un fan-out en curso.
+ */
+export async function cancelPublishJob(jobId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE product_publish_jobs
+       SET status = 'cancelled', locked_at = NULL, finished_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND status IN ('pending', 'processing', 'error')`,
+      [jobId]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('cancelPublishJob:', e.message);
+    return false;
+  }
+}
+
+/** true si el job fue cancelado — el worker lo consulta entre unidad y unidad para frenar el fan-out. */
+export async function isPublishJobCancelled(jobId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(`SELECT 1 FROM product_publish_jobs WHERE id = $1 AND status = 'cancelled'`, [jobId]);
+    return r.rows.length > 0;
+  } catch (e) {
+    console.error('isPublishJobCancelled:', e.message);
     return false;
   }
 }

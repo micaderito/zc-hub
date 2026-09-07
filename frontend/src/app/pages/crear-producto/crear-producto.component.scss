@@ -196,6 +196,9 @@
   &.is-done {
     border-left-color: var(--ok);
   }
+  &.is-cancelled {
+    border-left-color: var(--text-3);
+  }
 
   .block-head {
     display: flex;
@@ -214,6 +217,14 @@
   }
   &.is-done .block-head > i {
     color: var(--ok);
+  }
+  &.is-cancelled .block-head > i {
+    color: var(--text-3);
+  }
+  .block-head .cancel-btn {
+    margin-left: auto;
+    color: var(--err);
+    border-color: var(--border);
   }
   .block-title {
     font-weight: 600;
@@ -558,6 +569,17 @@
     color: var(--warn, #b8860b);
     font-size: 1rem;
     margin-top: 0.1rem;
+  }
+}
+
+/* Faltantes que bloquean el publicar: mismo formato de aviso, con lista. */
+.publish-blockers {
+  ul {
+    margin: 0.3rem 0 0;
+    padding-left: 1.1rem;
+  }
+  li {
+    margin: 0.1rem 0;
   }
 }
 
