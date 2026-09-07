@@ -427,10 +427,13 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           allowVariations: a.allowVariations
         };
       });
-      // Los candidatos a EJE (allowVariations) se ofrecen en el selector de Variantes, no en la
-      // lista general de características — si aparecieran en las dos, se podría terminar mandando
-      // el mismo atributo (ej. COLOR) dos veces al publicar.
-      this.draft().ml.attributes = mapped.filter((a) => !a.allowVariations);
+      // Cargamos TODOS los atributos a `d.ml.attributes`, incluidos los `allowVariations`
+      // (ej. `YEAR` "Año" en agendas). Cuando ese atributo NO se usa como eje de variante, se
+      // muestra como característica para completar una vez y va en todas las publicaciones; cuando
+      // SÍ es un eje, el store lo esconde de la lista (mlRequiredAttrs/mlOptionalAttrs) y
+      // buildPayloads no lo manda dos veces. `mlVariationAttrs` sigue siendo la lista de candidatos
+      // a eje del selector de Variantes.
+      this.draft().ml.attributes = mapped;
       this.store.mlVariationAttrs.set(mapped.filter((a) => a.allowVariations));
       // Si el predictor ya dejó SALE_FORMAT con valor, UNITS_PER_PACK queda obligatorio → precarga 1.
       this.store.prefillConditionalRequired();
@@ -443,9 +446,11 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Solo repone `mlVariationAttrs` (candidatos a eje) para una categoría YA elegida — a diferencia
-   * de `loadMlAttributes`, NO toca `d.ml.attributes` (evitaría pisar los valores que el borrador
-   * restaurado ya tenía cargados). Se usa al restaurar un borrador guardado.
+   * Repone `mlVariationAttrs` (candidatos a eje) para una categoría YA elegida y, a diferencia de
+   * antes, TAMBIÉN mergea en `d.ml.attributes` cualquier atributo de la categoría que falte —
+   * conservando los valores ya cargados. Así un borrador restaurado/migrado toma campos que ML
+   * agregó después (ej. "Año" en agendas) sin pisar lo que la usuaria ya completó. Se usa al
+   * restaurar un borrador guardado.
    */
   private async refreshMlVariationAttrs(categoryId: string): Promise<void> {
     try {
@@ -463,6 +468,34 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           allowVariations: true
         }))
       );
+      // Merge aditivo: mantiene los atributos ya guardados (con su valor) y suma los que falten.
+      const existing = new Map(this.draft().ml.attributes.map((a) => [a.id, a]));
+      const merged: MlAttribute[] = attrs.map((a) => {
+        const prev = existing.get(a.id);
+        if (prev) {
+          // refrescamos metadata de la categoría, no el valor cargado
+          return { ...prev, name: a.name, required: a.required, conditionalRequired: a.conditionalRequired, valueType: a.valueType, allowedValues: a.allowedValues, allowedUnits: a.allowedUnits, allowVariations: a.allowVariations };
+        }
+        return {
+          id: a.id,
+          name: a.name,
+          value: a.id === 'BRAND' ? this.draft().common.brand : '',
+          required: a.required,
+          conditionalRequired: a.conditionalRequired,
+          inherited: a.id === 'BRAND',
+          valueType: a.valueType,
+          allowedValues: a.allowedValues,
+          allowedUnits: a.allowedUnits,
+          allowVariations: a.allowVariations
+        };
+      });
+      // atributos que el borrador tenía pero ya no están en la categoría: los dejamos igual (al final)
+      for (const a of this.draft().ml.attributes) {
+        if (!merged.some((m) => m.id === a.id)) merged.push(a);
+      }
+      this.draft().ml.attributes = merged;
+      this.store.prefillConditionalRequired();
+      this.store.touch();
     } catch {
       // silencioso: el selector de eje simplemente no ofrece opciones hasta que se reintente
       // (ej. re-eligiendo la categoría), no vale la pena un banner de error para esto.
@@ -715,10 +748,11 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
         buying_mode: 'buy_it_now',
         description: { plain_text: this.effective(d.ml.description, '') },
         attributes: [
-          // Solo las características completadas: las vacías no se mandan (ML las rechaza).
-          // Para atributos con valores cerrados mandamos value_id (ML lo prefiere); si no, value_name.
+          // Solo las características completadas: las vacías no se mandan (ML las rechaza). Se excluye
+          // el atributo que ya se usa como EJE de variante (lo manda el backend por variación) para
+          // no mandarlo dos veces. Para valores cerrados va value_id (ML lo prefiere); si no, value_name.
           ...d.ml.attributes
-            .filter((a) => a.id && (a.valueId || a.value?.trim()))
+            .filter((a) => a.id && !d.axes.some((ax) => ax.mlAttributeId === a.id) && (a.valueId || a.value?.trim()))
             .map((a) => (a.valueId ? { id: a.id, value_id: a.valueId } : { id: a.id, value_name: a.value.trim() })),
           { id: 'SELLER_SKU', value_name: d.common.sku }
         ],
