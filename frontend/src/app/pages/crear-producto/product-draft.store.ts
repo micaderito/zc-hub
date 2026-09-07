@@ -396,13 +396,18 @@ export class ProductDraftStore {
     return all.some((t) => triggers.includes(t.id) && (t.valueId || t.value?.trim()));
   }
 
+  /** true si el atributo está mapeado a un eje de variante — lo maneja "Variantes", no la lista general. */
+  private attrUsedAsAxis(attrId: string): boolean {
+    return this.draft().axes.some((ax) => ax.mlAttributeId === attrId);
+  }
+
   readonly mlRequiredAttrs = computed(() => {
     const all = this.draft().ml.attributes;
-    return all.filter((a) => this.attrIsRequired(a, all));
+    return all.filter((a) => !this.attrUsedAsAxis(a.id) && this.attrIsRequired(a, all));
   });
   readonly mlOptionalAttrs = computed(() => {
     const all = this.draft().ml.attributes;
-    return all.filter((a) => !this.attrIsRequired(a, all));
+    return all.filter((a) => !this.attrUsedAsAxis(a.id) && !this.attrIsRequired(a, all));
   });
   /**
    * Categorías con muchos atributos meten 50-150 filas opcionales al DOM. Solo se arman cuando la
@@ -426,7 +431,7 @@ export class ProductDraftStore {
 
     if (!d.ml.categoryId) out.push('Elegí una categoría de Mercado Libre');
     const missingAttrs = d.ml.attributes
-      .filter((a) => this.attrIsRequired(a, d.ml.attributes) && !a.valueId && !a.value.trim())
+      .filter((a) => !this.attrUsedAsAxis(a.id) && this.attrIsRequired(a, d.ml.attributes) && !a.valueId && !a.value.trim())
       .map((a) => a.name || a.id);
     if (missingAttrs.length) out.push(`Completá en Mercado Libre: ${missingAttrs.join(', ')}`);
 

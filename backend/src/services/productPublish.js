@@ -631,9 +631,28 @@ export function planTnUnits(payload) {
 /** Crea UN producto de TN (imágenes + asociación por variante incluidas) — la unidad mínima. */
 export async function publishTnUnit(tnToken, storeId, unit) {
   const { body, uploadIds, forVariants } = unit;
+  // SKU de sonda para la idempotencia (la 1ª variante del producto, o el unitKey).
+  const probeSku = body.variants?.[0]?.sku || unit.unitKey || null;
+
+  // Si ya existe un producto con este SKU — reintento, o un 5xx anterior que igual creó — lo
+  // adoptamos en vez de crear un duplicado (el bug de "me creó 3 veces la misma variante"). En ese
+  // caso NO re-subimos imágenes ni reordenamos: se conserva lo que el producto ya tenía.
+  const existing = probeSku ? await tn.findProductBySku(tnToken, storeId, probeSku).catch(() => null) : null;
+  if (existing?.id != null) {
+    return { externalId: existing.id, detail: `Producto #${existing.id} ya existía en TN (no se recreó)` };
+  }
+
   const embedded = await embedTnImages(uploadIds);
   const productBody = embedded ? { ...body, images: embedded } : body;
-  const product = await tn.createProduct(tnToken, storeId, productBody);
+  let product;
+  try {
+    product = await tn.createProduct(tnToken, storeId, productBody);
+  } catch (e) {
+    // TN devolvió error pero puede haber creado igual: chequeamos antes de dar por fallida la unidad.
+    const created = probeSku ? await tn.findProductBySku(tnToken, storeId, probeSku).catch(() => null) : null;
+    if (created?.id == null) throw e;
+    return { externalId: created.id, detail: `Producto #${created.id} creado (TN devolvió error pero el producto quedó)` };
+  }
   const productId = product?.id;
   if (productId == null) return { externalId: null, detail: 'TN no devolvió id de producto' };
   const tnImageMap = embedded

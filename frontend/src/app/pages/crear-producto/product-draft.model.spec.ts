@@ -127,8 +127,8 @@ describe('product-draft.model', () => {
       expect(draft.ml.attributes).toEqual([]);
       expect(draft.ml.images).toEqual([]);
       expect(draft.ml.currency).toBe('ARS');
-      // Default premium (mayor exposición) y sin garantía.
-      expect(draft.ml.listingType).toBe('gold_pro');
+      // Default Clásica (sin cuotas sin interés) y sin garantía.
+      expect(draft.ml.listingType).toBe('gold_special');
       expect(draft.ml.warrantyType).toBe('Sin garantía');
       expect(draft.ml.shippingMode).toBe('me2');
       expect(draft.ml.freeShipping).toBeFalse();
