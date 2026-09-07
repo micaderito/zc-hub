@@ -30,6 +30,29 @@
               Llegaste al máximo de {{ mlLimit() }} fotos por variación. Sacá una para poder elegir otra.
             </span>
           }
+          @if (mlOrderedImages().length > 1) {
+            <div class="vpd-order">
+              <span class="hint"><i class="ti ti-arrows-move" aria-hidden="true"></i> orden de portada — arrastrá o tocá una para adelantarla</span>
+              <div class="vpd-order-strip">
+                @for (img of mlOrderedImages(); track img.uid || img.id; let i = $index) {
+                  <button
+                    type="button"
+                    class="vpd-order-tile"
+                    draggable="true"
+                    (dragstart)="onOrderDragStart('ml', i)"
+                    (dragover)="$event.preventDefault()"
+                    (drop)="onOrderDrop('ml', i)"
+                    (click)="i !== 0 && makeVariantCover('ml', i)"
+                    [title]="i === 0 ? 'Portada' : 'Tocar para hacer portada'"
+                  >
+                    <zc-product-thumb [src]="img.previewUrl" />
+                    <span class="vpd-order-num">{{ i + 1 }}</span>
+                    @if (i === 0) { <span class="vpd-order-cover"><i class="ti ti-star-filled" aria-hidden="true"></i> Portada</span> }
+                  </button>
+                }
+              </div>
+            </div>
+          }
           <div class="vpd-grid">
             @for (img of mlPageImages(); track img.uid || img.id) {
               <button
@@ -59,7 +82,7 @@
       @if (tnImages().length) {
         <section class="vpd-channel">
           <div class="vpd-channel-head">
-            <span class="vpd-ch"><i class="ti ti-shopping-bag ico-tn" aria-hidden="true"></i> Tienda Nube</span>
+            <span class="vpd-ch"><span class="dot dot-tn" aria-hidden="true"></span> Tienda Nube</span>
             <span class="vpd-count">{{ tnSelectedCount() }} elegida{{ tnSelectedCount() === 1 ? '' : 's' }}</span>
           </div>
           <span class="hint">
@@ -68,6 +91,29 @@
               ? 'Cada variante es su propio producto: podés elegir varias.'
               : 'TN admite una sola foto por variante: al elegir otra, reemplaza la actual.' }}
           </span>
+          @if (tnOrderedImages().length > 1) {
+            <div class="vpd-order">
+              <span class="hint"><i class="ti ti-arrows-move" aria-hidden="true"></i> orden de portada — arrastrá o tocá una para adelantarla</span>
+              <div class="vpd-order-strip">
+                @for (img of tnOrderedImages(); track img.uid || img.id; let i = $index) {
+                  <button
+                    type="button"
+                    class="vpd-order-tile"
+                    draggable="true"
+                    (dragstart)="onOrderDragStart('tn', i)"
+                    (dragover)="$event.preventDefault()"
+                    (drop)="onOrderDrop('tn', i)"
+                    (click)="i !== 0 && makeVariantCover('tn', i)"
+                    [title]="i === 0 ? 'Portada' : 'Tocar para hacer portada'"
+                  >
+                    <zc-product-thumb [src]="img.previewUrl" />
+                    <span class="vpd-order-num">{{ i + 1 }}</span>
+                    @if (i === 0) { <span class="vpd-order-cover"><i class="ti ti-star-filled" aria-hidden="true"></i> Portada</span> }
+                  </button>
+                }
+              </div>
+            </div>
+          }
           <div class="vpd-grid">
             @for (img of tnPageImages(); track img.uid || img.id) {
               <button

@@ -125,6 +125,50 @@ describe('VariantPhotosDialogComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.vpd-tile').length).toBe(9);
   });
 
+  it('con 0 o 1 foto elegida no muestra la fila de orden de portada', () => {
+    const v = setup({ mlImages: 2 });
+    expect(fixture.nativeElement.querySelector('.vpd-order')).toBeNull();
+
+    fixture.nativeElement.querySelectorAll('.vpd-tile')[0].click();
+    fixture.detectChanges();
+    expect(v.ml.pictureIds).toEqual(['ml-0']);
+    expect(fixture.nativeElement.querySelector('.vpd-order')).toBeNull();
+  });
+
+  it('con 2+ fotos elegidas, tocar una que no es la primera la hace portada', () => {
+    const v = setup({ mlImages: 3 });
+    fixture.nativeElement.querySelectorAll('.vpd-tile')[0].click();
+    fixture.nativeElement.querySelectorAll('.vpd-tile')[1].click();
+    fixture.nativeElement.querySelectorAll('.vpd-tile')[2].click();
+    fixture.detectChanges();
+    expect(v.ml.pictureIds).toEqual(['ml-0', 'ml-1', 'ml-2']);
+
+    const orderTiles = fixture.nativeElement.querySelectorAll('.vpd-order-tile');
+    expect(orderTiles.length).toBe(3);
+    orderTiles[2].click();
+    fixture.detectChanges();
+
+    expect(v.ml.pictureIds).toEqual(['ml-2', 'ml-0', 'ml-1']);
+  });
+
+  it('arrastrar en la fila de orden reordena las fotos elegidas de la variante', () => {
+    const v = setup({ tnImages: 3 });
+    store.setMode('tn', 'one_per_variant');
+    fixture.detectChanges();
+    fixture.nativeElement.querySelectorAll('.vpd-tile')[0].click();
+    fixture.nativeElement.querySelectorAll('.vpd-tile')[1].click();
+    fixture.nativeElement.querySelectorAll('.vpd-tile')[2].click();
+    fixture.detectChanges();
+    expect(v.tn.imageIds).toEqual(['tn-0', 'tn-1', 'tn-2']);
+
+    const orderTiles = fixture.nativeElement.querySelectorAll('.vpd-order-tile');
+    orderTiles[2].dispatchEvent(new DragEvent('dragstart'));
+    orderTiles[0].dispatchEvent(new DragEvent('drop'));
+    fixture.detectChanges();
+
+    expect(v.tn.imageIds).toEqual(['tn-2', 'tn-0', 'tn-1']);
+  });
+
   it('emite close al tocar el backdrop y con Escape', () => {
     setup({ mlImages: 1 });
     let cerrado = 0;

@@ -35,11 +35,6 @@
   font-size: 1.05rem;
 }
 
-.ico-tn {
-  color: var(--tn);
-  font-size: 0.95rem;
-}
-
 .dot {
   width: 11px;
   height: 11px;
@@ -47,8 +42,16 @@
   display: inline-block;
 }
 
+/*
+ * Mismo cuadrado para los dos canales (antes TN alternaba entre este ícono, el texto "◆" sin
+ * color y el ícono `ti-shopping-bag` según la sección): un solo patrón visual para "esto es de
+ * ML" / "esto es de TN" en toda la página.
+ */
 .dot-ml {
   background: var(--ml);
+}
+.dot-tn {
+  background: var(--tn);
 }
 
 .field {

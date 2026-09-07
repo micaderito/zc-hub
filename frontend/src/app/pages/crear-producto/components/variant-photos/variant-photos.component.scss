@@ -42,10 +42,12 @@
   height: 10px;
   border-radius: 3px;
   display: inline-block;
+}
+.dot-ml {
   background: var(--ml);
 }
-.ico-tn {
-  color: var(--tn);
+.dot-tn {
+  background: var(--tn);
 }
 
 .lbl {

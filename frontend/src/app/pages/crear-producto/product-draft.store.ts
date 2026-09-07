@@ -661,6 +661,20 @@ export class ProductDraftStore {
     this.touch();
   }
 
+  /** Reordena las fotos YA elegidas de una variante (la primera es su portada en ese canal). */
+  reorderVariantImage(channel: Channel, v: ProductVariant, from: number, to: number): void {
+    const list = channel === 'ml' ? v.ml.pictureIds : v.tn.imageIds;
+    if (from === to || from < 0 || from >= list.length || to < 0 || to >= list.length) return;
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    this.touch();
+  }
+
+  /** Mueve una foto ya elegida de la variante al frente (= portada de esa publicación). */
+  makeVariantCover(channel: Channel, v: ProductVariant, index: number): void {
+    this.reorderVariantImage(channel, v, index, 0);
+  }
+
   /* ---------- borradores locales (varios a la vez, localStorage) ---------- */
 
   private genId(): string {
