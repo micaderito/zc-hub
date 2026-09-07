@@ -296,7 +296,9 @@ export function emptyDraft(): ProductDraft {
       title: inherited(''),
       categoryId: '',
       categoryName: '',
-      listingType: 'gold_pro',
+      // Clásica por default: NO ofrece "cuotas sin interés" (en Premium las financia ML y el
+      // vendedor paga más comisión). Se puede subir a Premium por producto en el form.
+      listingType: 'gold_special',
       currency: 'ARS',
       warrantyType: 'Sin garantía',
       warrantyTime: '',

@@ -441,6 +441,16 @@ sin acentos/mayúsculas), si no `value_name`; sin mapeo, atributo personalizado 
 sin `id` de categoría, que ML también acepta). `categoryAttrs()` excluye el atributo ya usado como
 eje de la lista general, para no mandarlo dos veces.
 
+**`allowVariations` que NO es eje = característica normal.** `loadMlAttributes` mete TODOS los
+atributos a `d.ml.attributes` (antes filtraba los `allowVariations`). El store los esconde de
+`mlRequiredAttrs`/`mlOptionalAttrs` **solo si están mapeados a un eje** (`attrUsedAsAxis`), y
+`buildPayloads` no los manda dos veces. Así un atributo como `YEAR` ("Año" en agendas, que ML marca
+`allow_variations`) que la usuaria NO usa como eje aparece en "Más características (opcionales)" para
+completar una vez (`Año = 2027`) y viaja en todas las publicaciones. `refreshMlVariationAttrs` (path
+de restaurar un borrador) ahora además **mergea** los atributos de la categoría que falten en
+`d.ml.attributes` sin pisar los valores ya cargados — así un borrador migrado toma campos que ML
+agregó después.
+
 **Atributos `conditional_required` (par `SALE_FORMAT` ↔ `UNITS_PER_PACK`).** Incidente 2026-09-07:
 publicar en categorías de librería (cuadernos, agendas) fallaba con *"Attribute [UNITS_PER_PACK] to
 be added…; 'Unidades por pack': Completá este campo porque completaste 'Unidad'"*. Causa: el
@@ -613,6 +623,24 @@ sin variantes generadas. `canPublish` = lista vacía. La lista se muestra arriba
 **el botón "Publicar en ambos" (y el ▾) quedan deshabilitados** con `!canPublish()`. `publish()` no
 se auto-bloquea (el gate es el botón; el reintento de un canal no pasa por la validación).
 
+**Idempotencia de la creación en TN.** TN a veces devuelve 5xx habiendo creado el producto igual;
+el job se marcaba error y el reintento re-encolado volvía a llamar `createProduct` → "me creó 3
+veces la misma variante". `publishTnUnit` ahora busca por SKU (`tn.findProductBySku`, `GET
+/products?q=<sku>`) **antes** de crear —y **después** si `createProduct` tira— y adopta el producto
+existente en vez de duplicar (sin re-subir imágenes). Si `q` no matchea el SKU en la tienda,
+`findProductBySku` devuelve `null` y el flujo cae al de antes (sin verificar contra la API real).
+
+**Default de tipo de publicación = "Clásica" (`gold_special`).** Antes era `gold_pro` ("Premium"),
+que activa "cuotas sin interés" (las financia ML y el vendedor paga más comisión) — salía sin que
+la usuaria lo pidiera. Se puede subir a Premium por producto en el form.
+
+**`LOCAL_TEST_MODE=1`** (`backend/src/index.js`): para levantar el backend LOCAL contra el `.env` de
+PROD y probar el flujo de publicación de punta a punta. Arranca **solo la API + el publish worker**;
+NO el worker de `ml_pending_tasks` (haría cambios de stock reales), NI el auto-refresh del token de
+ML (el refresh token es de un solo uso — si local lo rota, prod pierde la sesión), NI el barrido de
+ventas ni el purgado de imágenes. Nunca ponerla en el deploy. Durante la prueba conviene pausar
+Railway para que el job lo tome el worker local (`FOR UPDATE SKIP LOCKED` lo da a cualquiera de los dos).
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
@@ -655,7 +683,9 @@ uno inválido (vacío / `value_id` espurio) a `1`, no lo inventa sin `SALE_FORMA
 de una familia `one_per_variant`), `backend/test/richText.test.js`
 (texto plano → HTML, HTML existente intacto), `backend/test/mlUserProducts.test.js` (detección del
 tag + caché), `backend/test/productPublishTnEmbed.test.js` (imágenes embebidas por URL, portada =
-orden de la variante y no de la galería), `backend/test/imageStore.test.js` +
+orden de la variante y no de la galería), `backend/test/publishTnUnit.test.js` (idempotencia:
+adopta un producto que ya existe por SKU / 5xx-pero-creado lo adopta / 5xx real propaga / camino
+feliz), `backend/test/imageStore.test.js` +
 `imageStoreSupabase.test.js` (backend de disco vs. Supabase, purgado respetando lo referenciado),
 `backend/test/publishWorker.test.js` (skip de unidades ya `ok` en un reintento, error parcial que
 no frena el otro canal, latido sin dejar intervals colgados, que `seedPublishUnits` siembre TODAS
@@ -672,9 +702,12 @@ reabrir un borrador reconstruye un job terminado sin republicar / retoma el poll
 curso / no muestra nada sin jobs previos, `publishErrorSummary`, `cancelPublish()` que corta el
 polling y pasa a `cancelled`, `publishBlockers`/`canPublish` (borrador completo sin bloqueadores /
 lista de faltantes / atributo obligatorio de ML / SKU+precio por variante / botón deshabilitado),
-y `UNITS_PER_PACK`
+`UNITS_PER_PACK`
 condicional: sube a obligatorios + se precarga en 1 cuando `SALE_FORMAT` tiene valor, sigue
-opcional si no) y `catalog.service.spec.ts` (los endpoints nuevos).
+opcional si no, y los atributos `allowVariations`: entran a `ml.attributes` + son candidatos a eje,
+se ven como opcionales si NO son eje y se esconden si lo son, y `refreshMlVariationAttrs` mergea
+atributos nuevos de la categoría sin pisar valores) y `catalog.service.spec.ts` (los endpoints
+nuevos). `product-draft.model.spec.ts` fija el default `gold_special`.
 `backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
 
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

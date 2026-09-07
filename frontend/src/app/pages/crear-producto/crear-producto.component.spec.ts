@@ -1095,18 +1095,51 @@ describe('CrearProductoComponent', () => {
       expect(fixture.nativeElement.querySelector('zc-ml-attributes')?.textContent).toContain('Marca');
     }));
 
-    it('atributos con allowVariations van a mlVariationAttrs (selector de eje), no a la lista general', fakeAsync(() => {
+    it('atributos con allowVariations: van a mlVariationAttrs Y a la lista general; se esconden de la lista solo si se usan como eje', fakeAsync(() => {
       catalog.mlAttributes = [
         { id: 'BRAND', name: 'Marca', valueType: 'string', required: true, allowedValues: [] },
+        { id: 'YEAR', name: 'Año', valueType: 'number', required: false, allowVariations: true, allowedValues: [] },
         { id: 'COLOR', name: 'Color', valueType: 'list', required: false, allowVariations: true, allowedValues: [{ id: '1', name: 'Negro' }] }
       ];
       void component.loadMlAttributes('MLA388307');
       flushMicrotasks();
 
-      const ids = component.draft().ml.attributes.map((a) => a.id);
-      expect(ids).toContain('BRAND');
-      expect(ids).not.toContain('COLOR');
-      expect(component.store.mlVariationAttrs().map((a) => a.id)).toEqual(['COLOR']);
+      // Todos entran a ml.attributes; los allowVariations también quedan como candidatos a eje.
+      expect(component.draft().ml.attributes.map((a) => a.id).sort()).toEqual(['BRAND', 'COLOR', 'YEAR']);
+      expect(component.store.mlVariationAttrs().map((a) => a.id).sort()).toEqual(['COLOR', 'YEAR']);
+
+      // Sin mapear a un eje, "Año" se ve como característica opcional (para completar una vez).
+      expect(component.mlOptionalAttrs().map((a) => a.id)).toContain('YEAR');
+
+      // Al mapear COLOR a un eje, desaparece de la lista general (lo maneja "Variantes").
+      component.addAxis();
+      component.draft().axes[0].mlAttributeId = 'COLOR';
+      component.touch();
+      expect(component.mlOptionalAttrs().map((a) => a.id)).not.toContain('COLOR');
+      expect(component.mlOptionalAttrs().map((a) => a.id)).toContain('YEAR');
+      tick(1600);
+    }));
+
+    it('al restaurar, refreshMlVariationAttrs mergea atributos nuevos de la categoría sin pisar los valores cargados', fakeAsync(() => {
+      // borrador "viejo": solo tiene BRAND cargado con valor
+      component.draft().ml.categoryId = 'MLA40513';
+      component.draft().ml.attributes = [
+        { id: 'BRAND', name: 'Marca', value: 'ZC', required: true, inherited: false, valueType: 'string', allowedValues: [] }
+      ];
+      // la categoría ahora además pide "Año"
+      catalog.mlAttributes = [
+        { id: 'BRAND', name: 'Marca', valueType: 'string', required: true, allowedValues: [] },
+        { id: 'YEAR', name: 'Año', valueType: 'number', required: false, allowVariations: true, allowedValues: [] }
+      ];
+
+      void (component as unknown as { refreshMlVariationAttrs(id: string): Promise<void> }).refreshMlVariationAttrs('MLA40513');
+      flushMicrotasks();
+
+      const brand = component.draft().ml.attributes.find((a) => a.id === 'BRAND')!;
+      expect(brand.value).toBe('ZC'); // NO se pisó
+      expect(component.draft().ml.attributes.some((a) => a.id === 'YEAR')).toBeTrue(); // se sumó
+      expect(component.mlOptionalAttrs().map((a) => a.id)).toContain('YEAR');
+      tick(1600);
     }));
 
     it('UNITS_PER_PACK (conditional_required): sube a obligatorios y se precarga en 1 cuando SALE_FORMAT ya tiene valor', fakeAsync(() => {

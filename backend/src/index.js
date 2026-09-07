@@ -168,11 +168,24 @@ function scheduleTmpImagesPurge() {
   setInterval(run, TMP_IMAGES_PURGE_INTERVAL_MS);
 }
 
+/**
+ * `LOCAL_TEST_MODE=1`: para levantar el backend LOCAL apuntando al `.env` de PRODUCCIÓN y probar
+ * el flujo de publicación de punta a punta sin romper prod. Arranca SOLO la API + el publish
+ * worker; NO arranca el worker de `ml_pending_tasks` (haría cambios de stock reales), ni el
+ * refresco automático del token de ML (el refresh token es de UN SOLO USO — si local lo rota,
+ * prod pierde la sesión), ni el barrido de ventas ni el purgado de imágenes. Nunca poner esta
+ * variable en el deploy real.
+ */
+const LOCAL_TEST_MODE = process.env.LOCAL_TEST_MODE === '1';
+
 (async () => {
+  if (LOCAL_TEST_MODE) {
+    console.warn('⚠️  LOCAL_TEST_MODE=1 — solo API + publish worker (sin ml-task worker, schedulers ni auto-refresh de token). NO usar en prod.');
+  }
   const ok = await initDb();
   if (ok) {
     console.log('Base de datos (sync/audit) conectada.');
-    startMlTaskWorker();
+    if (!LOCAL_TEST_MODE) startMlTaskWorker();
     startPublishWorker();
   } else if (process.env.DATABASE_URL) {
     console.warn('No se pudo conectar a la base de datos. Revisá DATABASE_URL.');
@@ -180,6 +193,7 @@ function scheduleTmpImagesPurge() {
   await loadTokens();
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Backend escuchando en http://0.0.0.0:${PORT}`);
+    if (LOCAL_TEST_MODE) return;
     scheduleMlTokenRefresh();
     scheduleSalesSweep();
     scheduleTmpImagesPurge();

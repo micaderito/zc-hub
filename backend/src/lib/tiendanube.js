@@ -410,6 +410,27 @@ export async function getCategories(accessToken, storeId) {
   return all;
 }
 
+/**
+ * Busca un producto por SKU de variante. TN indexa el SKU en el parámetro `q`, así que una sola
+ * página alcanza. Sirve para la IDEMPOTENCIA de la creación: TN a veces devuelve 5xx habiendo
+ * creado igual, y sin este chequeo un reintento duplicaría el producto. null si no aparece.
+ * OJO: que `q` matchee el SKU está sin verificar contra la API real de esta tienda — si no lo
+ * hiciera, esta función devuelve `null` y el flujo cae al comportamiento de antes (no rompe nada).
+ */
+export async function findProductBySku(accessToken, storeId, sku) {
+  const norm = String(sku || '').trim().toLowerCase();
+  if (!norm) return null;
+  const url = `${getBaseUrl(storeId)}/products?q=${encodeURIComponent(sku)}&per_page=50`;
+  const res = await fetchTn(url, {
+    headers: { Authentication: `bearer ${accessToken}`, 'User-Agent': 'ZonacuadernoSync/1.0' }
+  });
+  if (!res.ok) return null;
+  const list = toList(await res.json());
+  return (
+    list.find((p) => (p.variants || []).some((v) => String(v.sku || '').trim().toLowerCase() === norm)) || null
+  );
+}
+
 /** GET /products/:id — un producto con sus variants e images embebidos (para refrescar el snapshot). */
 export async function getProduct(accessToken, storeId, productId) {
   const url = `${getBaseUrl(storeId)}/products/${productId}`;
