@@ -25,10 +25,20 @@ import {
   PUBLISH_JOB_HEARTBEAT_MS
 } from '../db.js';
 import { planMlUnits, planTnUnits, publishMlUnit, publishTnUnit } from './productPublish.js';
+import { reconcileStalePublishJobs } from '../db.js';
 import { getMlToken, tokens } from '../store.js';
 
 const POLL_INTERVAL_MS = 500;
+/**
+ * Techo de tiempo real que puede correr un job. Pasado esto, el latido deja de refrescar `locked_at`
+ * para que `claimNextPublishJob` pueda recuperarlo por lock vencido en vez de quedar clavado en
+ * `processing` para siempre (ej. un request a ML/TN colgado — que igual ya tiene timeout de red).
+ */
+const PUBLISH_JOB_MAX_RUNTIME_MS = 15 * 60 * 1000;
+/** Cada cuántos ticks se corre el barrido de jobs trabados (500ms * 120 = 1 min). */
+const STALE_SWEEP_EVERY_TICKS = 120;
 let workerTimer = null;
+let tickCount = 0;
 
 /**
  * Publica las unidades pendientes de UN canal para un job, registrando cada una apenas se
@@ -108,11 +118,19 @@ async function runTnChannel(job, payload, doneKeys) {
 
 /** Procesa un job completo: ambos canales en paralelo (igual que publishProduct), con latido. */
 export async function processJob(job) {
+  const startedAt = Date.now();
   const heartbeat = setInterval(() => {
+    // Techo: pasado el máximo dejamos de refrescar el lock, así un job realmente colgado vuelve a
+    // ser reclamable en vez de quedar en `processing` para siempre.
+    if (Date.now() - startedAt > PUBLISH_JOB_MAX_RUNTIME_MS) {
+      console.warn(`[PublishQueue] Job ${job.id} superó el máximo de runtime — dejo de refrescar el lock.`);
+      return;
+    }
     touchPublishJobLock(job.id).catch((e) => console.error('[PublishQueue] touchPublishJobLock:', e.message));
   }, PUBLISH_JOB_HEARTBEAT_MS);
   heartbeat.unref?.();
 
+  console.log(`[PublishQueue] Job ${job.id} arrancó (draft ${job.draftId}, canales ${job.channels}).`);
   try {
     const payload = JSON.parse(job.payloadJson);
     const channels = String(job.channels).split(',').map((s) => s.trim());
@@ -129,7 +147,12 @@ export async function processJob(job) {
       .filter((r) => r.status === 'error')
       .map((r) => `${r.channel}: ${r.detail}`)
       .join(' · ');
-    await finishPublishJob(job.id, allOk ? 'done' : 'error', allOk ? null : errorSummary);
+    const finalStatus = allOk ? 'done' : 'error';
+    const finished = await finishPublishJob(job.id, finalStatus, allOk ? null : errorSummary);
+    console.log(
+      `[PublishQueue] Job ${job.id} → ${finalStatus} en ${Math.round((Date.now() - startedAt) / 1000)}s ` +
+        `(${attempted.map((r) => `${r.channel}:${r.status}`).join(' ')})${finished ? '' : ' — ⚠️ finishPublishJob no actualizó la fila'}`
+    );
     await recomputeDraftStatus(job.draftId);
   } catch (e) {
     console.error(`[PublishQueue] Job ${job.id} falló inesperadamente:`, e.message);
@@ -144,6 +167,16 @@ export async function tick() {
   try {
     const job = await claimNextPublishJob();
     if (job) await processJob(job);
+    // Red de seguridad periódica: cierra jobs cuyas unidades ya están todas en estado terminal pero
+    // el job quedó en processing (worker que se cortó justo en el finish), y saca de la cola los
+    // zombis (processing con attempts >= 5).
+    if (++tickCount % STALE_SWEEP_EVERY_TICKS === 0) {
+      const fixed = await reconcileStalePublishJobs().catch((e) => {
+        console.error('[PublishQueue] reconcileStalePublishJobs:', e.message);
+        return 0;
+      });
+      if (fixed) console.log(`[PublishQueue] Barrido de trabados: ${fixed} job(s) cerrados.`);
+    }
   } catch (e) {
     console.error('[PublishQueue] Error en tick:', e.message);
   }

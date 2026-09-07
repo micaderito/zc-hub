@@ -1,0 +1,256 @@
+:host {
+  display: block;
+  padding: 18px 20px 90px;
+}
+
+.pub-page {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.pub-head {
+  margin-bottom: 14px;
+  h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+  }
+  p {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--text-2);
+    max-width: 60ch;
+  }
+}
+
+.pub-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+.pub-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pub-chip {
+  font: inherit;
+  font-size: 12px;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: 999px;
+  padding: 5px 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  &:hover {
+    background: var(--surface-2);
+  }
+  &.active {
+    background: var(--brand-bg);
+    color: var(--brand);
+    border-color: transparent;
+  }
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  display: inline-block;
+  &.dot-ml {
+    background: var(--ml);
+  }
+  &.dot-tn {
+    background: var(--tn);
+  }
+}
+
+.pub-msg {
+  font-size: 13px;
+  color: var(--text-2);
+  padding: 20px 0;
+  &.error {
+    color: var(--err);
+  }
+}
+.pub-empty {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-3);
+  i {
+    font-size: 34px;
+  }
+  p {
+    margin: 10px 0 0;
+    font-size: 13px;
+  }
+}
+.pub-progress {
+  height: 2px;
+  border-radius: 2px;
+  margin-bottom: 8px;
+  background: linear-gradient(90deg, transparent, var(--brand), transparent);
+  animation: pub-shimmer 1.1s linear infinite;
+}
+@keyframes pub-shimmer {
+  from {
+    background-position: -200px 0;
+  }
+  to {
+    background-position: 200px 0;
+  }
+}
+
+.pub-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pub-row {
+  overflow: hidden;
+}
+.pub-row-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  &:hover {
+    background: var(--surface-2);
+  }
+}
+.pub-caret {
+  color: var(--text-3);
+  font-size: 15px;
+  flex: none;
+}
+.pub-row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.pub-name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pub-sku {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.pub-channels {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+.pub-units {
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.pub-units-err {
+  color: var(--err);
+}
+.pub-date {
+  font-size: 11px;
+  color: var(--text-3);
+  flex: none;
+  white-space: nowrap;
+}
+
+.pub-detail {
+  border-top: 1px solid var(--border);
+  padding: 10px 12px 12px;
+}
+.pub-detail-err {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--err);
+  overflow-wrap: anywhere;
+}
+.pub-units-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pub-unit {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+  &:first-child {
+    border-top: none;
+  }
+  .zc-badge {
+    flex: none;
+  }
+}
+.pub-unit-key {
+  font-weight: 600;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.pub-unit-id {
+  flex: none;
+  font-size: 11px;
+  color: var(--brand);
+  text-decoration: none;
+  &:hover {
+    text-decoration: underline;
+  }
+  i {
+    font-size: 11px;
+  }
+}
+.pub-unit-detail {
+  color: var(--text-2);
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pub-unit-icon {
+  flex: none;
+  font-size: 14px;
+}
+.pub-unit.ok .pub-unit-icon {
+  color: var(--ok);
+}
+.pub-unit.err .pub-unit-icon {
+  color: var(--err);
+}
+.pub-unit.pending {
+  opacity: 0.65;
+}
+
+.pub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.zc-btn.danger {
+  color: var(--err);
+}

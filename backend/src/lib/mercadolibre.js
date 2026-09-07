@@ -38,6 +38,23 @@ function waitFor429(res, context = '', attemptIndex = 0) {
 
 /** Máximo de reintentos ante 429 (intentos totales = max429Retries + 1). */
 const MAX_429_RETRIES = 5;
+/**
+ * Timeout de red por request. `node-fetch` v3 NO trae timeout; sin esto un request colgado a ML
+ * deja al worker de publicación esperando para siempre y el job nunca cierra. Un abort tira un
+ * Error con `.timeout = true` (no un FetchError genérico).
+ */
+const ML_TIMEOUT_MS = 30_000;
+
+function mlFetch(url, options = {}) {
+  return fetch(url, { ...options, signal: AbortSignal.timeout(ML_TIMEOUT_MS) }).catch((e) => {
+    if (e?.name === 'AbortError' || e?.name === 'TimeoutError' || e?.code === 'ABORT_ERR') {
+      const err = new Error(`ML request timeout (${Math.round(ML_TIMEOUT_MS / 1000)}s): ${options.method || 'GET'} ${url}`);
+      err.timeout = true;
+      throw err;
+    }
+    throw e;
+  });
+}
 
 /**
  * GET (o otro) a la API de ML con reintentos ante 429. Respeta Retry-After; si no
@@ -46,7 +63,7 @@ const MAX_429_RETRIES = 5;
  */
 export async function fetchWith429Retry(url, options = {}, context = '') {
   recordMlRequest(context);
-  let res = await mlSchedule(() => fetch(url, options));
+  let res = await mlSchedule(() => mlFetch(url, options));
   for (let r = 0; r < MAX_429_RETRIES && res.status === 429; r++) {
     // Alimenta el circuit breaker global: N 429 consecutivos abren el circuito y pausan TODO el
     // caño por un cooldown escalado, para que un bloqueo sostenido de ML pueda levantarse.
@@ -55,7 +72,7 @@ export async function fetchWith429Retry(url, options = {}, context = '') {
       console.warn(`[ML] circuit breaker abierto tras 429 sostenidos: pausando TODO el caño ${Math.round(cooldownMs / 1000)}s (${context})`);
     }
     await waitFor429(res, context, r);
-    res = await mlSchedule(() => fetch(url, options));
+    res = await mlSchedule(() => mlFetch(url, options));
   }
   if (res.status !== 429) recordMlOk();
   return res;

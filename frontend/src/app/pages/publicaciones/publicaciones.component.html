@@ -1,0 +1,112 @@
+<div class="pub-page">
+  <header class="pub-head">
+    <div>
+      <h1>Publicaciones</h1>
+      <p>Historial de lo que se publicó en Mercado Libre y Tienda Nube. Cada fila es un intento; abrila para ver las publicaciones creadas.</p>
+    </div>
+  </header>
+
+  <div class="pub-toolbar">
+    <zc-search-bar [value]="search()" (valueChange)="search.set($event)" placeholder="Buscar por producto, SKU o id…" />
+    <div class="pub-chips">
+      @for (o of statusOptions; track o.key) {
+        <button type="button" class="pub-chip" [class.active]="statusFilter() === o.key" (click)="statusFilter.set(o.key)">
+          {{ o.label }}
+        </button>
+      }
+    </div>
+    <div class="pub-chips">
+      <button type="button" class="pub-chip" [class.active]="channelFilter() === ''" (click)="channelFilter.set('')">Ambos canales</button>
+      <button type="button" class="pub-chip" [class.active]="channelFilter() === 'ml'" (click)="channelFilter.set('ml')">
+        <span class="dot dot-ml"></span> ML
+      </button>
+      <button type="button" class="pub-chip" [class.active]="channelFilter() === 'tn'" (click)="channelFilter.set('tn')">
+        <span class="dot dot-tn"></span> TN
+      </button>
+    </div>
+  </div>
+
+  @if (jobsQuery.isPending()) {
+    <p class="pub-msg">Cargando…</p>
+  } @else if (jobsQuery.isError()) {
+    <p class="pub-msg error">No se pudo cargar el historial. <button type="button" class="zc-btn small" (click)="jobsQuery.refetch()">Reintentar</button></p>
+  } @else if (rows().length === 0) {
+    <div class="pub-empty">
+      <i class="ti ti-rocket-off"></i>
+      <p>{{ appliedSearch() || statusFilter() || channelFilter() ? 'No hay publicaciones que coincidan con el filtro.' : 'Todavía no publicaste ningún producto.' }}</p>
+    </div>
+  } @else {
+    @if (jobsQuery.isFetching()) { <div class="pub-progress"></div> }
+    <ul class="pub-list">
+      @for (job of rows(); track job.id) {
+        <li class="pub-row zc-card" [class.expanded]="expandedId() === job.id">
+          <button type="button" class="pub-row-head" (click)="toggle(job.id)">
+            <i class="ti pub-caret" [class.ti-chevron-right]="expandedId() !== job.id" [class.ti-chevron-down]="expandedId() === job.id"></i>
+            <div class="pub-row-main">
+              <span class="pub-name">{{ job.draftName || 'Borrador sin nombre' }}</span>
+              @if (job.draftSku) { <span class="pub-sku">{{ job.draftSku }}</span> }
+            </div>
+            <span class="pub-channels">
+              @for (c of channelsOf(job); track c) {
+                <span class="zc-badge" [class.ml]="c === 'ml'" [class.tn]="c === 'tn'">{{ c === 'ml' ? 'ML' : 'TN' }}</span>
+              }
+            </span>
+            <span class="pub-units">{{ job.unitsOk }}/{{ job.unitsTotal }}@if (job.unitsErr) { <span class="pub-units-err"> · {{ job.unitsErr }} error</span> }</span>
+            <span class="zc-badge" [class]="statusClass(job.status)">{{ statusLabel(job.status) }}</span>
+            <span class="pub-date">{{ job.createdAt | date: 'short' }}</span>
+          </button>
+
+          @if (expandedId() === job.id) {
+            <div class="pub-detail">
+              @if (job.lastError && job.status === 'error') {
+                <p class="pub-detail-err">{{ job.lastError }}</p>
+              }
+              @if (detailQuery.isPending()) {
+                <p class="pub-msg">Cargando detalle…</p>
+              } @else if (detailUnits().length === 0) {
+                <p class="pub-msg">Sin unidades registradas.</p>
+              } @else {
+                <ul class="pub-units-list">
+                  @for (u of detailUnits(); track u.channel + u.unitKey + u.seq) {
+                    <li class="pub-unit" [class.ok]="u.status === 'ok'" [class.err]="u.status === 'error'" [class.pending]="u.status === 'pending'">
+                      <span class="zc-badge" [class.ml]="u.channel === 'ml'" [class.tn]="u.channel === 'tn'">{{ u.channel === 'ml' ? 'ML' : 'TN' }}</span>
+                      <span class="pub-unit-key">{{ u.unitKey || 'producto' }}</span>
+                      @if (u.externalId) {
+                        @if (externalUrl(u); as href) {
+                          <a class="pub-unit-id" [href]="href" target="_blank" rel="noopener">{{ u.externalId }} <i class="ti ti-external-link"></i></a>
+                        } @else {
+                          <code class="pub-unit-id">{{ u.externalId }}</code>
+                        }
+                      }
+                      <span class="pub-unit-detail">{{ u.detail }}</span>
+                      @if (u.status === 'ok') { <i class="ti ti-check pub-unit-icon"></i> }
+                      @else if (u.status === 'error') { <i class="ti ti-x pub-unit-icon"></i> }
+                      @else { <i class="ti ti-clock pub-unit-icon"></i> }
+                    </li>
+                  }
+                </ul>
+              }
+              <div class="pub-actions">
+                @if (job.status === 'error') {
+                  <button type="button" class="zc-btn small primary" [disabled]="busyId() === job.id" (click)="retry(job, $event)">
+                    <i class="ti ti-refresh"></i> Reintentar
+                  </button>
+                }
+                @if (job.status === 'pending' || job.status === 'processing') {
+                  <button type="button" class="zc-btn small" [disabled]="busyId() === job.id" (click)="cancel(job, $event)">
+                    <i class="ti ti-x"></i> Cancelar
+                  </button>
+                }
+                <button type="button" class="zc-btn small danger" [disabled]="busyId() === job.id" (click)="remove(job, $event)">
+                  <i class="ti ti-trash"></i> Borrar del historial
+                </button>
+              </div>
+            </div>
+          }
+        </li>
+      }
+    </ul>
+
+    <zc-pagination [currentPage]="page()" [totalPages]="totalPages()" [total]="total()" (prev)="prevPage()" (next)="nextPage()" />
+  }
+</div>

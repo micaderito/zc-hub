@@ -401,9 +401,9 @@ function normalizeTnVariant(v) {
 }
 
 /**
- * Construye el/los producto(s) de TN según el modo de mapeo. NO incluye imágenes: en TN se suben
- * después de crear el producto (necesitan el product_id), salvo que se embeban por URL en el
- * propio POST de creación (ver publishTn / embedTnImages).
+ * Construye el/los producto(s) de TN según el modo de mapeo. NO incluye imágenes: en TN el producto
+ * se crea pelado y las fotos se suben después de a una (ver syncTnProductImages), porque necesitan
+ * el product_id y porque embeber 10+ en el POST hace que TN corte con 500.
  */
 /**
  * TN modela `description` (igual que `name`) como un objeto por idioma (`{es, pt?}`), no un
@@ -479,93 +479,63 @@ export function buildTnProducts(payload) {
 }
 
 /**
- * Imágenes listas para embeber en el `POST /products` (`images:[{src,position}]`), o `null` si
- * falta la URL pública de alguna (imageStore sin Supabase configurado) — en ese caso se cae al
- * camino de subida por imagen (`uploadTnImages`).
+ * Deja el producto de TN con EXACTAMENTE las imágenes de `tempIds`, en ese orden (`position` 1 =
+ * portada). Sube DE A UNA las que falten — a diferencia de embeber 10+ en el `POST /products`, que
+ * TN baja dentro del request y corta con 500 dejando el producto a medias (doc TN: máx. 9 en la
+ * creación, el resto por `POST /products/{id}/images`). Es IDEMPOTENTE: si el producto ya tiene
+ * algunas (reintento, o una creación parcial), completa sólo las que faltan y no duplica. Prefiere
+ * `src` (URL pública de Supabase, descarga server-to-server) y cae a base64 si no hay URL.
+ * Devuelve el map `tempId → id de imagen de TN` (para asociar a las variantes).
  */
-async function embedTnImages(tempIds) {
-  if (!tempIds?.length) return [];
-  const out = [];
-  for (let i = 0; i < tempIds.length; i++) {
-    const url = await getImageUrl(tempIds[i]);
-    if (!url) return null;
-    out.push({ src: url, position: i + 1 });
-  }
-  return out;
-}
-
-/** Arma tempId → id de imagen de TN a partir de las `images[]` que devuelve el POST de creación. */
-function tnImageMapFromCreated(product, tempIds) {
+async function syncTnProductImages(tnToken, storeId, productId, tempIds) {
   const map = new Map();
-  const images = Array.isArray(product?.images)
-    ? [...product.images].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-    : [];
-  tempIds.forEach((tempId, i) => {
-    if (images[i]?.id != null) map.set(tempId, images[i].id);
-  });
-  return map;
-}
+  if (!tempIds?.length) return map;
 
-/**
- * Verifica el orden final de las imágenes embebidas contra `GET .../images` y corrige con PUT las
- * que no hayan quedado en la posición pedida (TN no siempre honra el orden del POST). No frena la
- * publicación si la verificación falla: queda logueado, la portada más probable es igual la 1ª.
- */
-async function reconcileTnImageOrder(tnToken, storeId, productId, tempIds, tnImageMap) {
-  if (!tempIds.length) return tnImageMap; // nada que embeber ni que verificar
+  let current = [];
   try {
-    const real = await tn.getProductImages(tnToken, storeId, productId);
-    const positionOf = new Map((real || []).map((img) => [img.id, img.position]));
-    for (let i = 0; i < tempIds.length; i++) {
-      const wanted = i + 1;
-      const tnImageId = tnImageMap.get(tempIds[i]);
-      if (tnImageId == null) continue;
-      if (positionOf.get(tnImageId) !== wanted) {
-        try {
-          await tn.updateProductImagePosition(tnToken, storeId, productId, tnImageId, wanted);
-        } catch (e) {
-          console.warn('[TN] no se pudo reordenar imagen embebida', tnImageId, e.message);
+    current = await tn.getProductImages(tnToken, storeId, productId);
+  } catch (e) {
+    console.warn('[TN] no se pudo leer las imágenes del producto', productId, '—', e.message);
+  }
+  current = [...current].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+  for (let i = 0; i < tempIds.length; i++) {
+    const wanted = i + 1;
+    const already = current[i]; // subimos en orden, así que la posición i ↔ tempIds[i]
+    if (already?.id != null) {
+      map.set(tempIds[i], already.id);
+      if (already.position != null && already.position !== wanted) {
+        await tn
+          .updateProductImagePosition(tnToken, storeId, productId, already.id, wanted)
+          .catch((e) => console.warn('[TN] no se pudo reordenar imagen', already.id, e.message));
+      }
+      continue;
+    }
+    // Falta: subirla de a una.
+    let created = null;
+    try {
+      const url = await getImageUrl(tempIds[i]).catch(() => null);
+      if (url) {
+        created = await tn.createProductImage(tnToken, storeId, productId, { src: url, position: wanted });
+      } else {
+        const img = await getImage(tempIds[i]);
+        if (img) {
+          created = await tn.createProductImage(tnToken, storeId, productId, {
+            filename: img.filename,
+            base64: img.buffer.toString('base64'),
+            position: wanted
+          });
         }
       }
+    } catch (e) {
+      console.warn('[TN] no se pudo subir la imagen', tempIds[i], 'al producto', productId, '—', e.message);
     }
-  } catch (e) {
-    console.warn('[TN] no se pudo verificar el orden final de imágenes', e.message);
-  }
-  return tnImageMap;
-}
-
-/**
- * Sube una lista concreta de imágenes (por id temporal) a un producto ya creado, SECUENCIALMENTE
- * y en el orden dado (`position` 1 = portada). TN no siempre honra el `position` del POST, así que
- * al final se hace una pasada de reconciliación con PUT para garantizar el orden/portada exactos.
- * Camino de respaldo cuando no hay URL pública para embeber en la creación (ver embedTnImages).
- * Devuelve el map id temporal → id de imagen de TN.
- */
-async function uploadTnImages(tnToken, storeId, productId, tempIds) {
-  const map = new Map();
-  const uploaded = []; // { tnImageId, wanted, got } en el orden deseado
-  let position = 1;
-  for (const tempId of tempIds || []) {
-    const img = await getImage(tempId);
-    if (!img) continue;
-    const wanted = position++;
-    const created = await tn.createProductImage(tnToken, storeId, productId, {
-      filename: img.filename,
-      base64: img.buffer.toString('base64'),
-      position: wanted
-    });
     if (created?.id != null) {
-      map.set(tempId, created.id);
-      uploaded.push({ tnImageId: created.id, wanted, got: created.position });
-    }
-  }
-  // Reconciliación: corrige las que TN no dejó en la posición pedida (garantiza la portada).
-  for (const u of uploaded) {
-    if (u.got !== u.wanted) {
-      try {
-        await tn.updateProductImagePosition(tnToken, storeId, productId, u.tnImageId, u.wanted);
-      } catch (e) {
-        console.warn('[TN] no se pudo reordenar imagen', u.tnImageId, e.message);
+      map.set(tempIds[i], created.id);
+      if (created.position != null && created.position !== wanted) {
+        await tn
+          .updateProductImagePosition(tnToken, storeId, productId, created.id, wanted)
+          .catch((e) => console.warn('[TN] no se pudo reordenar imagen recién subida', created.id, e.message));
       }
     }
   }
@@ -628,38 +598,54 @@ export function planTnUnits(payload) {
   });
 }
 
-/** Crea UN producto de TN (imágenes + asociación por variante incluidas) — la unidad mínima. */
+/** Recorta un mensaje de error largo para meterlo en el `detail` de la unidad (se ve en la UI). */
+function trimErr(msg) {
+  const s = String(msg || '').replace(/\s+/g, ' ').trim();
+  return s.length > 220 ? `${s.slice(0, 217)}…` : s;
+}
+
+/**
+ * Crea (o completa) UN producto de TN. La creación NO embebe las fotos: crea el producto pelado y
+ * después sube las imágenes DE A UNA (ver syncTnProductImages) — así un 500 de TN no deja el
+ * producto a medias. Idempotente: si ya existe por SKU (reintento, o un 5xx que igual creó), lo
+ * adopta y COMPLETA sus fotos en vez de duplicar.
+ */
 export async function publishTnUnit(tnToken, storeId, unit) {
   const { body, uploadIds, forVariants } = unit;
-  // SKU de sonda para la idempotencia (la 1ª variante del producto, o el unitKey).
   const probeSku = body.variants?.[0]?.sku || unit.unitKey || null;
+  // El body de creación va SIN imágenes (se suben aparte). Sacamos `images` por si vino en el body.
+  const { images: _drop, ...createBody } = body;
 
-  // Si ya existe un producto con este SKU — reintento, o un 5xx anterior que igual creó — lo
-  // adoptamos en vez de crear un duplicado (el bug de "me creó 3 veces la misma variante"). En ese
-  // caso NO re-subimos imágenes ni reordenamos: se conserva lo que el producto ya tenía.
-  const existing = probeSku ? await tn.findProductBySku(tnToken, storeId, probeSku).catch(() => null) : null;
-  if (existing?.id != null) {
-    return { externalId: existing.id, detail: `Producto #${existing.id} ya existía en TN (no se recreó)` };
+  // ¿Ya existe? (reintento) → lo adoptamos y completamos.
+  let product = probeSku ? await tn.findProductBySku(tnToken, storeId, probeSku).catch(() => null) : null;
+  let note = product ? ' (ya existía en TN, se completó)' : '';
+
+  if (!product) {
+    try {
+      product = await tn.createProduct(tnToken, storeId, createBody);
+    } catch (e) {
+      // TN devolvió error pero puede haber creado igual: reintentamos la búsqueda (el índice de TN
+      // tarda unos segundos en indexar lo recién creado) antes de dar por fallida la unidad.
+      const recheck = probeSku
+        ? await tn.findProductBySku(tnToken, storeId, probeSku, { retries: 2, delayMs: 2500 }).catch(() => null)
+        : null;
+      if (recheck?.id == null) throw e;
+      product = recheck;
+      note = ` (TN devolvió error en la creación pero el producto quedó: ${trimErr(e.message)})`;
+    }
   }
 
-  const embedded = await embedTnImages(uploadIds);
-  const productBody = embedded ? { ...body, images: embedded } : body;
-  let product;
-  try {
-    product = await tn.createProduct(tnToken, storeId, productBody);
-  } catch (e) {
-    // TN devolvió error pero puede haber creado igual: chequeamos antes de dar por fallida la unidad.
-    const created = probeSku ? await tn.findProductBySku(tnToken, storeId, probeSku).catch(() => null) : null;
-    if (created?.id == null) throw e;
-    return { externalId: created.id, detail: `Producto #${created.id} creado (TN devolvió error pero el producto quedó)` };
-  }
   const productId = product?.id;
   if (productId == null) return { externalId: null, detail: 'TN no devolvió id de producto' };
-  const tnImageMap = embedded
-    ? await reconcileTnImageOrder(tnToken, storeId, productId, uploadIds, tnImageMapFromCreated(product, uploadIds))
-    : await uploadTnImages(tnToken, storeId, productId, uploadIds);
-  await assignTnVariantImages(tnToken, storeId, productId, product?.variants, tnImageMap, forVariants);
-  return { externalId: productId, detail: `Producto #${productId} creado` };
+
+  const imageMap = await syncTnProductImages(tnToken, storeId, productId, uploadIds);
+  // Variantes creadas (para asociar image_id por SKU): las trae el POST de creación; si adoptamos, se releen.
+  let createdVariants = product?.variants;
+  if (!Array.isArray(createdVariants) || !createdVariants.length) {
+    createdVariants = await tn.getProduct(tnToken, storeId, productId).then((p) => p?.variants).catch(() => null);
+  }
+  await assignTnVariantImages(tnToken, storeId, productId, createdVariants, imageMap, forVariants);
+  return { externalId: productId, detail: `Producto #${productId} creado${note}` };
 }
 
 async function publishTn(payload, tnToken, storeId) {

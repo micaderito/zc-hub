@@ -19,6 +19,7 @@ import {
   createPublishJob,
   getPublishJob,
   listPublishJobsForDraft,
+  listPublishJobs,
   deletePublishJob,
   retryPublishJob,
   cancelPublishJob,
@@ -272,6 +273,26 @@ productRoutes.post('/drafts/:id/publish', async (req, res) => {
     if (!created) return res.status(500).json({ error: 'No se pudo encolar la publicación' });
     await setProductDraftStatus(req.params.id, 'publishing');
     res.status(202).json({ jobId });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Historial de publicaciones de todos los borradores (página "Publicaciones"). Paginado y filtrable.
+ * Query: limit, offset, q (nombre/SKU/id), status, channel (ml|tn). Va ANTES de `/jobs/:id` no hace
+ * falta (path distinto), pero se deja acá agrupado con lo de jobs.
+ */
+productRoutes.get('/publish-jobs', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 25, 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const { rows, total } = await listPublishJobs(limit, offset, {
+      search: (req.query.q || '').toString().trim(),
+      status: (req.query.status || '').toString().trim(),
+      channel: (req.query.channel || '').toString().trim()
+    });
+    res.json({ rows, total });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

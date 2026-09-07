@@ -3193,17 +3193,80 @@ export async function finishPublishJob(jobId, status, errorMsg = null) {
   const p = getPool();
   if (!p) return false;
   try {
-    await p.query(
+    const r = await p.query(
       `UPDATE product_publish_jobs
        SET status = $1, last_error = $2, locked_at = NULL, updated_at = NOW(),
            finished_at = CASE WHEN $1 IN ('done', 'error') THEN NOW() ELSE finished_at END
        WHERE id = $3 AND status <> 'cancelled'`,
       [status, errorMsg, jobId]
     );
-    return true;
+    const ok = (r.rowCount ?? 0) > 0;
+    if (!ok) console.warn(`finishPublishJob: ${jobId} → ${status} no actualizó ninguna fila (¿cancelado o inexistente?)`);
+    return ok;
   } catch (e) {
     console.error('finishPublishJob:', e.message);
     return false;
+  }
+}
+
+/**
+ * Red de seguridad para jobs que quedaron trabados en `processing`/`pending` (worker que se cortó
+ * justo antes del `finishPublishJob`, o un `finish` que falló en silencio). Corre desde el worker
+ * cada ~1 min. Dos casos:
+ *  - Job con lock vencido cuyas unidades están TODAS en estado terminal (`ok`/`error`) → se cierra
+ *    (`done` si todas ok, si no `error`) + recalcula el estado del borrador.
+ *  - Job en `processing` con `attempts >= 5` (ya no lo toma `claimNextPublishJob`, quedaría zombi
+ *    invisible) → se marca `error`.
+ * Devuelve cuántos jobs cerró.
+ */
+export async function reconcileStalePublishJobs() {
+  const p = getPool();
+  if (!p) return 0;
+  try {
+    // 1) unidades todas terminales pero el job sigue abierto y con lock vencido
+    const stale = await p.query(
+      `SELECT j.id, j.draft_id AS "draftId"
+       FROM product_publish_jobs j
+       WHERE j.status IN ('pending', 'processing')
+         AND (j.locked_at IS NULL OR j.locked_at < NOW() - ($1::int * INTERVAL '1 millisecond'))
+         AND EXISTS (SELECT 1 FROM product_publish_units u WHERE u.job_id = j.id)
+         AND NOT EXISTS (SELECT 1 FROM product_publish_units u WHERE u.job_id = j.id AND u.status = 'pending')`,
+      [PUBLISH_JOB_STALE_LOCK_MS]
+    );
+    let closed = 0;
+    for (const job of stale.rows) {
+      const units = await p.query(`SELECT status FROM product_publish_units WHERE job_id = $1`, [job.id]);
+      const allOk = units.rows.length > 0 && units.rows.every((u) => u.status === 'ok');
+      const r = await p.query(
+        `UPDATE product_publish_jobs
+         SET status = $2, locked_at = NULL, finished_at = NOW(), updated_at = NOW(),
+             last_error = CASE WHEN $2 = 'error' THEN COALESCE(last_error, 'Cerrado por el barrido: unidades terminales, job trabado') ELSE last_error END
+         WHERE id = $1 AND status IN ('pending', 'processing')`,
+        [job.id, allOk ? 'done' : 'error']
+      );
+      if ((r.rowCount ?? 0) > 0) {
+        closed++;
+        console.warn(`reconcileStalePublishJobs: ${job.id} cerrado como ${allOk ? 'done' : 'error'} (unidades ya terminales).`);
+        await recomputeDraftStatus(job.draftId).catch(() => {});
+      }
+    }
+    // 2) zombis: processing con demasiados intentos, ya fuera de la cola
+    const zombies = await p.query(
+      `UPDATE product_publish_jobs
+       SET status = 'error', locked_at = NULL, finished_at = NOW(), updated_at = NOW(),
+           last_error = COALESCE(last_error, 'Sin más reintentos disponibles')
+       WHERE status = 'processing' AND attempts >= 5
+       RETURNING id, draft_id AS "draftId"`
+    );
+    for (const z of zombies.rows) {
+      closed++;
+      console.warn(`reconcileStalePublishJobs: ${z.id} marcado error (attempts >= 5, zombi).`);
+      await recomputeDraftStatus(z.draftId).catch(() => {});
+    }
+    return closed;
+  } catch (e) {
+    console.error('reconcileStalePublishJobs:', e.message);
+    return 0;
   }
 }
 
@@ -3301,6 +3364,62 @@ export async function listPublishJobsForDraft(draftId) {
   } catch (e) {
     console.error('listPublishJobsForDraft:', e.message);
     return [];
+  }
+}
+
+/**
+ * Historial de publicaciones de TODOS los borradores, paginado y filtrable (para la página
+ * "Publicaciones"). Mismo molde que `getAuditLog`. NO trae `payload_json` (pesado). Trae el nombre
+ * y SKU del borrador (JOIN) y un resumen de unidades por job (subqueries, para no hacer N+1).
+ * `channel` filtra con LIKE porque `channels` es un string CSV ('ml' | 'tn' | 'ml,tn').
+ */
+export async function listPublishJobs(limit = 25, offset = 0, { search = '', status = '', channel = '' } = {}) {
+  const p = getPool();
+  if (!p) return { rows: [], total: 0 };
+  try {
+    const where = [];
+    const params = [];
+    const s = search && String(search).trim();
+    if (s) {
+      params.push('%' + s + '%');
+      const i = params.length;
+      where.push(`(d.name ILIKE $${i} OR d.sku ILIKE $${i} OR j.id ILIKE $${i})`);
+    }
+    const st = status && String(status).trim();
+    if (st && ['pending', 'processing', 'done', 'error', 'cancelled'].includes(st)) {
+      params.push(st);
+      where.push(`j.status = $${params.length}`);
+    }
+    const ch = channel && String(channel).trim();
+    if (ch === 'ml' || ch === 'tn') {
+      params.push('%' + ch + '%');
+      where.push(`j.channels LIKE $${params.length}`);
+    }
+    const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+
+    const count = await p.query(
+      `SELECT COUNT(*)::int AS total FROM product_publish_jobs j LEFT JOIN product_drafts d ON d.id = j.draft_id${whereSql}`,
+      params
+    );
+    const total = count.rows[0]?.total ?? 0;
+
+    const r = await p.query(
+      `SELECT j.id, j.draft_id AS "draftId", d.name AS "draftName", d.sku AS "draftSku",
+              j.channels, j.status, j.attempts, j.last_error AS "lastError",
+              j.created_at AS "createdAt", j.updated_at AS "updatedAt", j.finished_at AS "finishedAt",
+              (SELECT COUNT(*)::int FROM product_publish_units u WHERE u.job_id = j.id) AS "unitsTotal",
+              (SELECT COUNT(*)::int FROM product_publish_units u WHERE u.job_id = j.id AND u.status = 'ok') AS "unitsOk",
+              (SELECT COUNT(*)::int FROM product_publish_units u WHERE u.job_id = j.id AND u.status = 'error') AS "unitsErr"
+       FROM product_publish_jobs j
+       LEFT JOIN product_drafts d ON d.id = j.draft_id${whereSql}
+       ORDER BY j.created_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, Math.min(limit, 200), Math.max(offset, 0)]
+    );
+    return { rows: r.rows, total };
+  } catch (e) {
+    console.error('listPublishJobs:', e.message);
+    return { rows: [], total: 0 };
   }
 }
 

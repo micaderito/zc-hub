@@ -1668,6 +1668,48 @@ describe('CrearProductoComponent', () => {
     }));
   });
 
+  describe('poll perdido → fase "unknown"', () => {
+    it('tras N fallos consecutivos de getPublishJob corta el loop y pasa a "unknown" (no spinner eterno)', fakeAsync(() => {
+      catalog.getPublishJob.and.callFake(() => Promise.reject(new Error('backend caído')));
+      component.publish();
+      flushMicrotasks();
+      // 5 fallos, cada uno con su sleep entre medio
+      for (let i = 0; i < 6; i++) {
+        tick(1500);
+        flushMicrotasks();
+      }
+      expect(component.publishPhase()).toBe('unknown');
+      expect(component.publishing()).toBeFalse();
+      expect(component.activeJobId()).toBeTruthy(); // se conserva para "Actualizar"
+      flush();
+    }));
+
+    it('retryPoll() reintenta el polling del job que quedó sin confirmar y lo cierra si ya terminó', fakeAsync(() => {
+      let fail = true;
+      catalog.getPublishJob.and.callFake((id: string) => {
+        if (fail) return Promise.reject(new Error('timeout'));
+        return Promise.resolve({
+          job: { id, draftId: 'd', channels: 'ml,tn', status: 'done', attempts: 1, lastError: null, createdAt: '', updatedAt: '', finishedAt: '' },
+          units: [
+            { channel: 'ml', unitKey: '', seq: 0, status: 'ok', externalId: 'MLA1', detail: 'ok', updatedAt: '' },
+            { channel: 'tn', unitKey: '', seq: 1, status: 'ok', externalId: '9', detail: 'ok', updatedAt: '' }
+          ]
+        });
+      });
+      component.publish();
+      flushMicrotasks();
+      for (let i = 0; i < 6; i++) { tick(1500); flushMicrotasks(); }
+      expect(component.publishPhase()).toBe('unknown');
+
+      fail = false;
+      component.retryPoll();
+      flushMicrotasks();
+      expect(component.publishPhase()).toBe('done');
+      expect(component.publishing()).toBeFalse();
+      flush();
+    }));
+  });
+
   describe('dismissResults() / retry()', () => {
     it('dismissResults() limpia los resultados de publicación', fakeAsync(() => {
       component.publish();

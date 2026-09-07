@@ -121,4 +121,34 @@ describe('CatalogService', () => {
     expect(req.request.method).toBe('DELETE');
     req.flush({ ok: true });
   });
+
+  it('cancelPublishJob() POST /products/jobs/:id/cancel', () => {
+    service.cancelPublishJob('j1').then((r) => expect(r.ok).toBeTrue());
+    const req = httpMock.expectOne(`${base}/products/jobs/j1/cancel`);
+    expect(req.request.method).toBe('POST');
+    req.flush({ ok: true });
+  });
+
+  it('listPublishJobs() GET /products/publish-jobs con limit/offset y filtros no vacíos', () => {
+    service.listPublishJobs(20, 40, { q: 'agenda', status: 'error', channel: 'tn' }).then((r) => expect(r.total).toBe(3));
+    const req = httpMock.expectOne(
+      (r) => r.url === `${base}/products/publish-jobs`
+    );
+    expect(req.request.method).toBe('GET');
+    expect(req.request.params.get('limit')).toBe('20');
+    expect(req.request.params.get('offset')).toBe('40');
+    expect(req.request.params.get('q')).toBe('agenda');
+    expect(req.request.params.get('status')).toBe('error');
+    expect(req.request.params.get('channel')).toBe('tn');
+    req.flush({ rows: [], total: 3 });
+  });
+
+  it('listPublishJobs() omite los filtros vacíos', () => {
+    service.listPublishJobs(25, 0).then((r) => expect(r.rows.length).toBe(0));
+    const req = httpMock.expectOne((r) => r.url === `${base}/products/publish-jobs`);
+    expect(req.request.params.has('q')).toBeFalse();
+    expect(req.request.params.has('status')).toBeFalse();
+    expect(req.request.params.has('channel')).toBeFalse();
+    req.flush({ rows: [], total: 0 });
+  });
 });
