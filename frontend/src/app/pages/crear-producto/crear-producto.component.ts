@@ -6,6 +6,7 @@ import {
   MlCategoryNode,
   MlCategoryPrediction,
   MlCategoryRef,
+  PublishJobDetail,
   PublishJobSummary,
   PublishUnit,
   TnCategory
@@ -119,6 +120,10 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   readonly activeJobId = signal<string | null>(null);
   /** true cuando la usuaria canceló el job en curso (fase `cancelled` del panel). */
   readonly publishCancelled = signal(false);
+  /** true cuando el polling se quedó sin poder confirmar el estado del job (fase `unknown`). */
+  readonly publishPollLost = signal(false);
+  /** Fallos consecutivos de `getPublishJob` antes de rendirse (evita spinner eterno si el poll cuelga). */
+  private static readonly MAX_POLL_FAILURES = 5;
 
   /**
    * Conteo del progreso: total de unidades planificadas y cuántas ya terminaron (ok o error).
@@ -137,10 +142,12 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
    *  - `running`: el job sigue en curso (spinner + "X de Y")
    *  - `partial`: terminó con al menos una unidad en error (ícono alerta, botón Reintentar)
    *  - `done`: terminó y todas las unidades quedaron ok (ícono check)
-   *  - `idle`: no hay nada que mostrar
+   *  - `unknown`: el polling no pudo confirmar el estado (botón Actualizar, no spinner eterno)
+   *  - `cancelled` / `idle`
    */
-  readonly publishPhase = computed<'running' | 'partial' | 'done' | 'cancelled' | 'idle'>(() => {
+  readonly publishPhase = computed<'running' | 'partial' | 'done' | 'cancelled' | 'unknown' | 'idle'>(() => {
     if (this.publishCancelled()) return 'cancelled';
+    if (this.publishPollLost()) return 'unknown';
     if (this.publishing()) return 'running';
     const results = this.publishResults();
     if (results?.length) return results.every((r) => r.status === 'ok') ? 'done' : 'partial';
@@ -570,6 +577,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     }
     this.publishing.set(true);
     this.publishCancelled.set(false);
+    this.publishPollLost.set(false);
     if (!channels) {
       this.publishResults.set(null);
       this.publishProgress.set([]);
@@ -608,6 +616,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     this.publishResults.set(null);
     this.publishProgress.set([]);
     this.publishCancelled.set(false);
+    this.publishPollLost.set(false);
     this.activeJobId.set(job.id);
     const running = job.status === 'pending' || job.status === 'processing';
     try {
@@ -628,25 +637,56 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Pollea el job hasta que termina (done/error/cancelled), actualizando el progreso en cada vuelta. */
+  /**
+   * Pollea el job hasta un estado terminal (done/error/cancelled). Si `getPublishJob` falla N veces
+   * seguidas (backend caído, request colgado — ya con timeout+retry en el servicio), corta y pasa a
+   * fase `unknown` con botón "Actualizar" en vez de dejar el spinner girando para siempre.
+   */
   private async pollJob(jobId: string, channels?: Channel[]): Promise<void> {
-    try {
-      for (;;) {
-        if (this.publishCancelled()) return; // canceló mientras esperábamos el próximo poll
-        const { job, units } = await this.catalog.getPublishJob(jobId);
-        this.publishProgress.set(units);
-        if (job.status === 'cancelled') {
-          this.publishCancelled.set(true);
-          return;
-        }
-        if (job.status === 'done' || job.status === 'error') {
-          this.applyResults(this.resultsFromJob(job, units, channels), channels);
+    let failures = 0;
+    for (;;) {
+      if (this.publishCancelled()) {
+        this.activeJobId.set(null);
+        return;
+      }
+      let detail: PublishJobDetail;
+      try {
+        detail = await this.catalog.getPublishJob(jobId);
+        failures = 0;
+      } catch {
+        if (++failures >= CrearProductoComponent.MAX_POLL_FAILURES) {
+          this.publishPollLost.set(true); // deja `activeJobId` para que "Actualizar" reintente
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, CrearProductoComponent.JOB_POLL_MS));
+        continue;
       }
+      const { job, units } = detail;
+      this.publishProgress.set(units);
+      if (job.status === 'cancelled') {
+        this.publishCancelled.set(true);
+        this.activeJobId.set(null);
+        return;
+      }
+      if (job.status === 'done' || job.status === 'error') {
+        this.applyResults(this.resultsFromJob(job, units, channels), channels);
+        this.activeJobId.set(null);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, CrearProductoComponent.JOB_POLL_MS));
+    }
+  }
+
+  /** "Actualizar" de la fase `unknown`: reintenta el polling del job que quedó sin confirmar. */
+  async retryPoll(): Promise<void> {
+    const jobId = this.activeJobId();
+    if (!jobId) return;
+    this.publishPollLost.set(false);
+    this.publishing.set(true);
+    try {
+      await this.pollJob(jobId);
     } finally {
-      this.activeJobId.set(null);
+      this.publishing.set(false);
     }
   }
 
@@ -852,6 +892,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     this.publishResults.set(null);
     this.publishProgress.set([]);
     this.publishCancelled.set(false);
+    this.publishPollLost.set(false);
     this.activeJobId.set(null);
   }
 

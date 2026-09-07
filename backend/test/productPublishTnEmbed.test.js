@@ -1,8 +1,8 @@
 /**
- * publishProduct (TN) con Supabase Storage configurado (imageStore.getImageUrl resuelve): las
- * fotos se embeben como `images:[{src,position}]` en el propio POST /products, SIN subir el
- * binario por imagen — la optimización de velocidad de la Fase 0. Vive en su propio archivo
- * porque necesita mockear imageStore.js ANTES de importar productPublish.js.
+ * publishProduct (TN) con Supabase Storage configurado (imageStore.getImageUrl resuelve): el
+ * producto se crea PELADO y las fotos se suben DE A UNA con `POST /products/{id}/images {src}`
+ * (no embebidas en el POST de creación, que TN corta con 500 cuando son 10+). Vive en su propio
+ * archivo porque necesita mockear imageStore.js ANTES de importar productPublish.js.
  *
  * Cubre también el bug de orden reportado: en `one_per_variant`, la portada de cada producto es
  * la PRIMERA foto que la usuaria eligió PARA ESA VARIANTE (el orden del modal), no la primera foto
@@ -46,13 +46,17 @@ beforeEach(() => {
 
 const mlBlock = { mapping_mode: 'single_with_variants', title: 'X', category_id: 'C', currency_id: 'ARS', buying_mode: 'buy_it_now', condition: 'new', listing_type_id: 'gold_special', attributes: [], sale_terms: [], shipping: {}, base_price: 1, base_stock: 1 };
 const isTnPost = (url, opts) => url.endsWith('/products') && opts.method === 'POST';
-const isTnImagePost = (url, opts) => url.includes('/images') && opts.method === 'POST';
+const isTnImagePost = (url, opts) => /\/products\/\d+\/images$/.test(url) && opts.method === 'POST';
 const isTnGetImages = (url, opts) => /\/products\/\d+\/images$/.test(url) && (opts.method || 'GET') === 'GET';
+const isTnFindBySku = (url, opts) => url.includes('/products?q=') && (opts.method || 'GET') === 'GET';
 
-test('embebe images:[{src,position}] en el POST de creación, SIN subir el binario por imagen', async () => {
+test('crea el producto SIN images y sube cada foto de a una con POST /images {src}', async () => {
+  let seq = 700;
   state.responder = (url, opts) => {
-    if (isTnPost(url, opts)) return makeRes({ status: 201, json: { id: 1, images: [{ id: 900, position: 1 }, { id: 901, position: 2 }], variants: [{ id: 5, sku: 'CUA' }] } });
-    if (isTnGetImages(url, opts)) return makeRes({ json: [{ id: 900, position: 1 }, { id: 901, position: 2 }] });
+    if (isTnFindBySku(url, opts)) return makeRes({ json: [] }); // no existe → se crea
+    if (isTnPost(url, opts)) return makeRes({ status: 201, json: { id: 1, images: [], variants: [{ id: 5, sku: 'CUA' }] } });
+    if (isTnGetImages(url, opts)) return makeRes({ json: [] }); // recién creado: sin imágenes
+    if (isTnImagePost(url, opts)) return makeRes({ status: 201, json: { id: ++seq, position: JSON.parse(opts.body).position } });
     throw new Error(`URL inesperada: ${opts.method} ${url}`);
   };
   const payload = {
@@ -65,9 +69,9 @@ test('embebe images:[{src,position}] en el POST de creación, SIN subir el binar
   const { results } = await publishProduct(payload, { tnToken: 't', storeId: '9', channels: ['tn'] });
   assert.equal(results[0].status, 'ok');
   const post = state.calls.find((c) => isTnPost(c.url, c));
-  assert.deepEqual(post.body.images, [{ src: urlFor('imgA'), position: 1 }, { src: urlFor('imgB'), position: 2 }]);
-  // Nunca se sube el binario por imagen: cero POST a /images.
-  assert.equal(state.calls.filter((c) => isTnImagePost(c.url, c)).length, 0);
+  assert.equal(post.body.images, undefined); // el POST de creación NO lleva imágenes
+  const imgPosts = state.calls.filter((c) => isTnImagePost(c.url, c)).map((c) => c.body);
+  assert.deepEqual(imgPosts, [{ src: urlFor('imgA'), position: 1 }, { src: urlFor('imgB'), position: 2 }]);
 });
 
 test('one_per_variant: la portada de cada producto es la 1ª foto del ORDEN DE LA VARIANTE, no de la galería', async () => {
@@ -75,10 +79,13 @@ test('one_per_variant: la portada de cada producto es la 1ª foto del ORDEN DE L
   // (portada = g2) — un orden distinto al de la galería. El bug reportado mandaba [g1, g2] (el
   // orden de la galería), dejando g1 como portada en vez de la g2 elegida.
   const isTnVariantPut = (u, o) => /\/variants\/\d+$/.test(u) && o.method === 'PUT';
+  let seq = 900;
   state.responder = (url, opts) => {
-    if (isTnPost(url, opts)) return makeRes({ status: 201, json: { id: 1, images: [{ id: 950, position: 1 }, { id: 951, position: 2 }], variants: [{ id: 5, sku: 'CUA-N' }] } });
-    if (isTnGetImages(url, opts)) return makeRes({ json: [{ id: 950, position: 1 }, { id: 951, position: 2 }] });
-    if (isTnVariantPut(url, opts)) return makeRes({ json: { id: 5, image_id: 950 } });
+    if (isTnFindBySku(url, opts)) return makeRes({ json: [] });
+    if (isTnPost(url, opts)) return makeRes({ status: 201, json: { id: 1, images: [], variants: [{ id: 5, sku: 'CUA-N' }] } });
+    if (isTnGetImages(url, opts)) return makeRes({ json: [] });
+    if (isTnImagePost(url, opts)) return makeRes({ status: 201, json: { id: ++seq, position: JSON.parse(opts.body).position } });
+    if (isTnVariantPut(url, opts)) return makeRes({ json: { id: 5, image_id: seq } });
     throw new Error(`URL inesperada: ${opts.method} ${url}`);
   };
   const payload = {
@@ -99,7 +106,7 @@ test('one_per_variant: la portada de cada producto es la 1ª foto del ORDEN DE L
   };
   const { results } = await publishProduct(payload, { tnToken: 't', storeId: '9', channels: ['tn'] });
   assert.equal(results[0].status, 'ok');
-  const post = state.calls.find((c) => isTnPost(c.url, c));
+  const imgPosts = state.calls.filter((c) => isTnImagePost(c.url, c)).map((c) => c.body);
   // La portada (position 1) es g2 —la elegida por la usuaria para esta variante— no g1.
-  assert.deepEqual(post.body.images, [{ src: urlFor('g2'), position: 1 }, { src: urlFor('g1'), position: 2 }]);
+  assert.deepEqual(imgPosts, [{ src: urlFor('g2'), position: 1 }, { src: urlFor('g1'), position: 2 }]);
 });

@@ -66,6 +66,13 @@ before(async () => {
         return j ? { id: j.id, draftId: j.draftId, channels: j.channels, status: j.status } : null;
       },
       listPublishJobsForDraft: async (draftId) => [...db.jobs.values()].filter((j) => j.draftId === draftId).map((j) => ({ id: j.id, status: j.status })),
+      listPublishJobs: async (limit, offset, filters = {}) => {
+        let rows = [...db.jobs.values()];
+        if (filters.status) rows = rows.filter((j) => j.status === filters.status);
+        if (filters.channel) rows = rows.filter((j) => String(j.channels || '').includes(filters.channel));
+        const total = rows.length;
+        return { rows: rows.slice(offset, offset + limit).map((j) => ({ id: j.id, status: j.status, channels: j.channels })), total };
+      },
       deletePublishJob: async (id) => db.jobs.delete(id),
       retryPublishJob: async (id) => {
         const j = db.jobs.get(id);
@@ -259,6 +266,25 @@ test('POST /jobs/:id/cancel: 200 si estaba pending/processing/error; 409 si ya t
   assert.equal(done.status, 409);
 });
 
+test('GET /publish-jobs: historial de todos los borradores, con paginación y filtros', async () => {
+  db.jobs.set('h1', { id: 'h1', draftId: 'd1', channels: 'ml,tn', status: 'done', units: [] });
+  db.jobs.set('h2', { id: 'h2', draftId: 'd1', channels: 'tn', status: 'error', units: [] });
+  db.jobs.set('h3', { id: 'h3', draftId: 'd2', channels: 'ml', status: 'processing', units: [] });
+
+  const all = await fetch(`${baseUrl}/publish-jobs?limit=25&offset=0`, { headers: AUTH });
+  assert.equal(all.status, 200);
+  const body = await all.json();
+  assert.equal(body.total, 3);
+  assert.equal(body.rows.length, 3);
+
+  const soloErr = await (await fetch(`${baseUrl}/publish-jobs?status=error`, { headers: AUTH })).json();
+  assert.equal(soloErr.total, 1);
+  assert.equal(soloErr.rows[0].id, 'h2');
+
+  const soloMl = await (await fetch(`${baseUrl}/publish-jobs?channel=ml`, { headers: AUTH })).json();
+  assert.deepEqual(soloMl.rows.map((r) => r.id).sort(), ['h1', 'h3']);
+});
+
 test('DELETE /jobs/:id borra la entrada del historial; 404 si no existe', async () => {
   db.jobs.set('j1', { id: 'j1', draftId: 'd1', channels: 'ml', status: 'done', units: [] });
   const res = await fetch(`${baseUrl}/jobs/j1`, { method: 'DELETE', headers: AUTH });
@@ -280,6 +306,7 @@ test('todos los endpoints de drafts/jobs exigen sesión', async () => {
     ['PUT', `/drafts/${id}`],
     ['DELETE', `/drafts/${id}`],
     ['POST', `/drafts/${id}/publish`],
+    ['GET', '/publish-jobs'],
     ['POST', '/jobs/x/cancel'],
     ['GET', '/jobs/x'],
     ['POST', '/jobs/x/retry'],

@@ -900,6 +900,41 @@ test('finishPublishJob: no revive un job cancelado (WHERE status <> cancelled)',
   assert.match(calls[0], /status <> 'cancelled'/);
 });
 
+test('finishPublishJob: devuelve false si el UPDATE no tocó ninguna fila (cancelado/inexistente)', async () => {
+  state.responder = () => ({ rowCount: 0 });
+  assert.equal(await db.finishPublishJob('j1', 'done'), false);
+  state.responder = () => ({ rowCount: 1 });
+  assert.equal(await db.finishPublishJob('j1', 'done'), true);
+});
+
+test('reconcileStalePublishJobs: cierra un job trabado con unidades terminales y marca error los zombis', async () => {
+  const updates = [];
+  state.responder = (sql, params) => {
+    // 1) SELECT de jobs con lock vencido y sin unidades pending
+    if (/FROM product_publish_jobs j\s+WHERE j\.status IN \('pending', 'processing'\)/.test(sql)) {
+      return { rows: [{ id: 'jA', draftId: 'dA' }] };
+    }
+    // 2) SELECT status de las unidades de jA → todas ok
+    if (sql.startsWith('SELECT status FROM product_publish_units')) {
+      return { rows: [{ status: 'ok' }, { status: 'ok' }] };
+    }
+    // 3) UPDATE que cierra jA
+    if (/SET status = \$2/.test(sql) && /WHERE id = \$1 AND status IN \('pending', 'processing'\)/.test(sql)) {
+      updates.push({ id: params[0], status: params[1] });
+      return { rowCount: 1 };
+    }
+    // 4) UPDATE de zombis (attempts >= 5) con RETURNING
+    if (/status = 'processing' AND attempts >= 5/.test(sql)) {
+      return { rows: [{ id: 'jZombi', draftId: 'dZ' }] };
+    }
+    // recomputeDraftStatus interno
+    return { rows: [], rowCount: 1 };
+  };
+  const closed = await db.reconcileStalePublishJobs();
+  assert.equal(closed, 2); // jA + jZombi
+  assert.deepEqual(updates, [{ id: 'jA', status: 'done' }]);
+});
+
 test('isPublishJobCancelled: true si la fila existe con status cancelled', async () => {
   state.responder = (sql) => (sql.includes("status = 'cancelled'") ? { rows: [{ '?column?': 1 }] } : { rows: [] });
   assert.equal(await db.isPublishJobCancelled('j1'), true);
@@ -922,6 +957,34 @@ test('getPublishJob / listPublishJobsForDraft / deletePublishJob', async () => {
   const list = await db.listPublishJobsForDraft('d1');
   assert.equal(list.length, 2);
   assert.equal(await db.deletePublishJob('j1'), true);
+});
+
+test('listPublishJobs: pagina y filtra (status =, canal con LIKE, búsqueda), devuelve { rows, total }', async () => {
+  let selectParams = null;
+  state.responder = (sql, params) => {
+    if (sql.startsWith('SELECT COUNT(*)::int AS total')) return { rows: [{ total: 3 }] };
+    if (sql.includes('"unitsOk"') && sql.includes('ORDER BY j.created_at DESC')) {
+      selectParams = params;
+      return { rows: [{ id: 'j1', draftName: 'Agenda', unitsOk: 2, unitsTotal: 3 }] };
+    }
+    return { rows: [] };
+  };
+  const { rows, total } = await db.listPublishJobs(20, 40, { search: 'agenda', status: 'error', channel: 'tn' });
+  assert.equal(total, 3);
+  assert.equal(rows[0].id, 'j1');
+  // params: [ %agenda%, 'error', %tn%, limit(20), offset(40) ]
+  assert.deepEqual(selectParams, ['%agenda%', 'error', '%tn%', 20, 40]);
+});
+
+test('listPublishJobs: ignora un status inválido y un canal desconocido', async () => {
+  let selectParams = null;
+  state.responder = (sql, params) => {
+    if (sql.startsWith('SELECT COUNT(*)::int AS total')) return { rows: [{ total: 0 }] };
+    selectParams = params;
+    return { rows: [] };
+  };
+  await db.listPublishJobs(10, 0, { status: 'lo-que-sea', channel: 'xx' });
+  assert.deepEqual(selectParams, [10, 0]); // sin cláusulas de filtro
 });
 
 test('upsertPublishUnit / getPublishUnits: registra una unidad y la devuelve en orden', async () => {

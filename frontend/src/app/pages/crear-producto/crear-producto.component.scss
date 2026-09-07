@@ -199,6 +199,9 @@
   &.is-cancelled {
     border-left-color: var(--text-3);
   }
+  &.is-unknown {
+    border-left-color: var(--warn);
+  }
 
   .block-head {
     display: flex;
@@ -221,10 +224,16 @@
   &.is-cancelled .block-head > i {
     color: var(--text-3);
   }
+  &.is-unknown .block-head > i {
+    color: var(--warn);
+  }
   .block-head .cancel-btn {
     margin-left: auto;
     color: var(--err);
     border-color: var(--border);
+  }
+  &.is-unknown .block-head .zc-btn {
+    margin-left: auto;
   }
   .block-title {
     font-weight: 600;
