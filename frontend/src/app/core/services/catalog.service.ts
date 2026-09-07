@@ -49,6 +49,8 @@ export interface MlCategoryAttribute {
   name: string;
   valueType: string;
   required: boolean;
+  /** true = tag `conditional_required` de ML: obligatorio solo si su disparador está completo. */
+  conditionalRequired?: boolean;
   /** true = candidato a EJE de variante (COLOR, SIZE…): ML lo permite variar dentro de una familia. */
   allowVariations?: boolean;
   allowedValues: { id: string; name: string }[];

@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed, fakeAsync, flushMicrotasks, tick } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, flush, flushMicrotasks, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of } from 'rxjs';
@@ -10,6 +10,7 @@ import {
   MlCategoryNode,
   MlCategoryPrediction,
   MlCategoryRef,
+  PublishJobSummary,
   PublishResponse,
   TnCategory,
   UploadedImage
@@ -1107,6 +1108,53 @@ describe('CrearProductoComponent', () => {
       expect(component.store.mlVariationAttrs().map((a) => a.id)).toEqual(['COLOR']);
     }));
 
+    it('UNITS_PER_PACK (conditional_required): sube a obligatorios y se precarga en 1 cuando SALE_FORMAT ya tiene valor', fakeAsync(() => {
+      catalog.mlAttributes = [
+        {
+          id: 'SALE_FORMAT',
+          name: 'Formato de venta',
+          valueType: 'list',
+          required: false,
+          allowedValues: [
+            { id: '1359391', name: 'Unidad' },
+            { id: '1359392', name: 'Pack' }
+          ]
+        },
+        { id: 'UNITS_PER_PACK', name: 'Unidades por pack', valueType: 'number', required: false, conditionalRequired: true, allowedValues: [] }
+      ];
+      // el predictor ya infirió SALE_FORMAT = Unidad
+      void component.loadMlAttributes('MLA388307', [
+        { id: 'SALE_FORMAT', name: 'Formato de venta', value_id: '1359391', value_name: 'Unidad' }
+      ]);
+      flushMicrotasks();
+
+      const ups = component.draft().ml.attributes.find((a) => a.id === 'UNITS_PER_PACK')!;
+      expect(ups.value).toBe('1');
+      expect(component.store.attrIsRequired(ups)).toBeTrue();
+      expect(component.mlRequiredAttrs().map((a) => a.id)).toContain('UNITS_PER_PACK');
+    }));
+
+    it('UNITS_PER_PACK sigue opcional mientras SALE_FORMAT esté vacío', fakeAsync(() => {
+      catalog.mlAttributes = [
+        { id: 'SALE_FORMAT', name: 'Formato de venta', valueType: 'list', required: false, allowedValues: [{ id: '1359391', name: 'Unidad' }] },
+        { id: 'UNITS_PER_PACK', name: 'Unidades por pack', valueType: 'number', required: false, conditionalRequired: true, allowedValues: [] }
+      ];
+      void component.loadMlAttributes('MLA388307');
+      flushMicrotasks();
+
+      const ups = component.draft().ml.attributes.find((a) => a.id === 'UNITS_PER_PACK')!;
+      expect(ups.value).toBe('');
+      expect(component.store.attrIsRequired(ups)).toBeFalse();
+      expect(component.mlOptionalAttrs().map((a) => a.id)).toContain('UNITS_PER_PACK');
+
+      // al elegir SALE_FORMAT, UNITS_PER_PACK pasa a obligatorio y se precarga
+      const sf = component.draft().ml.attributes.find((a) => a.id === 'SALE_FORMAT')!;
+      component.store.setMlAttributeValue(sf, '1359391');
+      expect(ups.value).toBe('1');
+      expect(component.mlRequiredAttrs().map((a) => a.id)).toContain('UNITS_PER_PACK');
+      tick(1600); // autosave que disparó setMlAttributeValue -> touch()
+    }));
+
     it('selector de eje: elegir un atributo real de ML guarda mlAttributeId y sus allowedValues en el eje', fakeAsync(() => {
       catalog.mlAttributes = [
         { id: 'COLOR', name: 'Color', valueType: 'list', required: false, allowVariations: true, allowedValues: [{ id: '1', name: 'Negro' }] }
@@ -1563,17 +1611,129 @@ describe('CrearProductoComponent', () => {
     it('un solo resultado (publicar un único canal) no rompe el render — antes indexaba results()[1]', () => {
       component.publishResults.set([{ channel: 'ml', status: 'ok', detail: 'Publicación MLA-1 creada' }]);
       expect(() => fixture.detectChanges()).not.toThrow();
-      const icon = fixture.nativeElement.querySelector('zc-publish-results .results-head > i.ti') as HTMLElement;
+      expect(component.publishPhase()).toBe('done');
+      const icon = fixture.nativeElement.querySelector('.publish-progress .block-head > i.ti') as HTMLElement;
       expect(icon.classList.contains('ti-circle-check')).toBeTrue();
-      expect(icon.classList.contains('ti-alert-circle')).toBeFalse();
+      expect(icon.classList.contains('ti-alert-triangle')).toBeFalse();
     });
 
-    it('un solo resultado con error también se refleja bien en el ícono', () => {
+    it('un solo resultado con error muestra el panel en fase "partial" con su ícono de alerta', () => {
       component.publishResults.set([{ channel: 'tn', status: 'error', detail: 'stock inválido' }]);
       fixture.detectChanges();
-      const icon = fixture.nativeElement.querySelector('zc-publish-results .results-head > i.ti') as HTMLElement;
-      expect(icon.classList.contains('ti-alert-circle')).toBeTrue();
+      expect(component.publishPhase()).toBe('partial');
+      const icon = fixture.nativeElement.querySelector('.publish-progress .block-head > i.ti') as HTMLElement;
+      expect(icon.classList.contains('ti-alert-triangle')).toBeTrue();
       expect(icon.classList.contains('ti-circle-check')).toBeFalse();
+      // y ofrece reintentar el canal que falló
+      const retryBtn = fixture.nativeElement.querySelector('.progress-actions .zc-btn') as HTMLElement;
+      expect(retryBtn.textContent).toContain('Tienda Nube');
+    });
+  });
+
+  describe('reabrir un borrador con una publicación previa (persistencia)', () => {
+    const jobRow = (over: Partial<PublishJobSummary> = {}): PublishJobSummary => ({
+      id: 'job-x',
+      draftId: 'd1',
+      channels: 'ml,tn',
+      status: 'error',
+      attempts: 1,
+      lastError: 'tn: stock inválido',
+      createdAt: '',
+      updatedAt: '',
+      finishedAt: null,
+      ...over
+    });
+    const draftWithJobs = (jobs: PublishJobSummary[]) => () =>
+      Promise.resolve({
+        id: 'd1',
+        name: null,
+        sku: null,
+        status: 'error' as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        draft: component.draft(),
+        jobs
+      });
+
+    it('un job ya terminado se reconstruye: repuebla progreso + resultado SIN volver a publicar', fakeAsync(() => {
+      catalog.getDraft.and.callFake(draftWithJobs([jobRow()]));
+      catalog.getPublishJob.and.callFake((id: string) =>
+        Promise.resolve({
+          job: jobRow({ id, status: 'error' }),
+          units: [
+            { channel: 'ml', unitKey: '', seq: 0, status: 'ok', externalId: 'MLA1', detail: 'Publicación MLA1 creada', updatedAt: '' },
+            { channel: 'tn', unitKey: '', seq: 1, status: 'error', externalId: null, detail: 'stock inválido', updatedAt: '' }
+          ]
+        })
+      );
+
+      component.store.openDraft('d1');
+      flushMicrotasks();
+      fixture.detectChanges(); // corre el effect que reconstruye el panel
+      flushMicrotasks();
+
+      expect(catalog.publishDraft).not.toHaveBeenCalled();
+      expect(component.publishing()).toBeFalse();
+      expect(component.publishProgress().length).toBe(2);
+      expect(component.publishPhase()).toBe('partial');
+      expect(component.publishTotals()).toEqual(jasmine.objectContaining({ total: 2, ok: 1, err: 1 }));
+      expect(component.publishResults()!.find((r) => r.channel === 'tn')!.status).toBe('error');
+    }));
+
+    it('un job en curso (processing) retoma el polling hasta que el servidor lo termina', fakeAsync(() => {
+      catalog.getDraft.and.callFake(draftWithJobs([jobRow({ status: 'processing', channels: 'ml' })]));
+      let calls = 0;
+      catalog.getPublishJob.and.callFake((id: string) => {
+        const done = ++calls > 1;
+        return Promise.resolve({
+          job: jobRow({ id, status: done ? 'done' : 'processing', channels: 'ml' }),
+          units: [
+            {
+              channel: 'ml',
+              unitKey: '',
+              seq: 0,
+              status: done ? 'ok' : 'pending',
+              externalId: null,
+              detail: done ? 'Publicación MLA1 creada' : null,
+              updatedAt: ''
+            }
+          ]
+        });
+      });
+
+      component.store.openDraft('d1');
+      flushMicrotasks();
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(component.publishing()).toBeTrue();
+      expect(component.publishPhase()).toBe('running');
+
+      flush(); // agota el setTimeout del polling; la 2ª vuelta ve 'done'
+      expect(component.publishing()).toBeFalse();
+      expect(component.publishPhase()).toBe('done');
+      expect(component.publishProgress()[0].status).toBe('ok');
+    }));
+
+    it('sin jobs previos no muestra nada de publicación', fakeAsync(() => {
+      catalog.getDraft.and.callFake(draftWithJobs([]));
+      component.store.openDraft('d1');
+      flushMicrotasks();
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(component.publishPhase()).toBe('idle');
+      expect(catalog.getPublishJob).not.toHaveBeenCalled();
+    }));
+  });
+
+  describe('publishErrorSummary()', () => {
+    it('traduce el error de UNITS_PER_PACK de ML a una frase clara', () => {
+      expect(component.publishErrorSummary('Attribute [UNITS_PER_PACK] to be added with values [(null,1)]')).toContain(
+        'Unidades por pack'
+      );
+    });
+    it('devuelve null si no reconoce el error (se muestra el texto crudo)', () => {
+      expect(component.publishErrorSummary('algo raro que nunca vimos')).toBeNull();
+      expect(component.publishErrorSummary('')).toBeNull();
     });
   });
 

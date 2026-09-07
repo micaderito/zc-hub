@@ -141,12 +141,30 @@ export interface ProductVariant {
   titles: { ml: OverrideField<string>; tn: OverrideField<string> };
 }
 
+/**
+ * Atributos `conditional_required` de ML y qué otro atributo los dispara. ML no publica la regla en
+ * el payload de atributos (solo el tag `conditional_required`), así que el par conocido se lista
+ * acá: `UNITS_PER_PACK` ("Unidades por pack") se vuelve obligatorio apenas `SALE_FORMAT` ("Formato
+ * de venta": Unidad/Pack) tiene valor — el `POST /items` lo rechaza si falta. `PACK_INFO`/`UNIT`
+ * son alias históricos del mismo disparador según la categoría.
+ */
+export const CONDITIONAL_REQUIRED_TRIGGERS: Record<string, string[]> = {
+  UNITS_PER_PACK: ['SALE_FORMAT', 'PACK_INFO', 'UNIT']
+};
+
 /** Atributo de categoría de ML (se descubren con GET /categories/{id}/attributes). */
 export interface MlAttribute {
   id: string;
   name: string;
   value: string;
   required: boolean;
+  /**
+   * true para atributos que ML marca `conditional_required`: obligatorios SOLO cuando su
+   * disparador tiene valor (ver CONDITIONAL_REQUIRED_TRIGGERS). El caso típico es `UNITS_PER_PACK`,
+   * que ML exige apenas se completa `SALE_FORMAT`. El store lo trata como obligatorio (y lo sube a
+   * la sección de arriba) cuando corresponde — ver mlEffectiveRequiredIds.
+   */
+  conditionalRequired?: boolean;
   /** true cuando el valor sale de un dato común (ej. BRAND ← marca). */
   inherited: boolean;
   /** Tipo de valor de ML: 'list' | 'string' | 'number' | 'number_unit' | 'boolean'. */

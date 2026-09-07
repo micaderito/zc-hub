@@ -154,6 +154,55 @@ test('buildMlItems: agrega GTIN al item simple si hay código de barras en commo
   assert.ok(!sinBarcode[0].attributes.some((a) => a.id === 'GTIN'));
 });
 
+test('buildMlItems: si viene SALE_FORMAT sin UNITS_PER_PACK, agrega UNITS_PER_PACK=1 (ML lo exige)', () => {
+  const items = buildMlItems(
+    { ml: { ...mlBase, attributes: [...mlBase.attributes, { id: 'SALE_FORMAT', value_id: '1359391' }] }, axes: [], variants: [] },
+    picMap
+  );
+  assert.ok(items[0].attributes.some((a) => a.id === 'UNITS_PER_PACK' && a.value_name === '1'));
+});
+
+test('buildMlItems: NO toca UNITS_PER_PACK si el usuario ya lo mandó', () => {
+  const items = buildMlItems(
+    {
+      ml: {
+        ...mlBase,
+        attributes: [...mlBase.attributes, { id: 'SALE_FORMAT', value_id: '1359392' }, { id: 'UNITS_PER_PACK', value_name: '6' }]
+      },
+      axes: [],
+      variants: []
+    },
+    picMap
+  );
+  const ups = items[0].attributes.filter((a) => a.id === 'UNITS_PER_PACK');
+  assert.equal(ups.length, 1);
+  assert.equal(ups[0].value_name, '6');
+});
+
+test('buildMlItems: sin SALE_FORMAT no inventa UNITS_PER_PACK', () => {
+  const items = buildMlItems({ ml: { ...mlBase }, axes: [], variants: [] }, picMap);
+  assert.ok(!items[0].attributes.some((a) => a.id === 'UNITS_PER_PACK'));
+});
+
+test('buildMlItems (one_per_variant): la red de UNITS_PER_PACK aplica a cada ítem de la familia', () => {
+  const items = buildMlItems(
+    {
+      ml: {
+        ...mlBase,
+        mapping_mode: 'one_per_variant',
+        attributes: [...mlBase.attributes, { id: 'SALE_FORMAT', value_id: '1359391' }]
+      },
+      axes: [{ name: 'Color' }],
+      variants: [
+        { sku: 'CUA-N', values: ['Negro'], ml: { price: 100, stock: 5 } },
+        { sku: 'CUA-R', values: ['Rojo'], ml: { price: 110, stock: 3 } }
+      ]
+    },
+    picMap
+  );
+  assert.ok(items.every((it) => it.attributes.some((a) => a.id === 'UNITS_PER_PACK' && a.value_name === '1')));
+});
+
 test('buildMlItems (one_per_variant): GTIN es el código de barras de CADA variante, no el común', () => {
   const items = buildMlItems(
     {

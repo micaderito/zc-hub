@@ -1,7 +1,7 @@
 import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
-import { CatalogService, DraftDetail, DraftSummary } from '../../core/services/catalog.service';
+import { CatalogService, DraftDetail, DraftSummary, PublishJobSummary } from '../../core/services/catalog.service';
 import { PricingService } from '../../core/services/pricing.service';
 import {
   DEFAULT_SETTINGS,
@@ -13,6 +13,7 @@ import {
 } from '../../core/pricing/pricing-math';
 import {
   Channel,
+  CONDITIONAL_REQUIRED_TRIGGERS,
   DraftImage,
   MappingMode,
   MlAttribute,
@@ -117,6 +118,13 @@ export class ProductDraftStore {
   readonly currentDraftId = signal<string | null>(null);
   readonly draftSavedAt = signal<Date | null>(null);
   readonly draftRestored = signal(false);
+  /**
+   * Último job de publicación del borrador abierto (el más reciente de `entry.jobs`), o `null` si
+   * nunca se intentó publicar. Lo usa `crear-producto.component` al restaurar/abrir un borrador
+   * para volver a mostrar "qué pasó con la última publicación" (o retomar el polling si sigue en
+   * curso) — sin esto, salir y volver a la pantalla perdía todo rastro del intento.
+   */
+  readonly lastPublishJob = signal<PublishJobSummary | null>(null);
   readonly savedDrafts = signal<{ id: string; label: string; savedAt: Date; status: DraftSummary['status'] }[]>([]);
   readonly draftsPanelOpen = signal(false);
 
@@ -376,8 +384,26 @@ export class ProductDraftStore {
 
   /* ---------- atributos de ML ---------- */
 
-  readonly mlRequiredAttrs = computed(() => this.draft().ml.attributes.filter((a) => a.required));
-  readonly mlOptionalAttrs = computed(() => this.draft().ml.attributes.filter((a) => !a.required));
+  /**
+   * true si un atributo es obligatorio: siempre (`required`) o condicional (`conditionalRequired`)
+   * con su disparador ya completo (ej. `UNITS_PER_PACK` una vez que `SALE_FORMAT` tiene valor).
+   * Pública: el template la usa para el asterisco, además de partir required/opcionales.
+   */
+  attrIsRequired(attr: MlAttribute, all: MlAttribute[] = this.draft().ml.attributes): boolean {
+    if (attr.required) return true;
+    if (!attr.conditionalRequired) return false;
+    const triggers = CONDITIONAL_REQUIRED_TRIGGERS[attr.id] ?? [];
+    return all.some((t) => triggers.includes(t.id) && (t.valueId || t.value?.trim()));
+  }
+
+  readonly mlRequiredAttrs = computed(() => {
+    const all = this.draft().ml.attributes;
+    return all.filter((a) => this.attrIsRequired(a, all));
+  });
+  readonly mlOptionalAttrs = computed(() => {
+    const all = this.draft().ml.attributes;
+    return all.filter((a) => !this.attrIsRequired(a, all));
+  });
   /**
    * Categorías con muchos atributos meten 50-150 filas opcionales al DOM. Solo se arman cuando la
    * usuaria abre el `<details>`.
@@ -389,7 +415,23 @@ export class ProductDraftStore {
     const opt = attr.allowedValues?.find((v) => v.id === valueId);
     attr.valueId = valueId || undefined;
     attr.value = opt?.name ?? '';
+    this.prefillConditionalRequired();
     this.touch();
+  }
+
+  /**
+   * Precarga en `1` los `conditionalRequired` numéricos que quedaron obligatorios y vacíos — hoy,
+   * `UNITS_PER_PACK` cuando `SALE_FORMAT` ya tiene valor (lo pre-infiere el predictor o lo elige la
+   * usuaria). Así el campo no aparece obligatorio y en blanco; sigue siendo editable. Lo llama
+   * `setMlAttributeValue` y la carga inicial de atributos.
+   */
+  prefillConditionalRequired(): void {
+    const all = this.draft().ml.attributes;
+    for (const a of all) {
+      if (a.conditionalRequired && !a.value?.trim() && !a.valueId && this.attrIsRequired(a, all)) {
+        a.value = '1';
+      }
+    }
   }
 
   /* ---------- categorías de TN (la lista vive en la página; acá solo la selección) ---------- */
@@ -929,6 +971,8 @@ export class ProductDraftStore {
     this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
     this.currentDraftId.set(entry.id);
     this.draftSavedAt.set(new Date(entry.updatedAt));
+    // `jobs` viene ordenado por created_at DESC (ver listPublishJobsForDraft): [0] es el último intento.
+    this.lastPublishJob.set(entry.jobs?.[0] ?? null);
     // El snapshot es el draft TAL COMO LLEGÓ del backend (imágenes ya en formato {id,name}), para
     // que comparar contra él en el próximo autosave dé igual que si se acabara de guardar.
     this.lastSavedSnapshot = JSON.stringify(rawDraft);
@@ -986,6 +1030,7 @@ export class ProductDraftStore {
     this.currentDraftId.set(null);
     this.draftSavedAt.set(null);
     this.draftRestored.set(false);
+    this.lastPublishJob.set(null);
     this.lastSavedSnapshot = null;
   }
 
