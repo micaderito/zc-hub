@@ -76,6 +76,18 @@ test('sin DATABASE_URL: las funciones devuelven su valor por defecto sin tocar l
   assert.equal(await db.getPendingReturnById(1), null);
   assert.equal(await db.setReturnApproved(1), false);
   assert.equal(await db.enqueueMlTask({ kind: 'x', itemId: 'y' }), null);
+  assert.equal(await db.createProductDraft({ id: 'd1', draftJson: '{}' }), null);
+  assert.equal(await db.getProductDraft('d1'), null);
+  assert.deepEqual(await db.listProductDrafts(), []);
+  assert.equal(await db.deleteProductDraft('d1'), false);
+  assert.equal(await db.createPublishJob({ id: 'j1', draftId: 'd1', channels: 'ml', payloadJson: '{}' }), null);
+  assert.equal(await db.claimNextPublishJob(), null);
+  assert.equal(await db.retryPublishJob('j1'), false);
+  assert.equal(await db.getPublishJob('j1'), null);
+  assert.deepEqual(await db.listPublishJobsForDraft('d1'), []);
+  assert.equal(await db.upsertPublishUnit({ jobId: 'j1', channel: 'ml', unitKey: '', seq: 0, status: 'ok' }), false);
+  assert.deepEqual(await db.getPublishUnits('j1'), []);
+  assert.equal(await db.recomputeDraftStatus('d1'), null);
   assert.equal(await db.claimNextMlTask(), null);
   assert.equal(await db.updateMlTaskStatus(1, 'done'), false);
   assert.deepEqual(await db.getPendingMlTasks(), { tasks: [], total: 0, activeCount: 0, failedCount: 0 });
@@ -758,4 +770,196 @@ test('getMlTaskStatus: devuelve la fila o null', async () => {
 test('getMlTaskStatus: error de query → null', async () => {
   state.responder = () => { throw new Error('boom'); };
   assert.equal(await db.getMlTaskStatus(1), null);
+});
+
+/* ══════════════ Crear producto: borradores + publicación en background ══════════════ */
+
+test('createProductDraft / getProductDraft: guarda y devuelve el draft parseado', async () => {
+  state.responder = (sql, params) => {
+    if (sql.startsWith('INSERT INTO product_drafts')) return { rows: [], rowCount: 1 };
+    if (sql.startsWith('SELECT id, name, sku, draft_json')) {
+      return { rows: [{ id: params[0], name: 'Cuaderno', sku: 'CUA-1', draftJson: JSON.stringify({ common: { sku: 'CUA-1' } }), status: 'draft' }] };
+    }
+    return { rows: [] };
+  };
+  const id = await db.createProductDraft({ id: 'd1', name: 'Cuaderno', sku: 'CUA-1', draftJson: '{}' });
+  assert.equal(id, 'd1');
+  const draft = await db.getProductDraft('d1');
+  assert.equal(draft.id, 'd1');
+  assert.deepEqual(draft.draft, { common: { sku: 'CUA-1' } });
+});
+
+test('getProductDraft: id inexistente → null', async () => {
+  state.responder = () => ({ rows: [] });
+  assert.equal(await db.getProductDraft('no-existe'), null);
+});
+
+test('listProductDrafts: más recientes primero, tope 200', async () => {
+  let limitUsed = null;
+  state.responder = (sql, params) => { limitUsed = params[0]; return { rows: [{ id: 'd1' }, { id: 'd2' }] }; };
+  const list = await db.listProductDrafts(500);
+  assert.equal(limitUsed, 200);
+  assert.equal(list.length, 2);
+});
+
+test('deleteProductDraft: true si borró una fila', async () => {
+  state.responder = () => ({ rowCount: 1 });
+  assert.equal(await db.deleteProductDraft('d1'), true);
+  state.responder = () => ({ rowCount: 0 });
+  assert.equal(await db.deleteProductDraft('no-existe'), false);
+});
+
+test('createPublishJob: inserta y devuelve el id dado', async () => {
+  state.responder = () => ({ rows: [], rowCount: 1 });
+  assert.equal(await db.createPublishJob({ id: 'j1', draftId: 'd1', channels: 'ml,tn', payloadJson: '{}' }), 'j1');
+});
+
+test('claimNextPublishJob: sin job disponible devuelve null', async () => {
+  state.responder = (sql) => (sql.includes('FOR UPDATE SKIP LOCKED') ? { rows: [] } : { rows: [], rowCount: 0 });
+  assert.equal(await db.claimNextPublishJob(), null);
+});
+
+test('claimNextPublishJob: reclama el job y lo marca processing', async () => {
+  const updates = [];
+  state.responder = (sql, params) => {
+    if (sql.includes('FOR UPDATE SKIP LOCKED')) {
+      return { rows: [{ id: 'j1', draftId: 'd1', channels: 'ml,tn', payloadJson: '{}', attempts: 0, status: 'pending' }] };
+    }
+    if (sql.includes("SET status = 'processing'")) updates.push(params);
+    return { rows: [], rowCount: 0 };
+  };
+  const job = await db.claimNextPublishJob();
+  assert.equal(job.id, 'j1');
+  assert.equal(updates[0][0], 'j1');
+  assert.equal(updates[0][1], 0); // pending: no suma intento
+});
+
+test('claimNextPublishJob: recupera un job trabado (processing con lock vencido) y suma un intento', async () => {
+  let updateParams = null;
+  state.responder = (sql, params) => {
+    if (sql.includes('FOR UPDATE SKIP LOCKED')) {
+      return { rows: [{ id: 'j2', draftId: 'd1', channels: 'ml', payloadJson: '{}', attempts: 1, status: 'processing' }] };
+    }
+    if (sql.includes("SET status = 'processing'")) updateParams = params;
+    return { rows: [], rowCount: 0 };
+  };
+  const job = await db.claimNextPublishJob();
+  assert.equal(updateParams[1], 1);
+  assert.equal(job.attempts, 2);
+});
+
+test('claimNextPublishJob: la query también busca processing con lock vencido, con umbral de 5 min', async () => {
+  let selectSql = '';
+  let umbral = null;
+  state.responder = (sql, params) => {
+    if (sql.includes('FOR UPDATE SKIP LOCKED')) { selectSql = sql; umbral = params[0]; return { rows: [] }; }
+    return { rows: [], rowCount: 0 };
+  };
+  await db.claimNextPublishJob();
+  assert.ok(selectSql.includes("status = 'processing'"));
+  assert.equal(umbral, db.PUBLISH_JOB_STALE_LOCK_MS);
+  assert.equal(db.PUBLISH_JOB_STALE_LOCK_MS, 5 * 60 * 1000); // 5 min — publicar de verdad tarda más que una tarea de stock
+});
+
+test('touchPublishJobLock: refresca el lock solo si sigue processing', async () => {
+  state.responder = (sql, params) => ({ rowCount: params[0] === 'j1' ? 1 : 0 });
+  assert.equal(await db.touchPublishJobLock('j1'), true);
+  assert.equal(await db.touchPublishJobLock('otro'), false);
+});
+
+test('finishPublishJob: marca done/error, limpia el lock', async () => {
+  const calls = [];
+  state.responder = (sql, params) => { calls.push(params); return { rowCount: 1 }; };
+  assert.equal(await db.finishPublishJob('j1', 'done'), true);
+  assert.equal(calls[0][0], 'done');
+});
+
+test('retryPublishJob: solo re-encola un job error o processing con lock vencido', async () => {
+  state.responder = () => ({ rowCount: 1 });
+  assert.equal(await db.retryPublishJob('j1'), true);
+  state.responder = () => ({ rowCount: 0 });
+  assert.equal(await db.retryPublishJob('j-vivo'), false);
+});
+
+test('getPublishJob / listPublishJobsForDraft / deletePublishJob', async () => {
+  state.responder = (sql) => {
+    if (sql.startsWith('SELECT id, draft_id AS "draftId", channels, payload_json')) {
+      return { rows: [{ id: 'j1', draftId: 'd1', channels: 'ml', status: 'done' }] };
+    }
+    if (sql.startsWith('SELECT id, draft_id AS "draftId", channels, status, attempts')) {
+      return { rows: [{ id: 'j1' }, { id: 'j0' }] };
+    }
+    return { rowCount: 1 };
+  };
+  const job = await db.getPublishJob('j1');
+  assert.equal(job.id, 'j1');
+  const list = await db.listPublishJobsForDraft('d1');
+  assert.equal(list.length, 2);
+  assert.equal(await db.deletePublishJob('j1'), true);
+});
+
+test('upsertPublishUnit / getPublishUnits: registra una unidad y la devuelve en orden', async () => {
+  const inserted = [];
+  state.responder = (sql, params) => {
+    if (sql.startsWith('INSERT INTO product_publish_units')) { inserted.push(params); return { rowCount: 1 }; }
+    if (sql.startsWith('SELECT channel, unit_key')) {
+      return { rows: [{ channel: 'ml', unitKey: 'CUA-N', seq: 0, status: 'ok', externalId: 'MLA1', detail: 'Publicación MLA1 creada' }] };
+    }
+    return { rows: [] };
+  };
+  assert.equal(await db.upsertPublishUnit({ jobId: 'j1', channel: 'ml', unitKey: 'CUA-N', seq: 0, status: 'ok', externalId: 'MLA1', detail: 'ok' }), true);
+  assert.equal(inserted[0][0], 'j1');
+  const units = await db.getPublishUnits('j1');
+  assert.equal(units.length, 1);
+  assert.equal(units[0].externalId, 'MLA1');
+});
+
+test('recomputeDraftStatus: ambos canales con todas sus unidades ok → published', async () => {
+  state.responder = (sql) => {
+    if (sql.includes('FROM product_publish_jobs')) return { rows: [{ id: 'j1', channels: 'ml,tn' }] };
+    if (sql.includes('FROM product_publish_units')) return { rows: [{ status: 'ok' }] };
+    return { rowCount: 1 };
+  };
+  assert.equal(await db.recomputeDraftStatus('d1'), 'published');
+});
+
+test('recomputeDraftStatus: sin ningún job terminado → draft (nunca se intentó publicar)', async () => {
+  state.responder = (sql) => (sql.includes('FROM product_publish_jobs') ? { rows: [] } : { rowCount: 1 });
+  assert.equal(await db.recomputeDraftStatus('d1'), 'draft');
+});
+
+test('recomputeDraftStatus: un canal ok y el otro con error → partial', async () => {
+  state.responder = (sql, params) => {
+    if (sql.includes('FROM product_publish_jobs')) return { rows: [{ id: 'j1', channels: 'ml,tn' }] };
+    if (sql.includes('FROM product_publish_units')) {
+      return { rows: params[1] === 'ml' ? [{ status: 'ok' }] : [{ status: 'error' }] };
+    }
+    return { rowCount: 1 };
+  };
+  assert.equal(await db.recomputeDraftStatus('d1'), 'partial');
+});
+
+test('recomputeDraftStatus: un reintento de un solo canal no pisa lo que ya se sabía del otro (job más reciente por canal, no el último job entero)', async () => {
+  // Job viejo: publicó AMBOS canales ok. Job nuevo (reintento): solo TN, y falló.
+  // El resultado debe ser 'partial' (ml sigue 'ok' del job viejo), no 'error' (que pisaría ml sin motivo).
+  state.responder = (sql, params) => {
+    if (sql.includes('FROM product_publish_jobs')) {
+      return { rows: [{ id: 'j-nuevo', channels: 'tn' }, { id: 'j-viejo', channels: 'ml,tn' }] };
+    }
+    if (sql.includes('FROM product_publish_units')) {
+      if (params[0] === 'j-nuevo') return { rows: [{ status: 'error' }] }; // tn del job nuevo: error
+      return { rows: [{ status: 'ok' }] }; // ml (y tn) del job viejo: ok — pero tn ya se resolvió con el nuevo
+    }
+    return { rowCount: 1 };
+  };
+  assert.equal(await db.recomputeDraftStatus('d1'), 'partial');
+});
+
+test('recomputeDraftStatus: ambos con error → error', async () => {
+  state.responder = (sql) => {
+    if (sql.includes('FROM product_publish_jobs')) return { rows: [{ id: 'j1', channels: 'ml,tn' }] };
+    if (sql.includes('FROM product_publish_units')) return { rows: [{ status: 'error' }] };
+    return { rowCount: 1 };
+  };
+  assert.equal(await db.recomputeDraftStatus('d1'), 'error');
 });

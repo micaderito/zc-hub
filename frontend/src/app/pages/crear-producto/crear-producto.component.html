@@ -64,6 +64,30 @@
 
   <zc-variants-section />
 
+  @if (publishing() && publishProgress().length) {
+    <div class="publish-progress zc-card block">
+      <div class="block-head">
+        <i class="ti ti-loader-2"></i>
+        <span class="block-title">Publicando…</span>
+        <span class="block-note">— podés cerrar esta pestaña, sigue en el servidor</span>
+      </div>
+      @for (u of publishProgress(); track u.channel + u.unitKey + u.seq) {
+        <div class="progress-row" [class.ok]="u.status === 'ok'" [class.err]="u.status === 'error'">
+          @if (u.channel === 'ml') { <span class="dot dot-ml"></span> } @else { <span class="dot dot-tn"></span> }
+          <span class="unit-key">{{ u.unitKey || 'producto' }}</span>
+          <span class="unit-detail">{{ u.detail }}</span>
+          @if (u.status === 'ok') {
+            <i class="ti ti-check"></i>
+          } @else if (u.status === 'error') {
+            <i class="ti ti-x"></i>
+          } @else {
+            <i class="ti ti-loader"></i>
+          }
+        </div>
+      }
+    </div>
+  }
+
   @if (publishResults(); as results) {
     <zc-publish-results [results]="results" (dismiss)="dismissResults()" (retry)="retry($event)" />
   }
@@ -100,9 +124,35 @@
         <span class="hint">Guardado {{ draftSavedAt()! | date: 'short' }}</span>
       }
     </div>
-    <button type="button" class="zc-btn primary" (click)="publish()" [disabled]="publishing() || hasPendingUploads()">
-      <i class="ti ti-rocket"></i> {{ publishing() ? 'Publicando…' : 'Publicar en ambos' }}
-    </button>
+    <div class="publish-split">
+      <button
+        type="button"
+        class="zc-btn primary"
+        (click)="publish()"
+        [disabled]="publishing() || hasPendingUploads()"
+      >
+        <i class="ti ti-rocket"></i> {{ publishing() ? 'Publicando…' : 'Publicar en ambos' }}
+      </button>
+      <button
+        type="button"
+        class="zc-btn primary publish-split-toggle"
+        (click)="publishMenuOpen.set(!publishMenuOpen())"
+        [disabled]="publishing() || hasPendingUploads()"
+        aria-label="Elegir canal"
+      >
+        <i class="ti" [class.ti-chevron-down]="!publishMenuOpen()" [class.ti-chevron-up]="publishMenuOpen()"></i>
+      </button>
+      @if (publishMenuOpen()) {
+        <div class="publish-menu">
+          <button type="button" (click)="publishMenuOpen.set(false); publish(['ml'])">
+            <span class="dot dot-ml"></span> Solo Mercado Libre
+          </button>
+          <button type="button" (click)="publishMenuOpen.set(false); publish(['tn'])">
+            <span class="dot dot-tn"></span> Solo Tienda Nube
+          </button>
+        </div>
+      }
+    </div>
   </div>
 </div>
 

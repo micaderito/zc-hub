@@ -1,7 +1,7 @@
 import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
-import { CatalogService } from '../../core/services/catalog.service';
+import { CatalogService, DraftDetail, DraftSummary } from '../../core/services/catalog.service';
 import { PricingService } from '../../core/services/pricing.service';
 import {
   DEFAULT_SETTINGS,
@@ -117,7 +117,7 @@ export class ProductDraftStore {
   readonly currentDraftId = signal<string | null>(null);
   readonly draftSavedAt = signal<Date | null>(null);
   readonly draftRestored = signal(false);
-  readonly savedDrafts = signal<{ id: string; label: string; savedAt: Date }[]>([]);
+  readonly savedDrafts = signal<{ id: string; label: string; savedAt: Date; status: DraftSummary['status'] }[]>([]);
   readonly draftsPanelOpen = signal(false);
 
   /* ---------- proyección y variantes ---------- */
@@ -136,6 +136,13 @@ export class ProductDraftStore {
 
   readonly mlMaxPictures = signal(ML_MAX_PICTURES_FALLBACK);
   readonly mlMaxPicturesPerVar = signal(ML_MAX_PICTURES_PER_VAR_FALLBACK);
+  /**
+   * Atributos de la categoría de ML que ML permite variar (`allowVariations`, ej. COLOR, SIZE) —
+   * candidatos a mapear un eje de variante (`VariantAxis.mlAttributeId`). Los carga la página al
+   * traer los atributos de categoría (`loadMlAttributes`); vive en el store (no en la página)
+   * porque `variants-section` lo necesita para el selector de eje y solo inyecta el store.
+   */
+  readonly mlVariationAttrs = signal<MlAttribute[]>([]);
   /** Tope de fotos por producto en TN (fijo por la API; error 422 al superar 250). */
   readonly TN_MAX_PICTURES = 250;
   readonly imageError = signal<string | null>(null);
@@ -690,17 +697,10 @@ export class ProductDraftStore {
     }
   }
 
-  /** Nombre para mostrar en la lista: nombre base, o SKU, o un genérico. */
-  private draftLabel(d: ProductDraft): string {
-    const name = d.common?.baseName?.trim();
-    if (name) return name;
-    const sku = d.common?.sku?.trim();
-    if (sku) return `SKU ${sku}`;
-    return 'Borrador sin nombre';
-  }
-
-  /** Lee todos los borradores guardados. Tolerante a datos corruptos: devuelve []. */
-  private readAllDrafts(): StoredDraftEntry[] {
+  /** Lee todos los borradores guardados EN LOCALSTORAGE. Solo se usa para la migración one-shot
+   *  al backend (ver migrateLocalDraftsToBackend) — la persistencia normal ya no pasa por acá.
+   *  Tolerante a datos corruptos: devuelve []. */
+  private readAllLegacyLocalDrafts(): StoredDraftEntry[] {
     try {
       const raw = localStorage.getItem(ProductDraftStore.DRAFTS_KEY);
       if (!raw) return [];
@@ -711,17 +711,16 @@ export class ProductDraftStore {
     }
   }
 
-  private writeAllDrafts(list: StoredDraftEntry[]): void {
+  private writeLegacyLocalDrafts(list: StoredDraftEntry[]): void {
     try {
       localStorage.setItem(ProductDraftStore.DRAFTS_KEY, JSON.stringify(list));
     } catch {
-      // localStorage no disponible (modo privado, cuota llena, etc.): no bloqueamos al usuario.
-      this.setImageError('draft', 'No se pudo guardar el borrador en este navegador.');
+      /* noop: solo se usa para volcar el borrador único viejo antes de migrar, no es crítico */
     }
   }
 
-  /** Migra el borrador único de la versión anterior (si existe) a la lista nueva, una sola vez. */
-  migrateLegacyDraft(): void {
+  /** Migra el borrador único de la versión anterior (clave singular) a la lista, dentro de localStorage — un paso intermedio de `migrateLocalDraftsToBackend`. */
+  private migrateLegacyDraft(): void {
     let raw: string | null;
     try {
       raw = localStorage.getItem(ProductDraftStore.LEGACY_DRAFT_KEY);
@@ -732,7 +731,7 @@ export class ProductDraftStore {
     try {
       const legacy = JSON.parse(raw);
       if (legacy?.draft) {
-        const list = this.readAllDrafts();
+        const list = this.readAllLegacyLocalDrafts();
         list.unshift({
           id: this.genId(),
           savedAt: legacy.savedAt ?? Date.now(),
@@ -740,7 +739,7 @@ export class ProductDraftStore {
           mlMaxPicturesPerVar: positiveLimit(legacy.mlMaxPicturesPerVar, ML_MAX_PICTURES_PER_VAR_FALLBACK),
           draft: legacy.draft
         });
-        this.writeAllDrafts(list);
+        this.writeLegacyLocalDrafts(list);
       }
     } catch {
       // Borrador viejo corrupto: se descarta sin romper la página.
@@ -753,24 +752,65 @@ export class ProductDraftStore {
     }
   }
 
-  /** Refresca la metadata para el panel "Mis borradores" (más reciente primero). */
-  refreshSavedDraftsList(): void {
-    this.savedDrafts.set(
-      this.readAllDrafts()
-        .slice()
-        .sort((a, b) => b.savedAt - a.savedAt)
-        .map((e) => ({ id: e.id, label: this.draftLabel(e.draft as ProductDraft), savedAt: new Date(e.savedAt) }))
-    );
+  private static readonly MIGRATED_FLAG_KEY = 'zc-crear-producto-drafts-migrated-to-backend';
+
+  /**
+   * Migración ÚNICA: los borradores vivían en `localStorage`; ahora viven en el backend (para
+   * poder retomarlos desde cualquier navegador y conservar el historial de publicación). Sube
+   * cada borrador que hubiera guardado, uno por uno — si alguno falla, sigue con los demás (mejor
+   * migrar parcial que no migrar nada) — y solo borra `localStorage` si terminó sin excepciones.
+   * Se saltea por completo si ya corrió una vez (flag en localStorage).
+   */
+  async migrateLocalDraftsToBackend(): Promise<void> {
+    try {
+      if (localStorage.getItem(ProductDraftStore.MIGRATED_FLAG_KEY)) return;
+    } catch {
+      return; // sin localStorage (modo privado estricto) no hay nada que migrar
+    }
+    this.migrateLegacyDraft();
+    const list = this.readAllLegacyLocalDrafts();
+    // Sin nada que migrar, NO se marca como hecho: el chequeo es un simple GET de localStorage
+    // (gratis), y así una usuaria que todavía no guardó ningún borrador — o cuyo localStorage se
+    // limpió antes de que el flag llegara a persistir — sigue elegible el día que sí tenga uno.
+    // El flag representa "ya SUBÍ datos reales", no "ya miré una vez".
+    if (!list.length) return;
+    for (const entry of list) {
+      const d = entry.draft as ProductDraft;
+      try {
+        await this.catalog.createDraft({ name: d?.common?.baseName || undefined, sku: d?.common?.sku || undefined, draft: d });
+      } catch (e) {
+        console.warn('No se pudo migrar un borrador local al backend:', e);
+      }
+    }
+    try {
+      localStorage.removeItem(ProductDraftStore.DRAFTS_KEY);
+      localStorage.setItem(ProductDraftStore.MIGRATED_FLAG_KEY, '1');
+    } catch {
+      /* noop */
+    }
+  }
+
+  /** Refresca la metadata para el panel "Mis borradores" (más reciente primero). Sin conexión, deja la lista como estaba. */
+  async refreshSavedDraftsList(): Promise<void> {
+    try {
+      const list = await this.catalog.listDrafts();
+      this.savedDrafts.set(
+        list.map((e) => ({ id: e.id, label: e.name?.trim() || (e.sku?.trim() ? `SKU ${e.sku}` : 'Borrador sin nombre'), savedAt: new Date(e.updatedAt), status: e.status }))
+      );
+    } catch {
+      // se mantiene lo que ya había en pantalla
+    }
   }
 
   /**
-   * Guarda el borrador actual (nada se publica). Si ya se venía editando uno (`currentDraftId`),
-   * actualiza esa misma entrada; si no, crea una nueva. Las imágenes ya viven en el store temporal
-   * del backend: acá solo persistimos su `id`/`name`.
+   * Guarda el borrador actual en el backend (nada se publica): crea uno nuevo la primera vez, y
+   * de ahí en más actualiza esa misma fila (`currentDraftId`). Las imágenes ya viven en el store
+   * temporal del backend: acá solo persistimos su `id`/`name`.
    *
-   * `auto: true` es el autoguardado, y trae guardas extra para no ensuciar "Mis borradores".
+   * `auto: true` es el autoguardado, y trae guardas extra para no ensuciar "Mis borradores" ni
+   * pegarle al backend por cada tecla si no cambió nada real.
    */
-  saveDraft(opts: { auto?: boolean } = {}): void {
+  async saveDraft(opts: { auto?: boolean } = {}): Promise<void> {
     if (this.hasPendingUploads()) {
       // Guardar ahora persistiría ids `local-…` que no existen en el backend.
       if (opts.auto) {
@@ -785,32 +825,32 @@ export class ProductDraftStore {
     if (opts.auto && this.isDraftEmpty(d)) return;
 
     const stripPreview = (images: DraftImage[]) => images.map(({ id, name }) => ({ id, name }));
-    const id = this.currentDraftId() ?? this.genId();
-    const entry: StoredDraftEntry = {
-      id,
-      savedAt: Date.now(),
-      mlMaxPictures: this.mlMaxPictures(),
-      mlMaxPicturesPerVar: this.mlMaxPicturesPerVar(),
-      draft: {
-        ...d,
-        ml: { ...d.ml, images: stripPreview(d.ml.images) },
-        tn: { ...d.tn, images: stripPreview(d.tn.images) }
-      }
+    const draftPayload = {
+      ...d,
+      ml: { ...d.ml, images: stripPreview(d.ml.images) },
+      tn: { ...d.tn, images: stripPreview(d.tn.images) }
     };
-    // Si nada cambió desde el último guardado, el autoguardado no reescribe localStorage.
-    const snapshot = JSON.stringify(entry.draft);
+    // Si nada cambió desde el último guardado, el autoguardado no le pega al backend.
+    const snapshot = JSON.stringify(draftPayload);
     if (opts.auto && snapshot === this.lastSavedSnapshot) return;
     this.lastSavedSnapshot = snapshot;
 
-    const list = this.readAllDrafts();
-    const idx = list.findIndex((e) => e.id === id);
-    if (idx >= 0) list[idx] = entry;
-    else list.unshift(entry);
-    // Tope de borradores guardados: si se supera, se descartan los más viejos.
-    this.writeAllDrafts(list.slice(0, ProductDraftStore.MAX_DRAFTS));
-    this.currentDraftId.set(id);
-    this.draftSavedAt.set(new Date(entry.savedAt));
-    this.refreshSavedDraftsList();
+    const name = d.common.baseName.trim() || undefined;
+    const sku = d.common.sku.trim() || undefined;
+    try {
+      const id = this.currentDraftId();
+      if (id) {
+        await this.catalog.updateDraft(id, { name, sku, draft: draftPayload });
+      } else {
+        const created = await this.catalog.createDraft({ name, sku, draft: draftPayload });
+        this.currentDraftId.set(created.id);
+      }
+      this.draftSavedAt.set(new Date());
+      await this.refreshSavedDraftsList();
+    } catch (e) {
+      this.lastSavedSnapshot = null; // permite reintentar en el próximo touch/autosave
+      if (!opts.auto) this.setImageError('draft', this.errMsg(e) || 'No se pudo guardar el borrador.');
+    }
   }
 
   /** Un borrador "vacío" es el que no tiene ni nombre, ni SKU, ni fotos, ni variantes. */
@@ -855,8 +895,8 @@ export class ProductDraftStore {
     }
   }
 
-  /** Carga un borrador guardado en el formulario (reconstruye los previews de imágenes). */
-  private applyDraftEntry(entry: StoredDraftEntry): void {
+  /** Carga un borrador del backend en el formulario (reconstruye los previews de imágenes). */
+  private applyDraftEntry(entry: DraftDetail): void {
     // El preview apunta a la MINIATURA, no al original: restaurar un borrador con 45 fotos servía
     // ~225 MB de archivos de resolución completa para pintarlos en cajas de 40-84 px.
     const restorePreview = (images: { id: string; name: string }[] = []): DraftImage[] =>
@@ -868,52 +908,71 @@ export class ProductDraftStore {
     this.cancelAutosave();
     // Los blobs del borrador que estaba abierto ya no se usan más.
     this.revokeDraftBlobs(this.draft());
+    const rawDraft = entry.draft as ProductDraft;
     // normalizeDraft rellena lo que falte: los borradores de versiones anteriores no traen `cost`,
     // ni `barcode`/`titles` por variante ni, en los más viejos, `ml.pictureIds` — y sin ese array
     // los computeds de selección tiraban TypeError y se caía el render de la página.
-    const d = normalizeDraft(entry.draft);
+    const d = normalizeDraft(rawDraft);
     // Borradores guardados antes del fix de `addVariant()` (contador secuencial que se reiniciaba
     // en cada carga) pueden traer dos variantes con el mismo id — sin esto, el modal de "Elegir
     // fotos" de una seguía resolviendo a la otra para siempre. Se cura solo al restaurar, sin
     // tocar SKU/precio/fotos: sana la instancia en memoria del array, no el JSON guardado.
     this.dedupeVariantIds(d);
-    d.ml.images = restorePreview(entry.draft.ml.images as { id: string; name: string }[]);
-    d.tn.images = restorePreview(entry.draft.tn.images as { id: string; name: string }[]);
+    d.ml.images = restorePreview(rawDraft.ml?.images as unknown as { id: string; name: string }[]);
+    d.tn.images = restorePreview(rawDraft.tn?.images as unknown as { id: string; name: string }[]);
     this.draft.set(d);
-    // positiveLimit (y no `??`) porque un 0 guardado por una versión anterior dejaba el límite de
-    // fotos por variación en cero, y con eso NINGUNA foto de ML se podía seleccionar nunca más.
-    this.mlMaxPictures.set(positiveLimit(entry.mlMaxPictures, ML_MAX_PICTURES_FALLBACK));
-    this.mlMaxPicturesPerVar.set(positiveLimit(entry.mlMaxPicturesPerVar, ML_MAX_PICTURES_PER_VAR_FALLBACK));
+    // El límite de fotos por categoría (mlMaxPictures/mlMaxPicturesPerVar) NO se persiste en el
+    // borrador: es metadata de la categoría de ML, no del producto. Vuelve a los fallback acá y
+    // la página (crear-producto.component.ts, en ngOnInit) los refresca de verdad si hay
+    // categoryId, pegándole a ML — evita guardar un dato que puede quedar viejo.
+    this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
+    this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
     this.currentDraftId.set(entry.id);
-    this.draftSavedAt.set(new Date(entry.savedAt));
-    this.lastSavedSnapshot = JSON.stringify(entry.draft);
+    this.draftSavedAt.set(new Date(entry.updatedAt));
+    // El snapshot es el draft TAL COMO LLEGÓ del backend (imágenes ya en formato {id,name}), para
+    // que comparar contra él en el próximo autosave dé igual que si se acabara de guardar.
+    this.lastSavedSnapshot = JSON.stringify(rawDraft);
   }
 
   /** Al entrar a la página, restaura automáticamente el borrador guardado más reciente (si hay). */
-  restoreMostRecentDraft(): void {
-    const list = this.readAllDrafts();
-    if (!list.length) return;
-    this.applyDraftEntry(list.reduce((a, b) => (b.savedAt > a.savedAt ? b : a)));
-    this.draftRestored.set(true);
+  async restoreMostRecentDraft(): Promise<void> {
+    try {
+      const list = await this.catalog.listDrafts();
+      if (!list.length) return;
+      const mostRecent = list.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a));
+      const entry = await this.catalog.getDraft(mostRecent.id);
+      this.applyDraftEntry(entry);
+      this.draftRestored.set(true);
+    } catch {
+      // sin conexión / error puntual: se empieza con un borrador vacío, no se bloquea la página
+    }
   }
 
   /** Abre un borrador elegido desde el panel "Mis borradores". */
-  openDraft(id: string): void {
-    const entry = this.readAllDrafts().find((e) => e.id === id);
-    if (!entry) return;
-    this.applyDraftEntry(entry);
-    this.draftRestored.set(false);
-    this.draftsPanelOpen.set(false);
+  async openDraft(id: string): Promise<void> {
+    try {
+      const entry = await this.catalog.getDraft(id);
+      this.applyDraftEntry(entry);
+      this.draftRestored.set(false);
+      this.draftsPanelOpen.set(false);
+    } catch (e) {
+      this.setImageError('draft', this.errMsg(e) || 'No se pudo abrir el borrador.');
+    }
   }
 
   toggleDraftsPanel(): void {
     this.draftsPanelOpen.set(!this.draftsPanelOpen());
   }
 
-  /** Elimina un borrador guardado para siempre. Si es el que se está editando, limpia el formulario. */
-  deleteDraft(id: string): void {
-    this.writeAllDrafts(this.readAllDrafts().filter((e) => e.id !== id));
-    this.refreshSavedDraftsList();
+  /** Elimina un borrador para siempre (y sus imágenes, en el backend). Si es el que se está editando, limpia el formulario. */
+  async deleteDraft(id: string): Promise<void> {
+    try {
+      await this.catalog.deleteDraft(id);
+    } catch (e) {
+      this.setImageError('draft', this.errMsg(e) || 'No se pudo eliminar el borrador.');
+      return;
+    }
+    await this.refreshSavedDraftsList();
     if (this.currentDraftId() === id) this.startNewDraft();
   }
 
@@ -924,20 +983,6 @@ export class ProductDraftStore {
     this.draft.set(emptyDraft());
     this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
     this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
-    this.currentDraftId.set(null);
-    this.draftSavedAt.set(null);
-    this.draftRestored.set(false);
-    this.lastSavedSnapshot = null;
-  }
-
-  /** Borra el borrador actual de la lista guardada (se llama tras publicar con éxito). */
-  clearSavedDraft(): void {
-    this.cancelAutosave();
-    const id = this.currentDraftId();
-    if (id) {
-      this.writeAllDrafts(this.readAllDrafts().filter((e) => e.id !== id));
-      this.refreshSavedDraftsList();
-    }
     this.currentDraftId.set(null);
     this.draftSavedAt.set(null);
     this.draftRestored.set(false);

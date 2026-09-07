@@ -74,6 +74,84 @@ class CatalogServiceMock {
     return Promise.resolve({ results });
   });
 
+  /*
+   * Borradores + publicación en background (backend): un Map en memoria hace de "base de datos"
+   * para que guardar/reabrir/listar se comporten de forma realista dentro de un mismo test — y
+   * `getPublishJob` sintetiza { job, units } a partir de `publishResponse` (arriba), así que los
+   * tests que ya seteaban `catalog.publishResponse = {...}` para el POST síncrono viejo siguen
+   * funcionando igual con el flujo nuevo (encolar + pollear), sin tener que reescribirlos.
+   */
+  draftsDb = new Map<string, { name: string | null; sku: string | null; draft: any; createdAt: string; updatedAt: string }>();
+  private draftSeq = 0;
+  private jobSeq = 0;
+  private jobChannels = new Map<string, ('ml' | 'tn')[] | undefined>();
+
+  private draftSummary(id: string) {
+    const d = this.draftsDb.get(id)!;
+    return { id, name: d.name, sku: d.sku, status: 'draft' as const, createdAt: d.createdAt, updatedAt: d.updatedAt };
+  }
+
+  listDrafts = jasmine.createSpy('listDrafts').and.callFake(() =>
+    Promise.resolve([...this.draftsDb.keys()].map((id) => this.draftSummary(id)).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)))
+  );
+  createDraft = jasmine.createSpy('createDraft').and.callFake((body: { name?: string; sku?: string; draft: unknown }) => {
+    const id = `d${++this.draftSeq}`;
+    const now = new Date(Date.now() + this.draftSeq).toISOString(); // ids crecientes → updatedAt creciente, sin depender del reloj real
+    this.draftsDb.set(id, { name: body.name ?? null, sku: body.sku ?? null, draft: body.draft, createdAt: now, updatedAt: now });
+    return Promise.resolve({ id });
+  });
+  updateDraft = jasmine.createSpy('updateDraft').and.callFake((id: string, body: { name?: string; sku?: string; draft: unknown }) => {
+    const d = this.draftsDb.get(id);
+    if (!d) return Promise.resolve({ ok: false });
+    d.name = body.name ?? null;
+    d.sku = body.sku ?? null;
+    d.draft = body.draft;
+    d.updatedAt = new Date(Date.now() + ++this.draftSeq).toISOString();
+    return Promise.resolve({ ok: true });
+  });
+  getDraft = jasmine.createSpy('getDraft').and.callFake((id: string) => {
+    const d = this.draftsDb.get(id);
+    if (!d) return Promise.reject({ error: { error: 'Borrador no encontrado' } });
+    return Promise.resolve({ ...this.draftSummary(id), draft: d.draft, jobs: [] });
+  });
+  deleteDraft = jasmine.createSpy('deleteDraft').and.callFake((id: string) => {
+    this.draftsDb.delete(id);
+    return Promise.resolve({ ok: true });
+  });
+
+  retryPublishJob = jasmine.createSpy('retryPublishJob').and.callFake(() => Promise.resolve({ ok: true }));
+  deletePublishJob = jasmine.createSpy('deletePublishJob').and.callFake(() => Promise.resolve({ ok: true }));
+
+  publishDraft = jasmine
+    .createSpy('publishDraft')
+    .and.callFake((id: string, payload: unknown, channels?: ('ml' | 'tn')[]) => {
+      this.lastPublishPayload = { ...(payload as object), channels };
+      const jobId = `j${++this.jobSeq}`;
+      this.jobChannels.set(jobId, channels);
+      return Promise.resolve({ jobId });
+    });
+
+  getPublishJob = jasmine.createSpy('getPublishJob').and.callFake((jobId: string) => {
+    const channels = this.jobChannels.get(jobId);
+    const results = channels ? this.publishResponse.results.filter((r) => channels.includes(r.channel)) : this.publishResponse.results;
+    const units = results.map((r, i) => ({ channel: r.channel, unitKey: '', seq: i, status: r.status, externalId: null, detail: r.detail, updatedAt: '' }));
+    const status = results.length && results.every((r) => r.status === 'ok') ? 'done' : 'error';
+    return Promise.resolve({
+      job: {
+        id: jobId,
+        draftId: 'd',
+        channels: (channels ?? ['ml', 'tn']).join(','),
+        status,
+        attempts: 1,
+        lastError: status === 'error' ? (results.find((r) => r.status === 'error')?.detail ?? null) : null,
+        createdAt: '',
+        updatedAt: '',
+        finishedAt: ''
+      },
+      units
+    });
+  });
+
   uploadResponse: UploadedImage = { id: 'IMG1', name: 'a.jpg', mime: 'image/jpeg', size: 3 };
   uploadImage = jasmine.createSpy('upload').and.callFake(() => Promise.resolve(this.uploadResponse));
   uploadImageFile = jasmine.createSpy('uploadFile').and.callFake(() => Promise.resolve(this.uploadResponse));
@@ -139,6 +217,7 @@ describe('CrearProductoComponent', () => {
   const clearDraftStorage = () => {
     localStorage.removeItem('zc-crear-producto-draft');
     localStorage.removeItem('zc-crear-producto-drafts');
+    localStorage.removeItem('zc-crear-producto-drafts-migrated-to-backend');
   };
 
   beforeEach(async () => {
@@ -726,7 +805,7 @@ describe('CrearProductoComponent', () => {
       expect(component.imageErrorScope()).toBe('variant');
     });
 
-    it('un borrador guardado con el límite en 0 se cura al restaurarlo', () => {
+    it('un borrador guardado con el límite en 0 se cura al restaurarlo', fakeAsync(() => {
       localStorage.setItem(
         'zc-crear-producto-drafts',
         JSON.stringify([
@@ -741,12 +820,13 @@ describe('CrearProductoComponent', () => {
       );
       const fx = TestBed.createComponent(CrearProductoComponent);
       fx.detectChanges();
+      flushMicrotasks();
 
       expect(fx.componentInstance.mlMaxPicturesPerVar()).toBe(10);
       expect(fx.componentInstance.mlMaxPictures()).toBe(12);
-    });
+    }));
 
-    it('restaurar un borrador viejo SIN ml.pictureIds no rompe el render', () => {
+    it('restaurar un borrador viejo SIN ml.pictureIds no rompe el render', fakeAsync(() => {
       localStorage.setItem(
         'zc-crear-producto-drafts',
         JSON.stringify([
@@ -767,15 +847,18 @@ describe('CrearProductoComponent', () => {
         ])
       );
       const fx = TestBed.createComponent(CrearProductoComponent);
-      expect(() => fx.detectChanges()).not.toThrow();
+      expect(() => {
+        fx.detectChanges();
+        flushMicrotasks();
+      }).not.toThrow();
 
       const v = fx.componentInstance.draft().variants[0];
       expect(v.ml.pictureIds).toEqual([]);
       expect(v.tn.imageIds).toEqual(['img-1']); // migrado desde el `imageId` viejo
       expect(v.titles.ml).toEqual({ inherited: true, value: '' });
-    });
+    }));
 
-    it('restaurar un borrador pide la MINIATURA, no el original', () => {
+    it('restaurar un borrador pide la MINIATURA, no el original', fakeAsync(() => {
       localStorage.setItem(
         'zc-crear-producto-drafts',
         JSON.stringify([
@@ -794,12 +877,13 @@ describe('CrearProductoComponent', () => {
       );
       const fx = TestBed.createComponent(CrearProductoComponent);
       fx.detectChanges();
+      flushMicrotasks();
 
       // Servir el original acá era ~5 MB por foto: con 45 fotos, Chrome descartaba la pestaña.
       expect(fx.componentInstance.draft().ml.images[0].previewUrl).toContain('/products/images/img-9/thumb');
-    });
+    }));
 
-    it('agregar una variante después de restaurar un borrador no colisiona con sus ids ("v1", "v2")', () => {
+    it('agregar una variante después de restaurar un borrador no colisiona con sus ids ("v1", "v2")', fakeAsync(() => {
       // Bug reportado: con 3+ variantes el modal de "Elegir fotos" de la fila nueva abría los
       // datos de la primera. Causa: `addVariant()` generaba ids con un contador que se reinicia a
       // 1 en cada carga de página (`v${variantSeq++}`), así que agregar una variante después de
@@ -828,6 +912,7 @@ describe('CrearProductoComponent', () => {
       );
       const fx = TestBed.createComponent(CrearProductoComponent);
       fx.detectChanges();
+      flushMicrotasks();
 
       fx.componentInstance.addVariant();
 
@@ -835,9 +920,10 @@ describe('CrearProductoComponent', () => {
       expect(new Set(ids).size).toBe(ids.length);
       expect(ids).toContain('v1');
       expect(ids).toContain('v2');
-    });
+      tick(1600); // drena el autoguardado que dispara addVariant()
+    }));
 
-    it('un borrador guardado con ids de variante duplicados (por el bug ya arreglado) se cura al restaurarlo', () => {
+    it('un borrador guardado con ids de variante duplicados (por el bug ya arreglado) se cura al restaurarlo', fakeAsync(() => {
       // Borradores guardados ANTES del fix de `addVariant()` pueden tener el bug ya cristalizado
       // en el JSON: dos variantes con el mismo id. `dedupeVariantIds` los separa al restaurar, sin
       // pedirle a la usuaria que empiece un producto nuevo ni tocar sus fotos/SKUs/precios.
@@ -865,6 +951,7 @@ describe('CrearProductoComponent', () => {
       );
       const fx = TestBed.createComponent(CrearProductoComponent);
       fx.detectChanges();
+      flushMicrotasks();
 
       const variants = fx.componentInstance.draft().variants;
       const ids = variants.map((v) => v.id);
@@ -874,7 +961,7 @@ describe('CrearProductoComponent', () => {
       expect(variants[0].sku).toBe('STARDUST');
       expect(variants[2].id).not.toBe('v1');
       expect(variants[2].sku).toBe('AURORA');
-    });
+    }));
 
     it('la selección hecha mientras la foto subía sigue viva cuando cambia el id', async () => {
       const upload = deferredUpload(catalog);
@@ -1005,6 +1092,41 @@ describe('CrearProductoComponent', () => {
 
       expect(fixture.nativeElement.querySelector('zc-ml-attributes')?.textContent).toContain('Marca');
     }));
+
+    it('atributos con allowVariations van a mlVariationAttrs (selector de eje), no a la lista general', fakeAsync(() => {
+      catalog.mlAttributes = [
+        { id: 'BRAND', name: 'Marca', valueType: 'string', required: true, allowedValues: [] },
+        { id: 'COLOR', name: 'Color', valueType: 'list', required: false, allowVariations: true, allowedValues: [{ id: '1', name: 'Negro' }] }
+      ];
+      void component.loadMlAttributes('MLA388307');
+      flushMicrotasks();
+
+      const ids = component.draft().ml.attributes.map((a) => a.id);
+      expect(ids).toContain('BRAND');
+      expect(ids).not.toContain('COLOR');
+      expect(component.store.mlVariationAttrs().map((a) => a.id)).toEqual(['COLOR']);
+    }));
+
+    it('selector de eje: elegir un atributo real de ML guarda mlAttributeId y sus allowedValues en el eje', fakeAsync(() => {
+      catalog.mlAttributes = [
+        { id: 'COLOR', name: 'Color', valueType: 'list', required: false, allowVariations: true, allowedValues: [{ id: '1', name: 'Negro' }] }
+      ];
+      void component.loadMlAttributes('MLA388307');
+      flushMicrotasks();
+      component.addAxis();
+      component.draft().axes[0].name = 'Color';
+      fixture.detectChanges();
+
+      const select = fixture.nativeElement.querySelector('zc-variants-section .axis-ml-attr') as HTMLSelectElement;
+      expect(select).not.toBeNull();
+      select.value = 'COLOR';
+      select.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      expect(component.draft().axes[0].mlAttributeId).toBe('COLOR');
+      expect(component.draft().axes[0].allowedValues).toEqual([{ id: '1', name: 'Negro' }]);
+      tick(1600); // drena el timer de autosave que dispararon addAxis()/touch() (fakeAsync exige la cola vacía)
+    }));
   });
 
   describe('autoguardado', () => {
@@ -1083,11 +1205,13 @@ describe('CrearProductoComponent', () => {
       expect(component.publishResults()).toBeNull();
     });
 
-    it('llama al backend y muestra los resultados por canal, apagando el flag de publicando', fakeAsync(() => {
+    it('guarda el borrador, encola el job y muestra los resultados por canal (polleando hasta que termina), apagando el flag de publicando', fakeAsync(() => {
       component.publish();
       flushMicrotasks();
 
-      expect(catalog.publishProduct).toHaveBeenCalled();
+      expect(catalog.createDraft).toHaveBeenCalled(); // primera publicación: crea el borrador en el backend
+      expect(catalog.publishDraft).toHaveBeenCalled();
+      expect(catalog.getPublishJob).toHaveBeenCalled();
       expect(component.publishing()).toBeFalse();
       const results = component.publishResults();
       expect(results).not.toBeNull();
@@ -1096,14 +1220,41 @@ describe('CrearProductoComponent', () => {
       expect(results!.find((r) => r.channel === 'tn')?.status).toBe('ok');
     }));
 
-    it('propaga el error como fallo en ambos canales si el backend rechaza', fakeAsync(() => {
-      catalog.publishProduct.and.returnValue(Promise.reject({ error: { error: 'boom' } }));
+    it('propaga el error como fallo en ambos canales si el backend rechaza al encolar', fakeAsync(() => {
+      catalog.publishDraft.and.returnValue(Promise.reject({ error: { error: 'boom' } }));
       component.publish();
       flushMicrotasks();
 
       const results = component.publishResults()!;
       expect(results.every((r) => r.status === 'error')).toBeTrue();
       expect(results[0].detail).toBe('boom');
+    }));
+
+    it('mientras el job sigue "processing", pollea de nuevo (con el intervalo configurado) hasta terminar', fakeAsync(() => {
+      let call = 0;
+      catalog.getPublishJob.and.callFake((jobId: string) => {
+        call++;
+        if (call === 1) {
+          return Promise.resolve({ job: { id: jobId, draftId: 'd', channels: 'ml,tn', status: 'processing', attempts: 1, lastError: null, createdAt: '', updatedAt: '', finishedAt: null }, units: [{ channel: 'ml', unitKey: '', seq: 0, status: 'ok', externalId: null, detail: 'Publicación MLA-1 creada', updatedAt: '' }] });
+        }
+        return Promise.resolve({ job: { id: jobId, draftId: 'd', channels: 'ml,tn', status: 'done', attempts: 1, lastError: null, createdAt: '', updatedAt: '', finishedAt: '' }, units: [
+          { channel: 'ml', unitKey: '', seq: 0, status: 'ok', externalId: null, detail: 'Publicación MLA-1 creada', updatedAt: '' },
+          { channel: 'tn', unitKey: '', seq: 0, status: 'ok', externalId: null, detail: 'Producto #1 creado', updatedAt: '' }
+        ] });
+      });
+
+      component.publish();
+      flushMicrotasks();
+      expect(component.publishing()).toBeTrue(); // todavía "processing": sigue publicando
+      expect(component.publishProgress().length).toBe(1); // progreso parcial ya visible (solo ML por ahora)
+
+      tick(1500); // el siguiente poll
+      flushMicrotasks();
+
+      expect(component.publishing()).toBeFalse();
+      expect(call).toBe(2);
+      const results = component.publishResults()!;
+      expect(results.every((r) => r.status === 'ok')).toBeTrue();
     }));
 
     it('buildPayloads() manda base_price y el base_stock compartido a ambos canales, y published:true en TN', () => {
@@ -1207,7 +1358,7 @@ describe('CrearProductoComponent', () => {
       expect(tn.handle).toEqual({ es: 'mi-handle' });
     });
 
-    it('sin variantes, arma un único registro de variante TN a partir de los datos comunes', () => {
+    it('sin variantes, arma un único registro de variante TN a partir de los datos comunes (+ age_group/gender por default)', () => {
       const payload = component.buildPayloads();
       const tn = payload.tn as any;
       expect(tn.variants.length).toBe(1);
@@ -1217,11 +1368,18 @@ describe('CrearProductoComponent', () => {
         weight: component.draft().common.weightG! / 1000,
         width: component.draft().common.widthCm,
         height: component.draft().common.heightCm,
-        depth: component.draft().common.lengthCm
+        depth: component.draft().common.lengthCm,
+        age_group: 'adult',
+        gender: 'unisex'
       });
     });
 
-    it('con variantes, arma un registro TN por variante con nombres de eje, valores y el stock compartido', () => {
+    it('sin ejes, TN no manda "attributes" (no hay eje que nombrar)', () => {
+      const tn = component.buildPayloads().tn as any;
+      expect(tn.attributes).toBeUndefined();
+    });
+
+    it('con variantes, arma un registro TN por variante con valores LIMPIOS (sin el nombre del eje adentro) y manda "attributes" con los nombres de eje', () => {
       component.addAxis();
       component.draft().axes[0].name = 'Color';
       component.draft().variants[0].sku = 'CUA-A4-TD-NEGRO';
@@ -1232,11 +1390,33 @@ describe('CrearProductoComponent', () => {
       const payload = component.buildPayloads();
       const tn = payload.tn as any;
 
+      expect(tn.attributes).toEqual([{ es: 'Color' }]);
       expect(tn.variants.length).toBe(1);
       expect(tn.variants[0].sku).toBe('CUA-A4-TD-NEGRO');
-      expect(tn.variants[0].values).toEqual([{ es: 'Color: Negro' }]);
+      // Antes viajaba [{ es: 'Color: Negro' }] — el nombre del eje ya no se mete en el valor.
+      expect(tn.variants[0].values).toEqual([{ es: 'Negro' }]);
       expect(tn.variants[0].price).toBe(1000);
       expect(tn.variants[0].stock).toBe(5);
+    });
+
+    it('manda mpn/age_group/gender de "Datos generales" en cada variante TN (Instagram/Google Shopping)', () => {
+      component.addAxis();
+      component.draft().axes[0].name = 'Color';
+      component.draft().variants[0].values = ['Negro'];
+      component.draft().common.mpn = 'MPN-123';
+      component.draft().common.ageGroup = 'kids';
+      component.draft().common.gender = 'female';
+
+      const tn = component.buildPayloads().tn as any;
+      expect(tn.variants[0].mpn).toBe('MPN-123');
+      expect(tn.variants[0].age_group).toBe('kids');
+      expect(tn.variants[0].gender).toBe('female');
+    });
+
+    it('mpn vacío no manda el campo (undefined, no string vacío)', () => {
+      component.draft().common.mpn = '';
+      const tn = component.buildPayloads().tn as any;
+      expect(tn.variants[0].mpn).toBeUndefined();
     });
 
     it('convierte el peso de gramos a kilogramos para TN, o lo deja en null si no hay peso', () => {
@@ -1345,7 +1525,7 @@ describe('CrearProductoComponent', () => {
       component.retry('ml');
       flushMicrotasks();
 
-      expect(catalog.publishProduct).toHaveBeenCalled();
+      expect(catalog.publishDraft).toHaveBeenCalled();
       expect(catalog.lastPublishPayload.channels).toEqual(['ml']);
       const results = component.publishResults()!;
       const ml = results.find((r) => r.channel === 'ml')!;
@@ -1379,161 +1559,214 @@ describe('CrearProductoComponent', () => {
       expect(tn.status).toBe('ok');
       expect(tn.detail).toContain('#7');
     }));
+
+    it('un solo resultado (publicar un único canal) no rompe el render — antes indexaba results()[1]', () => {
+      component.publishResults.set([{ channel: 'ml', status: 'ok', detail: 'Publicación MLA-1 creada' }]);
+      expect(() => fixture.detectChanges()).not.toThrow();
+      const icon = fixture.nativeElement.querySelector('zc-publish-results .results-head > i.ti') as HTMLElement;
+      expect(icon.classList.contains('ti-circle-check')).toBeTrue();
+      expect(icon.classList.contains('ti-alert-circle')).toBeFalse();
+    });
+
+    it('un solo resultado con error también se refleja bien en el ícono', () => {
+      component.publishResults.set([{ channel: 'tn', status: 'error', detail: 'stock inválido' }]);
+      fixture.detectChanges();
+      const icon = fixture.nativeElement.querySelector('zc-publish-results .results-head > i.ti') as HTMLElement;
+      expect(icon.classList.contains('ti-alert-circle')).toBeTrue();
+      expect(icon.classList.contains('ti-circle-check')).toBeFalse();
+    });
   });
 
-  describe('borradores locales (guardar / restaurar / listar / eliminar)', () => {
-    it('saveDraft() persiste el draft en la lista y setea draftSavedAt + currentDraftId', () => {
+  describe('borradores en el backend (guardar / restaurar / listar / eliminar)', () => {
+    it('saveDraft() crea el borrador en el backend y setea draftSavedAt + currentDraftId', fakeAsync(() => {
       component.draft().common.baseName = 'Cuaderno Test';
       expect(component.draftSavedAt()).toBeNull();
       expect(component.currentDraftId()).toBeNull();
 
       component.saveDraft();
+      flushMicrotasks();
 
       expect(component.draftSavedAt()).not.toBeNull();
       expect(component.currentDraftId()).not.toBeNull();
-      const list = JSON.parse(localStorage.getItem('zc-crear-producto-drafts')!);
-      expect(list.length).toBe(1);
-      expect(list[0].draft.common.baseName).toBe('Cuaderno Test');
-    });
+      expect(catalog.createDraft).toHaveBeenCalled();
+      expect(catalog.draftsDb.size).toBe(1);
+      expect([...catalog.draftsDb.values()][0].draft.common.baseName).toBe('Cuaderno Test');
+    }));
 
-    it('saveDraft() no persiste el previewUrl de las imágenes (solo id/name)', () => {
+    it('saveDraft() no persiste el previewUrl de las imágenes (solo id/name)', fakeAsync(() => {
       seedImage(component, 'ml', 'img-1');
       component.saveDraft();
-      const list = JSON.parse(localStorage.getItem('zc-crear-producto-drafts')!);
-      expect(list[0].draft.ml.images).toEqual([{ id: 'img-1', name: 'img-1.jpg' }]);
-    });
+      flushMicrotasks();
+      const [entry] = catalog.draftsDb.values();
+      expect(entry.draft.ml.images).toEqual([{ id: 'img-1', name: 'img-1.jpg' }]);
+    }));
 
-    it('guardar dos veces seguidas mientras se edita el MISMO borrador actualiza la entrada (no duplica)', () => {
+    it('guardar dos veces seguidas mientras se edita el MISMO borrador actualiza la entrada (no duplica: PUT, no POST)', fakeAsync(() => {
       component.draft().common.baseName = 'Versión 1';
       component.saveDraft();
+      flushMicrotasks();
       const idAfterFirst = component.currentDraftId();
 
       component.draft().common.baseName = 'Versión 2';
       component.saveDraft();
+      flushMicrotasks();
 
       expect(component.currentDraftId()).toBe(idAfterFirst);
-      const list = JSON.parse(localStorage.getItem('zc-crear-producto-drafts')!);
-      expect(list.length).toBe(1);
-      expect(list[0].draft.common.baseName).toBe('Versión 2');
-    });
+      expect(catalog.createDraft).toHaveBeenCalledTimes(1);
+      expect(catalog.updateDraft).toHaveBeenCalledTimes(1);
+      expect(catalog.draftsDb.size).toBe(1);
+      expect([...catalog.draftsDb.values()][0].draft.common.baseName).toBe('Versión 2');
+    }));
 
-    it('startNewDraft() + saveDraft() crea una SEGUNDA entrada distinta (varios borradores a la vez)', () => {
+    it('startNewDraft() + saveDraft() crea una SEGUNDA entrada distinta (varios borradores a la vez)', fakeAsync(() => {
       component.draft().common.baseName = 'Producto A';
       component.saveDraft();
+      flushMicrotasks();
 
       component.startNewDraft();
       component.draft().common.baseName = 'Producto B';
       component.saveDraft();
+      flushMicrotasks();
 
-      const list = JSON.parse(localStorage.getItem('zc-crear-producto-drafts')!);
-      expect(list.length).toBe(2);
-      const names = list.map((e: any) => e.draft.common.baseName).sort();
+      expect(catalog.draftsDb.size).toBe(2);
+      const names = [...catalog.draftsDb.values()].map((e) => e.draft.common.baseName).sort();
       expect(names).toEqual(['Producto A', 'Producto B']);
-    });
+    }));
 
-    it('el borrador guardado más reciente se restaura al crear el componente de nuevo (ngOnInit)', () => {
+    it('el borrador guardado más reciente se restaura al crear el componente de nuevo (ngOnInit)', fakeAsync(() => {
       component.draft().common.baseName = 'Restaurado';
-      component.mlMaxPictures.set(7);
       seedImage(component, 'tn', 'img-9');
       component.saveDraft();
+      flushMicrotasks();
 
       // Nueva instancia del componente: simula reabrir la página.
       const fixture2 = TestBed.createComponent(CrearProductoComponent);
       const component2 = fixture2.componentInstance;
       fixture2.detectChanges();
+      flushMicrotasks();
 
       expect(component2.draft().common.baseName).toBe('Restaurado');
-      expect(component2.mlMaxPictures()).toBe(7);
       expect(component2.draftRestored()).toBeTrue();
       expect(component2.draft().tn.images[0].id).toBe('img-9');
       // El previewUrl se reconstruye apuntando al endpoint del backend, no queda vacío/roto.
       expect(component2.draft().tn.images[0].previewUrl).toContain('/products/images/img-9');
-    });
+    }));
 
     it('sin borradores guardados, draftRestored() queda en false y savedDrafts() vacío', () => {
       expect(component.draftRestored()).toBeFalse();
       expect(component.savedDrafts()).toEqual([]);
     });
 
-    it('un borrador corrupto en localStorage no rompe la página (se ignora)', () => {
+    it('un borrador corrupto en localStorage (versión localStorage vieja) no rompe la migración ni la página', fakeAsync(() => {
       localStorage.setItem('zc-crear-producto-drafts', '{not-json');
       const fixture2 = TestBed.createComponent(CrearProductoComponent);
-      expect(() => fixture2.detectChanges()).not.toThrow();
+      expect(() => {
+        fixture2.detectChanges();
+        flushMicrotasks();
+      }).not.toThrow();
       expect(fixture2.componentInstance.draftRestored()).toBeFalse();
-    });
+    }));
 
-    it('migra automáticamente el borrador de la versión anterior (clave singular) a la lista nueva', () => {
+    it('migra automáticamente el borrador de la versión anterior (clave singular localStorage) al backend, una sola vez', fakeAsync(() => {
       localStorage.setItem(
         'zc-crear-producto-draft',
         JSON.stringify({ savedAt: Date.now(), mlMaxPictures: 12, mlMaxPicturesPerVar: 10, draft: { ...emptyDraft(), common: { ...emptyDraft().common, baseName: 'Viejo' } } })
       );
       const fixture2 = TestBed.createComponent(CrearProductoComponent);
       fixture2.detectChanges();
+      flushMicrotasks();
 
       expect(fixture2.componentInstance.draft().common.baseName).toBe('Viejo');
-      // La clave vieja se borra tras migrar.
+      // Las claves viejas se borran tras migrar; el borrador quedó en el backend, no en localStorage.
       expect(localStorage.getItem('zc-crear-producto-draft')).toBeNull();
-      expect(JSON.parse(localStorage.getItem('zc-crear-producto-drafts')!).length).toBe(1);
-    });
+      expect(localStorage.getItem('zc-crear-producto-drafts')).toBeNull();
+      expect(catalog.draftsDb.size).toBe(1);
+      expect(localStorage.getItem('zc-crear-producto-drafts-migrated-to-backend')).toBe('1');
+    }));
 
-    it('savedDrafts() lista todos los borradores guardados, más reciente primero', () => {
+    it('la migración es de una sola vez: si ya corrió, un segundo ngOnInit no vuelve a migrar', fakeAsync(() => {
+      localStorage.setItem('zc-crear-producto-drafts-migrated-to-backend', '1');
+      localStorage.setItem(
+        'zc-crear-producto-drafts',
+        JSON.stringify([{ id: 'x', savedAt: Date.now(), mlMaxPictures: 12, mlMaxPicturesPerVar: 10, draft: emptyDraft() }])
+      );
+      const fixture2 = TestBed.createComponent(CrearProductoComponent);
+      fixture2.detectChanges();
+      flushMicrotasks();
+
+      expect(catalog.createDraft).not.toHaveBeenCalled();
+    }));
+
+    it('savedDrafts() lista todos los borradores guardados, más reciente primero', fakeAsync(() => {
       component.draft().common.baseName = 'Primero';
       component.saveDraft();
+      flushMicrotasks();
       component.startNewDraft();
       component.draft().common.baseName = 'Segundo';
       component.saveDraft();
+      flushMicrotasks();
 
       const list = component.savedDrafts();
       expect(list.length).toBe(2);
       expect(list[0].label).toBe('Segundo');
       expect(list[1].label).toBe('Primero');
-    });
+    }));
 
-    it('openDraft() carga el borrador elegido y actualiza currentDraftId', () => {
+    it('openDraft() carga el borrador elegido y actualiza currentDraftId', fakeAsync(() => {
       component.draft().common.baseName = 'A';
       component.saveDraft();
+      flushMicrotasks();
       const idA = component.currentDraftId()!;
       component.startNewDraft();
       component.draft().common.baseName = 'B';
       component.saveDraft();
+      flushMicrotasks();
 
       component.openDraft(idA);
+      flushMicrotasks();
 
       expect(component.draft().common.baseName).toBe('A');
       expect(component.currentDraftId()).toBe(idA);
       expect(component.draftsPanelOpen()).toBeFalse();
-    });
+    }));
 
-    it('deleteDraft() elimina la entrada de la lista sin tocar los demás borradores', () => {
+    it('deleteDraft() elimina la entrada de la lista sin tocar los demás borradores', fakeAsync(() => {
       component.draft().common.baseName = 'A';
       component.saveDraft();
+      flushMicrotasks();
       const idA = component.currentDraftId()!;
       component.startNewDraft();
       component.draft().common.baseName = 'B';
       component.saveDraft();
+      flushMicrotasks();
 
       component.deleteDraft(idA);
+      flushMicrotasks();
 
+      expect(catalog.deleteDraft).toHaveBeenCalledWith(idA);
       const list = component.savedDrafts();
       expect(list.length).toBe(1);
       expect(list[0].label).toBe('B');
-    });
+    }));
 
-    it('deleteDraft() del borrador que se está editando también limpia el formulario', () => {
+    it('deleteDraft() del borrador que se está editando también limpia el formulario', fakeAsync(() => {
       component.draft().common.baseName = 'A';
       component.saveDraft();
+      flushMicrotasks();
       const idA = component.currentDraftId()!;
 
       component.deleteDraft(idA);
+      flushMicrotasks();
 
       expect(component.draft().common.baseName).toBe('');
       expect(component.currentDraftId()).toBeNull();
-    });
+    }));
 
-    it('startNewDraft() limpia el formulario pero NO borra el borrador ya guardado', () => {
+    it('startNewDraft() limpia el formulario pero NO borra el borrador ya guardado', fakeAsync(() => {
       component.draft().common.baseName = 'Algo';
-      component.mlMaxPictures.set(5);
       component.saveDraft();
+      flushMicrotasks();
+      component.mlMaxPictures.set(5); // simula una categoría con límite propio ya cargada
 
       component.startNewDraft();
 
@@ -1542,23 +1775,28 @@ describe('CrearProductoComponent', () => {
       expect(component.draftSavedAt()).toBeNull();
       expect(component.draftRestored()).toBeFalse();
       expect(component.currentDraftId()).toBeNull();
-      // El borrador previamente guardado sigue en la lista.
-      expect(component.savedDrafts().length).toBe(1);
-    });
+      // El borrador previamente guardado sigue en el backend.
+      expect(catalog.draftsDb.size).toBe(1);
+    }));
 
-    it('al publicar con éxito en AMBOS canales, se borra el borrador actual de la lista', fakeAsync(() => {
+    it('al publicar con éxito en AMBOS canales, el borrador NO se borra — queda en el historial', fakeAsync(() => {
       component.saveDraft();
-      expect(component.savedDrafts().length).toBe(1);
+      flushMicrotasks();
+      expect(catalog.draftsDb.size).toBe(1);
+      const id = component.currentDraftId();
 
       component.publish();
       flushMicrotasks();
 
-      expect(component.savedDrafts().length).toBe(0);
-      expect(component.draftSavedAt()).toBeNull();
-      expect(component.currentDraftId()).toBeNull();
+      // A diferencia del flujo síncrono viejo, publicar con éxito YA NO borra el borrador: el
+      // estado ("publicado") lo recalcula el backend cuando el job termina, y el historial de
+      // publicación se conserva para poder verlo o reintentar un canal más tarde.
+      expect(catalog.deleteDraft).not.toHaveBeenCalled();
+      expect(catalog.draftsDb.size).toBe(1);
+      expect(component.currentDraftId()).toBe(id);
     }));
 
-    it('si un canal falla al publicar, el borrador guardado se conserva', fakeAsync(() => {
+    it('si un canal falla al publicar, el borrador guardado se conserva igual', fakeAsync(() => {
       catalog.publishResponse = {
         results: [
           { channel: 'ml', status: 'ok', detail: 'Publicación MLA-1 creada' },
@@ -1566,11 +1804,12 @@ describe('CrearProductoComponent', () => {
         ]
       };
       component.saveDraft();
+      flushMicrotasks();
 
       component.publish();
       flushMicrotasks();
 
-      expect(component.savedDrafts().length).toBe(1);
+      expect(catalog.draftsDb.size).toBe(1);
     }));
   });
 

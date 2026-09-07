@@ -16,6 +16,11 @@ export type MappingMode = 'single_with_variants' | 'one_per_variant';
 
 export type Condition = 'new' | 'used';
 
+/** Rango etario de TN (Instagram/Google Shopping). Ver CLAUDE.md — default "adult". */
+export type AgeGroup = 'newborn' | 'infant' | 'toddler' | 'kids' | 'adult';
+/** Sexo del producto de TN (Instagram/Google Shopping). Ver CLAUDE.md — default "unisex". */
+export type Gender = 'female' | 'male' | 'unisex';
+
 /** Campo que por defecto hereda del dato común y puede volverse propio del canal. */
 export interface OverrideField<T> {
   /** true = usa el valor común; false = el canal tiene su propio valor. */
@@ -44,11 +49,29 @@ export interface CommonData {
   seoKeywords: string;
   /** Stock del producto SIMPLE (sin variantes). Es el mismo en ambos canales, no hay uno por canal. */
   baseStock: number | null;
+  /**
+   * Instagram Shopping / Google Shopping (campos de TN, a nivel VARIANTE en su API — acá se
+   * cargan una sola vez y aplican a todas). `mpn` es opcional; `ageGroup`/`gender` traen default
+   * ("adult"/"unisex") porque son obligatorios para que el catálogo se sincronice bien y la
+   * mayoría de los productos del rubro son justamente eso.
+   */
+  mpn: string;
+  ageGroup: AgeGroup;
+  gender: Gender;
 }
 
 export interface VariantAxis {
   /** Nombre del eje, ej. "Color" o "Tamaño". */
   name: string;
+  /**
+   * Atributo REAL de la categoría de ML que este eje representa (ej. "COLOR"), elegido en el
+   * selector de Variantes. Sin esto, ML no puede agrupar bien las publicaciones en una familia
+   * (ver CLAUDE.md → User Products): el eje viaja como atributo personalizado en vez de un CHILD_PK
+   * reconocido. Vacío = atributo personalizado (ML también lo acepta, solo que no lo destaca).
+   */
+  mlAttributeId?: string;
+  /** Valores permitidos de `mlAttributeId` (copiados del atributo elegido, para resolver value_id). */
+  allowedValues?: { id: string; name: string }[];
 }
 
 /** Imagen del borrador: ya subida al backend (id temporal) + preview local para mostrarla. */
@@ -134,6 +157,8 @@ export interface MlAttribute {
   allowedValues?: { id: string; name: string }[];
   /** Unidades permitidas (atributos 'number_unit', ej. ["cm","mm"]). */
   allowedUnits?: string[];
+  /** true = candidato a EJE de variante (COLOR, SIZE…), ver VariantAxis.mlAttributeId. */
+  allowVariations?: boolean;
 }
 
 export interface MlListing {
@@ -241,7 +266,10 @@ export function emptyDraft(): ProductDraft {
       widthCm: null,
       heightCm: null,
       seoKeywords: '',
-      baseStock: null
+      baseStock: null,
+      mpn: '',
+      ageGroup: 'adult',
+      gender: 'unisex'
     },
     axes: [],
     variants: [],

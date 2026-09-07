@@ -105,8 +105,18 @@ describe('product-draft.model', () => {
         widthCm: null,
         heightCm: null,
         seoKeywords: '',
-        baseStock: null
+        baseStock: null,
+        mpn: '',
+        ageGroup: 'adult',
+        gender: 'unisex'
       });
+    });
+
+    it('mpn/ageGroup/gender (Instagram/Google Shopping de TN) traen default "adult"/"unisex"', () => {
+      const draft = emptyDraft();
+      expect(draft.common.ageGroup).toBe('adult');
+      expect(draft.common.gender).toBe('unisex');
+      expect(draft.common.mpn).toBe('');
     });
 
     it('inicializa ml con mappingMode single_with_variants, título/descripción heredados y listas vacías', () => {
@@ -234,6 +244,13 @@ describe('product-draft.model', () => {
       const d = normalizeDraft({ variants: [{ sku: 'A' }, { sku: 'B', ml: {} }] });
       expect(d.cost.mode).toBe('bulk');
       expect(d.variants.map((v) => v.ml.pictureIds)).toEqual([[], []]);
+    });
+
+    it('un borrador viejo sin mpn/ageGroup/gender los completa con el default (adult/unisex)', () => {
+      const d = normalizeDraft({ common: { baseName: 'X' } });
+      expect(d.common.ageGroup).toBe('adult');
+      expect(d.common.gender).toBe('unisex');
+      expect(d.common.mpn).toBe('');
     });
   });
 

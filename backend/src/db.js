@@ -585,6 +585,78 @@ export async function initDb() {
     await p.query(`CREATE INDEX IF NOT EXISTS idx_ml_sales_items_order ON ml_sales_items (order_id);`);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_ml_sales_items_sku ON ml_sales_items (sku);`);
 
+    // ── Crear producto: borradores + publicación en background (services/productPublish.js,
+    //    services/publishWorker.js) ──────────────────────────────────────────────────────────
+    // El borrador vivía SOLO en localStorage; pasa al backend para poder retomar una publicación
+    // fallida desde cualquier navegador y conservar el historial de lo que se publicó. `draft_json`
+    // guarda el ProductDraft completo tal cual lo arma el front (mismo patrón que context_json en
+    // ml_pending_tasks: el shape es del front, no interesa modelarlo en columnas).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS product_drafts (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(512),
+        sku VARCHAR(128),
+        draft_json TEXT NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'draft',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_product_drafts_updated ON product_drafts (updated_at DESC);`);
+
+    // Un job = un intento de publicar un borrador (todo o channels=['ml']/['tn'] para reintentar
+    // solo el canal que falló). `payload_json` es el snapshot INMUTABLE de lo que se mandó a
+    // publicar — reintentar usa el mismo payload, no relee el borrador (que pudo seguir editándose
+    // mientras el job corría).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS product_publish_jobs (
+        id VARCHAR(64) PRIMARY KEY,
+        draft_id VARCHAR(64) NOT NULL REFERENCES product_drafts(id) ON DELETE CASCADE,
+        channels VARCHAR(16) NOT NULL,
+        payload_json TEXT NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        locked_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        finished_at TIMESTAMPTZ
+      );
+    `);
+    await p.query(`
+      CREATE INDEX IF NOT EXISTS idx_publish_jobs_runnable
+      ON product_publish_jobs(status, updated_at)
+      WHERE status IN ('pending', 'failed');
+    `);
+    await p.query(`
+      CREATE INDEX IF NOT EXISTS idx_publish_jobs_stale_lock
+      ON product_publish_jobs(locked_at)
+      WHERE status = 'processing';
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_publish_jobs_draft ON product_publish_jobs (draft_id, created_at DESC);`);
+
+    // Una fila por unidad publicada (un ítem de ML, un producto de TN) dentro de un job. Es a la
+    // vez el PROGRESO ("3 de 8 variantes") y la IDEMPOTENCIA del reintento: reintentar re-encola el
+    // MISMO job y el worker saltea las unidades que ya quedaron 'ok', así fallar en la unidad 3 de
+    // 5 y reintentar no duplica las 2 primeras (bug de hoy: el reintento las volvía a crear).
+    // `unit_key` es el SKU de la variante ('' en producto simple); `seq` es el orden de publicación
+    // dentro del job, para mostrar el progreso en el mismo orden en que se van creando.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS product_publish_units (
+        id SERIAL PRIMARY KEY,
+        job_id VARCHAR(64) NOT NULL REFERENCES product_publish_jobs(id) ON DELETE CASCADE,
+        channel VARCHAR(2) NOT NULL,
+        unit_key VARCHAR(128) NOT NULL,
+        seq INTEGER NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'pending',
+        external_id VARCHAR(128),
+        detail TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (job_id, channel, unit_key)
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_publish_units_job ON product_publish_units (job_id, seq);`);
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -2924,5 +2996,387 @@ export async function updateSaleStatus(orderId, computedStatus, exclusionReason 
   } catch (e) {
     console.error('updateSaleStatus:', e.message);
     return false;
+  }
+}
+
+/* ══════════════════ Crear producto: borradores + publicación en background ══════════════════
+ * Ver product_drafts/product_publish_jobs/product_publish_units en initDb() y
+ * services/publishWorker.js. El patrón de lock-con-latido es el mismo que ml_pending_tasks
+ * (MLTASK_HEARTBEAT_MS/MLTASK_STALE_LOCK_MS más arriba), con un umbral más largo porque publicar
+ * puede tardar varios minutos (varias variantes, dos canales, subida de fotos).
+ */
+
+/** Crea un borrador nuevo. `id` lo genera el caller (uuid). */
+export async function createProductDraft({ id, name, sku, draftJson }) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    await p.query(
+      `INSERT INTO product_drafts (id, name, sku, draft_json) VALUES ($1, $2, $3, $4)`,
+      [id, name || null, sku || null, draftJson]
+    );
+    return id;
+  } catch (e) {
+    console.error('createProductDraft:', e.message);
+    return null;
+  }
+}
+
+/** Guarda cambios de un borrador ya existente (autosave). No toca `status`. */
+export async function updateProductDraft(id, { name, sku, draftJson }) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE product_drafts SET name = $2, sku = $3, draft_json = $4, updated_at = NOW() WHERE id = $1`,
+      [id, name || null, sku || null, draftJson]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('updateProductDraft:', e.message);
+    return false;
+  }
+}
+
+/** Cambia solo el `status` del borrador (draft|publishing|published|partial|error). */
+export async function setProductDraftStatus(id, status) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(`UPDATE product_drafts SET status = $2, updated_at = NOW() WHERE id = $1`, [id, status]);
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('setProductDraftStatus:', e.message);
+    return false;
+  }
+}
+
+/** Un borrador por id, con `draft` ya parseado. null si no existe. */
+export async function getProductDraft(id) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `SELECT id, name, sku, draft_json AS "draftJson", status, created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM product_drafts WHERE id = $1`,
+      [id]
+    );
+    const row = r.rows[0];
+    return row ? { ...row, draft: JSON.parse(row.draftJson) } : null;
+  } catch (e) {
+    console.error('getProductDraft:', e.message);
+    return null;
+  }
+}
+
+/** Lista los borradores (sin el `draft_json` completo — pesado para una lista), más recientes primero. */
+export async function listProductDrafts(limit = 50) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT id, name, sku, status, created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM product_drafts ORDER BY updated_at DESC LIMIT $1`,
+      [Math.min(limit, 200)]
+    );
+    return r.rows;
+  } catch (e) {
+    console.error('listProductDrafts:', e.message);
+    return [];
+  }
+}
+
+/** Borra un borrador (y en cascada sus jobs/unidades — ON DELETE CASCADE). */
+export async function deleteProductDraft(id) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(`DELETE FROM product_drafts WHERE id = $1`, [id]);
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('deleteProductDraft:', e.message);
+    return false;
+  }
+}
+
+/** Encola un job de publicación (`id` lo genera el caller). `channels`: 'ml', 'tn' o 'ml,tn'. */
+export async function createPublishJob({ id, draftId, channels, payloadJson }) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    await p.query(
+      `INSERT INTO product_publish_jobs (id, draft_id, channels, payload_json) VALUES ($1, $2, $3, $4)`,
+      [id, draftId, channels, payloadJson]
+    );
+    return id;
+  } catch (e) {
+    console.error('createPublishJob:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Umbral de lock vencido para un job de publicación. Más largo que el de `ml_pending_tasks`
+ * (2 min): publicar de verdad puede tardar varios minutos con muchas variantes y dos canales, y un
+ * umbral corto reclamaría un job que sigue vivo y trabajando — duplicando publicaciones reales.
+ */
+export const PUBLISH_JOB_HEARTBEAT_MS = 30_000;
+export const PUBLISH_JOB_STALE_LOCK_MS = 10 * PUBLISH_JOB_HEARTBEAT_MS; // 5 min
+
+/** Reclama el próximo job listo para procesar (mismo patrón que claimNextMlTask). */
+export async function claimNextPublishJob() {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      `SELECT id, draft_id AS "draftId", channels, payload_json AS "payloadJson", attempts, status
+       FROM product_publish_jobs
+       WHERE (
+               (status = 'pending' AND attempts < 5)
+               OR (status = 'processing' AND attempts < 5
+                   AND locked_at IS NOT NULL AND locked_at < NOW() - ($1::int * INTERVAL '1 millisecond'))
+             )
+       ORDER BY created_at ASC
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED`,
+      [PUBLISH_JOB_STALE_LOCK_MS]
+    );
+    const job = r.rows[0];
+    if (!job) { await client.query('COMMIT'); return null; }
+    const reclaimed = job.status === 'processing';
+    await client.query(
+      `UPDATE product_publish_jobs
+       SET status = 'processing', locked_at = NOW(), updated_at = NOW(),
+           attempts = attempts + $2,
+           last_error = CASE WHEN $2 = 1 THEN 'Recuperado: el worker anterior se cortó a mitad de la publicación' ELSE last_error END
+       WHERE id = $1`,
+      [job.id, reclaimed ? 1 : 0]
+    );
+    await client.query('COMMIT');
+    if (reclaimed) {
+      console.warn(`[PublishQueue] Job ${job.id} recuperado: lock vencido, el worker anterior no terminó.`);
+    }
+    const { status, ...claimed } = job;
+    return { ...claimed, attempts: job.attempts + (reclaimed ? 1 : 0) };
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('claimNextPublishJob:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Latido del worker sobre el job que está procesando (ver claimNextMlTask/touchMlTaskLock). */
+export async function touchPublishJobLock(jobId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE product_publish_jobs SET locked_at = NOW() WHERE id = $1 AND status = 'processing'`,
+      [jobId]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('touchPublishJobLock:', e.message);
+    return false;
+  }
+}
+
+/** Marca un job como done/failed. Sin backoff con tiempo (a diferencia de ml_pending_tasks): el
+ *  reintento de un job de publicación lo dispara la usuaria a mano, no un timer. */
+export async function finishPublishJob(jobId, status, errorMsg = null) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `UPDATE product_publish_jobs
+       SET status = $1, last_error = $2, locked_at = NULL, updated_at = NOW(),
+           finished_at = CASE WHEN $1 IN ('done', 'error') THEN NOW() ELSE finished_at END
+       WHERE id = $3`,
+      [status, errorMsg, jobId]
+    );
+    return true;
+  } catch (e) {
+    console.error('finishPublishJob:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Re-encola un job para reintentar: vuelve a 'pending' con el lock limpio. Las unidades que ya
+ * quedaron 'ok' NO se tocan — el worker las saltea (ver publishWorker.js) — así el reintento no
+ * duplica lo que ya se creó. Solo tiene sentido sobre un job 'error' (o 'processing' con lock
+ * vencido, mismo criterio de claimNextPublishJob).
+ */
+export async function retryPublishJob(jobId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE product_publish_jobs
+       SET status = 'pending', locked_at = NULL, last_error = NULL, updated_at = NOW(), finished_at = NULL
+       WHERE id = $1
+         AND (status = 'error' OR (status = 'processing' AND locked_at < NOW() - ($2::int * INTERVAL '1 millisecond')))`,
+      [jobId, PUBLISH_JOB_STALE_LOCK_MS]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('retryPublishJob:', e.message);
+    return false;
+  }
+}
+
+/** Un job por id (sin sus unidades — ver getPublishUnits). null si no existe. */
+export async function getPublishJob(jobId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `SELECT id, draft_id AS "draftId", channels, payload_json AS "payloadJson", status, attempts,
+              last_error AS "lastError", created_at AS "createdAt", updated_at AS "updatedAt", finished_at AS "finishedAt"
+       FROM product_publish_jobs WHERE id = $1`,
+      [jobId]
+    );
+    return r.rows[0] ?? null;
+  } catch (e) {
+    console.error('getPublishJob:', e.message);
+    return null;
+  }
+}
+
+/** Historial de jobs de un borrador (para el panel de borradores / detalle de publicación). */
+export async function listPublishJobsForDraft(draftId) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT id, draft_id AS "draftId", channels, status, attempts, last_error AS "lastError",
+              created_at AS "createdAt", updated_at AS "updatedAt", finished_at AS "finishedAt"
+       FROM product_publish_jobs WHERE draft_id = $1 ORDER BY created_at DESC`,
+      [draftId]
+    );
+    return r.rows;
+  } catch (e) {
+    console.error('listPublishJobsForDraft:', e.message);
+    return [];
+  }
+}
+
+/** Borra un job del historial (ej. "listo, ya está publicado, no lo quiero ver más"). */
+export async function deletePublishJob(jobId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(`DELETE FROM product_publish_jobs WHERE id = $1`, [jobId]);
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('deletePublishJob:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Registra o actualiza el estado de UNA unidad publicada (un ítem ML, un producto TN) dentro de
+ * un job. Es la pieza de idempotencia: el worker la llama con status='ok' apenas confirma la
+ * creación, y en un reintento arranca leyendo `getPublishUnits` para saltear las que ya están 'ok'.
+ */
+export async function upsertPublishUnit({ jobId, channel, unitKey, seq, status, externalId = null, detail = null }) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `INSERT INTO product_publish_units (job_id, channel, unit_key, seq, status, external_id, detail)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (job_id, channel, unit_key) DO UPDATE
+         SET seq = EXCLUDED.seq, status = EXCLUDED.status, external_id = EXCLUDED.external_id,
+             detail = EXCLUDED.detail, updated_at = NOW()`,
+      [jobId, channel, unitKey, seq, status, externalId, detail]
+    );
+    return true;
+  } catch (e) {
+    console.error('upsertPublishUnit:', e.message);
+    return false;
+  }
+}
+
+/** Unidades de un job, en orden de publicación (progreso + detalle por variante/canal). */
+export async function getPublishUnits(jobId) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT channel, unit_key AS "unitKey", seq, status, external_id AS "externalId", detail,
+              updated_at AS "updatedAt"
+       FROM product_publish_units WHERE job_id = $1 ORDER BY channel, seq`,
+      [jobId]
+    );
+    return r.rows;
+  } catch (e) {
+    console.error('getPublishUnits:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Recalcula `product_drafts.status` a partir del historial de jobs — no un flag que se pisa a
+ * ciegas en cada job, porque un job de reintento puede cubrir SOLO un canal (`channels: ['ml']`)
+ * y no debería borrar lo que ya se sabe del otro. Para cada canal, toma el job TERMINADO más
+ * reciente que lo haya incluido y mira si TODAS sus unidades de ese canal quedaron 'ok'.
+ *
+ *   ambos 'ok'                        → 'published'
+ *   ninguno intentado nunca            → 'draft'
+ *   ninguno en 'ok' (algún error)      → 'error'
+ *   uno 'ok' y el otro no              → 'partial'
+ */
+export async function recomputeDraftStatus(draftId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const jobs = await p.query(
+      `SELECT id, channels FROM product_publish_jobs
+       WHERE draft_id = $1 AND status IN ('done', 'error') ORDER BY created_at DESC`,
+      [draftId]
+    );
+    const channelState = { ml: null, tn: null };
+    for (const job of jobs.rows) {
+      const chans = String(job.channels).split(',').map((s) => s.trim());
+      for (const ch of chans) {
+        if (channelState[ch] !== null || !(ch in channelState)) continue;
+        const units = await p.query(`SELECT status FROM product_publish_units WHERE job_id = $1 AND channel = $2`, [job.id, ch]);
+        channelState[ch] = units.rows.length && units.rows.every((u) => u.status === 'ok') ? 'ok' : 'error';
+      }
+      if (channelState.ml !== null && channelState.tn !== null) break;
+    }
+    const { ml, tn } = channelState;
+    let status;
+    if (ml === null && tn === null) status = 'draft';
+    else if (ml === 'ok' && tn === 'ok') status = 'published';
+    else if (ml !== 'ok' && tn !== 'ok') status = 'error';
+    else status = 'partial';
+    await p.query(`UPDATE product_drafts SET status = $2, updated_at = NOW() WHERE id = $1`, [draftId, status]);
+    return status;
+  } catch (e) {
+    console.error('recomputeDraftStatus:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Todos los `draft_json` guardados (para el purgado de imágenes huérfanas — ver
+ * backend/src/index.js scheduleTmpImagesPurge). Devuelve el texto crudo, sin parsear: alcanza con
+ * buscar los ids de imagen (32 hex) como substring, no hace falta recorrer la estructura.
+ */
+export async function getAllDraftJsonBlobs() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(`SELECT draft_json FROM product_drafts`);
+    return r.rows.map((row) => row.draft_json);
+  } catch (e) {
+    console.error('getAllDraftJsonBlobs:', e.message);
+    return [];
   }
 }

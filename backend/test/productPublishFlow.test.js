@@ -180,7 +180,7 @@ const isTnImagePost = (url, opts) => url.includes('/images') && opts.method === 
 const isTnVariantPut = (url, opts) => /\/variants\/\d+$/.test(url) && opts.method === 'PUT';
 
 test('publishProduct (TN single_with_variants): sube la galería a un producto y asocia UNA imagen (image_ids[0]) a la variante', async () => {
-  const img = saveImage({ filename: 'a.jpg', mime: 'image/jpeg', data: Buffer.from('hello-tn').toString('base64') });
+  const img = await saveImage({ filename: 'a.jpg', mime: 'image/jpeg', data: Buffer.from('hello-tn').toString('base64') });
   try {
     state.responder = (url, opts) => {
       if (isTnPost(url, opts)) return makeRes({ status: 201, json: { id: 90431, variants: [{ id: 555, sku: 'CUA-N' }] } });
@@ -214,15 +214,15 @@ test('publishProduct (TN single_with_variants): sube la galería a un producto y
     assert.match(putCall.url, /\/variants\/555$/);
     assert.equal(putCall.body.image_id, 777);
   } finally {
-    removeImage(img.id);
+    await removeImage(img.id);
   }
 });
 
 test('publishProduct (TN one_per_variant): cada producto recibe SOLO las fotos asignadas a su variante (varias)', async () => {
   // Galería de 3 fotos; la variante Negro usa 2, la variante Rojo usa 1.
-  const g1 = saveImage({ filename: 'g1.jpg', mime: 'image/jpeg', data: Buffer.from('g1').toString('base64') });
-  const g2 = saveImage({ filename: 'g2.jpg', mime: 'image/jpeg', data: Buffer.from('g2').toString('base64') });
-  const g3 = saveImage({ filename: 'g3.jpg', mime: 'image/jpeg', data: Buffer.from('g3').toString('base64') });
+  const g1 = await saveImage({ filename: 'g1.jpg', mime: 'image/jpeg', data: Buffer.from('g1').toString('base64') });
+  const g2 = await saveImage({ filename: 'g2.jpg', mime: 'image/jpeg', data: Buffer.from('g2').toString('base64') });
+  const g3 = await saveImage({ filename: 'g3.jpg', mime: 'image/jpeg', data: Buffer.from('g3').toString('base64') });
   try {
     let prodSeq = 100;
     let imgSeq = 700;
@@ -263,15 +263,15 @@ test('publishProduct (TN one_per_variant): cada producto recibe SOLO las fotos a
     assert.equal(byProduct(101), 2);
     assert.equal(byProduct(102), 1);
   } finally {
-    removeImage(g1.id);
-    removeImage(g2.id);
-    removeImage(g3.id);
+    await removeImage(g1.id);
+    await removeImage(g2.id);
+    await removeImage(g3.id);
   }
 });
 
 test('publishProduct (TN imágenes): si TN NO respeta la position del POST, reconcilia con PUT para garantizar el orden', async () => {
-  const g1 = saveImage({ filename: 'g1.jpg', mime: 'image/jpeg', data: Buffer.from('g1').toString('base64') });
-  const g2 = saveImage({ filename: 'g2.jpg', mime: 'image/jpeg', data: Buffer.from('g2').toString('base64') });
+  const g1 = await saveImage({ filename: 'g1.jpg', mime: 'image/jpeg', data: Buffer.from('g1').toString('base64') });
+  const g2 = await saveImage({ filename: 'g2.jpg', mime: 'image/jpeg', data: Buffer.from('g2').toString('base64') });
   const isTnImagePut = (url, opts) => /\/images\/\d+$/.test(url) && opts.method === 'PUT';
   try {
     let imgSeq = 500;
@@ -299,13 +299,13 @@ test('publishProduct (TN imágenes): si TN NO respeta la position del POST, reco
     assert.equal(putFor(501).body.position, 1);
     assert.equal(putFor(502).body.position, 2);
   } finally {
-    removeImage(g1.id);
-    removeImage(g2.id);
+    await removeImage(g1.id);
+    await removeImage(g2.id);
   }
 });
 
 test('publishProduct (ML con imágenes): sube el binario a /pictures/items/upload y usa el picture_id en pictures[]', async () => {
-  const img = saveImage({ filename: 'b.png', mime: 'image/png', data: Buffer.from('hello-ml').toString('base64') });
+  const img = await saveImage({ filename: 'b.png', mime: 'image/png', data: Buffer.from('hello-ml').toString('base64') });
   const realFetch = globalThis.fetch;
   let uploadCalls = 0;
   // uploadPicture usa el fetch GLOBAL (multipart); lo interceptamos aparte del mock de node-fetch.
@@ -336,7 +336,7 @@ test('publishProduct (ML con imágenes): sube el binario a /pictures/items/uploa
     assert.deepEqual(itemCall.body.pictures, [{ id: 'PIC-XYZ' }]);
   } finally {
     globalThis.fetch = realFetch;
-    removeImage(img.id);
+    await removeImage(img.id);
   }
 });
 
