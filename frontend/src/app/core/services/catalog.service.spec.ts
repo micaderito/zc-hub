@@ -53,4 +53,72 @@ describe('CatalogService', () => {
     expect(req.request.method).toBe('GET');
     req.flush([]);
   });
+
+  /* ---------- Borradores + publicación en background ---------- */
+
+  it('listDrafts() GET /products/drafts', () => {
+    service.listDrafts().then((r) => expect(r).toEqual([]));
+    const req = httpMock.expectOne(`${base}/products/drafts`);
+    expect(req.request.method).toBe('GET');
+    req.flush([]);
+  });
+
+  it('createDraft() POST /products/drafts con { name, sku, draft }', () => {
+    service.createDraft({ name: 'Cuaderno', sku: 'CUA-1', draft: { a: 1 } }).then((r) => expect(r.id).toBe('d1'));
+    const req = httpMock.expectOne(`${base}/products/drafts`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ name: 'Cuaderno', sku: 'CUA-1', draft: { a: 1 } });
+    req.flush({ id: 'd1' });
+  });
+
+  it('getDraft() GET /products/drafts/:id', () => {
+    service.getDraft('d1').then((r) => expect(r.id).toBe('d1'));
+    const req = httpMock.expectOne(`${base}/products/drafts/d1`);
+    expect(req.request.method).toBe('GET');
+    req.flush({ id: 'd1', draft: {}, jobs: [] });
+  });
+
+  it('updateDraft() PUT /products/drafts/:id', () => {
+    service.updateDraft('d1', { draft: { a: 2 } }).then((r) => expect(r.ok).toBeTrue());
+    const req = httpMock.expectOne(`${base}/products/drafts/d1`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ draft: { a: 2 } });
+    req.flush({ ok: true });
+  });
+
+  it('deleteDraft() DELETE /products/drafts/:id', () => {
+    service.deleteDraft('d1').then((r) => expect(r.ok).toBeTrue());
+    const req = httpMock.expectOne(`${base}/products/drafts/d1`);
+    expect(req.request.method).toBe('DELETE');
+    req.flush({ ok: true });
+  });
+
+  it('publishDraft() POST /products/drafts/:id/publish con { payload, channels }', () => {
+    service.publishDraft('d1', { ml: {}, tn: {} }, ['ml']).then((r) => expect(r.jobId).toBe('j1'));
+    const req = httpMock.expectOne(`${base}/products/drafts/d1/publish`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ payload: { ml: {}, tn: {} }, channels: ['ml'] });
+    req.flush({ jobId: 'j1' });
+  });
+
+  it('getPublishJob() GET /products/jobs/:id', () => {
+    service.getPublishJob('j1').then((r) => expect(r.job.id).toBe('j1'));
+    const req = httpMock.expectOne(`${base}/products/jobs/j1`);
+    expect(req.request.method).toBe('GET');
+    req.flush({ job: { id: 'j1' }, units: [] });
+  });
+
+  it('retryPublishJob() POST /products/jobs/:id/retry', () => {
+    service.retryPublishJob('j1').then((r) => expect(r.ok).toBeTrue());
+    const req = httpMock.expectOne(`${base}/products/jobs/j1/retry`);
+    expect(req.request.method).toBe('POST');
+    req.flush({ ok: true });
+  });
+
+  it('deletePublishJob() DELETE /products/jobs/:id', () => {
+    service.deletePublishJob('j1').then((r) => expect(r.ok).toBeTrue());
+    const req = httpMock.expectOne(`${base}/products/jobs/j1`);
+    expect(req.request.method).toBe('DELETE');
+    req.flush({ ok: true });
+  });
 });

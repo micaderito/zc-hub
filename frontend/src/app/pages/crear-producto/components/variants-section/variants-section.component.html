@@ -53,8 +53,22 @@
       @for (axis of store.draft().axes; track $index) {
         <div class="axis-chip">
           <input class="zc-input axis-input" [(ngModel)]="axis.name" placeholder="Eje (ej. Color)" />
+          <select
+            class="zc-input axis-ml-attr"
+            [ngModel]="axis.mlAttributeId ?? ''"
+            (ngModelChange)="onAxisAttributeChange(axis, $event)"
+            title="A qué atributo de la categoría de ML corresponde este eje"
+          >
+            <option value="">Atributo propio</option>
+            @for (attr of store.mlVariationAttrs(); track attr.id) {
+              <option [value]="attr.id">{{ attr.name }}</option>
+            }
+          </select>
           <button type="button" class="icon-btn" (click)="store.removeAxis($index)" aria-label="Quitar eje"><i class="ti ti-x"></i></button>
         </div>
+      }
+      @if (store.mlVariationAttrs().length === 0 && store.draft().ml.categoryId) {
+        <span class="hint muted">Sin atributos de variación para esta categoría de ML: los ejes van como atributo propio.</span>
       }
       @if (store.draft().axes.length < 3) {
         <button type="button" class="zc-btn small" (click)="store.addAxis()"><i class="ti ti-plus"></i> Eje</button>

@@ -180,6 +180,92 @@
   margin-top: 0.25rem;
 }
 
+/* Progreso de publicación (mientras el job corre en background). */
+.publish-progress {
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    font-size: 0.78rem;
+    border-top: 1px solid var(--border);
+    &:first-of-type {
+      border-top: none;
+    }
+    .unit-key {
+      font-weight: 600;
+    }
+    .unit-detail {
+      color: var(--text-2);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    i {
+      font-size: 0.9rem;
+    }
+    &.ok i {
+      color: var(--ok);
+    }
+    &.err i {
+      color: var(--err);
+    }
+  }
+}
+
+/* Publicar en ambos ▾ — botón partido con menú para publicar un solo canal. */
+.publish-split {
+  position: relative;
+  display: flex;
+}
+
+.publish-split-toggle {
+  padding-left: 0.5rem;
+  padding-right: 0.6rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.25);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.publish-split > .zc-btn.primary:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.publish-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  padding: 0.3rem;
+  display: flex;
+  flex-direction: column;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-align: left;
+    padding: 0.5rem 0.6rem;
+    border: none;
+    background: transparent;
+    border-radius: 7px;
+    font-size: 0.8rem;
+    color: var(--text);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--surface-2);
+    }
+  }
+}
+
 @media (max-width: 680px) {
   .grid-2,
   .grid-3,

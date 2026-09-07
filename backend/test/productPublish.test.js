@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMlItems, buildTnProducts } from '../src/services/productPublish.js';
+import { buildMlItems, buildTnProducts, mlUnitKey, planTnUnits } from '../src/services/productPublish.js';
 
 const mlBase = {
   mapping_mode: 'single_with_variants',
@@ -27,13 +27,14 @@ const mlBase = {
 
 /** picMap de ejemplo: id temporal → picture_id ya subido a ML. */
 const picMap = new Map([
-  ['t1', 'PIC1'],
-  ['t2', 'PIC2']
+  ['t1', { id: 'PIC1' }],
+  ['t2', { id: 'PIC2' }]
 ]);
 
 const tnBase = {
   mapping_mode: 'single_with_variants',
   name: { es: 'Cuaderno A4' },
+  description: { es: 'Descripción de prueba' },
   categories: [11],
   brand: 'ZC',
   published: false,
@@ -269,4 +270,272 @@ test('buildTnProducts (one_per_variant): el nombre en pt SIEMPRE lleva el sufijo
   assert.equal(products[0].name.pt, 'Caderno A4 Negro');
   assert.equal(products[1].name.es, 'Cuaderno A4 Rojo');
   assert.equal(products[1].name.pt, 'Caderno A4 Rojo');
+});
+
+/* ───────────────── ML: modelo User Products (family_name) ───────────────── */
+// La cuenta ya está migrada al modelo User Products (tag user_product_seller): POST /items
+// RECHAZA `variations[]` y RECHAZA que el vendedor mande `title` — hay que mandar `family_name`
+// y un ítem por variación (ver CLAUDE.md y lib/mlUserProducts.js).
+
+test('buildMlItems (sin variantes, userProducts): family_name en vez de title', () => {
+  const items = buildMlItems({ ml: { ...mlBase }, axes: [], variants: [] }, picMap, { userProducts: true });
+  assert.equal(items[0].family_name, 'Cuaderno A4');
+  assert.equal(items[0].title, undefined);
+});
+
+test('buildMlItems (single_with_variants, userProducts): N items con el MISMO family_name, sin title ni variations', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'single_with_variants' },
+      axes: [{ name: 'Color' }],
+      variants: [
+        { sku: 'CUA-1-N', values: ['Negro'], ml: { price: 100, stock: 5 } },
+        { sku: 'CUA-1-R', values: ['Rojo'], ml: { price: 100, stock: 3 } }
+      ]
+    },
+    picMap,
+    { userProducts: true }
+  );
+  assert.equal(items.length, 2);
+  assert.ok(items.every((it) => it.family_name === 'Cuaderno A4'));
+  assert.ok(items.every((it) => it.title === undefined));
+  assert.ok(items.every((it) => it.variations === undefined));
+  // Cada item lleva su propio price/available_quantity y SELLER_SKU (a diferencia del legacy).
+  assert.equal(items[0].price, 100);
+  assert.equal(items[0].available_quantity, 5);
+  assert.ok(items[0].attributes.some((a) => a.id === 'SELLER_SKU' && a.value_name === 'CUA-1-N'));
+  assert.ok(items[1].attributes.some((a) => a.id === 'SELLER_SKU' && a.value_name === 'CUA-1-R'));
+});
+
+test('buildMlItems (one_per_variant, userProducts): family_name PROPIO por variante (no comparten familia)', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'one_per_variant' },
+      axes: [{ name: 'Color' }],
+      variants: [
+        { sku: 'CUA-N', values: ['Negro'], ml: { price: 100, stock: 5 } },
+        { sku: 'CUA-R', values: ['Rojo'], ml: { price: 110, stock: 3 } }
+      ]
+    },
+    picMap,
+    { userProducts: true }
+  );
+  assert.equal(items[0].family_name, 'Cuaderno A4 Negro');
+  assert.equal(items[1].family_name, 'Cuaderno A4 Rojo');
+  assert.notEqual(items[0].family_name, items[1].family_name);
+  assert.ok(items.every((it) => it.title === undefined));
+});
+
+/* ───────────────── ML: atributos de eje (mlAttributeId) ───────────────── */
+
+test('buildMlItems: eje mapeado a un atributo real de ML manda value_id si el valor matchea una opción cerrada', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'one_per_variant' },
+      axes: [{ name: 'Color', mlAttributeId: 'COLOR', allowedValues: [{ id: '52049', name: 'Negro' }, { id: '52055', name: 'Rojo' }] }],
+      variants: [{ sku: 'CUA-N', values: ['Negro'], ml: { price: 100, stock: 5 } }]
+    },
+    picMap
+  );
+  assert.deepEqual(
+    items[0].attributes.find((a) => a.id === 'COLOR'),
+    { id: 'COLOR', value_id: '52049' }
+  );
+});
+
+test('buildMlItems: eje mapeado pero el valor NO matchea ninguna opción → value_name (sin inventar un value_id)', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'one_per_variant' },
+      axes: [{ name: 'Color', mlAttributeId: 'COLOR', allowedValues: [{ id: '52049', name: 'Negro' }] }],
+      variants: [{ sku: 'CUA-B', values: ['Bordó'], ml: { price: 100, stock: 5 } }]
+    },
+    picMap
+  );
+  assert.deepEqual(
+    items[0].attributes.find((a) => a.id === 'COLOR'),
+    { id: 'COLOR', value_name: 'Bordó' }
+  );
+});
+
+test('buildMlItems: matchea el valor ignorando mayúsculas/acentos', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'one_per_variant' },
+      axes: [{ name: 'Color', mlAttributeId: 'COLOR', allowedValues: [{ id: '9', name: 'Bordó' }] }],
+      variants: [{ sku: 'CUA-B', values: ['BORDO'], ml: { price: 100, stock: 5 } }]
+    },
+    picMap
+  );
+  assert.deepEqual(items[0].attributes.find((a) => a.id === 'COLOR'), { id: 'COLOR', value_id: '9' });
+});
+
+test('buildMlItems: eje SIN mapear manda un atributo personalizado ({name}, sin id de categoría)', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'one_per_variant' },
+      axes: [{ name: 'Estampado' }],
+      variants: [{ sku: 'CUA-F', values: ['Flores'], ml: { price: 100, stock: 5 } }]
+    },
+    picMap
+  );
+  assert.deepEqual(
+    items[0].attributes.find((a) => a.value_name === 'Flores'),
+    { name: 'Estampado', value_name: 'Flores' }
+  );
+});
+
+test('buildMlItems: el atributo mapeado a un eje NO se duplica si también viene en la lista general de atributos', () => {
+  const items = buildMlItems(
+    {
+      ml: {
+        ...mlBase,
+        mapping_mode: 'one_per_variant',
+        attributes: [...mlBase.attributes, { id: 'COLOR', value_name: 'Este no debería usarse' }]
+      },
+      axes: [{ name: 'Color', mlAttributeId: 'COLOR', allowedValues: [] }],
+      variants: [{ sku: 'CUA-N', values: ['Negro'], ml: { price: 100, stock: 5 } }]
+    },
+    picMap
+  );
+  const colorAttrs = items[0].attributes.filter((a) => a.id === 'COLOR');
+  assert.equal(colorAttrs.length, 1);
+  assert.equal(colorAttrs[0].value_name, 'Negro');
+});
+
+/* ───────────────── TN: attributes de producto + mpn/age_group/gender ───────────────── */
+
+test('buildTnProducts (single_with_variants): manda attributes (nombres de eje) a nivel producto', () => {
+  const products = buildTnProducts({
+    tn: {
+      ...tnBase,
+      attributes: [{ es: 'Color' }],
+      mapping_mode: 'single_with_variants',
+      variants: [{ sku: 'CUA-N', values: [{ es: 'Negro' }], price: 100, stock: 5 }]
+    },
+    variants: [{ sku: 'CUA-N', values: ['Negro'] }]
+  });
+  assert.deepEqual(products[0].attributes, [{ es: 'Color' }]);
+  // Y el valor de la variante queda LIMPIO (sin el nombre del eje adentro, ver CLAUDE.md).
+  assert.deepEqual(products[0].variants[0].values, [{ es: 'Negro' }]);
+});
+
+test('buildTnProducts (one_per_variant): NO manda attributes a nivel producto (un producto = una sola variante)', () => {
+  const products = buildTnProducts({
+    tn: {
+      ...tnBase,
+      attributes: [{ es: 'Color' }],
+      mapping_mode: 'one_per_variant',
+      variants: [{ sku: 'CUA-N', values: [{ es: 'Negro' }], price: 100, stock: 5 }]
+    },
+    variants: [{ sku: 'CUA-N', values: ['Negro'] }]
+  });
+  assert.equal(products[0].attributes, undefined);
+});
+
+test('buildTnProducts: mpn/age_group/gender viajan por variante (Instagram/Google Shopping)', () => {
+  const products = buildTnProducts({
+    tn: {
+      ...tnBase,
+      mapping_mode: 'single_with_variants',
+      variants: [{ sku: 'CUA-N', values: [{ es: 'Negro' }], price: 100, stock: 5, mpn: 'MPN-1', age_group: 'adult', gender: 'unisex' }]
+    },
+    variants: [{ sku: 'CUA-N', values: ['Negro'] }]
+  });
+  const v = products[0].variants[0];
+  assert.equal(v.mpn, 'MPN-1');
+  assert.equal(v.age_group, 'adult');
+  assert.equal(v.gender, 'unisex');
+});
+
+test('buildTnProducts (simple, sin variantes): mpn/age_group/gender también aplican al producto simple', () => {
+  const products = buildTnProducts({
+    tn: { ...tnBase, variants: [{ mpn: 'MPN-X', age_group: 'kids', gender: 'female' }] },
+    variants: []
+  });
+  const v = products[0].variants[0];
+  assert.equal(v.mpn, 'MPN-X');
+  assert.equal(v.age_group, 'kids');
+  assert.equal(v.gender, 'female');
+});
+
+/* ───────────────── TN: descripción como HTML (respeta párrafos) ───────────────── */
+
+test('buildTnProducts: convierte la descripción de texto plano a HTML con párrafos', () => {
+  const products = buildTnProducts({
+    tn: { ...tnBase, description: { es: 'Primer párrafo.\n\nSegundo párrafo.' } },
+    variants: []
+  });
+  assert.deepEqual(products[0].description, { es: '<p>Primer párrafo.</p><p>Segundo párrafo.</p>' });
+});
+
+test('buildTnProducts: si la descripción ya trae HTML, la deja pasar tal cual', () => {
+  const html = '<p>Ya con <strong>formato</strong></p>';
+  const products = buildTnProducts({ tn: { ...tnBase, description: { es: html } }, variants: [] });
+  assert.deepEqual(products[0].description, { es: html });
+});
+
+test('buildTnProducts: la descripción es un objeto por idioma ({es,pt}) — convierte CADA idioma presente', () => {
+  const products = buildTnProducts({
+    tn: { ...tnBase, description: { es: 'Uno.\n\nDos.', pt: 'Um.\n\nDois.' } },
+    variants: []
+  });
+  assert.deepEqual(products[0].description, { es: '<p>Uno.</p><p>Dos.</p>', pt: '<p>Um.</p><p>Dois.</p>' });
+});
+
+test('buildTnProducts: sin descripción, no rompe (queda undefined)', () => {
+  const { description, ...tnSinDescripcion } = tnBase;
+  const products = buildTnProducts({ tn: tnSinDescripcion, variants: [] });
+  assert.equal(products[0].description, undefined);
+});
+
+/* ───────────────── unidades de publicación (worker en background) ───────────────── */
+
+test('mlUnitKey: el SKU (SELLER_SKU) de un ítem armado por buildMlItems', () => {
+  const items = buildMlItems(
+    { ml: { ...mlBase, mapping_mode: 'one_per_variant' }, axes: [{ name: 'Color' }], variants: [{ sku: 'CUA-N', values: ['Negro'], ml: { price: 100, stock: 5 } }] },
+    picMap
+  );
+  assert.equal(mlUnitKey(items[0]), 'CUA-N');
+});
+
+test('mlUnitKey: sin SELLER_SKU (legacy single_with_variants, un solo ítem) da string vacío', () => {
+  const items = buildMlItems(
+    { ml: { ...mlBase, mapping_mode: 'single_with_variants' }, axes: [{ name: 'Color' }], variants: [{ sku: 'CUA-1-N', values: ['Negro'], ml: { price: 100, stock: 5 } }] },
+    picMap
+  );
+  assert.equal(mlUnitKey(items[0]), '');
+});
+
+test('planTnUnits (single_with_variants): UNA sola unidad con unitKey vacío (aunque tenga varias variantes adentro)', () => {
+  const units = planTnUnits({
+    tn: { ...tnBase, mapping_mode: 'single_with_variants', image_ids: ['g1', 'g2'], variants: [{ sku: 'CUA-N', values: [{ es: 'Negro' }], price: 100, stock: 5 }] },
+    variants: [{ sku: 'CUA-N', values: ['Negro'], tn: { image_ids: ['g1'] } }]
+  });
+  assert.equal(units.length, 1);
+  assert.equal(units[0].unitKey, '');
+  assert.deepEqual(units[0].uploadIds, ['g1', 'g2']); // comparte la galería general
+});
+
+test('planTnUnits (one_per_variant): una unidad POR VARIANTE, unitKey = su SKU, fotos en SU propio orden', () => {
+  const units = planTnUnits({
+    tn: {
+      ...tnBase,
+      mapping_mode: 'one_per_variant',
+      image_ids: ['g1', 'g2', 'g3'],
+      variants: [
+        { sku: 'CUA-N', values: [{ es: 'Negro' }], price: 100, stock: 5 },
+        { sku: 'CUA-R', values: [{ es: 'Rojo' }], price: 110, stock: 3 }
+      ]
+    },
+    variants: [
+      { sku: 'CUA-N', values: ['Negro'], tn: { image_ids: ['g2', 'g1'] } }, // orden propio: g2 primero (portada)
+      { sku: 'CUA-R', values: ['Rojo'], tn: { image_ids: ['g3'] } }
+    ]
+  });
+  assert.equal(units.length, 2);
+  assert.equal(units[0].unitKey, 'CUA-N');
+  assert.deepEqual(units[0].uploadIds, ['g2', 'g1']);
+  assert.equal(units[1].unitKey, 'CUA-R');
+  assert.deepEqual(units[1].uploadIds, ['g3']);
 });

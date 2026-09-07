@@ -6,6 +6,8 @@ import {
   MlCategoryNode,
   MlCategoryPrediction,
   MlCategoryRef,
+  PublishJobSummary,
+  PublishUnit,
   TnCategory
 } from '../../core/services/catalog.service';
 import {
@@ -100,6 +102,16 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   /** Resultado de "Publicar en ambos" (null = todavía no se publicó). */
   readonly publishResults = signal<PublishResult[] | null>(null);
   readonly publishing = signal(false);
+  /** Menú desplegable de "Publicar en ambos ▾" para elegir publicar solo ML o solo TN. */
+  readonly publishMenuOpen = signal(false);
+  /**
+   * Progreso granular del job en curso (una fila por ítem ML / producto TN ya confirmado o
+   * fallido) — se actualiza en cada vuelta del polling, así la usuaria ve "2 de 3 en ML" sin
+   * tener que esperar a que termine todo el job.
+   */
+  readonly publishProgress = signal<PublishUnit[]>([]);
+  /** Cuánto esperar entre cada `GET /jobs/:id` mientras el job sigue en curso. */
+  private static readonly JOB_POLL_MS = 1500;
 
   /* ================= Categorías: estado ================= */
 
@@ -138,10 +150,22 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     // Precargamos las categorías de TN para poblar el multi-select (requiere estar conectado).
     void this.loadTnCategories();
-    this.store.migrateLegacyDraft();
-    this.store.refreshSavedDraftsList();
-    this.store.restoreMostRecentDraft();
+    // Los borradores vivían en localStorage; ahora viven en el backend (para poder retomar una
+    // publicación fallida desde cualquier navegador). Migración única, antes de listar/restaurar.
+    await this.store.migrateLocalDraftsToBackend();
+    await this.store.refreshSavedDraftsList();
+    await this.store.restoreMostRecentDraft();
     void this.store.loadPricingSettings();
+    // El borrador restaurado ya trae sus atributos guardados (d.ml.attributes) y su categoría,
+    // pero dos cosas NO se persisten en el borrador (son metadata de la categoría de ML, se pide
+    // de nuevo): los candidatos a EJE (mlVariationAttrs) y el límite de fotos por categoría
+    // (mlMaxPictures/mlMaxPicturesPerVar). Sin este refetch, un borrador restaurado mostraría el
+    // selector de eje vacío y el límite de fotos en el fallback genérico.
+    const categoryId = this.draft().ml.categoryId;
+    if (categoryId) {
+      void this.refreshMlVariationAttrs(categoryId);
+      void this.refreshMlCategoryLimits(categoryId);
+    }
   }
 
   ngOnDestroy(): void {
@@ -179,9 +203,9 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   toggleVariantTnImage(v: ProductVariant, imageId: string): void { this.store.toggleVariantTnImage(v, imageId); }
   isTnCategorySelected(id: number): boolean { return this.store.isTnCategorySelected(id); }
   toggleTnCategory(id: number): void { this.store.toggleTnCategory(id); }
-  saveDraft(): void { this.store.saveDraft(); }
-  openDraft(id: string): void { this.store.openDraft(id); }
-  deleteDraft(id: string): void { this.store.deleteDraft(id); }
+  saveDraft(): Promise<void> { return this.store.saveDraft(); }
+  openDraft(id: string): Promise<void> { return this.store.openDraft(id); }
+  deleteDraft(id: string): Promise<void> { return this.store.deleteDraft(id); }
   startNewDraft(): void { this.store.startNewDraft(); }
   toggleDraftsPanel(): void { this.store.toggleDraftsPanel(); }
   loadPricingSettings(): Promise<void> { return this.store.loadPricingSettings(); }
@@ -303,6 +327,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     d.ml.categoryId = '';
     d.ml.categoryName = '';
     d.ml.attributes = [];
+    this.store.mlVariationAttrs.set([]);
     this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
     this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
     this.store.touch();
@@ -337,15 +362,60 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           inherited: isBrand,
           valueType: a.valueType,
           allowedValues: a.allowedValues,
-          allowedUnits: a.allowedUnits
+          allowedUnits: a.allowedUnits,
+          allowVariations: a.allowVariations
         };
       });
-      this.draft().ml.attributes = mapped;
+      // Los candidatos a EJE (allowVariations) se ofrecen en el selector de Variantes, no en la
+      // lista general de características — si aparecieran en las dos, se podría terminar mandando
+      // el mismo atributo (ej. COLOR) dos veces al publicar.
+      this.draft().ml.attributes = mapped.filter((a) => !a.allowVariations);
+      this.store.mlVariationAttrs.set(mapped.filter((a) => a.allowVariations));
       this.store.touch();
     } catch (e) {
       this.mlAttrsError.set(this.errMsg(e));
     } finally {
       this.mlAttrsLoading.set(false);
+    }
+  }
+
+  /**
+   * Solo repone `mlVariationAttrs` (candidatos a eje) para una categoría YA elegida — a diferencia
+   * de `loadMlAttributes`, NO toca `d.ml.attributes` (evitaría pisar los valores que el borrador
+   * restaurado ya tenía cargados). Se usa al restaurar un borrador guardado.
+   */
+  private async refreshMlVariationAttrs(categoryId: string): Promise<void> {
+    try {
+      const attrs = await this.catalog.getMlCategoryAttributes(categoryId);
+      this.store.mlVariationAttrs.set(
+        attrs.filter((a) => a.allowVariations).map((a) => ({
+          id: a.id,
+          name: a.name,
+          value: '',
+          required: a.required,
+          inherited: false,
+          valueType: a.valueType,
+          allowedValues: a.allowedValues,
+          allowVariations: true
+        }))
+      );
+    } catch {
+      // silencioso: el selector de eje simplemente no ofrece opciones hasta que se reintente
+      // (ej. re-eligiendo la categoría), no vale la pena un banner de error para esto.
+    }
+  }
+
+  /**
+   * Solo repone mlMaxPictures/mlMaxPicturesPerVar para una categoría YA elegida — se usa al
+   * restaurar un borrador (esos límites no se persisten, ver product-draft.store.ts).
+   */
+  private async refreshMlCategoryLimits(categoryId: string): Promise<void> {
+    try {
+      const node = await this.catalog.getMlCategory(categoryId);
+      this.mlMaxPictures.set(positiveLimit(node.max_pictures, ML_MAX_PICTURES_FALLBACK));
+      this.mlMaxPicturesPerVar.set(positiveLimit(node.max_pictures_per_var, ML_MAX_PICTURES_PER_VAR_FALLBACK));
+    } catch {
+      // silencioso: quedan los fallback (12/10) hasta que se reintente
     }
   }
 
@@ -391,9 +461,10 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   /* ---------- publicar ---------- */
 
   /**
-   * Publica vía POST /api/products (fan-out real en el backend). Sin `channels` publica en ambos;
-   * con `channels` (ej. ['ml']) reintenta solo ese canal y fusiona el resultado con los anteriores
-   * (así no se re-publica el canal que ya salió OK).
+   * Publica el borrador en background: lo guarda (crea el id si hace falta), encola el job
+   * (`POST /drafts/:id/publish`) y espera su resultado con polling — así la publicación sigue
+   * corriendo en el servidor aunque se cierre la pestaña, y el reintento (`channels`, ej. ['ml'])
+   * usa el MISMO job/borrador y no duplica lo que ya se publicó (ver publishWorker.js).
    */
   async publish(channels?: Channel[]): Promise<void> {
     if (this.hasPendingUploads()) {
@@ -401,15 +472,22 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       return;
     }
     this.publishing.set(true);
-    if (!channels) this.publishResults.set(null);
+    if (!channels) {
+      this.publishResults.set(null);
+      this.publishProgress.set([]);
+    }
     try {
-      const payload = { ...this.buildPayloads(), channels };
-      const res = await this.catalog.publishProduct(payload);
-      this.applyResults(res.results as PublishResult[], channels);
+      await this.store.saveDraft();
+      const draftId = this.store.currentDraftId();
+      if (!draftId) throw new Error('No se pudo guardar el borrador antes de publicar');
+      const payload = this.buildPayloads();
+      const { jobId } = await this.catalog.publishDraft(draftId, payload, channels);
+      await this.pollJob(jobId, channels);
     } catch (e) {
-      // Falla de red / servidor: marcamos error en los canales publicados.
+      // Falla de red / servidor (guardando el borrador o encolando el job): marcamos error en
+      // los canales que se intentaban publicar, igual que antes.
       const detail = this.errMsg(e);
-      const failed = (channels ?? ['ml', 'tn']).map(
+      const failed = (channels ?? (['ml', 'tn'] as Channel[])).map(
         (channel) => ({ channel, status: 'error', detail }) as PublishResult
       );
       this.applyResults(failed, channels);
@@ -418,7 +496,41 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Fusiona resultados: reemplaza solo los canales recién publicados; el resto queda igual. */
+  /** Pollea el job hasta que termina (done/error), actualizando el progreso en cada vuelta. */
+  private async pollJob(jobId: string, channels?: Channel[]): Promise<void> {
+    for (;;) {
+      const { job, units } = await this.catalog.getPublishJob(jobId);
+      this.publishProgress.set(units);
+      if (job.status === 'done' || job.status === 'error') {
+        this.applyResults(this.resultsFromJob(job, units, channels), channels);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, CrearProductoComponent.JOB_POLL_MS));
+    }
+  }
+
+  /** Arma el `PublishResult` por canal a partir de las unidades del job (ok solo si TODAS lo están). */
+  private resultsFromJob(job: PublishJobSummary, units: PublishUnit[], channels?: Channel[]): PublishResult[] {
+    const chans = channels ?? (job.channels.split(',').filter(Boolean) as Channel[]);
+    return chans.map((channel) => {
+      const chUnits = units.filter((u) => u.channel === channel);
+      const ok = chUnits.length > 0 && chUnits.every((u) => u.status === 'ok');
+      let detail: string;
+      if (ok) {
+        detail = chUnits.length > 1 ? `${chUnits.length} publicaciones creadas` : (chUnits[0]?.detail ?? 'Publicado');
+      } else {
+        detail = chUnits.find((u) => u.status === 'error')?.detail ?? job.lastError ?? 'Error al publicar';
+      }
+      return { channel, status: ok ? 'ok' : 'error', detail } as PublishResult;
+    });
+  }
+
+  /**
+   * Fusiona resultados: reemplaza solo los canales recién publicados; el resto queda igual. El
+   * borrador NUNCA se borra acá (a diferencia del flujo síncrono viejo): el estado que ve "Mis
+   * borradores" (publicado / con errores / parcial) lo recalcula el propio backend cuando el job
+   * termina, así el historial de publicación queda conservado y se puede reintentar más tarde.
+   */
   private applyResults(incoming: PublishResult[], channels?: Channel[]): void {
     let merged: PublishResult[];
     if (!channels) {
@@ -430,8 +542,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       merged = [...byChannel.values()];
       this.publishResults.set(merged);
     }
-    // Ya no hace falta el borrador local si los dos canales quedaron publicados.
-    if (merged.length === 2 && merged.every((r) => r.status === 'ok')) this.store.clearSavedDraft();
+    void this.store.refreshSavedDraftsList();
   }
 
   /**
@@ -511,6 +622,9 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
         name: { es: this.effective(d.tn.nameEs, d.common.baseName), pt: d.tn.namePt || undefined },
         handle: d.tn.handle ? { es: d.tn.handle } : undefined,
         description: { es: this.effective(d.tn.description, '') },
+        // Nombres de los ejes (ej. "Color"), apareados por índice con `values` de cada variante —
+        // sin esto TN no sabe qué representa cada valor (ver CLAUDE.md, bug "Color: Rojo").
+        attributes: d.axes.length ? d.axes.map((a) => ({ es: a.name })) : undefined,
         // TN espera un array de IDs de categorías EXISTENTES (no nombres).
         categories: d.tn.categories,
         brand: d.common.brand,
@@ -535,6 +649,15 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   private tnVariants(): unknown[] {
     const d = this.draft();
     const weightKg = d.common.weightG != null ? d.common.weightG / 1000 : null;
+    // Instagram Shopping / Google Shopping: se cargan una vez en Datos generales y aplican a
+    // TODAS las variantes (ver CLAUDE.md). `mpn` es opcional y se omite del todo si está vacío
+    // (no se manda como `undefined`: es una clave menos, no una clave vacía); age_group/gender
+    // siempre van (traen default "adult"/"unisex").
+    const shopping: { mpn?: string; age_group: string; gender: string } = {
+      age_group: d.common.ageGroup,
+      gender: d.common.gender
+    };
+    if (d.common.mpn) shopping.mpn = d.common.mpn;
     if (d.variants.length === 0) {
       return [
         {
@@ -543,22 +666,26 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           weight: weightKg,
           width: d.common.widthCm,
           height: d.common.heightCm,
-          depth: d.common.lengthCm
+          depth: d.common.lengthCm,
+          ...shopping
         }
       ];
     }
     // Peso y dimensiones son iguales para todas las variantes (vienen del común). El código de
     // barras es propio de cada una si se cargó uno; si no, cae al común (no todas traen el mismo).
+    // `values` va LIMPIO (solo el valor, ej. "Rojo") — el nombre del eje ("Color") viaja aparte en
+    // `tn.attributes`, apareado por índice; antes se metía acá adentro ("Color: Rojo").
     return d.variants.map((v) => ({
       sku: v.sku,
-      values: v.values.map((value, i) => ({ es: `${d.axes[i]?.name ?? ''}: ${value}` })),
+      values: v.values.map((value) => ({ es: value })),
       price: v.tn.price,
       stock: v.stock,
       barcode: v.barcode || d.common.barcode,
       weight: weightKg,
       width: d.common.widthCm,
       height: d.common.heightCm,
-      depth: d.common.lengthCm
+      depth: d.common.lengthCm,
+      ...shopping
     }));
   }
 
