@@ -43,8 +43,37 @@
     <span class="hint"><i class="ti ti-arrows-shuffle"></i> ML: «30x22x3,480» (g/cm) · TN: kg + cm — se convierte automáticamente</span>
   </div>
 
-  <label class="field no-mb">
+  <label class="field">
     <span class="lbl">Palabras clave / SEO</span>
     <input class="zc-input" [(ngModel)]="store.draft().common.seoKeywords" placeholder="Ej. cuaderno, tapa dura, a4, oficina" />
   </label>
+
+  <div class="field no-mb">
+    <span class="lbl"><span class="dot dot-tn"></span> Instagram / Google Shopping (Tienda Nube)</span>
+    <div class="grid-3">
+      <label>
+        <span class="lbl">Rango etario</span>
+        <select class="zc-select" [(ngModel)]="store.draft().common.ageGroup">
+          <option value="adult">Adulto</option>
+          <option value="kids">Niños</option>
+          <option value="toddler">Niños pequeños</option>
+          <option value="infant">Bebés</option>
+          <option value="newborn">Recién nacidos</option>
+        </select>
+      </label>
+      <label>
+        <span class="lbl">Sexo del producto</span>
+        <select class="zc-select" [(ngModel)]="store.draft().common.gender">
+          <option value="unisex">Sin género</option>
+          <option value="female">Femenino</option>
+          <option value="male">Masculino</option>
+        </select>
+      </label>
+      <label>
+        <span class="lbl">MPN (código de fabricante)</span>
+        <input class="zc-input" [(ngModel)]="store.draft().common.mpn" placeholder="Opcional" />
+      </label>
+    </div>
+    <span class="hint"><i class="ti ti-info-circle"></i> aplica a todas las variantes — sin esto el catálogo de Instagram/Google queda incompleto</span>
+  </div>
 </section>

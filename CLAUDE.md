@@ -415,6 +415,139 @@ días, no el mes calendario — ver el comentario en `computePreviousPeriod`) + 
 productos + evolución diaria, todo del rango pedido. `GET /api/sales/export` arma el mismo cálculo
 en CSV (separador `;`, coma decimal) para mandarle al contador.
 
+### Crear producto: modelo User Products de ML, publicación en background e historial
+
+Incidente 2026-09-06: publicar un producto con variantes en ML fallaba siempre con *"The body does
+not contains some or none of the following properties [family_name, price, available_quantity];
+The field variations is invalid with family name"*. No era un bug de armado del payload: la cuenta
+ya está migrada al modelo **User Products** (`user_product_seller` en `GET /users/me`, ver
+`backend/src/lib/mlUserProducts.js`, cacheado 1 h). En ese modelo `POST /items` **rechaza**
+`variations[]` y **rechaza** que el vendedor mande `title` — hay que mandar `family_name` y crear
+**un ítem por variación**; ML agrupa los que comparten `family_name` + dominio + condición +
+atributos PARENT_PK en una sola familia (una ficha con selectores para el comprador). Por eso
+`single_with_variants` bajo User Products también termina en N `POST /items`, no en uno solo — la
+diferencia con `one_per_variant` es que ahí cada ítem lleva su **propio** `family_name` (no
+comparten ficha). `buildMlItems` (`backend/src/services/productPublish.js`) bifurca por
+`opts.userProducts`; el modelo legacy (`variations[]`, un producto = un ítem) se mantiene intacto
+para cuentas que no estén migradas.
+
+Como consecuencia, cada eje de variante necesita mapear a un atributo REAL de la categoría de ML
+(ej. `COLOR`) para que ML pueda agrupar la familia — antes el eje era texto libre. En "Variantes"
+cada eje tiene un selector con los atributos `allowVariations` de la categoría elegida (la ruta de
+atributos, `GET /categories/mercadolibre/:id/attributes`, ya no los excluye: los devuelve marcados
+con `allowVariations: true` en vez de esconderlos). `axisAttributes()` arma el atributo del ítem —
+`value_id` si el valor coincide con una opción cerrada del atributo (lo que ML prefiere, normalizado
+sin acentos/mayúsculas), si no `value_name`; sin mapeo, atributo personalizado (`{name, value_name}`,
+sin `id` de categoría, que ML también acepta). `categoryAttrs()` excluye el atributo ya usado como
+eje de la lista general, para no mandarlo dos veces.
+
+**Otros tres bugs del mismo reporte, sin relación con User Products:**
+
+- **Descripción de TN corrida**: TN renderiza `description` como HTML, y se le mandaba texto plano
+  tal cual. `plainTextToHtml()` (`backend/src/lib/richText.js`) convierte doble salto de línea en
+  párrafo y salto simple en `<br>` — pero si el texto YA trae una etiqueta reconocible, lo deja
+  pasar intacto (el campo admite HTML a mano). TN modela `description` como objeto por idioma
+  (`{es, pt?}`, igual que `name`): se aplica a CADA idioma presente, no al objeto entero.
+- **Orden de fotos de TN equivocado**: en `one_per_variant`, la galería de cada producto salía
+  filtrando la galería GENERAL (`galleryIds.filter(id => assigned.has(id))`), que preserva el
+  orden de la galería, no el que la usuaria eligió PARA ESA VARIANTE en el modal
+  (`variant-photos-dialog`). Ahora usa `variant.tn.image_ids` en su propio orden — la portada es la
+  primera foto de ESE orden.
+- **`"Color: Rojo"` en vez de `"Color"` + `"Rojo"`**: el front metía el nombre del eje dentro del
+  valor de cada variante TN para compensar que nunca se mandaba `attributes` (nombres de eje) a
+  nivel producto. Ahora `buildPayloads()` arma `tn.attributes` desde `d.axes` y los valores de
+  variante viajan limpios; `buildTnProducts` solo lo manda en `single_with_variants` (un producto
+  con variantes adentro) — en `one_per_variant` cada producto es una sola variante y no aplica.
+
+**Instagram / Google Shopping en TN**: `mpn`, `age_group` y `gender` son campos de VARIANTE en la
+API de TN. Se cargan una única vez en "Datos comunes" (`common.mpn/ageGroup/gender`, default
+`'adult'`/`'unisex'`) y se copian a cada variante al publicar (`normalizeTnVariant`).
+
+**Publicar un solo canal**: ya existía de punta a punta (`channels` en el payload, `publishProduct`
+público) pero sin botón — el único disparador era "Reintentar" tras un fallo. El botón "Publicar en
+ambos" pasa a ser un botón partido con menú ("Solo Mercado Libre" / "Solo Tienda Nube"). De paso,
+`publish-results.component.html` indexaba `results()[1].status` asumiendo SIEMPRE 2 resultados —
+con un solo canal (`results()[1]` es `undefined`) explotaba; ahora usa `results().every(...)`.
+
+#### Imágenes en Supabase Storage (Fase 0: habilita el resto)
+
+Railway (Hobby) tiene disco efímero: `data/tmp-images/` se borraba en cada deploy y rompía
+borradores no publicados. `backend/src/services/imageStore.js` mantiene su interfaz (`saveImage`,
+`getImage`, `saveThumbBuffer`, `getThumb`, `removeImage`, `purgeOld` — todas ASYNC ahora) pero
+elige backend según haya `SUPABASE_URL`/`SUPABASE_SERVICE_KEY`: con esas variables, Supabase
+Storage (bucket público `SUPABASE_BUCKET`, default `product-images`, un objeto `<id>/original.<ext>`
++ `<id>/meta.json` + `<id>/thumb.jpg` por imagen); sin ellas, cae al disco de siempre (solo sirve
+para dev). `getImageUrl(id)` da la URL pública si hay Supabase, `null` si no.
+
+Con URL pública, ML y TN descargan la foto solos en vez de recibirla por multipart/base64 — con 10
+fotos por variación esto es la diferencia entre 1 request y 10. `resolveMlImages()` intenta
+`getImageUrl` antes de subir por multipart; el body de ML mezcla refs `{source: url}` y `{id:
+picture_id}` sin problema. Para TN, `embedTnImages()` arma `images:[{src,position}]` para el propio
+`POST /products` (confirmado que la API lo acepta en la creación) — si falta la URL de alguna
+imagen, cae entero al camino viejo (`uploadTnImages`, un POST por foto + reconciliación de orden).
+Con URLs, la posición la fija TN al crear; igual queda una verificación final contra
+`GET .../images` que corrige con PUT si el orden real no coincidió (`reconcileTnImageOrder`) —
+**sin verificar en vivo contra la API real**, a confirmar la primera vez que se publique con
+Supabase configurado.
+
+Borrado de huérfanas: `purgeOld(isReferenced, now)` — con Supabase no hace nada (el borrado es en
+cascada al borrar el borrador, ver abajo); en disco, solo borra lo vencido (72 h) que además no
+aparezca en ningún `draft_json` (`backend/src/index.js`, `collectReferencedImageIds` arma un Set
+con TODOS los ids de imagen de TODOS los borradores buscando el patrón de 32 hex como substring —
+barato, no hace falta parsear la estructura del draft).
+
+#### Publicación en background con historial (Fase 2)
+
+Publicar tardaba varios minutos (varias variantes, dos canales, fotos) de forma SÍNCRONA — cerrar
+la pestaña cortaba todo — y reintentar un canal fallido duplicaba lo ya creado (no había memoria de
+qué se había publicado). Los borradores vivían solo en `localStorage`, así que tampoco había forma
+de retomarlos desde otro navegador ni de conservar qué pasó.
+
+**Tablas nuevas** (`backend/src/db.js`, `initDb()`): `product_drafts` (el `ProductDraft` como
+`draft_json`, más `status`: `draft|publishing|published|partial|error`), `product_publish_jobs` (un
+intento de publicar — `channels`, `payload_json` INMUTABLE, el snapshot exacto que se publicó, no
+el borrador que pudo seguir editándose mientras el job corría) y `product_publish_units` (una fila
+por ítem ML / producto TN dentro de un job — `unit_key` es el SKU, o `''` cuando el job entero es
+una sola unidad atómica, ver `mlUnitKey`/`planTnUnits` en `productPublish.js`).
+
+`product_publish_units` es a la vez el PROGRESO y la IDEMPOTENCIA: reintentar re-encola el MISMO
+job y el worker (`backend/src/services/publishWorker.js`) saltea las `unit_key` que ya están `'ok'`
+— así fallar en la unidad 3 de 5 y reintentar no duplica las 2 primeras. Mismo patrón de lock que
+`ml_pending_tasks` (`claimNextPublishJob`: `FOR UPDATE SKIP LOCKED`, latido cada 30 s, lock vencido
+a los 5 min — más largo que los 2 min de la cola de ML porque publicar de verdad tarda más), pero
+es una tabla e idempotencia APARTE: `ml_pending_tasks.idempotency_key` hace coalescing con `DO
+UPDATE` (la tarea más nueva pisa a la anterior), que es exactamente lo que NO se quiere para una
+creación (pisar una publicación encolada con otra). `recomputeDraftStatus(draftId)` arma el
+`status` del borrador mirando, POR CANAL, el job terminado más reciente que lo haya incluido —
+así un reintento de un solo canal (`channels: ['tn']`) no pisa lo que ya se sabía del otro.
+
+Endpoints nuevos bajo `/api/products` (`routes/products.js`): CRUD de `/drafts` (borrar limpia en
+cascada jobs/unidades Y las imágenes referenciadas, vía el mismo regex de 32 hex que el purgado),
+`POST /drafts/:id/publish` (encola, devuelve `202 { jobId }`), `GET /jobs/:id` (progreso, para
+polling), `POST /jobs/:id/retry`, `DELETE /jobs/:id`. El `POST /` síncrono viejo se mantiene
+mientras dure la migración del front; el plan es retirarlo.
+
+**Frontend**: los borradores pasan de `localStorage` al backend. `ProductDraftStore.saveDraft()` /
+`openDraft()` / `deleteDraft()` / `restoreMostRecentDraft()` / `refreshSavedDraftsList()` ahora son
+async y pegan a `CatalogService` (`createDraft`/`updateDraft`/`getDraft`/`deleteDraft`/`listDrafts`).
+Migración ÚNICA de lo que hubiera en `localStorage` (`migrateLocalDraftsToBackend`, flag
+`zc-crear-producto-drafts-migrated-to-backend`): si no hay nada que migrar, NO marca el flag —
+representa "ya subí datos reales", no "ya miré una vez", así que no se "gasta" en un chequeo vacío.
+Dos cosas del borrador NO se persisten (son metadata de la categoría de ML, no del producto):
+`mlMaxPictures`/`mlMaxPicturesPerVar` y los candidatos a eje (`mlVariationAttrs`) — al restaurar un
+borrador con categoría, `crear-producto.component.ts` los vuelve a pedir (`refreshMlCategoryLimits`/
+`refreshMlVariationAttrs`).
+
+`publish()` guarda el borrador (crea el id si hace falta), encola el job y pollea `GET /jobs/:id`
+cada 1,5 s hasta `done`/`error`, actualizando `publishProgress` (una fila por unidad) en cada
+vuelta — visible en pantalla mientras corre, sin bloquear si se cierra la pestaña (el job sigue en
+el servidor). El borrador YA NO SE BORRA al publicar con éxito (antes sí): el `status` que ve "Mis
+borradores" lo recalcula el propio backend cuando el job termina, y el historial de publicación
+queda conservado para poder reintentar un canal después. "Editar publicación" (mismo form cargando
+una publicación ya creada, actualizando ambos canales) queda fuera de esta rama — editar en ML
+tiene reglas propias (no se puede tocar `title`, `family_name` solo se cambia sin ventas) que
+ameritan su propio diseño.
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
@@ -446,4 +579,22 @@ como 1 venta y no una por línea de orden), `backend/test/routesSales.test.js`
 `getOrdersWindow` en `backend/test/mercadolibre.test.js` (paginación y split por más de 1000
 órdenes); `backend/test/routesWebhooks.test.js` suma que la venta se registra y que un fallo ahí
 no rompe el descuento de stock.
+
+El modelo User Products de ML, la publicación en background y las fotos por Supabase están
+cubiertos en `backend/test/productPublish.test.js` (family_name vs. title, misma familia en
+`single_with_variants`, familia propia por variante en `one_per_variant`, `axisAttributes` con y
+sin `mlAttributeId`, matcheo de `value_id` ignorando acentos/mayúsculas, `attributes`/`mpn`/
+`age_group`/`gender` de TN, la descripción como objeto por idioma), `backend/test/richText.test.js`
+(texto plano → HTML, HTML existente intacto), `backend/test/mlUserProducts.test.js` (detección del
+tag + caché), `backend/test/productPublishTnEmbed.test.js` (imágenes embebidas por URL, portada =
+orden de la variante y no de la galería), `backend/test/imageStore.test.js` +
+`imageStoreSupabase.test.js` (backend de disco vs. Supabase, purgado respetando lo referenciado),
+`backend/test/publishWorker.test.js` (skip de unidades ya `ok` en un reintento, error parcial que
+no frena el otro canal, latido sin dejar intervals colgados), `backend/test/db.test.js` (lock
+vencido de `product_publish_jobs` con umbral propio, `recomputeDraftStatus` con reintento de un
+solo canal) y `backend/test/routesProductsDrafts.test.js` (CRUD de borradores + jobs por HTTP,
+borrar un borrador limpia sus imágenes). El frontend lo cubre `crear-producto.component.spec.ts`
+(borradores en el backend en vez de `localStorage`, migración única, polling de `publish()` con
+progreso parcial, selector de eje) y `catalog.service.spec.ts` (los endpoints nuevos).
+
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

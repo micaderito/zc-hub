@@ -1,7 +1,6 @@
 <section class="zc-card block results">
   <div class="results-head">
-    <i class="ti" [class.ti-circle-check]="results().length && (results()[0].status === 'ok' && results()[1].status === 'ok')"
-       [class.ti-alert-circle]="!(results()[0].status === 'ok' && results()[1].status === 'ok')"></i>
+    <i class="ti" [class.ti-circle-check]="allOk()" [class.ti-alert-circle]="!allOk()"></i>
     <span class="block-title">Resultado de la publicación</span>
     <button type="button" class="icon-btn" (click)="dismiss.emit()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
   </div>

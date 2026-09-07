@@ -14,7 +14,7 @@
         [class.on]="store.draft().ml.mappingMode === 'single_with_variants'"
         (click)="store.setMode('ml', 'single_with_variants')"
       >
-        <i class="ti ti-layers-subtract"></i> 1 publicación con variantes
+        <i class="ti ti-layers-subtract"></i> Agrupadas en una ficha
       </button>
       <button
         type="button"
@@ -22,15 +22,15 @@
         [class.on]="store.draft().ml.mappingMode === 'one_per_variant'"
         (click)="store.setMode('ml', 'one_per_variant')"
       >
-        <i class="ti ti-layout-grid"></i> 1 publicación por variante
+        <i class="ti ti-layout-grid"></i> Publicaciones independientes
       </button>
     </div>
   </div>
 
-  <!-- override: título -->
+  <!-- override: título / nombre de familia -->
   <div class="field">
     <span class="lbl">
-      Título de la publicación <span class="req">*</span>
+      Nombre de familia <span class="req">*</span>
       <zc-override-tag [field]="store.draft().ml.title" />
     </span>
     @if (store.draft().ml.title.inherited) {
@@ -42,6 +42,7 @@
       <input class="zc-input is-own" [(ngModel)]="store.draft().ml.title.value" placeholder="Ej. Cuaderno A4 Tapa Dura Premium Anillado 480g" />
       <span class="hint revert" (click)="store.revert(store.draft().ml.title)"><i class="ti ti-rotate"></i> común: {{ store.draft().common.baseName }}</span>
     }
+    <span class="hint"><i class="ti ti-info-circle"></i> descripción general del producto — ML arma el título de cada publicación solo, a partir de este nombre y sus atributos</span>
   </div>
 
   <div class="grid-2 field">

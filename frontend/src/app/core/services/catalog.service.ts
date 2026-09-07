@@ -49,6 +49,8 @@ export interface MlCategoryAttribute {
   name: string;
   valueType: string;
   required: boolean;
+  /** true = candidato a EJE de variante (COLOR, SIZE…): ML lo permite variar dentro de una familia. */
+  allowVariations?: boolean;
   allowedValues: { id: string; name: string }[];
   allowedUnits?: string[];
   defaultUnit?: string;
@@ -63,6 +65,51 @@ export interface PublishChannelResult {
 
 export interface PublishResponse {
   results: PublishChannelResult[];
+}
+
+/** Fila del panel "Mis borradores" (GET /drafts) — sin el draft completo, pesado para una lista. */
+export interface DraftSummary {
+  id: string;
+  name: string | null;
+  sku: string | null;
+  status: 'draft' | 'publishing' | 'published' | 'partial' | 'error';
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Historial resumido de un job para el detalle de un borrador (GET /drafts/:id). */
+export interface PublishJobSummary {
+  id: string;
+  draftId: string;
+  channels: string;
+  status: 'pending' | 'processing' | 'done' | 'error';
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
+/** Un borrador completo (GET /drafts/:id) con su historial de jobs. */
+export interface DraftDetail extends DraftSummary {
+  draft: unknown; // ProductDraft — no se tipa acá para no crear una dependencia circular con product-draft.model
+  jobs: PublishJobSummary[];
+}
+
+/** Unidad publicada dentro de un job (un ítem ML, un producto TN) — el progreso granular. */
+export interface PublishUnit {
+  channel: 'ml' | 'tn';
+  unitKey: string;
+  seq: number;
+  status: 'pending' | 'ok' | 'error';
+  externalId: string | null;
+  detail: string | null;
+  updatedAt: string;
+}
+
+export interface PublishJobDetail {
+  job: PublishJobSummary;
+  units: PublishUnit[];
 }
 
 /** Imagen subida al store temporal del backend. */
@@ -184,5 +231,44 @@ export class CatalogService {
 
   publishProduct(payload: unknown): Promise<PublishResponse> {
     return lastValueFrom(this.http.post<PublishResponse>(`${this.api.baseUrl}/products`, payload));
+  }
+
+  /* ---------- Borradores + publicación en background ---------- */
+
+  listDrafts(): Promise<DraftSummary[]> {
+    return lastValueFrom(this.http.get<DraftSummary[]>(`${this.api.baseUrl}/products/drafts`));
+  }
+
+  createDraft(body: { name?: string; sku?: string; draft: unknown }): Promise<{ id: string }> {
+    return lastValueFrom(this.http.post<{ id: string }>(`${this.api.baseUrl}/products/drafts`, body));
+  }
+
+  getDraft(id: string): Promise<DraftDetail> {
+    return lastValueFrom(this.http.get<DraftDetail>(`${this.api.baseUrl}/products/drafts/${id}`));
+  }
+
+  updateDraft(id: string, body: { name?: string; sku?: string; draft: unknown }): Promise<{ ok: boolean }> {
+    return lastValueFrom(this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/products/drafts/${id}`, body));
+  }
+
+  deleteDraft(id: string): Promise<{ ok: boolean }> {
+    return lastValueFrom(this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/products/drafts/${id}`));
+  }
+
+  /** Encola la publicación de un borrador. Devuelve el id del job para pollear su progreso. */
+  publishDraft(id: string, payload: unknown, channels?: ('ml' | 'tn')[]): Promise<{ jobId: string }> {
+    return lastValueFrom(this.http.post<{ jobId: string }>(`${this.api.baseUrl}/products/drafts/${id}/publish`, { payload, channels }));
+  }
+
+  getPublishJob(jobId: string): Promise<PublishJobDetail> {
+    return lastValueFrom(this.http.get<PublishJobDetail>(`${this.api.baseUrl}/products/jobs/${jobId}`));
+  }
+
+  retryPublishJob(jobId: string): Promise<{ ok: boolean }> {
+    return lastValueFrom(this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/products/jobs/${jobId}/retry`, {}));
+  }
+
+  deletePublishJob(jobId: string): Promise<{ ok: boolean }> {
+    return lastValueFrom(this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/products/jobs/${jobId}`));
   }
 }

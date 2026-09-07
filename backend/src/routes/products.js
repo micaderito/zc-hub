@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import express from 'express';
+import crypto from 'crypto';
 import { tokens, getMlToken } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
@@ -8,6 +9,20 @@ import { saveImage, saveImageBuffer, saveThumbBuffer, getImage, getThumb, remove
 import { generateSeo, isLlmConfigured } from '../lib/llm.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { listPacksWithStock, savePack, removePack, assignSkuPack } from '../services/packsService.js';
+import {
+  createProductDraft,
+  updateProductDraft,
+  setProductDraftStatus,
+  getProductDraft,
+  listProductDrafts,
+  deleteProductDraft,
+  createPublishJob,
+  getPublishJob,
+  listPublishJobsForDraft,
+  deletePublishJob,
+  retryPublishJob,
+  getPublishUnits
+} from '../db.js';
 
 export const productRoutes = Router();
 
@@ -57,7 +72,7 @@ const ML_AUTO_FILLED_ATTRS = new Set([
  * - JSON con base64 (`{ filename, mime, data }`): se mantiene por compatibilidad con integraciones
  *   o borradores que todavía la usen.
  */
-productRoutes.post('/images', express.raw({ type: 'image/*', limit: '12mb' }), (req, res) => {
+productRoutes.post('/images', express.raw({ type: 'image/*', limit: '12mb' }), async (req, res) => {
   if (Buffer.isBuffer(req.body) && req.body.length) {
     const filenameHeader = req.headers['x-image-filename'];
     let filename;
@@ -67,7 +82,7 @@ productRoutes.post('/images', express.raw({ type: 'image/*', limit: '12mb' }), (
       filename = String(filenameHeader);
     }
     try {
-      const saved = saveImageBuffer({ filename, mime: req.headers['content-type'], buffer: req.body });
+      const saved = await saveImageBuffer({ filename, mime: req.headers['content-type'], buffer: req.body });
       return res.json(saved);
     } catch (e) {
       return res.status(e.statusCode || 500).json({ error: e.message });
@@ -76,7 +91,7 @@ productRoutes.post('/images', express.raw({ type: 'image/*', limit: '12mb' }), (
   const { filename, mime, data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'Falta el archivo (data base64)' });
   try {
-    const saved = saveImage({ filename, mime, data });
+    const saved = await saveImage({ filename, mime, data });
     res.json(saved);
   } catch (e) {
     res.status(e.statusCode || 500).json({ error: e.message });
@@ -84,8 +99,8 @@ productRoutes.post('/images', express.raw({ type: 'image/*', limit: '12mb' }), (
 });
 
 /** Sirve el binario de una imagen temporal (para la previsualización en el front). */
-productRoutes.get('/images/:id', (req, res) => {
-  const img = getImage(req.params.id);
+productRoutes.get('/images/:id', async (req, res) => {
+  const img = await getImage(req.params.id);
   if (!img) return res.status(404).end();
   res.setHeader('Content-Type', img.mime);
   res.setHeader('Cache-Control', 'private, max-age=3600');
@@ -97,12 +112,12 @@ productRoutes.get('/images/:id', (req, res) => {
  * Exige sesión (a diferencia del GET). La miniatura es solo para el preview del borrador: NUNCA
  * se publica en ML ni en TN — el fan-out usa `getImage()`, el original.
  */
-productRoutes.post('/images/:id/thumb', express.raw({ type: 'image/*', limit: '1mb' }), (req, res) => {
+productRoutes.post('/images/:id/thumb', express.raw({ type: 'image/*', limit: '1mb' }), async (req, res) => {
   if (!Buffer.isBuffer(req.body) || !req.body.length) {
     return res.status(400).json({ error: 'Falta la miniatura' });
   }
   try {
-    res.json(saveThumbBuffer(req.params.id, req.body));
+    res.json(await saveThumbBuffer(req.params.id, req.body));
   } catch (e) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }
@@ -113,15 +128,15 @@ productRoutes.post('/images/:id/thumb', express.raw({ type: 'image/*', limit: '1
  * guardados antes de que existieran), cae al ORIGINAL: así no hay regresión, solo deja de haber
  * mejora para esos casos.
  */
-productRoutes.get('/images/:id/thumb', (req, res) => {
-  const thumb = getThumb(req.params.id);
+productRoutes.get('/images/:id/thumb', async (req, res) => {
+  const thumb = await getThumb(req.params.id);
   if (thumb) {
     res.setHeader('Content-Type', thumb.mime);
     // El contenido de un id nunca cambia, así que se puede cachear agresivo.
     res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
     return res.send(thumb.buffer);
   }
-  const img = getImage(req.params.id);
+  const img = await getImage(req.params.id);
   if (!img) return res.status(404).end();
   res.setHeader('Content-Type', img.mime);
   res.setHeader('Cache-Control', 'private, max-age=3600');
@@ -130,8 +145,8 @@ productRoutes.get('/images/:id/thumb', (req, res) => {
 });
 
 /** Descarta una imagen temporal (si el usuario la saca antes de publicar). */
-productRoutes.delete('/images/:id', (req, res) => {
-  removeImage(req.params.id);
+productRoutes.delete('/images/:id', async (req, res) => {
+  await removeImage(req.params.id);
   res.json({ ok: true });
 });
 
@@ -152,6 +167,144 @@ productRoutes.post('/', async (req, res) => {
     const channels = Array.isArray(payload.channels) ? payload.channels : undefined;
     const out = await publishProduct(payload, { mlToken, tnToken, storeId, channels });
     res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ============================ Borradores + publicación en background ============================
+ * `POST /` (arriba) sigue disponible mientras dura la migración del front al flujo asíncrono, y se
+ * retira cuando deje de usarse. El nuevo camino es: guardar el borrador acá (para conservar el
+ * historial y poder retomarlo desde cualquier navegador), encolar la publicación como un job, y
+ * consultar el progreso con polling — ver el plan en CLAUDE.md / docs/plans.
+ */
+
+/** Ids de imagen (32 hex) referenciados en un draft_json — para borrarlas del store al borrar el borrador. */
+function extractImageIds(draftJson) {
+  const ids = new Set();
+  for (const m of String(draftJson || '').matchAll(/"([a-f0-9]{32})"/g)) ids.add(m[1]);
+  return ids;
+}
+
+/** Lista de borradores para el panel "Mis borradores" (sin el draft completo — pesado para una lista). */
+productRoutes.get('/drafts', async (_req, res) => {
+  try {
+    res.json(await listProductDrafts());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Crea un borrador nuevo. Body: { name?, sku?, draft }. */
+productRoutes.post('/drafts', async (req, res) => {
+  const { name, sku, draft } = req.body || {};
+  if (!draft) return res.status(400).json({ error: 'Falta "draft"' });
+  const id = crypto.randomBytes(12).toString('hex');
+  try {
+    const created = await createProductDraft({ id, name, sku, draftJson: JSON.stringify(draft) });
+    if (!created) return res.status(500).json({ error: 'No se pudo guardar el borrador' });
+    res.status(201).json({ id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Un borrador con su historial de publicaciones (jobs), para reabrirlo y ver qué pasó. */
+productRoutes.get('/drafts/:id', async (req, res) => {
+  try {
+    const draft = await getProductDraft(req.params.id);
+    if (!draft) return res.status(404).json({ error: 'Borrador no encontrado' });
+    const jobs = await listPublishJobsForDraft(req.params.id);
+    res.json({ ...draft, jobs });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Guarda cambios de un borrador (autosave). Body: { name?, sku?, draft }. */
+productRoutes.put('/drafts/:id', async (req, res) => {
+  const { name, sku, draft } = req.body || {};
+  if (!draft) return res.status(400).json({ error: 'Falta "draft"' });
+  try {
+    const ok = await updateProductDraft(req.params.id, { name, sku, draftJson: JSON.stringify(draft) });
+    if (!ok) return res.status(404).json({ error: 'Borrador no encontrado' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Borra un borrador (en cascada, sus jobs/unidades) y las imágenes que tenía en el store. */
+productRoutes.delete('/drafts/:id', async (req, res) => {
+  try {
+    const draft = await getProductDraft(req.params.id);
+    const ok = await deleteProductDraft(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Borrador no encontrado' });
+    if (draft) {
+      for (const imageId of extractImageIds(draft.draftJson)) {
+        await removeImage(imageId).catch(() => {});
+      }
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Encola la publicación de un borrador (reemplaza el POST síncrono de arriba). Body: { payload,
+ * channels? } — `payload` es el mismo body que ya arma buildPayloads() en el front. El worker
+ * (services/publishWorker.js) lo procesa en background; el front hace polling de
+ * GET /jobs/:id hasta que termine.
+ */
+productRoutes.post('/drafts/:id/publish', async (req, res) => {
+  const { payload, channels } = req.body || {};
+  if (!payload || !payload.ml || !payload.tn) {
+    return res.status(400).json({ error: 'Payload inválido: faltan ml/tn' });
+  }
+  const draft = await getProductDraft(req.params.id);
+  if (!draft) return res.status(404).json({ error: 'Borrador no encontrado' });
+  const jobId = crypto.randomBytes(12).toString('hex');
+  const channelsStr = Array.isArray(channels) && channels.length ? channels.join(',') : 'ml,tn';
+  try {
+    const created = await createPublishJob({ id: jobId, draftId: req.params.id, channels: channelsStr, payloadJson: JSON.stringify(payload) });
+    if (!created) return res.status(500).json({ error: 'No se pudo encolar la publicación' });
+    await setProductDraftStatus(req.params.id, 'publishing');
+    res.status(202).json({ jobId });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Progreso de un job: su estado + el detalle de cada unidad publicada. Para polling desde el front. */
+productRoutes.get('/jobs/:id', async (req, res) => {
+  try {
+    const job = await getPublishJob(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job no encontrado' });
+    const units = await getPublishUnits(req.params.id);
+    res.json({ job, units });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Reintenta un job (solo si quedó 'error', o 'processing' con lock vencido). No duplica lo ya creado. */
+productRoutes.post('/jobs/:id/retry', async (req, res) => {
+  try {
+    const ok = await retryPublishJob(req.params.id);
+    if (!ok) return res.status(409).json({ error: 'El job no está en un estado reintentable' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Borra una entrada del historial de publicación (ej. "ya está todo bien, no lo quiero ver más"). */
+productRoutes.delete('/jobs/:id', async (req, res) => {
+  try {
+    const ok = await deletePublishJob(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Job no encontrado' });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -273,8 +426,11 @@ productRoutes.get('/categories/mercadolibre/:id', async (req, res) => {
 
 /**
  * Atributos de una categoría de ML. Se filtran/normalizan para el front:
- * { id, name, valueType, required, values: [{ id, name }] }. `required` combina
- * los tags `required` y `new_required` (obligatorio para publicar un ítem nuevo).
+ * { id, name, valueType, required, allowVariations, values: [{ id, name }] }. `required` combina
+ * los tags `required` y `new_required` (obligatorio para publicar un ítem nuevo). `allowVariations`
+ * marca los candidatos a EJE de variante (COLOR, SIZE…) — antes se descartaban acá directamente,
+ * pero el front los necesita para el selector "qué atributo de ML es este eje" (ver variants-
+ * section: sin esto, ML no agrupa bien la familia de variaciones de un producto, ver CLAUDE.md).
  */
 productRoutes.get('/categories/mercadolibre/:id/attributes', async (req, res) => {
   const accessToken = await getMlToken();
@@ -285,9 +441,9 @@ productRoutes.get('/categories/mercadolibre/:id/attributes', async (req, res) =>
     const normalized = (attrs || [])
       .filter((a) => {
         const t = a.tags || {};
-        // Ocultamos los internos/no editables.
-        // `allow_variations` va en las variaciones, no como atributo del ítem (evita conflictos).
-        if (t.hidden || t.read_only || t.fixed || t.allow_variations) return false;
+        // Ocultamos los internos/no editables (allow_variations YA NO se excluye acá: se ofrece
+        // como candidato a eje en vez de como atributo general).
+        if (t.hidden || t.read_only || t.fixed) return false;
         if (ML_AUTO_FILLED_ATTRS.has(String(a.id || ''))) return false;
         // Paquete (lo arma el backend desde peso/medidas) e impuestos (los completa ML).
         const id = String(a.id || '');
@@ -299,6 +455,7 @@ productRoutes.get('/categories/mercadolibre/:id/attributes', async (req, res) =>
         name: a.name,
         valueType: a.value_type || 'string',
         required: !!(a.tags?.required || a.tags?.new_required),
+        allowVariations: !!a.tags?.allow_variations,
         relevance: Number.isFinite(a.relevance) ? a.relevance : 99,
         allowedValues: Array.isArray(a.values) ? a.values.map((v) => ({ id: v.id, name: v.name })) : [],
         allowedUnits: a.allowed_units ? a.allowed_units.map((u) => u.name || u.id) : undefined,

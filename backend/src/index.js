@@ -1,9 +1,10 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { initDb } from './db.js';
+import { initDb, getAllDraftJsonBlobs } from './db.js';
 import { tokens, getMlToken, loadTokens } from './store.js';
 import { startMlTaskWorker } from './lib/mlTaskQueue.js';
+import { startPublishWorker } from './services/publishWorker.js';
 
 // Evitar que un rechazo no manejado o excepción no capturada tiren el proceso (Railway no reinicia por "segundo sync").
 process.on('unhandledRejection', (reason, promise) => {
@@ -132,18 +133,38 @@ function scheduleSalesSweep() {
 /**
  * Limpieza del store temporal de imágenes de crear-producto. `purgeOld()` existía desde siempre
  * pero no se llamaba desde ningún lado, así que data/tmp-images/ crecía sin límite.
+ *
+ * Con los borradores ya en el backend (product_drafts), el TTL de 72 h por sí solo no alcanza:
+ * una imagen puede seguir vigente en un borrador que la usuaria dejó guardado varios días. Por
+ * eso `purgeOld` recibe `isReferenced(id)` y solo borra lo vencido que además no aparezca en
+ * ningún `draft_json` — se arma un Set con TODOS los ids de imagen de TODOS los borradores una
+ * sola vez por corrida (barato: buscar 32 hex como substring, no hace falta parsear la estructura).
+ * Solo mira `product_drafts`, no los `payload_json` de jobs ya terminados: esas fotos ya se
+ * mandaron a ML/TN (que quedan con su propia copia), así que no hace falta seguir reteniéndolas.
  */
 const TMP_IMAGES_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const IMAGE_ID_RE = /"([a-f0-9]{32})"/g;
+
+async function collectReferencedImageIds() {
+  const blobs = await getAllDraftJsonBlobs();
+  const ids = new Set();
+  for (const blob of blobs) {
+    for (const m of blob.matchAll(IMAGE_ID_RE)) ids.add(m[1]);
+  }
+  return ids;
+}
+
 function scheduleTmpImagesPurge() {
-  const run = () => {
+  const run = async () => {
     try {
-      const removed = purgeOld();
+      const referencedIds = await collectReferencedImageIds();
+      const removed = await purgeOld(async (id) => referencedIds.has(id));
       if (removed) console.log(`[Imágenes] ${removed} imágenes temporales purgadas.`);
     } catch (e) {
       console.error('[Imágenes] purgeOld:', e.message);
     }
   };
-  run();
+  void run();
   setInterval(run, TMP_IMAGES_PURGE_INTERVAL_MS);
 }
 
@@ -152,6 +173,7 @@ function scheduleTmpImagesPurge() {
   if (ok) {
     console.log('Base de datos (sync/audit) conectada.');
     startMlTaskWorker();
+    startPublishWorker();
   } else if (process.env.DATABASE_URL) {
     console.warn('No se pudo conectar a la base de datos. Revisá DATABASE_URL.');
   }

@@ -12,6 +12,12 @@
           <span class="draft-name">{{ d.label }}</span>
           <span class="hint">Guardado {{ d.savedAt | date: 'short' }}</span>
         </div>
+        @switch (d.status) {
+          @case ('published') { <span class="zc-badge ok"><i class="ti ti-check"></i> publicado</span> }
+          @case ('partial') { <span class="zc-badge warn"><i class="ti ti-alert-triangle"></i> parcial</span> }
+          @case ('error') { <span class="zc-badge err"><i class="ti ti-alert-circle"></i> con errores</span> }
+          @case ('publishing') { <span class="zc-badge busy"><i class="ti ti-loader"></i> publicando…</span> }
+        }
         @if (d.id === store.currentDraftId()) {
           <span class="zc-badge ok">editando</span>
         } @else {

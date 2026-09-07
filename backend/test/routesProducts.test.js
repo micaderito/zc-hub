@@ -34,6 +34,7 @@ before(async () => {
         return { ok: true, size: buffer.length };
       },
       getImage: (id) => store.images.get(id) ?? null,
+      getImageUrl: async () => null, // sin Supabase en este mock: productPublish.js cae al camino de subida
       getThumb: (id) => store.thumbs.get(id) ?? null,
       removeImage: (id) => { store.images.delete(id); store.thumbs.delete(id); },
     },
@@ -52,7 +53,14 @@ before(async () => {
     exports: { tokens: { mercadolibre: { access_token: 'ml' } }, getMlToken: async () => 'ml' },
   });
   mock.module('../src/lib/mercadolibre.js', {
-    exports: { getCategory: async () => store.categoryDetail },
+    exports: {
+      getCategory: async () => store.categoryDetail,
+      getCategoryAttributes: async () => store.categoryAttrs,
+      // getMe: lo usa lib/mlUserProducts.js (import nombrado, resuelto al cargar el módulo) desde
+      // services/productPublish.js, que routes/products.js importa — no hace falta que las
+      // rutas testeadas acá lo llamen, pero el mock tiene que darlo para que el módulo cargue.
+      getMe: async () => ({ tags: [] }),
+    },
   });
 
   const { productRoutes } = await import('../src/routes/products.js');
@@ -149,4 +157,28 @@ test('un límite válido de ML se respeta tal cual', async () => {
   const body = await res.json();
   assert.equal(body.max_pictures, 8);
   assert.equal(body.max_pictures_per_var, 6);
+});
+
+test('GET /categories/mercadolibre/:id/attributes: expone allow_variations como allowVariations en vez de ocultarlo', async () => {
+  // Antes se descartaba COLOR por `allow_variations` (era candidato a variación, no a atributo
+  // general); ahora se devuelve igual, marcado, para que el front pueda ofrecerlo como eje.
+  store.categoryAttrs = [
+    { id: 'BRAND', name: 'Marca', value_type: 'string', tags: { required: true }, values: [] },
+    { id: 'COLOR', name: 'Color', value_type: 'list', tags: { allow_variations: true }, values: [{ id: '1', name: 'Negro' }] },
+    { id: 'INTERNAL', name: 'Interno', value_type: 'string', tags: { hidden: true }, values: [] },
+    { id: 'FIXED_ATTR', name: 'Fijo', value_type: 'string', tags: { fixed: true }, values: [] }
+  ];
+  const res = await fetch(`${baseUrl}/categories/mercadolibre/MLA1/attributes`, {
+    headers: { Authorization: 'Bearer ok' }
+  });
+  const body = await res.json();
+  const ids = body.map((a) => a.id);
+  assert.ok(ids.includes('COLOR')); // ya no se excluye
+  assert.ok(!ids.includes('INTERNAL')); // hidden sigue afuera
+  assert.ok(!ids.includes('FIXED_ATTR')); // fixed sigue afuera
+  const color = body.find((a) => a.id === 'COLOR');
+  assert.equal(color.allowVariations, true);
+  assert.deepEqual(color.allowedValues, [{ id: '1', name: 'Negro' }]);
+  const brand = body.find((a) => a.id === 'BRAND');
+  assert.equal(brand.allowVariations, false);
 });
