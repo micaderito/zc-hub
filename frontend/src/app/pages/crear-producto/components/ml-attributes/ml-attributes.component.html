@@ -36,7 +36,7 @@
   <div class="attr-row">
     <span class="attr-name">
       {{ attr.name || attr.id }}
-      @if (attr.required) { <span class="req">*</span> }
+      @if (store.attrIsRequired(attr)) { <span class="req">*</span> }
     </span>
     @if (attr.inherited) {
       <span class="attr-val">{{ attr.value }} <span class="tag tag-com"><i class="ti ti-link"></i></span></span>

@@ -130,6 +130,26 @@ function gtinAttr(barcode) {
 }
 
 /**
+ * Red de seguridad para el par `SALE_FORMAT` ("Formato de venta": Unidad / Pack) ↔ `UNITS_PER_PACK`
+ * ("Unidades por pack"): ML marca `UNITS_PER_PACK` como `conditional_required` y rechaza el
+ * `POST /items` apenas se manda `SALE_FORMAT` sin la cantidad ("Completá este campo porque
+ * completaste 'Unidad'…"). El predictor de categoría suele pre-inferir `SALE_FORMAT`, así que el
+ * caso es frecuente. Si viene el formato y no la cantidad, la completamos en 1 — es lo correcto
+ * para "Unidad" y para esta app, que publica productos por unidad (cada variante es un SKU). El
+ * front además ahora pide `UNITS_PER_PACK` en cuanto `SALE_FORMAT` tiene valor (ver
+ * product-draft.model: CONDITIONAL_REQUIRED_TRIGGERS), así que en un "Pack" real el usuario ya
+ * mandó la cantidad y esto no la pisa.
+ */
+function withUnitsPerPack(attributes) {
+  const attrs = attributes || [];
+  const has = (id) => attrs.some((a) => a.id === id && (a.value_id || a.value_name));
+  if (has('SALE_FORMAT') && !has('UNITS_PER_PACK')) {
+    return [...attrs, { id: 'UNITS_PER_PACK', value_name: '1' }];
+  }
+  return attrs;
+}
+
+/**
  * Construye la(s) publicación(es) de ML según el modo de mapeo y el modelo de la cuenta.
  * `picMap` mapea id temporal → ref de imagen ya resuelta (`{id}` o `{source}`, ver toMlPictures).
  * `opts.userProducts`: true si la cuenta ya está en el modelo User Products (ver lib/mlUserProducts.js).
@@ -137,6 +157,8 @@ function gtinAttr(barcode) {
 export function buildMlItems(payload, picMap = new Map(), opts = {}) {
   const userProducts = !!opts.userProducts;
   const { ml: m, axes, variants, common } = payload;
+  // Atributos de la categoría con la red de seguridad de UNITS_PER_PACK aplicada una sola vez.
+  const mAttrs = withUnitsPerPack(m.attributes);
   const galleryPics = toMlPictures(m.image_ids, picMap);
   // Peso/dimensiones del paquete (ME2) van como atributos del ítem.
   const pkgAttrs = packageAttributes(common);
@@ -165,7 +187,7 @@ export function buildMlItems(payload, picMap = new Map(), opts = {}) {
         ...nameField(m.title),
         price: m.base_price,
         available_quantity: m.base_stock,
-        attributes: [...(m.attributes || []), ...pkgAttrs, ...gtinAttr(common?.barcode)]
+        attributes: [...mAttrs, ...pkgAttrs, ...gtinAttr(common?.barcode)]
       }
     ];
   }
@@ -182,7 +204,7 @@ export function buildMlItems(payload, picMap = new Map(), opts = {}) {
         price: v.ml?.price,
         available_quantity: v.ml?.stock,
         attributes: [
-          ...categoryAttrs(m.attributes, axes),
+          ...categoryAttrs(mAttrs, axes),
           ...pkgAttrs,
           { id: 'SELLER_SKU', value_name: v.sku },
           ...axisAttributes(axes, v.values),
@@ -200,7 +222,7 @@ export function buildMlItems(payload, picMap = new Map(), opts = {}) {
       {
         ...base,
         title: m.title,
-        attributes: [...categoryAttrs(m.attributes, axes), ...pkgAttrs],
+        attributes: [...categoryAttrs(mAttrs, axes), ...pkgAttrs],
         variations: variants.map((v) => {
           // `picture_ids` de una variación LEGACY solo acepta ids ya subidos al pool del ítem
           // (no `{source}`: la variación no puede referenciar una URL suelta) — si la imagen se
@@ -229,7 +251,7 @@ export function buildMlItems(payload, picMap = new Map(), opts = {}) {
       price: v.ml?.price,
       available_quantity: v.ml?.stock,
       attributes: [
-        ...categoryAttrs(m.attributes, axes),
+        ...categoryAttrs(mAttrs, axes),
         ...pkgAttrs,
         { id: 'SELLER_SKU', value_name: v.sku },
         ...axisAttributes(axes, v.values),

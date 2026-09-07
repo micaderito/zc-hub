@@ -182,3 +182,19 @@ test('GET /categories/mercadolibre/:id/attributes: expone allow_variations como 
   const brand = body.find((a) => a.id === 'BRAND');
   assert.equal(brand.allowVariations, false);
 });
+
+test('GET /categories/mercadolibre/:id/attributes: expone conditional_required como conditionalRequired', async () => {
+  store.categoryAttrs = [
+    { id: 'SALE_FORMAT', name: 'Formato de venta', value_type: 'list', tags: {}, values: [{ id: '1359391', name: 'Unidad' }] },
+    { id: 'UNITS_PER_PACK', name: 'Unidades por pack', value_type: 'number', tags: { unit_yield: true, conditional_required: true }, values: [] }
+  ];
+  const res = await fetch(`${baseUrl}/categories/mercadolibre/MLA1/attributes`, {
+    headers: { Authorization: 'Bearer ok' }
+  });
+  const body = await res.json();
+  const ups = body.find((a) => a.id === 'UNITS_PER_PACK');
+  assert.equal(ups.conditionalRequired, true);
+  assert.equal(ups.required, false); // no es required "a secas"
+  const sf = body.find((a) => a.id === 'SALE_FORMAT');
+  assert.equal(sf.conditionalRequired, false);
+});

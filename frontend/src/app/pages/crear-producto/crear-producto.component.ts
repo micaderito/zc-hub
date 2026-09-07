@@ -412,6 +412,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           value: pred?.value_name ?? (isBrand ? brand : ''),
           valueId: pred?.value_id,
           required: a.required,
+          conditionalRequired: a.conditionalRequired,
           inherited: isBrand,
           valueType: a.valueType,
           allowedValues: a.allowedValues,
@@ -424,6 +425,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       // el mismo atributo (ej. COLOR) dos veces al publicar.
       this.draft().ml.attributes = mapped.filter((a) => !a.allowVariations);
       this.store.mlVariationAttrs.set(mapped.filter((a) => a.allowVariations));
+      // Si el predictor ya dejó SALE_FORMAT con valor, UNITS_PER_PACK queda obligatorio → precarga 1.
+      this.store.prefillConditionalRequired();
       this.store.touch();
     } catch (e) {
       this.mlAttrsError.set(this.errMsg(e));
@@ -446,6 +449,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           name: a.name,
           value: '',
           required: a.required,
+          conditionalRequired: a.conditionalRequired,
           inherited: false,
           valueType: a.valueType,
           allowedValues: a.allowedValues,

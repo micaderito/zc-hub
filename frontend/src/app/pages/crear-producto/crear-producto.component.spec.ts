@@ -1108,6 +1108,53 @@ describe('CrearProductoComponent', () => {
       expect(component.store.mlVariationAttrs().map((a) => a.id)).toEqual(['COLOR']);
     }));
 
+    it('UNITS_PER_PACK (conditional_required): sube a obligatorios y se precarga en 1 cuando SALE_FORMAT ya tiene valor', fakeAsync(() => {
+      catalog.mlAttributes = [
+        {
+          id: 'SALE_FORMAT',
+          name: 'Formato de venta',
+          valueType: 'list',
+          required: false,
+          allowedValues: [
+            { id: '1359391', name: 'Unidad' },
+            { id: '1359392', name: 'Pack' }
+          ]
+        },
+        { id: 'UNITS_PER_PACK', name: 'Unidades por pack', valueType: 'number', required: false, conditionalRequired: true, allowedValues: [] }
+      ];
+      // el predictor ya infirió SALE_FORMAT = Unidad
+      void component.loadMlAttributes('MLA388307', [
+        { id: 'SALE_FORMAT', name: 'Formato de venta', value_id: '1359391', value_name: 'Unidad' }
+      ]);
+      flushMicrotasks();
+
+      const ups = component.draft().ml.attributes.find((a) => a.id === 'UNITS_PER_PACK')!;
+      expect(ups.value).toBe('1');
+      expect(component.store.attrIsRequired(ups)).toBeTrue();
+      expect(component.mlRequiredAttrs().map((a) => a.id)).toContain('UNITS_PER_PACK');
+    }));
+
+    it('UNITS_PER_PACK sigue opcional mientras SALE_FORMAT esté vacío', fakeAsync(() => {
+      catalog.mlAttributes = [
+        { id: 'SALE_FORMAT', name: 'Formato de venta', valueType: 'list', required: false, allowedValues: [{ id: '1359391', name: 'Unidad' }] },
+        { id: 'UNITS_PER_PACK', name: 'Unidades por pack', valueType: 'number', required: false, conditionalRequired: true, allowedValues: [] }
+      ];
+      void component.loadMlAttributes('MLA388307');
+      flushMicrotasks();
+
+      const ups = component.draft().ml.attributes.find((a) => a.id === 'UNITS_PER_PACK')!;
+      expect(ups.value).toBe('');
+      expect(component.store.attrIsRequired(ups)).toBeFalse();
+      expect(component.mlOptionalAttrs().map((a) => a.id)).toContain('UNITS_PER_PACK');
+
+      // al elegir SALE_FORMAT, UNITS_PER_PACK pasa a obligatorio y se precarga
+      const sf = component.draft().ml.attributes.find((a) => a.id === 'SALE_FORMAT')!;
+      component.store.setMlAttributeValue(sf, '1359391');
+      expect(ups.value).toBe('1');
+      expect(component.mlRequiredAttrs().map((a) => a.id)).toContain('UNITS_PER_PACK');
+      tick(1600); // autosave que disparó setMlAttributeValue -> touch()
+    }));
+
     it('selector de eje: elegir un atributo real de ML guarda mlAttributeId y sus allowedValues en el eje', fakeAsync(() => {
       catalog.mlAttributes = [
         { id: 'COLOR', name: 'Color', valueType: 'list', required: false, allowVariations: true, allowedValues: [{ id: '1', name: 'Negro' }] }

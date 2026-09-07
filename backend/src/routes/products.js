@@ -426,11 +426,15 @@ productRoutes.get('/categories/mercadolibre/:id', async (req, res) => {
 
 /**
  * Atributos de una categoría de ML. Se filtran/normalizan para el front:
- * { id, name, valueType, required, allowVariations, values: [{ id, name }] }. `required` combina
- * los tags `required` y `new_required` (obligatorio para publicar un ítem nuevo). `allowVariations`
- * marca los candidatos a EJE de variante (COLOR, SIZE…) — antes se descartaban acá directamente,
- * pero el front los necesita para el selector "qué atributo de ML es este eje" (ver variants-
- * section: sin esto, ML no agrupa bien la familia de variaciones de un producto, ver CLAUDE.md).
+ * { id, name, valueType, required, conditionalRequired, allowVariations, values: [{ id, name }] }.
+ * `required` combina los tags `required` y `new_required` (obligatorio para publicar un ítem nuevo).
+ * `conditionalRequired` (tag `conditional_required`) es obligatorio SOLO si otro atributo está
+ * completo — el caso típico es `UNITS_PER_PACK`, que ML exige apenas se manda `SALE_FORMAT`
+ * ("Formato de venta": Unidad/Pack). El front lo trata como obligatorio si su disparador tiene
+ * valor (ver product-draft.model: CONDITIONAL_REQUIRED_TRIGGERS). `allowVariations` marca los
+ * candidatos a EJE de variante (COLOR, SIZE…) — antes se descartaban acá directamente, pero el
+ * front los necesita para el selector "qué atributo de ML es este eje" (ver variants-section: sin
+ * esto, ML no agrupa bien la familia de variaciones de un producto, ver CLAUDE.md).
  */
 productRoutes.get('/categories/mercadolibre/:id/attributes', async (req, res) => {
   const accessToken = await getMlToken();
@@ -455,6 +459,7 @@ productRoutes.get('/categories/mercadolibre/:id/attributes', async (req, res) =>
         name: a.name,
         valueType: a.value_type || 'string',
         required: !!(a.tags?.required || a.tags?.new_required),
+        conditionalRequired: !!a.tags?.conditional_required,
         allowVariations: !!a.tags?.allow_variations,
         relevance: Number.isFinite(a.relevance) ? a.relevance : 99,
         allowedValues: Array.isArray(a.values) ? a.values.map((v) => ({ id: v.id, name: v.name })) : [],

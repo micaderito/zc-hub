@@ -441,6 +441,25 @@ sin acentos/mayúsculas), si no `value_name`; sin mapeo, atributo personalizado 
 sin `id` de categoría, que ML también acepta). `categoryAttrs()` excluye el atributo ya usado como
 eje de la lista general, para no mandarlo dos veces.
 
+**Atributos `conditional_required` (par `SALE_FORMAT` ↔ `UNITS_PER_PACK`).** Incidente 2026-09-07:
+publicar en categorías de librería (cuadernos, agendas) fallaba con *"Attribute [UNITS_PER_PACK] to
+be added…; 'Unidades por pack': Completá este campo porque completaste 'Unidad'"*. Causa: el
+predictor de categoría pre-infiere `SALE_FORMAT` ("Formato de venta": Unidad/Pack), y ML marca
+`UNITS_PER_PACK` con el tag `conditional_required` — obligatorio SOLO cuando `SALE_FORMAT` tiene
+valor, cosa que la ruta de atributos ignoraba (`required` solo miraba `required`/`new_required`), así
+que `UNITS_PER_PACK` caía en la sección "opcionales" plegada y nunca se completaba. ML no publica la
+condición en el payload (solo el tag), así que el par conocido va hardcodeado en
+`CONDITIONAL_REQUIRED_TRIGGERS` (`product-draft.model.ts`). Tres piezas:
+- **Ruta** `GET /categories/mercadolibre/:id/attributes`: expone `conditionalRequired` (tag
+  `conditional_required`), aparte de `required`.
+- **Front**: `store.attrIsRequired(attr)` = `required || (conditionalRequired && su disparador tiene
+  valor)` — sube el atributo a la sección de obligatorios y le pone el asterisco.
+  `prefillConditionalRequired()` precarga `UNITS_PER_PACK` en `1` (lo llama `setMlAttributeValue` y
+  la carga inicial de atributos) — correcto para "Unidad" y para esta app (se publica por unidad).
+- **Backend, red de seguridad**: `withUnitsPerPack()` en `productPublish.js` — si el body lleva
+  `SALE_FORMAT` sin `UNITS_PER_PACK`, agrega `UNITS_PER_PACK=1` (no pisa el valor si el usuario ya
+  lo mandó). Garantiza que un borrador viejo, previo al fix del front, también publique.
+
 **Otros tres bugs del mismo reporte, sin relación con User Products:**
 
 - **Descripción de TN corrida**: TN renderiza `description` como HTML, y se le mandaba texto plano
@@ -608,7 +627,9 @@ El modelo User Products de ML, la publicación en background y las fotos por Sup
 cubiertos en `backend/test/productPublish.test.js` (family_name vs. title, misma familia en
 `single_with_variants`, familia propia por variante en `one_per_variant`, `axisAttributes` con y
 sin `mlAttributeId`, matcheo de `value_id` ignorando acentos/mayúsculas, `attributes`/`mpn`/
-`age_group`/`gender` de TN, la descripción como objeto por idioma), `backend/test/richText.test.js`
+`age_group`/`gender` de TN, la descripción como objeto por idioma, y `withUnitsPerPack`:
+`SALE_FORMAT` sin `UNITS_PER_PACK` → agrega `=1`, no lo pisa si ya vino, no lo inventa sin
+`SALE_FORMAT`, aplica a cada ítem de una familia `one_per_variant`), `backend/test/richText.test.js`
 (texto plano → HTML, HTML existente intacto), `backend/test/mlUserProducts.test.js` (detección del
 tag + caché), `backend/test/productPublishTnEmbed.test.js` (imágenes embebidas por URL, portada =
 orden de la variante y no de la galería), `backend/test/imageStore.test.js` +
@@ -620,9 +641,11 @@ planificado), `backend/test/db.test.js` (lock vencido de `product_publish_jobs` 
 `recomputeDraftStatus` con reintento de un solo canal) y `backend/test/routesProductsDrafts.test.js`
 (CRUD de borradores + jobs por HTTP, borrar un borrador limpia sus imágenes). El frontend lo cubre
 `crear-producto.component.spec.ts` (borradores en el backend en vez de `localStorage`, migración
-única, polling de `publish()` con progreso parcial, selector de eje, y el panel persistente:
+única, polling de `publish()` con progreso parcial, selector de eje, el panel persistente:
 reabrir un borrador reconstruye un job terminado sin republicar / retoma el polling de uno en
-curso / no muestra nada sin jobs previos, más `publishErrorSummary`) y `catalog.service.spec.ts`
-(los endpoints nuevos).
+curso / no muestra nada sin jobs previos, más `publishErrorSummary`, y `UNITS_PER_PACK`
+condicional: sube a obligatorios + se precarga en 1 cuando `SALE_FORMAT` tiene valor, sigue
+opcional si no) y `catalog.service.spec.ts` (los endpoints nuevos).
+`backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
 
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).
