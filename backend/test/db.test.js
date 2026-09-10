@@ -935,6 +935,30 @@ test('reconcileStalePublishJobs: cierra un job trabado con unidades terminales y
   assert.deepEqual(updates, [{ id: 'jA', status: 'done' }]);
 });
 
+test('reconcileStalePublishJobs: el SELECT también cierra por fan-out quieto, no solo por lock vencido', async () => {
+  // Regresión: antes exigía SOLO lock vencido, y el latido del worker lo renueva hasta 15 min. Un
+  // job al que solo le faltó el finishPublishJob final quedaba 5-20 min con el panel en
+  // "Publicando…" aunque las publicaciones ya estuvieran creadas. Como acá `pg` está mockeado (el
+  // SQL no se evalúa), lo que se verifica es que la condición y su parámetro viajen en la query.
+  let selectSql = null;
+  let selectParams = null;
+  state.responder = (sql, params) => {
+    if (/FROM product_publish_jobs j\s+WHERE j\.status IN \('pending', 'processing'\)/.test(sql)) {
+      selectSql = sql;
+      selectParams = params;
+      return { rows: [] };
+    }
+    return { rows: [], rowCount: 0 };
+  };
+  await db.reconcileStalePublishJobs();
+  assert.ok(selectSql, 'no se ejecutó el SELECT de jobs trabados');
+  assert.match(selectSql, /u\.updated_at > NOW\(\) - \(\$2::int \* INTERVAL '1 millisecond'\)/);
+  assert.deepEqual(selectParams, [db.PUBLISH_JOB_STALE_LOCK_MS, db.PUBLISH_JOB_SETTLE_MS]);
+  // Las dos guardas que hacen que esto sea seguro siguen ahí: tiene unidades y ninguna en 'pending'.
+  assert.match(selectSql, /AND EXISTS \(SELECT 1 FROM product_publish_units u WHERE u\.job_id = j\.id\)/);
+  assert.match(selectSql, /NOT EXISTS \(SELECT 1 FROM product_publish_units u WHERE u\.job_id = j\.id AND u\.status = 'pending'\)/);
+});
+
 test('isPublishJobCancelled: true si la fila existe con status cancelled', async () => {
   state.responder = (sql) => (sql.includes("status = 'cancelled'") ? { rows: [{ '?column?': 1 }] } : { rows: [] });
   assert.equal(await db.isPublishJobCancelled('j1'), true);

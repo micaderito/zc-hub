@@ -430,8 +430,10 @@ export class ProductDraftStore {
     if (!hasVariants && !d.common.sku.trim()) out.push('Falta el SKU');
 
     if (!d.ml.categoryId) out.push('Elegí una categoría de Mercado Libre');
+    // "Completo" = va a viajar algo usable (ver mlAttrPayload): un `valueId` que la categoría no
+    // reconoce no cuenta, porque al publicar se descarta.
     const missingAttrs = d.ml.attributes
-      .filter((a) => !this.attrUsedAsAxis(a.id) && this.attrIsRequired(a, d.ml.attributes) && !a.valueId && !a.value.trim())
+      .filter((a) => !this.attrUsedAsAxis(a.id) && this.attrIsRequired(a, d.ml.attributes) && !this.mlAttrPayload(a))
       .map((a) => a.name || a.id);
     if (missingAttrs.length) out.push(`Completá en Mercado Libre: ${missingAttrs.join(', ')}`);
 
@@ -466,6 +468,40 @@ export class ProductDraftStore {
     attr.value = opt?.name ?? '';
     this.prefillConditionalRequired();
     this.touch();
+  }
+
+  /**
+   * Valor tipeado a mano (atributos sin lista cerrada: `number`, `string`, `number_unit`). Limpia
+   * el `valueId` — si el atributo arrastraba uno (del predictor o de un borrador viejo), tipear
+   * encima tiene que reemplazarlo, no quedar tapado por un id que ML va a rechazar.
+   */
+  setMlAttributeFreeValue(attr: MlAttribute, value: string): void {
+    attr.value = value ?? '';
+    attr.valueId = undefined;
+    // A propósito NO llama a prefillConditionalRequired(): corre en cada tecla, y borrar
+    // "Unidades por pack" para escribir otro número lo repondría en 1 en el medio. Los
+    // disparadores conocidos (SALE_FORMAT y compañía) son listas, y esas sí pasan por
+    // setMlAttributeValue.
+    this.touch();
+  }
+
+  /**
+   * Qué se manda de un atributo al publicar, o `null` si no viaja nada. Única fuente de verdad:
+   * la usan `buildPayloads` y `publishBlockers`, así el botón "Publicar" y el payload no pueden
+   * discrepar sobre qué cuenta como "completo".
+   *
+   * El `value_id` SOLO vale si el atributo tiene una lista cerrada de valores y el id está en ella.
+   * El predictor de categorías siembra ids resueltos contra el catálogo del DOMINIO, y `POST /items`
+   * los valida contra el de la CATEGORÍA: un id que no está ahí (ej. `YEAR` "Año", que es `number`
+   * libre y no tiene lista) hace fallar la publicación con "El valor que ingresaste en X es
+   * incorrecto" — encima descartando el valor que la usuaria escribió.
+   */
+  mlAttrPayload(attr: MlAttribute): { id: string; value_id: string } | { id: string; value_name: string } | null {
+    if (attr.valueId && attr.allowedValues?.some((v) => v.id === attr.valueId)) {
+      return { id: attr.id, value_id: attr.valueId };
+    }
+    const text = attr.value?.trim();
+    return text ? { id: attr.id, value_name: text } : null;
   }
 
   /**

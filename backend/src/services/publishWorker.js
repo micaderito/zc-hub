@@ -35,8 +35,11 @@ const POLL_INTERVAL_MS = 500;
  * `processing` para siempre (ej. un request a ML/TN colgado — que igual ya tiene timeout de red).
  */
 const PUBLISH_JOB_MAX_RUNTIME_MS = 15 * 60 * 1000;
-/** Cada cuántos ticks se corre el barrido de jobs trabados (500ms * 120 = 1 min). */
-const STALE_SWEEP_EVERY_TICKS = 120;
+/** Cada cuántos ticks se corre el barrido de jobs trabados (500ms * 20 = 10 s). */
+const STALE_SWEEP_EVERY_TICKS = 20;
+/** Reintentos del `finishPublishJob` final: sin esto, un hipo de la base deja el job abierto. */
+const FINISH_RETRIES = 2;
+const FINISH_RETRY_DELAY_MS = 1000;
 let workerTimer = null;
 let tickCount = 0;
 
@@ -116,6 +119,24 @@ async function runTnChannel(job, payload, doneKeys) {
   return runChannel('tn', job, payload, units, doneKeys, (unit) => publishTnUnit(tnToken, storeId, unit));
 }
 
+/**
+ * Cierra el job reintentando si el UPDATE no tocó ninguna fila. Ese `false` es ESPERADO cuando la
+ * usuaria canceló (`finishPublishJob` no revive un job `cancelled`) — ahí no se reintenta. En
+ * cualquier otro caso significa que la escritura falló, y sin reintento el job se quedaba en
+ * `processing` con todas sus unidades ya publicadas: el panel girando hasta que venciera el lock.
+ */
+async function finishWithRetry(jobId, status, errorMsg) {
+  for (let attempt = 0; attempt <= FINISH_RETRIES; attempt++) {
+    if (await finishPublishJob(jobId, status, errorMsg)) return true;
+    if (await isPublishJobCancelled(jobId)) return false; // cancelado: no hay nada que cerrar
+    if (attempt < FINISH_RETRIES) {
+      console.warn(`[PublishQueue] finishPublishJob ${jobId} no actualizó nada — reintento ${attempt + 1}/${FINISH_RETRIES}.`);
+      await new Promise((r) => setTimeout(r, FINISH_RETRY_DELAY_MS));
+    }
+  }
+  return false;
+}
+
 /** Procesa un job completo: ambos canales en paralelo (igual que publishProduct), con latido. */
 export async function processJob(job) {
   const startedAt = Date.now();
@@ -148,7 +169,7 @@ export async function processJob(job) {
       .map((r) => `${r.channel}: ${r.detail}`)
       .join(' · ');
     const finalStatus = allOk ? 'done' : 'error';
-    const finished = await finishPublishJob(job.id, finalStatus, allOk ? null : errorSummary);
+    const finished = await finishWithRetry(job.id, finalStatus, allOk ? null : errorSummary);
     console.log(
       `[PublishQueue] Job ${job.id} → ${finalStatus} en ${Math.round((Date.now() - startedAt) / 1000)}s ` +
         `(${attempted.map((r) => `${r.channel}:${r.status}`).join(' ')})${finished ? '' : ' — ⚠️ finishPublishJob no actualizó la fila'}`
@@ -156,7 +177,7 @@ export async function processJob(job) {
     await recomputeDraftStatus(job.draftId);
   } catch (e) {
     console.error(`[PublishQueue] Job ${job.id} falló inesperadamente:`, e.message);
-    await finishPublishJob(job.id, 'error', e.message);
+    await finishWithRetry(job.id, 'error', e.message);
     await recomputeDraftStatus(job.draftId).catch(() => {});
   } finally {
     clearInterval(heartbeat);
@@ -167,18 +188,19 @@ export async function tick() {
   try {
     const job = await claimNextPublishJob();
     if (job) await processJob(job);
-    // Red de seguridad periódica: cierra jobs cuyas unidades ya están todas en estado terminal pero
-    // el job quedó en processing (worker que se cortó justo en el finish), y saca de la cola los
-    // zombis (processing con attempts >= 5).
-    if (++tickCount % STALE_SWEEP_EVERY_TICKS === 0) {
-      const fixed = await reconcileStalePublishJobs().catch((e) => {
-        console.error('[PublishQueue] reconcileStalePublishJobs:', e.message);
-        return 0;
-      });
-      if (fixed) console.log(`[PublishQueue] Barrido de trabados: ${fixed} job(s) cerrados.`);
-    }
   } catch (e) {
     console.error('[PublishQueue] Error en tick:', e.message);
+  }
+  // Red de seguridad periódica: cierra jobs cuyas unidades ya están todas en estado terminal pero
+  // el job quedó en processing (worker que se cortó justo en el finish), y saca de la cola los
+  // zombis (processing con attempts >= 5). Va FUERA del try de arriba a propósito: si
+  // `claimNextPublishJob` tira, el barrido igual tiene que correr — es justo el que destraba.
+  if (++tickCount % STALE_SWEEP_EVERY_TICKS === 0) {
+    const fixed = await reconcileStalePublishJobs().catch((e) => {
+      console.error('[PublishQueue] reconcileStalePublishJobs:', e.message);
+      return 0;
+    });
+    if (fixed) console.log(`[PublishQueue] Barrido de trabados: ${fixed} job(s) cerrados.`);
   }
 }
 

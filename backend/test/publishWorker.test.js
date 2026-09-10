@@ -42,8 +42,10 @@ before(async () => {
         return true;
       },
       finishPublishJob: async (jobId, status, error) => {
+        dbState.finishCalls = (dbState.finishCalls || 0) + 1;
         dbState.finished = { jobId, status, error };
-        return true;
+        // `finishFailUntilCall: N` simula que el UPDATE no toca ninguna fila hasta la llamada N.
+        return dbState.finishFailUntilCall == null || dbState.finishCalls >= dbState.finishFailUntilCall;
       },
       seedPublishUnits: async (jobId, channel, unitKeys) => {
         dbState.seeded.push({ jobId, channel, unitKeys });
@@ -109,6 +111,8 @@ beforeEach(() => {
   dbState.cancelledAfter = null;
   dbState.cancelCheckCalls = 0;
   dbState.finished = null;
+  dbState.finishCalls = 0;
+  dbState.finishFailUntilCall = null;
   dbState.heartbeats = [];
   dbState.recomputed = null;
   dbState.hasDb = true;
@@ -284,4 +288,24 @@ test('startPublishWorker: sin base de datos, no arranca (no revienta)', () => {
   dbState.hasDb = false;
   publishWorker.startPublishWorker();
   publishWorker.stopPublishWorker();
+});
+
+test('processJob: si finishPublishJob no actualiza nada, reintenta hasta cerrar el job', async () => {
+  // El estado del job es UNA sola escritura al final. Si se pierde (hipo de la base), el job queda
+  // en `processing` con todas las unidades ya publicadas y el panel gira hasta que venza el lock.
+  dbState.claimedJob = null;
+  dbState.finishFailUntilCall = 2; // la primera devuelve false, la segunda cierra
+  await publishWorker.processJob(baseJob);
+  assert.equal(dbState.finishCalls, 2);
+  assert.deepEqual(dbState.finished, { jobId: 'j1', status: 'done', error: null });
+  assert.equal(dbState.recomputed, 'd1');
+});
+
+test('processJob: si el job está cancelado, el finish en false NO se reintenta', async () => {
+  // Ahí el false es correcto y esperado: finishPublishJob no revive un job cancelado.
+  dbState.claimedJob = null;
+  dbState.finishFailUntilCall = 99; // siempre false
+  dbState.cancelledAfter = 1; // isPublishJobCancelled true desde la primera consulta
+  await publishWorker.processJob(baseJob);
+  assert.equal(dbState.finishCalls, 1);
 });

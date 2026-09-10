@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed, fakeAsync, flush, flushMicrotasks, tick } from '@angular/core/testing';
+import { ComponentFixture, TestBed, discardPeriodicTasks, fakeAsync, flush, flushMicrotasks, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of } from 'rxjs';
@@ -1339,6 +1339,60 @@ describe('CrearProductoComponent', () => {
       expect(results.every((r) => r.status === 'ok')).toBeTrue();
     }));
 
+    it('si el job nunca cierra pero las unidades ya terminaron, cierra el panel con lo que dicen las unidades', fakeAsync(() => {
+      // El estado del job es una sola escritura al final del worker. Si se pierde, el panel quedaba
+      // en "Publicando…" con las publicaciones ya creadas y verdes, hasta cancelar a mano.
+      catalog.getPublishJob.and.callFake((jobId: string) =>
+        Promise.resolve({
+          job: { id: jobId, draftId: 'd', channels: 'ml,tn', status: 'processing', attempts: 1, lastError: null, createdAt: '', updatedAt: '', finishedAt: null },
+          units: [
+            { channel: 'ml', unitKey: '', seq: 0, status: 'ok', externalId: 'MLA1', detail: 'Publicación MLA1 creada', updatedAt: '' },
+            { channel: 'tn', unitKey: '', seq: 0, status: 'ok', externalId: '501', detail: 'Producto #501 creado', updatedAt: '' }
+          ]
+        })
+      );
+
+      component.publish();
+      flushMicrotasks();
+      expect(component.publishPhase()).toBe('running'); // recién arranca: todavía no se asentó
+
+      for (let i = 0; i < 20; i++) {
+        tick(1500);
+        flushMicrotasks();
+      }
+
+      expect(component.publishing()).toBeFalse();
+      expect(component.publishPhase()).toBe('done');
+      expect(component.publishResults()!.every((r) => r.status === 'ok')).toBeTrue();
+      discardPeriodicTasks();
+    }));
+
+    it('mientras alguna unidad siga pendiente NO cierra solo: sigue polleando', fakeAsync(() => {
+      catalog.getPublishJob.and.callFake((jobId: string) =>
+        Promise.resolve({
+          job: { id: jobId, draftId: 'd', channels: 'ml,tn', status: 'processing', attempts: 1, lastError: null, createdAt: '', updatedAt: '', finishedAt: null },
+          units: [
+            { channel: 'ml', unitKey: '', seq: 0, status: 'ok', externalId: 'MLA1', detail: 'ok', updatedAt: '' },
+            { channel: 'tn', unitKey: '', seq: 0, status: 'pending', externalId: null, detail: null, updatedAt: '' }
+          ]
+        })
+      );
+
+      component.publish();
+      flushMicrotasks();
+      for (let i = 0; i < 30; i++) {
+        tick(1500);
+        flushMicrotasks();
+      }
+
+      expect(component.publishing()).toBeTrue();
+      expect(component.publishPhase()).toBe('running');
+      component.publishCancelled.set(true); // corta el loop para terminar el test
+      tick(1500);
+      flushMicrotasks();
+      discardPeriodicTasks();
+    }));
+
     it('buildPayloads() manda base_price y el base_stock compartido a ambos canales, y published:true en TN', () => {
       component.draft().ml.basePrice = 3500;
       component.draft().common.baseStock = 10;
@@ -2218,6 +2272,50 @@ describe('CrearProductoComponent', () => {
       const last = ml.attributes[ml.attributes.length - 1];
       expect(last).toEqual({ id: 'SELLER_SKU', value_name: component.draft().common.sku });
     }));
+
+    it('no siembra el value_id del predictor en un atributo sin lista cerrada (caso YEAR)', fakeAsync(() => {
+      // `YEAR` ("Año") en MLA40513 es `number` y NO trae `values[]`. El predictor resuelve contra el
+      // catálogo del DOMINIO y ML valida contra el de la CATEGORÍA: ese id no existe ahí.
+      catalog.mlAttributes = [{ id: 'YEAR', name: 'Año', valueType: 'number', required: false, allowedValues: [] }];
+      component.applyMlPrediction({
+        domain_id: 'd', domain_name: 'd', category_id: 'MLA40513', category_name: 'Agendas',
+        attributes: [{ id: 'YEAR', name: 'Año', value_id: '7967741', value_name: '2027' }]
+      });
+      tick();
+
+      const year = component.draft().ml.attributes.find((a) => a.id === 'YEAR')!;
+      expect(year.valueId).toBeUndefined();
+      expect(year.value).toBe('2027'); // el valor inferido igual se muestra en el form
+
+      const ml = component.buildPayloads().ml as any;
+      expect(ml.attributes.find((a: any) => a.id === 'YEAR')).toEqual({ id: 'YEAR', value_name: '2027' });
+    }));
+
+    it('buildPayloads() ignora un value_id que la categoría no reconoce y manda el texto tipeado', () => {
+      // Borrador viejo, guardado antes del fix: quedó con el id espurio pegado al atributo.
+      component.draft().ml.attributes = [
+        { id: 'YEAR', name: 'Año', value: '2027', valueId: '7967741', required: false, inherited: false, valueType: 'number', allowedValues: [] }
+      ];
+      const ml = component.buildPayloads().ml as any;
+      expect(ml.attributes.find((a: any) => a.id === 'YEAR')).toEqual({ id: 'YEAR', value_name: '2027' });
+    });
+
+    it('setMlAttributeFreeValue() limpia el value_id heredado al tipear encima', () => {
+      const attr = { id: 'YEAR', name: 'Año', value: '2026', valueId: '7967741', required: false, inherited: false, valueType: 'number', allowedValues: [] };
+      component.draft().ml.attributes = [attr];
+      component.store.setMlAttributeFreeValue(attr, '2027');
+      expect(attr.value).toBe('2027');
+      expect(attr.valueId).toBeUndefined();
+    });
+
+    it('publishBlockers: un obligatorio con solo un value_id espurio cuenta como incompleto', () => {
+      component.draft().ml.categoryId = 'MLA40513';
+      component.draft().ml.attributes = [
+        { id: 'YEAR', name: 'Año', value: '', valueId: '7967741', required: true, inherited: false, valueType: 'number', allowedValues: [] }
+      ];
+      component.store.touch(); // el draft se muta in place: hay que invalidar los computed
+      expect(component.store.publishBlockers().some((b) => b.includes('Año'))).toBeTrue();
+    });
 
     it('clearMlCategory() limpia id, nombre y atributos', () => {
       component.draft().ml.categoryId = 'MLA1';

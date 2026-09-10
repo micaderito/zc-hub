@@ -49,11 +49,14 @@
         }
       </select>
     } @else if (attr.valueType === 'number_unit' && attr.allowedUnits?.length) {
+      <!-- Valor libre: va por el store para que limpie un `valueId` heredado (ver setMlAttributeFreeValue). -->
       <span class="attr-unit">
-        <input class="zc-input attr-input" [(ngModel)]="attr.value" placeholder="ej. 20 {{ attr.allowedUnits![0] }}" />
+        <input class="zc-input attr-input" [ngModel]="attr.value" (ngModelChange)="store.setMlAttributeFreeValue(attr, $event)"
+               placeholder="ej. 20 {{ attr.allowedUnits![0] }}" />
       </span>
     } @else {
-      <input class="zc-input attr-input" [(ngModel)]="attr.value" [attr.type]="attr.valueType === 'number' ? 'number' : 'text'" />
+      <input class="zc-input attr-input" [ngModel]="attr.value" (ngModelChange)="store.setMlAttributeFreeValue(attr, $event)"
+             [attr.type]="attr.valueType === 'number' ? 'number' : 'text'" />
     }
   </div>
 </ng-template>
