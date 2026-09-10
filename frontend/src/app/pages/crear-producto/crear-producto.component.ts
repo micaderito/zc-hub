@@ -124,6 +124,13 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   readonly publishPollLost = signal(false);
   /** Fallos consecutivos de `getPublishJob` antes de rendirse (evita spinner eterno si el poll cuelga). */
   private static readonly MAX_POLL_FAILURES = 5;
+  /**
+   * Vueltas seguidas con TODAS las unidades en estado terminal antes de dar por cerrada la
+   * publicación sin esperar a que el server marque el job (20 × 1,5 s = 30 s). Ver `pollJob`.
+   */
+  private static readonly SETTLE_POLLS = 20;
+  /** Tope duro del polling: pasado esto se pasa a la fase `unknown` en vez de girar para siempre. */
+  private static readonly MAX_POLL_MS = 20 * 60 * 1000;
 
   /**
    * Conteo del progreso: total de unidades planificadas y cuántas ya terminaron (ok o error).
@@ -420,11 +427,16 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       const mapped: MlAttribute[] = attrs.map((a) => {
         const pred = predById.get(a.id);
         const isBrand = a.id === 'BRAND';
+        // El `value_id` del predictor solo se acepta si la CATEGORÍA lo reconoce: el predictor los
+        // resuelve contra el catálogo del dominio y `POST /items` valida contra el de la categoría.
+        // Sembrar uno que no está en la lista (ej. `YEAR`, que es number libre y no tiene lista)
+        // hacía fallar la publicación con "El valor que ingresaste en X es incorrecto".
+        const predValueId = pred?.value_id && a.allowedValues?.some((v) => v.id === pred.value_id) ? pred.value_id : undefined;
         return {
           id: a.id,
           name: a.name,
           value: pred?.value_name ?? (isBrand ? brand : ''),
-          valueId: pred?.value_id,
+          valueId: predValueId,
           required: a.required,
           conditionalRequired: a.conditionalRequired,
           inherited: isBrand,
@@ -480,8 +492,11 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       const merged: MlAttribute[] = attrs.map((a) => {
         const prev = existing.get(a.id);
         if (prev) {
-          // refrescamos metadata de la categoría, no el valor cargado
-          return { ...prev, name: a.name, required: a.required, conditionalRequired: a.conditionalRequired, valueType: a.valueType, allowedValues: a.allowedValues, allowedUnits: a.allowedUnits, allowVariations: a.allowVariations };
+          // refrescamos metadata de la categoría, no el valor cargado — salvo un `valueId` que la
+          // categoría ya no reconoce (borrador viejo, o categoría que cambió sus valores): ese id
+          // ML lo rechaza, así que se descarta y queda el texto que haya.
+          const valueId = prev.valueId && a.allowedValues?.some((v) => v.id === prev.valueId) ? prev.valueId : undefined;
+          return { ...prev, valueId, name: a.name, required: a.required, conditionalRequired: a.conditionalRequired, valueType: a.valueType, allowedValues: a.allowedValues, allowedUnits: a.allowedUnits, allowVariations: a.allowVariations };
         }
         return {
           id: a.id,
@@ -641,9 +656,18 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
    * Pollea el job hasta un estado terminal (done/error/cancelled). Si `getPublishJob` falla N veces
    * seguidas (backend caído, request colgado — ya con timeout+retry en el servicio), corta y pasa a
    * fase `unknown` con botón "Actualizar" en vez de dejar el spinner girando para siempre.
+   *
+   * Además NO depende solo del estado del job: ese estado es UNA escritura al final del worker
+   * (`finishPublishJob`), y si no llega —el proceso se reinició justo ahí, la base tuvo un hipo—
+   * el panel quedaba en "Publicando…" con las 6 publicaciones ya creadas y verdes. Cuando todas las
+   * unidades quedaron en estado terminal y el fan-out no se mueve por SETTLE_POLLS vueltas, se
+   * cierra con lo que dicen las unidades, que es la verdad de lo que existe en ML/TN
+   * (`resultsFromJob` ya calcula el resultado por canal mirando solo las unidades).
    */
   private async pollJob(jobId: string, channels?: Channel[]): Promise<void> {
     let failures = 0;
+    let settled = 0;
+    const deadline = Date.now() + CrearProductoComponent.MAX_POLL_MS;
     for (;;) {
       if (this.publishCancelled()) {
         this.activeJobId.set(null);
@@ -671,6 +695,19 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       if (job.status === 'done' || job.status === 'error') {
         this.applyResults(this.resultsFromJob(job, units, channels), channels);
         this.activeJobId.set(null);
+        return;
+      }
+      // El job sigue abierto: ¿queda algo por publicar, o solo falta que el server cierre la fila?
+      const allTerminal = units.length > 0 && units.every((u) => u.status !== 'pending');
+      settled = allTerminal ? settled + 1 : 0;
+      if (settled >= CrearProductoComponent.SETTLE_POLLS) {
+        this.applyResults(this.resultsFromJob(job, units, channels), channels);
+        this.activeJobId.set(null);
+        return;
+      }
+      // Tope duro: si las unidades SÍ quedaron pendientes (worker caído), no girar para siempre.
+      if (Date.now() >= deadline) {
+        this.publishPollLost.set(true);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, CrearProductoComponent.JOB_POLL_MS));
@@ -790,10 +827,11 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
         attributes: [
           // Solo las características completadas: las vacías no se mandan (ML las rechaza). Se excluye
           // el atributo que ya se usa como EJE de variante (lo manda el backend por variación) para
-          // no mandarlo dos veces. Para valores cerrados va value_id (ML lo prefiere); si no, value_name.
+          // no mandarlo dos veces. `mlAttrPayload` decide value_id vs. value_name (ver el store).
           ...d.ml.attributes
-            .filter((a) => a.id && !d.axes.some((ax) => ax.mlAttributeId === a.id) && (a.valueId || a.value?.trim()))
-            .map((a) => (a.valueId ? { id: a.id, value_id: a.valueId } : { id: a.id, value_name: a.value.trim() })),
+            .filter((a) => a.id && !d.axes.some((ax) => ax.mlAttributeId === a.id))
+            .map((a) => this.store.mlAttrPayload(a))
+            .filter((a): a is { id: string; value_id: string } | { id: string; value_name: string } => a !== null),
           { id: 'SELLER_SKU', value_name: d.common.sku }
         ],
         // Garantía: si es "Sin garantía" no mandamos WARRANTY_TIME (ML lo rechaza / no aplica).

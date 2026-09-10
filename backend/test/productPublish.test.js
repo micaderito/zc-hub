@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMlItems, buildTnProducts, mlUnitKey, planTnUnits } from '../src/services/productPublish.js';
+import { buildMlItems, buildTnProducts, mlUnitKey, planTnUnits, sanitizeMlAttributeValues } from '../src/services/productPublish.js';
 
 const mlBase = {
   mapping_mode: 'single_with_variants',
@@ -614,4 +614,51 @@ test('planTnUnits (one_per_variant): una unidad POR VARIANTE, unitKey = su SKU, 
   assert.deepEqual(units[0].uploadIds, ['g2', 'g1']);
   assert.equal(units[1].unitKey, 'CUA-R');
   assert.deepEqual(units[1].uploadIds, ['g3']);
+});
+
+/* ---------- sanitizeMlAttributeValues: value_id que ML no puede aceptar ---------- */
+
+/**
+ * Atributos reales de MLA40513 (Agendas y Diarios Íntimos), recortados: `YEAR` es `number` y NO
+ * trae `values[]`, así que cualquier `value_id` sobre él es inválido para `POST /items`.
+ */
+const catAttrs = [
+  { id: 'YEAR', name: 'Año', value_type: 'number' },
+  { id: 'SALE_FORMAT', name: 'Formato de venta', value_type: 'list', values: [{ id: '1359391', name: 'Unidad' }, { id: '1359392', name: 'Pack' }] }
+];
+
+test('sanitizeMlAttributeValues: un value_id sobre un atributo sin lista cerrada cae a value_name', () => {
+  const out = sanitizeMlAttributeValues([{ id: 'YEAR', value_id: '7967741', value_name: '2027' }], catAttrs);
+  assert.deepEqual(out, [{ id: 'YEAR', value_name: '2027' }]);
+});
+
+test('sanitizeMlAttributeValues: sin value_name que rescatar, el atributo inválido se descarta', () => {
+  const out = sanitizeMlAttributeValues([{ id: 'YEAR', value_id: '7967741' }, { id: 'BRAND', value_name: 'ZC' }], catAttrs);
+  assert.deepEqual(out, [{ id: 'BRAND', value_name: 'ZC' }]);
+});
+
+test('sanitizeMlAttributeValues: un value_id que SÍ está en la lista de la categoría sobrevive', () => {
+  const attrs = [{ id: 'SALE_FORMAT', value_id: '1359391' }];
+  assert.deepEqual(sanitizeMlAttributeValues(attrs, catAttrs), attrs);
+});
+
+test('sanitizeMlAttributeValues: un value_id que no está en la lista cerrada también se sanea', () => {
+  const out = sanitizeMlAttributeValues([{ id: 'SALE_FORMAT', value_id: '999', value_name: 'Unidad' }], catAttrs);
+  assert.deepEqual(out, [{ id: 'SALE_FORMAT', value_name: 'Unidad' }]);
+});
+
+test('sanitizeMlAttributeValues: no opina sobre atributos que la categoría no declara', () => {
+  const attrs = [{ id: 'CUSTOM_X', value_id: 'abc' }];
+  assert.deepEqual(sanitizeMlAttributeValues(attrs, catAttrs), attrs);
+});
+
+test('sanitizeMlAttributeValues: fail-open — sin definición de la categoría no toca nada', () => {
+  const attrs = [{ id: 'YEAR', value_id: '7967741' }];
+  assert.deepEqual(sanitizeMlAttributeValues(attrs, null), attrs);
+  assert.deepEqual(sanitizeMlAttributeValues(attrs, []), attrs);
+});
+
+test('sanitizeMlAttributeValues: deja pasar tal cual lo que ya viene por value_name', () => {
+  const attrs = [{ id: 'YEAR', value_name: '2027' }, { id: 'SELLER_SKU', value_name: 'CUA-1' }];
+  assert.deepEqual(sanitizeMlAttributeValues(attrs, catAttrs), attrs);
 });
