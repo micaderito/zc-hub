@@ -3122,6 +3122,12 @@ export async function createPublishJob({ id, draftId, channels, payloadJson }) {
  */
 export const PUBLISH_JOB_HEARTBEAT_MS = 30_000;
 export const PUBLISH_JOB_STALE_LOCK_MS = 10 * PUBLISH_JOB_HEARTBEAT_MS; // 5 min
+/**
+ * Cuánto tiene que estar QUIETO el fan-out (ninguna unidad tocada) para dar por terminado un job
+ * cuyas unidades están todas en estado terminal, sin esperar a que venza el lock. Ver
+ * `reconcileStalePublishJobs`.
+ */
+export const PUBLISH_JOB_SETTLE_MS = 30_000;
 
 /** Reclama el próximo job listo para procesar (mismo patrón que claimNextMlTask). */
 export async function claimNextPublishJob() {
@@ -3223,15 +3229,34 @@ export async function reconcileStalePublishJobs() {
   const p = getPool();
   if (!p) return 0;
   try {
-    // 1) unidades todas terminales pero el job sigue abierto y con lock vencido
+    // 1) unidades todas terminales pero el job sigue abierto.
+    //
+    // NO alcanza con esperar a que venza el lock: mientras el worker está vivo, el latido lo
+    // renueva cada 30 s hasta 15 min (PUBLISH_JOB_MAX_RUNTIME_MS), así que un job al que solo le
+    // faltó el `finishPublishJob` del final quedaba entre 5 y 20 min con el panel en "Publicando…"
+    // aunque las publicaciones ya estuvieran creadas. Por eso también se cierra cuando el fan-out
+    // quedó QUIETO: ninguna unidad tocada en PUBLISH_JOB_SETTLE_MS.
+    //
+    // Es seguro porque `seedPublishUnits` siembra TODAS las unidades planificadas de un canal como
+    // 'pending' antes de publicar ninguna, y los dos canales siembran a los pocos ms de arrancar el
+    // job (ver runMlChannel/runTnChannel): "sin unidades pending" significa de verdad que el
+    // fan-out terminó. Un reintento vuelve a sembrar 'pending' primero, así que tampoco puede
+    // cerrar un job que sigue trabajando.
     const stale = await p.query(
       `SELECT j.id, j.draft_id AS "draftId"
        FROM product_publish_jobs j
        WHERE j.status IN ('pending', 'processing')
-         AND (j.locked_at IS NULL OR j.locked_at < NOW() - ($1::int * INTERVAL '1 millisecond'))
+         AND (
+               j.locked_at IS NULL
+               OR j.locked_at < NOW() - ($1::int * INTERVAL '1 millisecond')
+               OR NOT EXISTS (
+                    SELECT 1 FROM product_publish_units u
+                    WHERE u.job_id = j.id AND u.updated_at > NOW() - ($2::int * INTERVAL '1 millisecond')
+                  )
+             )
          AND EXISTS (SELECT 1 FROM product_publish_units u WHERE u.job_id = j.id)
          AND NOT EXISTS (SELECT 1 FROM product_publish_units u WHERE u.job_id = j.id AND u.status = 'pending')`,
-      [PUBLISH_JOB_STALE_LOCK_MS]
+      [PUBLISH_JOB_STALE_LOCK_MS, PUBLISH_JOB_SETTLE_MS]
     );
     let closed = 0;
     for (const job of stale.rows) {

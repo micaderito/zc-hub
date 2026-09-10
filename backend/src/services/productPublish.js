@@ -140,6 +140,58 @@ function gtinAttr(barcode) {
  * product-draft.model: CONDITIONAL_REQUIRED_TRIGGERS), así que en un "Pack" real el usuario ya
  * mandó la cantidad y esto no la pisa.
  */
+/**
+ * Saca los `value_id` que ML no puede aceptar. Un `value_id` solo es válido si el atributo de la
+ * categoría declara una lista cerrada (`values[]`) y el id está entre ellos; para cualquier otro
+ * (los `number`/`string` libres, ej. `YEAR` "Año" en agendas, que NO trae `values[]`) ML contesta
+ * "El valor que ingresaste en X es incorrecto" y no publica nada.
+ *
+ * Por acá pasa el payload CONGELADO de un job viejo (`POST /jobs/:id/retry`) y cualquier borrador
+ * guardado antes del fix del front, que pueden traer el `value_id` que infirió el predictor de
+ * categorías: el predictor resuelve los valores contra el catálogo del DOMINIO y `POST /items` los
+ * valida contra el de la CATEGORÍA, que no siempre los tiene.
+ *
+ * Fail-open: sin la definición de la categoría (ML no contestó) no se toca nada.
+ */
+export function sanitizeMlAttributeValues(attributes, mlCategoryAttrs) {
+  if (!Array.isArray(mlCategoryAttrs) || !mlCategoryAttrs.length) return attributes || [];
+  const byId = new Map(mlCategoryAttrs.map((a) => [String(a?.id ?? ''), a]));
+  const out = [];
+  for (const attr of attributes || []) {
+    const def = attr?.value_id ? byId.get(String(attr.id ?? '')) : null;
+    // Sin value_id, o atributo que la categoría no declara (ej. uno personalizado): no opinamos.
+    if (!def) {
+      out.push(attr);
+      continue;
+    }
+    const values = Array.isArray(def.values) ? def.values : [];
+    if (values.some((v) => String(v?.id) === String(attr.value_id))) {
+      out.push(attr);
+      continue;
+    }
+    const { value_id: bad, ...rest } = attr;
+    if (rest.value_name != null && String(rest.value_name).trim()) {
+      console.warn(`[Publish] ${attr.id}: value_id "${bad}" no existe en la categoría — se manda value_name.`);
+      out.push(rest);
+    } else {
+      console.warn(`[Publish] ${attr.id}: value_id "${bad}" no existe en la categoría y no hay value_name — se descarta.`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Devuelve una COPIA del payload con los `value_id` inválidos saneados contra los atributos reales
+ * de la categoría. Nunca muta el original: el `payload_json` de un job es inmutable a propósito.
+ */
+async function withSanitizedMlAttributes(payload, mlToken) {
+  const categoryId = payload?.ml?.category_id;
+  if (!categoryId || !payload?.ml?.attributes?.length) return payload;
+  const defs = await ml.getCategoryAttributes(mlToken, categoryId).catch(() => null);
+  if (!defs) return payload;
+  return { ...payload, ml: { ...payload.ml, attributes: sanitizeMlAttributeValues(payload.ml.attributes, defs) } };
+}
+
 function withUnitsPerPack(attributes) {
   const attrs = attributes || [];
   const hasSaleFormat = attrs.some((a) => a.id === 'SALE_FORMAT' && (a.value_id || a.value_name));
@@ -309,9 +361,10 @@ export function mlUnitKey(itemBody) {
  * imágenes le pegan a la API.
  */
 export async function planMlUnits(payload, mlToken) {
-  const picMap = await resolveMlImages(payload, mlToken);
+  const clean = await withSanitizedMlAttributes(payload, mlToken);
+  const picMap = await resolveMlImages(clean, mlToken);
   const userProducts = await isUserProductSeller(mlToken).catch(() => false);
-  const items = buildMlItems(payload, picMap, { userProducts });
+  const items = buildMlItems(clean, picMap, { userProducts });
   return items.map((body) => ({ unitKey: mlUnitKey(body), body }));
 }
 
@@ -329,16 +382,17 @@ export async function publishMlUnit(itemBody, mlToken, descriptionText) {
 
 async function publishMl(payload, mlToken) {
   if (!mlToken) return { channel: 'ml', status: 'error', detail: 'No conectado a Mercado Libre' };
+  const clean = await withSanitizedMlAttributes(payload, mlToken);
   let picMap;
   try {
-    picMap = await resolveMlImages(payload, mlToken);
+    picMap = await resolveMlImages(clean, mlToken);
   } catch (e) {
     return { channel: 'ml', status: 'error', detail: `Error subiendo imágenes a ML: ${e.message}` };
   }
   const userProducts = await isUserProductSeller(mlToken).catch(() => false);
   let items;
   try {
-    items = buildMlItems(payload, picMap, { userProducts });
+    items = buildMlItems(clean, picMap, { userProducts });
   } catch (e) {
     return { channel: 'ml', status: 'error', detail: e.message };
   }
