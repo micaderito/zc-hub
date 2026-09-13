@@ -1,7 +1,7 @@
 import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
-import { CatalogService, DraftDetail, DraftSummary, PublishJobSummary } from '../../core/services/catalog.service';
+import { CatalogService, DraftDetail, DraftSummary, PublishJobSummary, StorageUsage } from '../../core/services/catalog.service';
 import { PricingService } from '../../core/services/pricing.service';
 import {
   DEFAULT_SETTINGS,
@@ -127,6 +127,8 @@ export class ProductDraftStore {
   readonly lastPublishJob = signal<PublishJobSummary | null>(null);
   readonly savedDrafts = signal<{ id: string; label: string; savedAt: Date; status: DraftSummary['status'] }[]>([]);
   readonly draftsPanelOpen = signal(false);
+  /** Uso del storage de imágenes (Supabase, tope 50 MB). `null` hasta el primer refresh o si falló. */
+  readonly storageUsage = signal<StorageUsage | null>(null);
 
   /* ---------- proyección y variantes ---------- */
 
@@ -926,6 +928,20 @@ export class ProductDraftStore {
       );
     } catch {
       // se mantiene lo que ya había en pantalla
+    }
+    void this.refreshStorageUsage();
+  }
+
+  /**
+   * Refresca cuánto del storage de imágenes está usado. Se llama junto con la lista de
+   * borradores (al entrar, guardar o borrar uno) para que el aviso de capacidad se actualice solo,
+   * sin depender de que la usuaria abra y cierre el panel a mano.
+   */
+  async refreshStorageUsage(): Promise<void> {
+    try {
+      this.storageUsage.set(await this.catalog.getStorageUsage());
+    } catch {
+      // sin esto no hay aviso, pero tampoco rompe el resto del panel
     }
   }
 
