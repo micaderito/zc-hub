@@ -5,7 +5,7 @@ import { tokens, getMlToken } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { publishProduct } from '../services/productPublish.js';
-import { saveImage, saveImageBuffer, saveThumbBuffer, getImage, getThumb, removeImage } from '../services/imageStore.js';
+import { saveImage, saveImageBuffer, saveThumbBuffer, getImage, getThumb, removeImage, getStorageUsage } from '../services/imageStore.js';
 import { generateSeo, isLlmConfigured } from '../lib/llm.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { listPacksWithStock, savePack, removePack, assignSkuPack } from '../services/packsService.js';
@@ -150,6 +150,19 @@ productRoutes.get('/images/:id/thumb', async (req, res) => {
 productRoutes.delete('/images/:id', async (req, res) => {
   await removeImage(req.params.id);
   res.json({ ok: true });
+});
+
+/**
+ * Uso del storage de imágenes (Supabase o disco) contra el tope del plan contratado. Lo consulta
+ * el panel "Mis borradores" para avisar antes de quedarse sin lugar para subir fotos nuevas.
+ */
+productRoutes.get('/storage-usage', async (_req, res) => {
+  try {
+    const { usedBytes, limitBytes } = await getStorageUsage();
+    res.json({ usedBytes, limitBytes, percent: limitBytes ? Math.round((usedBytes / limitBytes) * 1000) / 10 : 0 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /**

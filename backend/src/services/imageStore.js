@@ -36,6 +36,12 @@ const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'product-images';
 /** Si hay credenciales, todo el módulo opera contra Supabase Storage en vez del disco. */
 const useSupabase = !!(SUPABASE_URL && SUPABASE_KEY);
 
+/** Tope real del plan de Supabase Storage contratado (MB). Ver getStorageUsage(). */
+export const STORAGE_LIMIT_BYTES = (Number(process.env.SUPABASE_STORAGE_LIMIT_MB) || 50) * 1024 * 1024;
+/** Cuánto se cachea el total (listar todo el bucket es caro): evita pegarle a Supabase en cada polling del panel. */
+const USAGE_CACHE_MS = 60 * 1000;
+let usageCache = null; // { bytes, at }
+
 function ensureDir() {
   if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
 }
@@ -96,6 +102,37 @@ async function supabaseRemove(objectPaths) {
 
 function supabasePublicUrl(objectPath) {
   return `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${objectPath}`;
+}
+
+/**
+ * Suma recursiva del tamaño de todo lo que hay bajo `prefix` en el bucket. La API de Supabase
+ * Storage lista solo un nivel por llamada (como S3 con delimitador "/"): una carpeta (un id de
+ * imagen) vuelve como entrada con `id: null` y sin `metadata`, así que hay que bajar un nivel más
+ * para sumar sus archivos (`original.*`, `meta.json`, `thumb.jpg`). Con el tope de 50 MB del plan
+ * esto son, como mucho, unas pocas decenas de carpetas — no hace falta paginar.
+ */
+async function supabaseFolderSize(prefix) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${SUPABASE_BUCKET}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      apikey: SUPABASE_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ prefix, limit: 1000, sortBy: { column: 'name', order: 'asc' } })
+  });
+  if (!res.ok) throw new Error(`Supabase Storage list falló: ${res.status}`);
+  const entries = await res.json();
+  let bytes = 0;
+  for (const entry of entries || []) {
+    if (entry.metadata && typeof entry.metadata.size === 'number') {
+      bytes += entry.metadata.size;
+    } else if (entry.id === null) {
+      // Es una "carpeta" (id de imagen): bajar un nivel para sumar sus archivos.
+      bytes += await supabaseFolderSize(`${prefix}${entry.name}/`);
+    }
+  }
+  return bytes;
 }
 
 /* ============================ API pública (ambos backends) ============================ */
@@ -268,6 +305,38 @@ export async function purgeOld(isReferenced, now = Date.now()) {
     }
   }
   return removed;
+}
+
+/**
+ * Bytes ocupados AHORA MISMO en el bucket (o en disco, en dev sin Supabase) y el tope del plan
+ * contratado — para avisar en "Mis borradores" antes de quedarse sin lugar para subir fotos.
+ * Suma TODO lo que hay guardado, esté o no referenciado por un borrador: una foto subida y
+ * abandonada sin guardar el borrador (o restos de un fallo a mitad de publicar) también ocupa
+ * espacio real y no se limpia sola en Supabase (`purgeOld` solo limpia disco, ver arriba).
+ * Cacheado `USAGE_CACHE_MS`: recorrer el bucket entero es costoso para algo que se refresca
+ * seguido (cada vez que se abre el panel o se guarda/borra un borrador).
+ */
+export async function getStorageUsage(now = Date.now()) {
+  if (usageCache && now - usageCache.at < USAGE_CACHE_MS) {
+    return { usedBytes: usageCache.bytes, limitBytes: STORAGE_LIMIT_BYTES };
+  }
+  let usedBytes;
+  if (useSupabase) {
+    usedBytes = await supabaseFolderSize('');
+  } else {
+    usedBytes = 0;
+    if (fs.existsSync(DIR)) {
+      for (const f of fs.readdirSync(DIR)) {
+        try {
+          usedBytes += fs.statSync(path.join(DIR, f)).size;
+        } catch {
+          /* noop */
+        }
+      }
+    }
+  }
+  usageCache = { bytes: usedBytes, at: now };
+  return { usedBytes, limitBytes: STORAGE_LIMIT_BYTES };
 }
 
 /** Solo para tests: indica si el módulo está usando Supabase Storage o el disco local. */

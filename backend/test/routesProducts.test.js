@@ -37,6 +37,7 @@ before(async () => {
       getImageUrl: async () => null, // sin Supabase en este mock: productPublish.js cae al camino de subida
       getThumb: (id) => store.thumbs.get(id) ?? null,
       removeImage: (id) => { store.images.delete(id); store.thumbs.delete(id); },
+      getStorageUsage: async () => ({ usedBytes: 0, limitBytes: 50 * 1024 * 1024 }),
     },
   });
   // requireAuth real: lo que se está probando es justamente qué rutas lo esquivan.
@@ -102,6 +103,16 @@ test('GET /images/:id/thumb sin miniatura cae al original (borradores previos a 
 test('GET /images/:id/thumb de un id inexistente → 404', async () => {
   const res = await fetch(`${baseUrl}/images/nada/thumb`);
   assert.equal(res.status, 404);
+});
+
+test('GET /storage-usage exige sesión y devuelve el % contra el tope', async () => {
+  const sinAuth = await fetch(`${baseUrl}/storage-usage`);
+  assert.equal(sinAuth.status, 401);
+
+  const conAuth = await fetch(`${baseUrl}/storage-usage`, { headers: { Authorization: 'Bearer ok' } });
+  assert.equal(conAuth.status, 200);
+  const body = await conAuth.json();
+  assert.deepEqual(body, { usedBytes: 0, limitBytes: 50 * 1024 * 1024, percent: 0 });
 });
 
 test('POST /images/:id/thumb SÍ exige sesión (a diferencia del GET)', async () => {
