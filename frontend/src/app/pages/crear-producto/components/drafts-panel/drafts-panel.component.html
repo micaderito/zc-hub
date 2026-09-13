@@ -9,7 +9,7 @@
       <i class="ti ti-alert-triangle"></i>
       <span>
         El storage de imágenes está al <strong>{{ store.storageUsage()!.percent }}%</strong>
-        ({{ storageUsedMb() | number: '1.0-1' }} MB de {{ storageLimitMb() | number: '1.0-0' }} MB).
+        ({{ storageUsedLabel() }} de {{ storageLimitLabel() }}).
         Borrá algún borrador que ya no necesites para liberar espacio antes de quedarte sin lugar para subir fotos.
       </span>
     </div>

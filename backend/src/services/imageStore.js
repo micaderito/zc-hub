@@ -36,8 +36,11 @@ const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'product-images';
 /** Si hay credenciales, todo el módulo opera contra Supabase Storage en vez del disco. */
 const useSupabase = !!(SUPABASE_URL && SUPABASE_KEY);
 
-/** Tope real del plan de Supabase Storage contratado (MB). Ver getStorageUsage(). */
-export const STORAGE_LIMIT_BYTES = (Number(process.env.SUPABASE_STORAGE_LIMIT_MB) || 50) * 1024 * 1024;
+/**
+ * Tope real del plan de Supabase Storage contratado (MB) — 1 GB en el plan Free (no confundir
+ * con el máximo de 50 MB por ARCHIVO, que es un límite aparte y no configurable). Ver getStorageUsage().
+ */
+export const STORAGE_LIMIT_BYTES = (Number(process.env.SUPABASE_STORAGE_LIMIT_MB) || 1024) * 1024 * 1024;
 /** Cuánto se cachea el total (listar todo el bucket es caro): evita pegarle a Supabase en cada polling del panel. */
 const USAGE_CACHE_MS = 60 * 1000;
 let usageCache = null; // { bytes, at }
@@ -104,33 +107,41 @@ function supabasePublicUrl(objectPath) {
   return `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${objectPath}`;
 }
 
+const SUPABASE_LIST_PAGE = 1000;
+
 /**
  * Suma recursiva del tamaño de todo lo que hay bajo `prefix` en el bucket. La API de Supabase
  * Storage lista solo un nivel por llamada (como S3 con delimitador "/"): una carpeta (un id de
  * imagen) vuelve como entrada con `id: null` y sin `metadata`, así que hay que bajar un nivel más
- * para sumar sus archivos (`original.*`, `meta.json`, `thumb.jpg`). Con el tope de 50 MB del plan
- * esto son, como mucho, unas pocas decenas de carpetas — no hace falta paginar.
+ * para sumar sus archivos (`original.*`, `meta.json`, `thumb.jpg`). Con el tope de 1 GB del plan
+ * Free y fotos de un par de MB cada una, el nivel raíz puede superar sin problema el límite de
+ * 1000 entradas por llamada de la API — pagina con `offset` hasta que una página vuelve incompleta.
  */
 async function supabaseFolderSize(prefix) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${SUPABASE_BUCKET}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-      apikey: SUPABASE_KEY,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ prefix, limit: 1000, sortBy: { column: 'name', order: 'asc' } })
-  });
-  if (!res.ok) throw new Error(`Supabase Storage list falló: ${res.status}`);
-  const entries = await res.json();
   let bytes = 0;
-  for (const entry of entries || []) {
-    if (entry.metadata && typeof entry.metadata.size === 'number') {
-      bytes += entry.metadata.size;
-    } else if (entry.id === null) {
-      // Es una "carpeta" (id de imagen): bajar un nivel para sumar sus archivos.
-      bytes += await supabaseFolderSize(`${prefix}${entry.name}/`);
+  let offset = 0;
+  for (;;) {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${SUPABASE_BUCKET}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        apikey: SUPABASE_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ prefix, limit: SUPABASE_LIST_PAGE, offset, sortBy: { column: 'name', order: 'asc' } })
+    });
+    if (!res.ok) throw new Error(`Supabase Storage list falló: ${res.status}`);
+    const entries = await res.json();
+    for (const entry of entries || []) {
+      if (entry.metadata && typeof entry.metadata.size === 'number') {
+        bytes += entry.metadata.size;
+      } else if (entry.id === null) {
+        // Es una "carpeta" (id de imagen): bajar un nivel para sumar sus archivos.
+        bytes += await supabaseFolderSize(`${prefix}${entry.name}/`);
+      }
     }
+    if (!entries || entries.length < SUPABASE_LIST_PAGE) break;
+    offset += SUPABASE_LIST_PAGE;
   }
   return bytes;
 }
