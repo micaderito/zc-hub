@@ -4,6 +4,10 @@
       <h1>Publicaciones</h1>
       <p>Historial de lo que se publicó en Mercado Libre y Tienda Nube. Cada fila es un intento; abrila para ver las publicaciones creadas.</p>
     </div>
+    <button type="button" class="btn-refresh" [class.busy]="refreshing()" [disabled]="refreshing()" (click)="refresh()">
+      <i class="ti ti-refresh" [class.spinning]="refreshing()" aria-hidden="true"></i>
+      {{ refreshing() ? 'Actualizando…' : 'Actualizar' }}
+    </button>
   </header>
 
   <div class="pub-toolbar">

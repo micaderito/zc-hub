@@ -1,13 +1,11 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { injectQuery } from '@tanstack/angular-query-experimental';
-import { CatalogService, PublishJobRow, PublishJobSummary, PublishUnit } from '../../core/services/catalog.service';
+import { CatalogService, PublishJobRow, PublishUnit } from '../../core/services/catalog.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 
 const PER_PAGE = 20;
-/** Cada cuánto repollear mientras haya un job en curso — nadie más está mirando esta pantalla. */
-const RUNNING_POLL_MS = 3_000;
 
 type StatusKey = '' | 'done' | 'error' | 'cancelled' | 'running';
 
@@ -16,6 +14,13 @@ type StatusKey = '' | 'done' | 'error' | 'cancelled' | 'running';
  * `product_publish_jobs` / `product_publish_units` vía `GET /api/products/publish-jobs`. Cada fila
  * es un intento de publicar; al expandirla se ven las unidades (ítem ML / producto TN) con su id
  * externo y el resultado. Reintentar / cancelar / borrar reusan los endpoints de `/jobs/:id`.
+ *
+ * Sin polling: la lista se refresca al entrar a la página (`refresh()` en el constructor) y con el
+ * botón "Actualizar" — no cada N segundos. Ambos casos, antes de releer, corren
+ * `reconcilePublishJobs()` (mismo barrido que ya corre solo desde el worker cada ~10s): un job
+ * puede quedar trabado en `processing` con todas sus unidades ya publicadas (bug de tipos en
+ * Postgres, arreglado en `reconcileStalePublishJobs`/`finishPublishJob`), y sin repararlo un
+ * refresco manual solo releería el mismo dato mal para siempre.
  */
 @Component({
   selector: 'app-publicaciones',
@@ -34,6 +39,8 @@ export class PublicacionesComponent {
   readonly page = signal(1);
   readonly expandedId = signal<string | null>(null);
   readonly busyId = signal<string | null>(null);
+  /** En curso: el refresco manual (botón "Actualizar" o al entrar a la página), no el fetch de la query. */
+  readonly refreshing = signal(false);
 
   readonly statusOptions: { key: StatusKey; label: string }[] = [
     { key: '', label: 'Todas' },
@@ -67,6 +74,8 @@ export class PublicacionesComponent {
       },
       { allowSignalWrites: true }
     );
+    // Reparar + releer una vez al entrar — ver el porqué en el docblock de la clase.
+    void this.refresh();
   }
 
   readonly jobsQuery = injectQuery(() => ({
@@ -79,15 +88,7 @@ export class PublicacionesComponent {
         channel: this.channelFilter() || undefined,
       }),
     staleTime: 10_000,
-    // sin esto, un job que termina mientras esta pantalla está abierta se queda mostrando
-    // "Publicando…" para siempre — nada más dispara un refetch (no hay websocket ni polling del job).
-    refetchInterval: (query: { state: { data?: { rows: PublishJobRow[] } } }) => this.jobsRefetchInterval(query.state.data?.rows),
   }));
-
-  /** `false` corta el polling; un número (ms) lo mantiene. Método aparte para poder testearlo sin timers reales. */
-  jobsRefetchInterval(rows: PublishJobRow[] | undefined): number | false {
-    return rows?.some((r) => r.status === 'pending' || r.status === 'processing') ? RUNNING_POLL_MS : false;
-  }
 
   readonly rows = computed(() => this.jobsQuery.data()?.rows ?? []);
   readonly total = computed(() => this.jobsQuery.data()?.total ?? 0);
@@ -98,14 +99,29 @@ export class PublicacionesComponent {
     queryFn: () => this.catalog.getPublishJob(this.expandedId()!),
     enabled: !!this.expandedId(),
     staleTime: 5_000,
-    refetchInterval: (query: { state: { data?: { job: PublishJobSummary } } }) => this.detailRefetchInterval(query.state.data?.job.status),
   }));
 
-  detailRefetchInterval(status: PublishJobSummary['status'] | undefined): number | false {
-    return status === 'pending' || status === 'processing' ? RUNNING_POLL_MS : false;
-  }
-
   readonly detailUnits = computed<PublishUnit[]>(() => this.detailQuery.data()?.units ?? []);
+
+  /**
+   * Repara los jobs trabados (`reconcilePublishJobs`) y releé la lista (+ el detalle si hay una
+   * fila expandida). Si el reconcile falla igual releemos lo que haya — no queremos que un error ahí
+   * bloquee el refresco manual.
+   */
+  async refresh(): Promise<void> {
+    this.refreshing.set(true);
+    try {
+      await this.catalog.reconcilePublishJobs();
+    } catch {
+      /* la lectura de abajo igual corre con lo que haya */
+    }
+    try {
+      await this.jobsQuery.refetch();
+      if (this.expandedId()) await this.detailQuery.refetch();
+    } finally {
+      this.refreshing.set(false);
+    }
+  }
 
   toggle(id: string): void {
     this.expandedId.set(this.expandedId() === id ? null : id);

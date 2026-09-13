@@ -23,7 +23,8 @@ import {
   deletePublishJob,
   retryPublishJob,
   cancelPublishJob,
-  getPublishUnits
+  getPublishUnits,
+  reconcileStalePublishJobs
 } from '../db.js';
 
 export const productRoutes = Router();
@@ -306,6 +307,22 @@ productRoutes.get('/publish-jobs', async (req, res) => {
       channel: (req.query.channel || '').toString().trim()
     });
     res.json({ rows, total });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Cierra a mano los jobs que quedaron trabados (mismo barrido que corre solo cada ~10s desde el
+ * worker, ver `reconcileStalePublishJobs`). Lo dispara el botón "Actualizar" de /publicaciones (y
+ * la carga de la página) para que el refresco manual REPARE el dato en vez de solo releerlo — sin
+ * esto, un job cuyo cierre automático falló (ver el bug de tipos arreglado en `finishPublishJob`/
+ * `reconcileStalePublishJobs`) se queda mostrando "Publicando…" para siempre.
+ */
+productRoutes.post('/publish-jobs/reconcile', async (req, res) => {
+  try {
+    const closed = await reconcileStalePublishJobs();
+    res.json({ closed });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

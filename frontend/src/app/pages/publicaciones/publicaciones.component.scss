@@ -9,6 +9,10 @@
 }
 
 .pub-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 14px;
   h1 {
     margin: 0;
@@ -21,6 +25,34 @@
     color: var(--text-2);
     max-width: 60ch;
   }
+}
+
+.btn-refresh {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.4rem 0.75rem;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: background 0.15s ease;
+
+  &:hover:not(:disabled) { background: var(--surface-2); }
+  &:disabled { opacity: 0.5; cursor: default; }
+  &.busy { color: var(--brand); border-color: var(--brand); }
+
+  .ti.spinning { animation: pub-refresh-spin 0.7s linear infinite; }
+}
+
+@keyframes pub-refresh-spin {
+  to { transform: rotate(360deg); }
 }
 
 .pub-toolbar {

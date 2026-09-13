@@ -321,4 +321,9 @@ export class CatalogService {
       this.http.get<{ rows: PublishJobRow[]; total: number }>(`${this.api.baseUrl}/products/publish-jobs`, { params })
     );
   }
+
+  /** Cierra a mano los jobs de publicación trabados (mismo barrido del worker). Devuelve cuántos cerró. */
+  reconcilePublishJobs(): Promise<{ closed: number }> {
+    return lastValueFrom(this.http.post<{ closed: number }>(`${this.api.baseUrl}/products/publish-jobs/reconcile`, {}));
+  }
 }
