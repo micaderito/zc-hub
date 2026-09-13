@@ -876,11 +876,42 @@ test('finishPublishJob: marca done/error, limpia el lock', async () => {
   assert.equal(calls[0][0], 'done');
 });
 
-test('retryPublishJob: solo re-encola un job error o processing con lock vencido', async () => {
-  state.responder = () => ({ rowCount: 1 });
+test('finishPublishJob: castea $1::text (bug real: sin el cast Postgres rechazaba la query con "inconsistent types deduced for parameter $1", porque `SET status = $1` deduce varchar(16) y `$1 IN (...)` deduce text)', async () => {
+  let sql = null;
+  state.responder = (s) => { sql = s; return { rowCount: 1 }; };
+  await db.finishPublishJob('j1', 'done');
+  assert.match(sql, /SET status = \$1::text/);
+  assert.match(sql, /CASE WHEN \$1::text IN \('done', 'error'\)/);
+});
+
+test('retryPublishJob: solo re-encola un job error o processing con lock vencido; resetea attempts y las unidades error', async () => {
+  const calls = [];
+  state.responder = (sql, params) => { calls.push({ sql, params }); return { rowCount: 1 }; };
   assert.equal(await db.retryPublishJob('j1'), true);
+  assert.match(calls[0].sql, /attempts = 0/);
+  // segunda query: las unidades que quedaron 'error' vuelven a 'pending' para que el worker las
+  // vuelva a sembrar/publicar (si no, un job re-encolado sin ninguna unidad 'pending' calificaría
+  // para el barrido de arriba y podría cerrarse como error antes de que el worker lo retome).
+  assert.match(calls[1].sql, /UPDATE product_publish_units SET status = 'pending'/);
+  assert.match(calls[1].sql, /WHERE job_id = \$1 AND status = 'error'/);
+  assert.deepEqual(calls[1].params, ['j1']);
+
   state.responder = () => ({ rowCount: 0 });
   assert.equal(await db.retryPublishJob('j-vivo'), false);
+});
+
+test('retryPublishJob: exige locked_at IS NOT NULL — sin este chequeo, "NULL < ahora" es NULL (falso) y un processing con el lock ya limpio nunca calificaba', async () => {
+  let sql = null;
+  state.responder = (s) => { sql = s; return { rowCount: 0 }; };
+  await db.retryPublishJob('j1');
+  assert.match(sql, /locked_at IS NOT NULL AND locked_at < NOW\(\)/);
+});
+
+test('retryPublishJob: si el UPDATE del job no tocó ninguna fila, NO toca las unidades', async () => {
+  const calls = [];
+  state.responder = (sql, params) => { calls.push({ sql, params }); return { rowCount: 0 }; };
+  assert.equal(await db.retryPublishJob('j1'), false);
+  assert.equal(calls.length, 1); // solo el UPDATE del job — nunca llegó a las unidades
 });
 
 test('cancelPublishJob: cancela pending/processing/error (rowCount>0 → true); un job ya terminado → false', async () => {
@@ -924,7 +955,7 @@ test('reconcileStalePublishJobs: cierra un job trabado con unidades terminales y
       return { rowCount: 1 };
     }
     // 4) UPDATE de zombis (attempts >= 5) con RETURNING
-    if (/status = 'processing' AND attempts >= 5/.test(sql)) {
+    if (/status IN \('pending', 'processing'\) AND attempts >= 5/.test(sql)) {
       return { rows: [{ id: 'jZombi', draftId: 'dZ' }] };
     }
     // recomputeDraftStatus interno
@@ -957,6 +988,53 @@ test('reconcileStalePublishJobs: el SELECT también cierra por fan-out quieto, n
   // Las dos guardas que hacen que esto sea seguro siguen ahí: tiene unidades y ninguna en 'pending'.
   assert.match(selectSql, /AND EXISTS \(SELECT 1 FROM product_publish_units u WHERE u\.job_id = j\.id\)/);
   assert.match(selectSql, /NOT EXISTS \(SELECT 1 FROM product_publish_units u WHERE u\.job_id = j\.id AND u\.status = 'pending'\)/);
+});
+
+test('reconcileStalePublishJobs: excluye jobs tocados hace poco (j.updated_at) — no debe pisar un reintento recién disparado', async () => {
+  // `retryPublishJob` deja el job en 'pending' sin unidades 'pending' (las que fallaron quedan en
+  // 'error' hasta que el worker las vuelve a sembrar), lo que matchearía el resto del SELECT. Con
+  // el botón "Actualizar" corriendo este barrido a pedido, la secuencia "Reintentar → Actualizar"
+  // no debe cerrar en error un job que el worker todavía no tuvo tiempo de retomar.
+  let selectSql = null;
+  state.responder = (sql) => {
+    if (/FROM product_publish_jobs j\s+WHERE j\.status IN \('pending', 'processing'\)/.test(sql)) {
+      selectSql = sql;
+      return { rows: [] };
+    }
+    return { rows: [], rowCount: 0 };
+  };
+  await db.reconcileStalePublishJobs();
+  assert.match(selectSql, /AND j\.updated_at < NOW\(\) - \(\$2::int \* INTERVAL '1 millisecond'\)/);
+});
+
+test('reconcileStalePublishJobs: el UPDATE que cierra un job castea $2::text (bug real: sin el cast Postgres rechazaba la query con "inconsistent types deduced for parameter $2")', async () => {
+  let updateSql = null;
+  state.responder = (sql) => {
+    if (/FROM product_publish_jobs j\s+WHERE j\.status IN \('pending', 'processing'\)/.test(sql)) return { rows: [{ id: 'jA', draftId: 'dA' }] };
+    if (sql.startsWith('SELECT status FROM product_publish_units')) return { rows: [{ status: 'ok' }] };
+    if (/WHERE id = \$1 AND status IN \('pending', 'processing'\)/.test(sql)) {
+      updateSql = sql;
+      return { rowCount: 1 };
+    }
+    return { rows: [], rowCount: 1 };
+  };
+  await db.reconcileStalePublishJobs();
+  assert.match(updateSql, /SET status = \$2::text/);
+  assert.match(updateSql, /CASE WHEN \$2::text = 'error'/);
+});
+
+test('reconcileStalePublishJobs: el barrido de zombis también toma "pending" (retryPublishJob puede reencolar ahí)', async () => {
+  let zombieSql = null;
+  state.responder = (sql) => {
+    if (/FROM product_publish_jobs j\s+WHERE j\.status IN \('pending', 'processing'\)/.test(sql)) return { rows: [] };
+    if (/status IN \('pending', 'processing'\) AND attempts >= 5/.test(sql)) {
+      zombieSql = sql;
+      return { rows: [] };
+    }
+    return { rows: [], rowCount: 0 };
+  };
+  await db.reconcileStalePublishJobs();
+  assert.ok(zombieSql, 'el UPDATE de zombis no incluye pending');
 });
 
 test('isPublishJobCancelled: true si la fila existe con status cancelled', async () => {

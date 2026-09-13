@@ -86,7 +86,11 @@ before(async () => {
         j.status = 'cancelled';
         return true;
       },
-      getPublishUnits: async (id) => db.jobs.get(id)?.units ?? []
+      getPublishUnits: async (id) => db.jobs.get(id)?.units ?? [],
+      reconcileStalePublishJobs: async () => {
+        if (db.reconcileThrows) throw new Error('reconcile rota');
+        return db.reconcileClosed ?? 0;
+      }
     }
   });
   mock.module('../src/services/imageStore.js', {
@@ -126,6 +130,8 @@ after(() => server.close());
 beforeEach(() => {
   seedDb();
   removedImages.length = 0;
+  db.reconcileClosed = 0;
+  db.reconcileThrows = false;
 });
 
 const AUTH = { Authorization: 'Bearer ok', 'Content-Type': 'application/json' };
@@ -286,6 +292,19 @@ test('GET /publish-jobs: historial de todos los borradores, con paginación y fi
   assert.deepEqual(soloMl.rows.map((r) => r.id).sort(), ['h1', 'h3']);
 });
 
+test('POST /publish-jobs/reconcile: cierra a mano los jobs trabados (mismo barrido del worker) y devuelve cuántos', async () => {
+  db.reconcileClosed = 2;
+  const res = await fetch(`${baseUrl}/publish-jobs/reconcile`, { method: 'POST', headers: AUTH });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { closed: 2 });
+});
+
+test('POST /publish-jobs/reconcile: 500 si el barrido falla (no se traga el error del bug de tipos)', async () => {
+  db.reconcileThrows = true;
+  const res = await fetch(`${baseUrl}/publish-jobs/reconcile`, { method: 'POST', headers: AUTH });
+  assert.equal(res.status, 500);
+});
+
 test('DELETE /jobs/:id borra la entrada del historial; 404 si no existe', async () => {
   db.jobs.set('j1', { id: 'j1', draftId: 'd1', channels: 'ml', status: 'done', units: [] });
   const res = await fetch(`${baseUrl}/jobs/j1`, { method: 'DELETE', headers: AUTH });
@@ -308,6 +327,7 @@ test('todos los endpoints de drafts/jobs exigen sesión', async () => {
     ['DELETE', `/drafts/${id}`],
     ['POST', `/drafts/${id}/publish`],
     ['GET', '/publish-jobs'],
+    ['POST', '/publish-jobs/reconcile'],
     ['POST', '/jobs/x/cancel'],
     ['GET', '/jobs/x'],
     ['POST', '/jobs/x/retry'],

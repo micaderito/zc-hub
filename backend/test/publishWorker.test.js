@@ -36,7 +36,10 @@ let publishWorker;
 before(async () => {
   mock.module('../src/db.js', {
     exports: {
-      claimNextPublishJob: async () => dbState.claimedJob,
+      claimNextPublishJob: async () => {
+        if (dbState.claimThrows) throw new Error('claimNextPublishJob rota (ej. hipo de la base)');
+        return dbState.claimedJob;
+      },
       touchPublishJobLock: async () => {
         dbState.heartbeats.push(Date.now());
         return true;
@@ -105,6 +108,8 @@ before(async () => {
 
 beforeEach(() => {
   dbState.claimedJob = null;
+  dbState.claimThrows = false;
+  dbState.staleSweeps = 0;
   dbState.existingUnits = [];
   dbState.upserts = [];
   dbState.seeded = [];
@@ -134,6 +139,27 @@ test('tick(): sin job encolado, no hace nada', async () => {
   dbState.claimedJob = null;
   await publishWorker.tick();
   assert.equal(dbState.finished, null);
+});
+
+/**
+ * Regresión: antes nadie verificaba que `tick()` REALMENTE llamara al barrido — el mock contaba
+ * las llamadas (`dbState.staleSweeps`) pero ningún assert lo leía. Con `% N === 0`, cada N ticks
+ * consecutivos (sin importar en qué resto arranca `tickCount`, que es estado de módulo compartido
+ * entre tests) cae exactamente uno que dispara el barrido — por eso alcanza con contar la
+ * DIFERENCIA de sweeps en una ventana de exactamente `STALE_SWEEP_EVERY_TICKS` llamadas.
+ */
+test('tick() corre reconcileStalePublishJobs una vez cada STALE_SWEEP_EVERY_TICKS ticks', async () => {
+  dbState.claimedJob = null;
+  const before = dbState.staleSweeps;
+  for (let i = 0; i < publishWorker.STALE_SWEEP_EVERY_TICKS; i++) await publishWorker.tick();
+  assert.equal(dbState.staleSweeps - before, 1);
+});
+
+test('tick() corre el barrido aunque claimNextPublishJob explote (va fuera del try del claim)', async () => {
+  dbState.claimThrows = true;
+  const before = dbState.staleSweeps;
+  for (let i = 0; i < publishWorker.STALE_SWEEP_EVERY_TICKS; i++) await publishWorker.tick();
+  assert.equal(dbState.staleSweeps - before, 1);
 });
 
 test('processJob: ambos canales ok → registra cada unidad, termina el job "done" y recalcula el status del draft', async () => {

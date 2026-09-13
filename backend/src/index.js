@@ -188,7 +188,15 @@ const LOCAL_TEST_MODE = process.env.LOCAL_TEST_MODE === '1';
     if (!LOCAL_TEST_MODE) startMlTaskWorker();
     startPublishWorker();
   } else if (process.env.DATABASE_URL) {
-    console.warn('No se pudo conectar a la base de datos. Revisá DATABASE_URL.');
+    // `initDb()` en `false` deja la API funcionando normal (getPool() es independiente y lazy) pero
+    // SIN el worker de publicación ni el de tareas de ML — nada vuelve a cerrar un job trabado ni a
+    // sincronizar stock, y desde afuera "todo anda" porque encolar sigue funcionando. Sin un aviso
+    // que se note en los logs, esto puede pasar inadvertido indefinidamente (fue la causa raíz de
+    // publicaciones que quedaban "Publicando…" para siempre — ver reconcileStalePublishJobs).
+    console.error(
+      '🔴 [Startup] initDb() FALLÓ — la base de datos NO está lista. El worker de publicación y el ' +
+        'de tareas de ML NO van a arrancar (la API sigue respondiendo, pero nada procesa la cola). Revisá DATABASE_URL y reiniciá.'
+    );
   }
   await loadTokens();
   app.listen(PORT, '0.0.0.0', () => {
