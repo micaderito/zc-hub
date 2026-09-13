@@ -121,7 +121,7 @@ class CatalogServiceMock {
     return Promise.resolve({ ok: true });
   });
 
-  storageUsage: StorageUsage = { usedBytes: 0, limitBytes: 50 * 1024 * 1024, percent: 0 };
+  storageUsage: StorageUsage = { usedBytes: 0, limitBytes: 1024 * 1024 * 1024, percent: 0 };
   getStorageUsage = jasmine.createSpy('getStorageUsage').and.callFake(() => Promise.resolve(this.storageUsage));
 
   retryPublishJob = jasmine.createSpy('retryPublishJob').and.callFake(() => Promise.resolve({ ok: true }));

@@ -98,7 +98,7 @@ before(async () => {
       getImageUrl: async () => null,
       getThumb: () => null,
       removeImage: async (id) => { removedImages.push(id); },
-      getStorageUsage: async () => ({ usedBytes: 0, limitBytes: 50 * 1024 * 1024 })
+      getStorageUsage: async () => ({ usedBytes: 0, limitBytes: 1024 * 1024 * 1024 })
     }
   });
   mock.module('../src/middleware/requireAuth.js', {
