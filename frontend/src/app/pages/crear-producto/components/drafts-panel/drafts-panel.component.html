@@ -23,7 +23,19 @@
         } @else {
           <button type="button" class="zc-btn small" (click)="store.openDraft(d.id)"><i class="ti ti-folder-open"></i> Abrir</button>
         }
-        <button type="button" class="icon-btn" (click)="store.deleteDraft(d.id)" aria-label="Eliminar borrador"><i class="ti ti-trash"></i></button>
+        <button
+          type="button"
+          class="icon-btn"
+          [disabled]="store.deletingDraftId() === d.id"
+          (click)="store.deleteDraft(d.id)"
+          aria-label="Eliminar borrador"
+        >
+          @if (store.deletingDraftId() === d.id) {
+            <i class="ti ti-loader-2 spin"></i>
+          } @else {
+            <i class="ti ti-trash"></i>
+          }
+        </button>
       </div>
     }
   } @else {

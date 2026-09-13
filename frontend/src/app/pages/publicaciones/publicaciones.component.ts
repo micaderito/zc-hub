@@ -1,11 +1,13 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { injectQuery } from '@tanstack/angular-query-experimental';
-import { CatalogService, PublishJobRow, PublishUnit } from '../../core/services/catalog.service';
+import { CatalogService, PublishJobRow, PublishJobSummary, PublishUnit } from '../../core/services/catalog.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 
 const PER_PAGE = 20;
+/** Cada cuánto repollear mientras haya un job en curso — nadie más está mirando esta pantalla. */
+const RUNNING_POLL_MS = 3_000;
 
 type StatusKey = '' | 'done' | 'error' | 'cancelled' | 'running';
 
@@ -77,7 +79,15 @@ export class PublicacionesComponent {
         channel: this.channelFilter() || undefined,
       }),
     staleTime: 10_000,
+    // sin esto, un job que termina mientras esta pantalla está abierta se queda mostrando
+    // "Publicando…" para siempre — nada más dispara un refetch (no hay websocket ni polling del job).
+    refetchInterval: (query: { state: { data?: { rows: PublishJobRow[] } } }) => this.jobsRefetchInterval(query.state.data?.rows),
   }));
+
+  /** `false` corta el polling; un número (ms) lo mantiene. Método aparte para poder testearlo sin timers reales. */
+  jobsRefetchInterval(rows: PublishJobRow[] | undefined): number | false {
+    return rows?.some((r) => r.status === 'pending' || r.status === 'processing') ? RUNNING_POLL_MS : false;
+  }
 
   readonly rows = computed(() => this.jobsQuery.data()?.rows ?? []);
   readonly total = computed(() => this.jobsQuery.data()?.total ?? 0);
@@ -88,7 +98,12 @@ export class PublicacionesComponent {
     queryFn: () => this.catalog.getPublishJob(this.expandedId()!),
     enabled: !!this.expandedId(),
     staleTime: 5_000,
+    refetchInterval: (query: { state: { data?: { job: PublishJobSummary } } }) => this.detailRefetchInterval(query.state.data?.job.status),
   }));
+
+  detailRefetchInterval(status: PublishJobSummary['status'] | undefined): number | false {
+    return status === 'pending' || status === 'processing' ? RUNNING_POLL_MS : false;
+  }
 
   readonly detailUnits = computed<PublishUnit[]>(() => this.detailQuery.data()?.units ?? []);
 

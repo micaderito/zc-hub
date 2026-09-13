@@ -111,4 +111,18 @@ describe('PublicacionesComponent', () => {
     expect(catalog.retryPublishJob).toHaveBeenCalledWith('j1');
     expect(catalog.listPublishJobs.calls.count()).toBeGreaterThan(1);
   });
+
+  it('jobsRefetchInterval sigue polleando mientras haya un job pending o processing, y corta si todos terminaron', () => {
+    expect(component.jobsRefetchInterval([jobRow({ status: 'processing' })])).toBe(3_000);
+    expect(component.jobsRefetchInterval([jobRow({ status: 'pending' })])).toBe(3_000);
+    expect(component.jobsRefetchInterval([jobRow({ status: 'done' }), jobRow({ status: 'error' })])).toBe(false);
+    expect(component.jobsRefetchInterval(undefined)).toBe(false);
+  });
+
+  it('detailRefetchInterval sigue polleando el detalle expandido mientras el job no terminó', () => {
+    expect(component.detailRefetchInterval('processing')).toBe(3_000);
+    expect(component.detailRefetchInterval('pending')).toBe(3_000);
+    expect(component.detailRefetchInterval('done')).toBe(false);
+    expect(component.detailRefetchInterval(undefined)).toBe(false);
+  });
 });
