@@ -131,6 +131,13 @@ export interface UploadedImage {
   size: number;
 }
 
+/** Uso del storage de imágenes (Supabase o disco) contra el tope del plan contratado. */
+export interface StorageUsage {
+  usedBytes: number;
+  limitBytes: number;
+  percent: number;
+}
+
 /** SEO generado con IA (ya recortado a los límites de TN: 70 / 320). */
 export interface GeneratedSeo {
   seoTitle: string;
@@ -236,6 +243,11 @@ export class CatalogService {
   /** Descarta una imagen temporal del backend. */
   deleteImage(id: string): Promise<{ ok: boolean }> {
     return lastValueFrom(this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/products/images/${id}`));
+  }
+
+  /** Uso actual del storage de imágenes, para avisar antes de quedarse sin lugar. */
+  getStorageUsage(): Promise<StorageUsage> {
+    return lastValueFrom(this.http.get<StorageUsage>(`${this.api.baseUrl}/products/storage-usage`));
   }
 
   /* ---------- Publicar en ambos canales ---------- */

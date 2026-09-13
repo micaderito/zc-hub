@@ -12,6 +12,7 @@ import {
   MlCategoryRef,
   PublishJobSummary,
   PublishResponse,
+  StorageUsage,
   TnCategory,
   UploadedImage
 } from '../../core/services/catalog.service';
@@ -119,6 +120,9 @@ class CatalogServiceMock {
     this.draftsDb.delete(id);
     return Promise.resolve({ ok: true });
   });
+
+  storageUsage: StorageUsage = { usedBytes: 0, limitBytes: 50 * 1024 * 1024, percent: 0 };
+  getStorageUsage = jasmine.createSpy('getStorageUsage').and.callFake(() => Promise.resolve(this.storageUsage));
 
   retryPublishJob = jasmine.createSpy('retryPublishJob').and.callFake(() => Promise.resolve({ ok: true }));
   deletePublishJob = jasmine.createSpy('deletePublishJob').and.callFake(() => Promise.resolve({ ok: true }));
@@ -2137,6 +2141,36 @@ describe('CrearProductoComponent', () => {
 
       expect(component.draft().common.baseName).toBe('');
       expect(component.currentDraftId()).toBeNull();
+    }));
+
+    it('deleteDraft() marca deletingDraftId mientras está en curso, para mostrar un spinner', fakeAsync(() => {
+      component.draft().common.baseName = 'A';
+      component.saveDraft();
+      flushMicrotasks();
+      const idA = component.currentDraftId()!;
+
+      component.deleteDraft(idA);
+      expect(component.deletingDraftId()).toBe(idA);
+      flushMicrotasks();
+      expect(component.deletingDraftId()).toBeNull();
+    }));
+
+    it('toggleDraftsPanel() refresca la lista al abrir — un job reintentado desde /publicaciones puede haber terminado sin que nadie lo estuviera polleando', fakeAsync(() => {
+      component.saveDraft();
+      flushMicrotasks();
+      catalog.listDrafts.calls.reset();
+
+      component.toggleDraftsPanel();
+      flushMicrotasks();
+
+      expect(component.draftsPanelOpen()).toBeTrue();
+      expect(catalog.listDrafts).toHaveBeenCalled();
+
+      catalog.listDrafts.calls.reset();
+      component.toggleDraftsPanel();
+      flushMicrotasks();
+      expect(component.draftsPanelOpen()).toBeFalse();
+      expect(catalog.listDrafts).not.toHaveBeenCalled();
     }));
 
     it('startNewDraft() limpia el formulario pero NO borra el borrador ya guardado', fakeAsync(() => {

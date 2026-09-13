@@ -95,3 +95,50 @@ test('purgeOld: no hace nada con Supabase (el borrado es en cascada, no por TTL 
   assert.equal(removed, 0);
   assert.equal(state.calls.length, 0);
 });
+
+test('getStorageUsage: suma los archivos de cada carpeta (id de imagen) del bucket', async () => {
+  state.responder = (call) => {
+    const body = JSON.parse(call.body);
+    if (body.prefix === '') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          { id: null, name: 'img1', metadata: null },
+          { id: null, name: 'img2', metadata: null }
+        ]
+      };
+    }
+    if (body.prefix === 'img1/') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          { id: 'a', name: 'original.jpg', metadata: { size: 1000 } },
+          { id: 'b', name: 'meta.json', metadata: { size: 50 } }
+        ]
+      };
+    }
+    if (body.prefix === 'img2/') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [{ id: 'c', name: 'original.png', metadata: { size: 2000 } }]
+      };
+    }
+    return { ok: true, status: 200, json: async () => [] };
+  };
+  const usage = await imageStore.getStorageUsage(0);
+  assert.equal(usage.usedBytes, 3050);
+  assert.equal(usage.limitBytes, 50 * 1024 * 1024);
+});
+
+test('getStorageUsage: cachea el total y no vuelve a listar el bucket dentro de la ventana', async () => {
+  state.responder = () => ({ ok: true, status: 200, json: async () => [] });
+  const now = 1_000_000;
+  await imageStore.getStorageUsage(now);
+  const callsAfterFirst = state.calls.length;
+  assert.ok(callsAfterFirst > 0);
+  await imageStore.getStorageUsage(now + 1000);
+  assert.equal(state.calls.length, callsAfterFirst);
+});

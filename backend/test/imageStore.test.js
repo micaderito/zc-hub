@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   saveImage, saveImageBuffer, saveThumbBuffer, getImage, getImageUrl, getThumb, removeImage, purgeOld, MAX_THUMB_BYTES,
-  __usingSupabaseForTests
+  getStorageUsage, STORAGE_LIMIT_BYTES, __usingSupabaseForTests
 } from '../src/services/imageStore.js';
 
 test('el proceso de test no tiene credenciales de Supabase: usa el disco local', () => {
@@ -166,5 +166,18 @@ test('purgeOld: borra lo vencido y sin referencia, respeta lo reciente y lo refe
     await removeImage(viejo.id);
     await removeImage(nuevo.id);
     await removeImage(viejoReferenciado.id);
+  }
+});
+
+test('getStorageUsage: en disco, suma el tamaño real de lo guardado contra el tope configurado', async () => {
+  // "now" bien separado del resto de los tests, para no pisar (ni heredar) la caché de 60 s del módulo.
+  const before = await getStorageUsage(900_000_000);
+  const saved = await saveImageBuffer({ filename: 'peso.jpg', mime: 'image/jpeg', buffer: Buffer.from('0123456789') });
+  try {
+    const after = await getStorageUsage(900_100_000);
+    assert.ok(after.usedBytes >= before.usedBytes + 10);
+    assert.equal(after.limitBytes, STORAGE_LIMIT_BYTES);
+  } finally {
+    await removeImage(saved.id);
   }
 });

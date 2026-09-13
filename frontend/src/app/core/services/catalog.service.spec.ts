@@ -93,6 +93,13 @@ describe('CatalogService', () => {
     req.flush({ ok: true });
   });
 
+  it('getStorageUsage() GET /products/storage-usage', () => {
+    service.getStorageUsage().then((r) => expect(r.percent).toBe(87.3));
+    const req = httpMock.expectOne(`${base}/products/storage-usage`);
+    expect(req.request.method).toBe('GET');
+    req.flush({ usedBytes: 45_800_000, limitBytes: 50 * 1024 * 1024, percent: 87.3 });
+  });
+
   it('publishDraft() POST /products/drafts/:id/publish con { payload, channels }', () => {
     service.publishDraft('d1', { ml: {}, tn: {} }, ['ml']).then((r) => expect(r.jobId).toBe('j1'));
     const req = httpMock.expectOne(`${base}/products/drafts/d1/publish`);
