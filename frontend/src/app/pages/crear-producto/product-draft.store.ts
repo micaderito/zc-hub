@@ -127,6 +127,8 @@ export class ProductDraftStore {
   readonly lastPublishJob = signal<PublishJobSummary | null>(null);
   readonly savedDrafts = signal<{ id: string; label: string; savedAt: Date; status: DraftSummary['status'] }[]>([]);
   readonly draftsPanelOpen = signal(false);
+  /** Id del borrador que se está eliminando ahora mismo (para el spinner del botón). */
+  readonly deletingDraftId = signal<string | null>(null);
   /** Uso del storage de imágenes (Supabase, tope 50 MB). `null` hasta el primer refresh o si falló. */
   readonly storageUsage = signal<StorageUsage | null>(null);
 
@@ -1105,17 +1107,23 @@ export class ProductDraftStore {
     }
   }
 
+  /** Al abrir, refresca la lista — un job de publicación puede haber terminado sin que nadie lo estuviera polleando (ej. reintentado desde /publicaciones). */
   toggleDraftsPanel(): void {
-    this.draftsPanelOpen.set(!this.draftsPanelOpen());
+    const opening = !this.draftsPanelOpen();
+    this.draftsPanelOpen.set(opening);
+    if (opening) void this.refreshSavedDraftsList();
   }
 
   /** Elimina un borrador para siempre (y sus imágenes, en el backend). Si es el que se está editando, limpia el formulario. */
   async deleteDraft(id: string): Promise<void> {
+    this.deletingDraftId.set(id);
     try {
       await this.catalog.deleteDraft(id);
     } catch (e) {
       this.setImageError('draft', this.errMsg(e) || 'No se pudo eliminar el borrador.');
       return;
+    } finally {
+      this.deletingDraftId.set(null);
     }
     await this.refreshSavedDraftsList();
     if (this.currentDraftId() === id) this.startNewDraft();

@@ -64,3 +64,19 @@
     margin: 0;
   }
 }
+
+.icon-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.spin {
+  display: inline-block;
+  animation: drafts-panel-spin 0.9s linear infinite;
+}
+
+@keyframes drafts-panel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

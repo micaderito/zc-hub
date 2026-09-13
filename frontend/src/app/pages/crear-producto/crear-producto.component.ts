@@ -77,6 +77,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   readonly draftRestored = this.store.draftRestored;
   readonly savedDrafts = this.store.savedDrafts;
   readonly draftsPanelOpen = this.store.draftsPanelOpen;
+  readonly deletingDraftId = this.store.deletingDraftId;
   readonly hasVariants = this.store.hasVariants;
   readonly mlProjection = this.store.mlProjection;
   readonly tnProjection = this.store.tnProjection;

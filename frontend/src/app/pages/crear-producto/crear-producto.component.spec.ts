@@ -2143,6 +2143,36 @@ describe('CrearProductoComponent', () => {
       expect(component.currentDraftId()).toBeNull();
     }));
 
+    it('deleteDraft() marca deletingDraftId mientras está en curso, para mostrar un spinner', fakeAsync(() => {
+      component.draft().common.baseName = 'A';
+      component.saveDraft();
+      flushMicrotasks();
+      const idA = component.currentDraftId()!;
+
+      component.deleteDraft(idA);
+      expect(component.deletingDraftId()).toBe(idA);
+      flushMicrotasks();
+      expect(component.deletingDraftId()).toBeNull();
+    }));
+
+    it('toggleDraftsPanel() refresca la lista al abrir — un job reintentado desde /publicaciones puede haber terminado sin que nadie lo estuviera polleando', fakeAsync(() => {
+      component.saveDraft();
+      flushMicrotasks();
+      catalog.listDrafts.calls.reset();
+
+      component.toggleDraftsPanel();
+      flushMicrotasks();
+
+      expect(component.draftsPanelOpen()).toBeTrue();
+      expect(catalog.listDrafts).toHaveBeenCalled();
+
+      catalog.listDrafts.calls.reset();
+      component.toggleDraftsPanel();
+      flushMicrotasks();
+      expect(component.draftsPanelOpen()).toBeFalse();
+      expect(catalog.listDrafts).not.toHaveBeenCalled();
+    }));
+
     it('startNewDraft() limpia el formulario pero NO borra el borrador ya guardado', fakeAsync(() => {
       component.draft().common.baseName = 'Algo';
       component.saveDraft();
