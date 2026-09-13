@@ -97,7 +97,7 @@ describe('CatalogService', () => {
     service.getStorageUsage().then((r) => expect(r.percent).toBe(87.3));
     const req = httpMock.expectOne(`${base}/products/storage-usage`);
     expect(req.request.method).toBe('GET');
-    req.flush({ usedBytes: 45_800_000, limitBytes: 50 * 1024 * 1024, percent: 87.3 });
+    req.flush({ usedBytes: 938_000_000, limitBytes: 1024 * 1024 * 1024, percent: 87.3 });
   });
 
   it('publishDraft() POST /products/drafts/:id/publish con { payload, channels }', () => {

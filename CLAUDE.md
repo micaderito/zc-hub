@@ -527,13 +527,15 @@ aparezca en ningún `draft_json` (`backend/src/index.js`, `collectReferencedImag
 con TODOS los ids de imagen de TODOS los borradores buscando el patrón de 32 hex como substring —
 barato, no hace falta parsear la estructura del draft).
 
-**Aviso de capacidad (tope de 50 MB del plan).** `getStorageUsage()` suma recursivamente TODO lo
-que hay en el bucket (no solo lo referenciado por un borrador: una foto subida y nunca guardada, o
-restos de un fallo a mitad de publicar, ocupan espacio real igual y no se limpian solas en
-Supabase). La API de Storage lista un nivel por vez (como S3 con delimitador "/"): cada carpeta es
-un id de imagen y hay que bajar un nivel más para sumar sus archivos — con el tope de 50 MB son, a
-lo sumo, unas pocas decenas de carpetas, no hace falta paginar. Se cachea 60 s (`GET
-/api/products/storage-usage`) para no recorrer el bucket entero en cada polling del panel. El
+**Aviso de capacidad (tope de 1 GB del plan Free de Supabase Storage — los 50 MB son el máximo por
+ARCHIVO, un límite aparte y no configurable, no la capacidad total).** `getStorageUsage()` suma
+recursivamente TODO lo que hay en el bucket (no solo lo referenciado por un borrador: una foto
+subida y nunca guardada, o restos de un fallo a mitad de publicar, ocupan espacio real igual y no
+se limpian solas en Supabase). La API de Storage lista un nivel por vez (como S3 con delimitador
+"/"): cada carpeta es un id de imagen y hay que bajar un nivel más para sumar sus archivos — con
+1 GB de tope y fotos de un par de MB, el nivel raíz puede superar sin problema las 1000 entradas
+por llamada, así que pagina con `offset` hasta que una página vuelve incompleta. Se cachea 60 s
+(`GET /api/products/storage-usage`) para no recorrer el bucket entero en cada polling del panel. El
 panel "Mis borradores" (`drafts-panel.component.*`) muestra un aviso a partir del 85% (crítico
 desde el 90%) — se refresca solo junto con la lista de borradores (entrar a la página, guardar o
 borrar uno), sin acción extra de la usuaria.
@@ -743,7 +745,8 @@ completa / 5xx real propaga / camino feliz sube las N),
 `backend/test/tiendanube.test.js` (`fetchTn` aborta por timeout con `.timeout=true` / reintenta 5xx),
 `backend/test/imageStore.test.js` +
 `imageStoreSupabase.test.js` (backend de disco vs. Supabase, purgado respetando lo referenciado,
-`getStorageUsage` sumando carpetas del bucket recursivamente y con caché de 60 s),
+`getStorageUsage` sumando carpetas del bucket recursivamente, con paginación por `offset` y con
+caché de 60 s),
 `backend/test/publishWorker.test.js` (skip de unidades ya `ok` en un reintento, error parcial que
 no frena el otro canal, latido sin dejar intervals colgados, que `seedPublishUnits` siembre TODAS
 las unidades planificadas como `pending` antes de publicar / no siembre nada si falla el

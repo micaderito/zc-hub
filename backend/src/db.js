@@ -3200,9 +3200,13 @@ export async function finishPublishJob(jobId, status, errorMsg = null) {
   if (!p) return false;
   try {
     const r = await p.query(
+      // `$1::text` en los dos usos: sin el cast, `SET status = $1` deduce varchar(16) (el tipo de
+      // la columna) y `$1 IN (...)` deduce text — Postgres no unifica los dos y rechaza la query
+      // entera con "inconsistent types deduced for parameter $1" (reproducido y confirmado contra
+      // Postgres real). Bug histórico: nunca se pudo cerrar NINGÚN job por este camino.
       `UPDATE product_publish_jobs
-       SET status = $1, last_error = $2, locked_at = NULL, updated_at = NOW(),
-           finished_at = CASE WHEN $1 IN ('done', 'error') THEN NOW() ELSE finished_at END
+       SET status = $1::text, last_error = $2, locked_at = NULL, updated_at = NOW(),
+           finished_at = CASE WHEN $1::text IN ('done', 'error') THEN NOW() ELSE finished_at END
        WHERE id = $3 AND status <> 'cancelled'`,
       [status, errorMsg, jobId]
     );
@@ -3218,11 +3222,13 @@ export async function finishPublishJob(jobId, status, errorMsg = null) {
 /**
  * Red de seguridad para jobs que quedaron trabados en `processing`/`pending` (worker que se cortó
  * justo antes del `finishPublishJob`, o un `finish` que falló en silencio). Corre desde el worker
- * cada ~1 min. Dos casos:
- *  - Job con lock vencido cuyas unidades están TODAS en estado terminal (`ok`/`error`) → se cierra
- *    (`done` si todas ok, si no `error`) + recalcula el estado del borrador.
- *  - Job en `processing` con `attempts >= 5` (ya no lo toma `claimNextPublishJob`, quedaría zombi
- *    invisible) → se marca `error`.
+ * cada ~10 s, y también a pedido desde `POST /publish-jobs/reconcile` (botón "Actualizar" de
+ * /publicaciones). Dos casos:
+ *  - Job con lock vencido/quieto cuyas unidades están TODAS en estado terminal (`ok`/`error`) → se
+ *    cierra (`done` si todas ok, si no `error`) + recalcula el estado del borrador. Excluye jobs
+ *    tocados hace menos de `PUBLISH_JOB_SETTLE_MS` (ver comentario del `SELECT`).
+ *  - Job `pending`/`processing` con `attempts >= 5` (ya no lo toma `claimNextPublishJob`, quedaría
+ *    zombi invisible) → se marca `error`.
  * Devuelve cuántos jobs cerró.
  */
 export async function reconcileStalePublishJobs() {
@@ -3242,10 +3248,17 @@ export async function reconcileStalePublishJobs() {
     // job (ver runMlChannel/runTnChannel): "sin unidades pending" significa de verdad que el
     // fan-out terminó. Un reintento vuelve a sembrar 'pending' primero, así que tampoco puede
     // cerrar un job que sigue trabajando.
+    //
+    // `j.updated_at` recién tocado (reintento o claim) también lo excluye: sin esto, un job que
+    // `retryPublishJob` acaba de re-encolar (status='pending', sin unidades 'pending' porque las
+    // que fallaron quedan en 'error' hasta que el worker las vuelve a sembrar) matchea este SELECT
+    // y el barrido lo cerraría como error ANTES de que el worker llegue a reprocesarlo — sobre todo
+    // ahora que el botón "Actualizar" dispara este barrido a pedido, justo después de "Reintentar".
     const stale = await p.query(
       `SELECT j.id, j.draft_id AS "draftId"
        FROM product_publish_jobs j
        WHERE j.status IN ('pending', 'processing')
+         AND j.updated_at < NOW() - ($2::int * INTERVAL '1 millisecond')
          AND (
                j.locked_at IS NULL
                OR j.locked_at < NOW() - ($1::int * INTERVAL '1 millisecond')
@@ -3262,25 +3275,33 @@ export async function reconcileStalePublishJobs() {
     for (const job of stale.rows) {
       const units = await p.query(`SELECT status FROM product_publish_units WHERE job_id = $1`, [job.id]);
       const allOk = units.rows.length > 0 && units.rows.every((u) => u.status === 'ok');
+      const finalStatus = allOk ? 'done' : 'error';
+      // `$2::text` en los dos usos por el mismo motivo que en `finishPublishJob`: sin el cast,
+      // Postgres deduce tipos distintos para `SET status = $2` (varchar(16), el tipo de columna) y
+      // `$2 = 'error'` (text), y rechaza la query con "inconsistent types deduced for parameter
+      // $2" — confirmado contra Postgres real. Este es el bug que dejaba los jobs trabados en
+      // `processing` para siempre a pesar de que el barrido "cerraba" 0 en silencio.
       const r = await p.query(
         `UPDATE product_publish_jobs
-         SET status = $2, locked_at = NULL, finished_at = NOW(), updated_at = NOW(),
-             last_error = CASE WHEN $2 = 'error' THEN COALESCE(last_error, 'Cerrado por el barrido: unidades terminales, job trabado') ELSE last_error END
+         SET status = $2::text, locked_at = NULL, finished_at = NOW(), updated_at = NOW(),
+             last_error = CASE WHEN $2::text = 'error' THEN COALESCE(last_error, 'Cerrado por el barrido: unidades terminales, job trabado') ELSE last_error END
          WHERE id = $1 AND status IN ('pending', 'processing')`,
-        [job.id, allOk ? 'done' : 'error']
+        [job.id, finalStatus]
       );
       if ((r.rowCount ?? 0) > 0) {
         closed++;
-        console.warn(`reconcileStalePublishJobs: ${job.id} cerrado como ${allOk ? 'done' : 'error'} (unidades ya terminales).`);
+        console.warn(`reconcileStalePublishJobs: ${job.id} cerrado como ${finalStatus} (unidades ya terminales).`);
         await recomputeDraftStatus(job.draftId).catch(() => {});
       }
     }
-    // 2) zombis: processing con demasiados intentos, ya fuera de la cola
+    // 2) zombis: demasiados intentos, ya fuera de la cola (`claimNextPublishJob` exige
+    // `attempts < 5`). Incluye `pending` porque `retryPublishJob` puede reencolar ahí sin resetear
+    // `attempts` en jobs viejos ya reintentados antes de este fix.
     const zombies = await p.query(
       `UPDATE product_publish_jobs
        SET status = 'error', locked_at = NULL, finished_at = NOW(), updated_at = NOW(),
            last_error = COALESCE(last_error, 'Sin más reintentos disponibles')
-       WHERE status = 'processing' AND attempts >= 5
+       WHERE status IN ('pending', 'processing') AND attempts >= 5
        RETURNING id, draft_id AS "draftId"`
     );
     for (const z of zombies.rows) {
@@ -3333,10 +3354,16 @@ export async function isPublishJobCancelled(jobId) {
 }
 
 /**
- * Re-encola un job para reintentar: vuelve a 'pending' con el lock limpio. Las unidades que ya
- * quedaron 'ok' NO se tocan — el worker las saltea (ver publishWorker.js) — así el reintento no
- * duplica lo que ya se creó. Solo tiene sentido sobre un job 'error' (o 'processing' con lock
- * vencido, mismo criterio de claimNextPublishJob).
+ * Re-encola un job para reintentar: vuelve a 'pending' con el lock limpio, `attempts` en 0 (lo pide
+ * una persona a mano, no un timer — un job viejo con `attempts>=5` no debe quedar invisible para
+ * `claimNextPublishJob`, que exige `attempts < 5`) y las unidades 'error' de vuelta a 'pending' (el
+ * worker las saltea si quedan en 'error' — es `seedPublishUnits` con `ON CONFLICT DO NOTHING`, no
+ * las vuelve a sembrar — y un job 'pending' sin ninguna unidad 'pending' matchea el barrido de
+ * `reconcileStalePublishJobs`, que podría cerrarlo como error antes de que el worker lo retome).
+ * Las unidades que ya quedaron 'ok' NO se tocan, así el reintento no duplica lo ya creado. Solo
+ * tiene sentido sobre un job 'error' (o 'processing' con lock vencido, mismo criterio que
+ * claimNextPublishJob — `locked_at IS NOT NULL` explícito: en SQL, `NULL < algo` da NULL, no true,
+ * así que sin este chequeo un `processing` con el lock ya limpio no calificaba nunca).
  */
 export async function retryPublishJob(jobId) {
   const p = getPool();
@@ -3344,12 +3371,16 @@ export async function retryPublishJob(jobId) {
   try {
     const r = await p.query(
       `UPDATE product_publish_jobs
-       SET status = 'pending', locked_at = NULL, last_error = NULL, updated_at = NOW(), finished_at = NULL
+       SET status = 'pending', locked_at = NULL, last_error = NULL, attempts = 0, updated_at = NOW(), finished_at = NULL
        WHERE id = $1
-         AND (status = 'error' OR (status = 'processing' AND locked_at < NOW() - ($2::int * INTERVAL '1 millisecond')))`,
+         AND (status = 'error' OR (status = 'processing' AND locked_at IS NOT NULL AND locked_at < NOW() - ($2::int * INTERVAL '1 millisecond')))`,
       [jobId, PUBLISH_JOB_STALE_LOCK_MS]
     );
-    return (r.rowCount ?? 0) > 0;
+    const ok = (r.rowCount ?? 0) > 0;
+    if (ok) {
+      await p.query(`UPDATE product_publish_units SET status = 'pending', updated_at = NOW() WHERE job_id = $1 AND status = 'error'`, [jobId]);
+    }
+    return ok;
   } catch (e) {
     console.error('retryPublishJob:', e.message);
     return false;

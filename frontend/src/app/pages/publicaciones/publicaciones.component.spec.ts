@@ -40,6 +40,7 @@ class CatalogMock {
   retryPublishJob = jasmine.createSpy('retryPublishJob').and.resolveTo({ ok: true });
   cancelPublishJob = jasmine.createSpy('cancelPublishJob').and.resolveTo({ ok: true });
   deletePublishJob = jasmine.createSpy('deletePublishJob').and.resolveTo({ ok: true });
+  reconcilePublishJobs = jasmine.createSpy('reconcilePublishJobs').and.resolveTo({ closed: 0 });
 }
 
 describe('PublicacionesComponent', () => {
@@ -112,17 +113,50 @@ describe('PublicacionesComponent', () => {
     expect(catalog.listPublishJobs.calls.count()).toBeGreaterThan(1);
   });
 
-  it('jobsRefetchInterval sigue polleando mientras haya un job pending o processing, y corta si todos terminaron', () => {
-    expect(component.jobsRefetchInterval([jobRow({ status: 'processing' })])).toBe(3_000);
-    expect(component.jobsRefetchInterval([jobRow({ status: 'pending' })])).toBe(3_000);
-    expect(component.jobsRefetchInterval([jobRow({ status: 'done' }), jobRow({ status: 'error' })])).toBe(false);
-    expect(component.jobsRefetchInterval(undefined)).toBe(false);
+  it('al entrar a la página, repara los jobs trabados (reconcile) antes de leer la lista — sin esto un job cerrado a mano en la base no se reflejaría hasta apretar Actualizar', async () => {
+    // El constructor ya disparó refresh() al crear el componente (antes de este `it`).
+    await settle();
+    expect(catalog.reconcilePublishJobs).toHaveBeenCalled();
+    expect(catalog.listPublishJobs).toHaveBeenCalled();
   });
 
-  it('detailRefetchInterval sigue polleando el detalle expandido mientras el job no terminó', () => {
-    expect(component.detailRefetchInterval('processing')).toBe(3_000);
-    expect(component.detailRefetchInterval('pending')).toBe(3_000);
-    expect(component.detailRefetchInterval('done')).toBe(false);
-    expect(component.detailRefetchInterval(undefined)).toBe(false);
+  it('el botón Actualizar reconcilia y refetchea', async () => {
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges(); // sincroniza el [disabled] con refreshing()==false tras el refresh() del constructor
+    catalog.reconcilePublishJobs.calls.reset();
+    catalog.listPublishJobs.calls.reset();
+
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('.btn-refresh');
+    expect(btn).toBeTruthy();
+    expect(btn.disabled).toBeFalse();
+    btn.click();
+
+    await settle();
+    fixture.detectChanges();
+    expect(catalog.reconcilePublishJobs).toHaveBeenCalled();
+    expect(catalog.listPublishJobs).toHaveBeenCalled();
+    expect(component.refreshing()).toBeFalse();
+    expect(btn.textContent).toContain('Actualizar');
+  });
+
+  it('si el reconcile falla, igual se relee la lista y refreshing() vuelve a false', async () => {
+    fixture.detectChanges();
+    await settle();
+    catalog.reconcilePublishJobs.and.rejectWith(new Error('boom'));
+    catalog.listPublishJobs.calls.reset();
+
+    await component.refresh();
+
+    expect(catalog.listPublishJobs).toHaveBeenCalled();
+    expect(component.refreshing()).toBeFalse();
+  });
+
+  it('no hay ningún polling automático: sin interacción, listPublishJobs no se vuelve a llamar solo', async () => {
+    fixture.detectChanges();
+    await settle();
+    const callsAfterLoad = catalog.listPublishJobs.calls.count();
+    await settle(50);
+    expect(catalog.listPublishJobs.calls.count()).toBe(callsAfterLoad);
   });
 });

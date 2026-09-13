@@ -130,7 +130,7 @@ test('getStorageUsage: suma los archivos de cada carpeta (id de imagen) del buck
   };
   const usage = await imageStore.getStorageUsage(0);
   assert.equal(usage.usedBytes, 3050);
-  assert.equal(usage.limitBytes, 50 * 1024 * 1024);
+  assert.equal(usage.limitBytes, 1024 * 1024 * 1024);
 });
 
 test('getStorageUsage: cachea el total y no vuelve a listar el bucket dentro de la ventana', async () => {
@@ -141,4 +141,26 @@ test('getStorageUsage: cachea el total y no vuelve a listar el bucket dentro de 
   assert.ok(callsAfterFirst > 0);
   await imageStore.getStorageUsage(now + 1000);
   assert.equal(state.calls.length, callsAfterFirst);
+});
+
+// "now" bien por delante del resto de los tests del archivo, para no pisar (ni heredar) la caché de 60 s del módulo.
+test('getStorageUsage: pagina con offset cuando una carpeta tiene 1000+ entradas (tope real: 1 GB, no 50 MB)', async () => {
+  const PAGE = 1000;
+  state.responder = (call) => {
+    const body = JSON.parse(call.body);
+    if (body.prefix !== '') return { ok: true, status: 200, json: async () => [] };
+    if (body.offset === 0) {
+      // página llena (== PAGE): tiene que pedir la siguiente.
+      return { ok: true, status: 200, json: async () => Array.from({ length: PAGE }, (_, i) => ({ id: `f${i}`, name: `f${i}.jpg`, metadata: { size: 1 } })) };
+    }
+    if (body.offset === PAGE) {
+      // página incompleta: es la última, no debería pedir una tercera.
+      return { ok: true, status: 200, json: async () => [{ id: 'last', name: 'last.jpg', metadata: { size: 5 } }] };
+    }
+    throw new Error(`offset inesperado: ${body.offset}`);
+  };
+  const usage = await imageStore.getStorageUsage(10_000_000);
+  assert.equal(usage.usedBytes, PAGE * 1 + 5);
+  const listCalls = state.calls.filter((c) => c.url.includes('/object/list/'));
+  assert.equal(listCalls.length, 2);
 });

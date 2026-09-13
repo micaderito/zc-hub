@@ -35,8 +35,8 @@ const POLL_INTERVAL_MS = 500;
  * `processing` para siempre (ej. un request a ML/TN colgado — que igual ya tiene timeout de red).
  */
 const PUBLISH_JOB_MAX_RUNTIME_MS = 15 * 60 * 1000;
-/** Cada cuántos ticks se corre el barrido de jobs trabados (500ms * 20 = 10 s). */
-const STALE_SWEEP_EVERY_TICKS = 20;
+/** Cada cuántos ticks se corre el barrido de jobs trabados (500ms * 20 = 10 s). Exportada para los tests. */
+export const STALE_SWEEP_EVERY_TICKS = 20;
 /** Reintentos del `finishPublishJob` final: sin esto, un hipo de la base deja el job abierto. */
 const FINISH_RETRIES = 2;
 const FINISH_RETRY_DELAY_MS = 1000;
