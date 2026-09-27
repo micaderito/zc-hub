@@ -1693,6 +1693,53 @@ describe('CrearProductoComponent', () => {
       expect(component.publishBlockers()).toEqual([]);
     });
 
+    it('tipear el stock en el input saca "Falta el stock" sin tocar nada más', fakeAsync(() => {
+      // Regresión: el input de stock no llamaba a touch(), así que el computed no se enteraba del
+      // valor y el aviso quedaba hasta que otra acción (ej. cambiar el modo de TN) forzaba el recálculo.
+      fillValid();
+      component.draft().common.baseStock = null;
+      component.touch();
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(component.publishBlockers()).toContain('Falta el stock');
+
+      const stock = fixture.nativeElement.querySelector(
+        'zc-variants-section .simple-grid label:nth-child(3) input'
+      ) as HTMLInputElement;
+      stock.value = '7';
+      stock.dispatchEvent(new Event('input', { bubbles: true }));
+
+      expect(component.draft().common.baseStock).toBe(7);
+      expect(component.publishBlockers()).toEqual([]);
+      component.store.cancelAutosave();
+    }));
+
+    it('tipear en la tabla de variantes recalcula los avisos sin recrear la fila (no pierde el foco)', fakeAsync(() => {
+      fillValid();
+      component.addAxis(); // crea una variante vacía
+      const v = component.draft().variants[0];
+      v.ml.price = 100;
+      v.tn.price = 90;
+      component.touch();
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(component.publishBlockers().some((x) => x.includes('sin SKU'))).toBeTrue();
+
+      const skuCell = () => fixture.nativeElement.querySelector('.variant-table tbody tr td input.mono') as HTMLInputElement;
+      const before = skuCell();
+      before.focus();
+      before.value = 'V1';
+      before.dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+      flushMicrotasks();
+
+      expect(v.sku).toBe('V1');
+      expect(component.publishBlockers()).toEqual([]);
+      expect(skuCell()).toBe(before); // mismo nodo: el @for (track v.id) no rearmó la fila
+      expect(document.activeElement).toBe(before);
+      component.store.cancelAutosave();
+    }));
+
     it('deshabilita el botón "Publicar en ambos" mientras haya bloqueadores', () => {
       fixture.detectChanges();
       const btn = fixture.nativeElement.querySelector('.publish-split .zc-btn.primary') as HTMLButtonElement;

@@ -634,7 +634,13 @@ export function planTnUnits(payload) {
   return products.map((body, pIdx) => {
     let uploadIds; // fotos a subir a ESTE producto, en orden (position 1 = portada)
     let forVariants; // variantes cuyo image_id asociar
-    if (mode === 'one_per_variant') {
+    if (!variants.length) {
+      // Producto simple: sin variantes, el modo no aplica (buildTnProducts arma UN producto en
+      // cualquier modo). Antes caía en la rama `one_per_variant`, buscaba las fotos en
+      // `variants[0]` —que no existe— y el producto se creaba sin ninguna foto.
+      uploadIds = galleryIds;
+      forVariants = [];
+    } else if (mode === 'one_per_variant') {
       // Cada producto es una variante: su galería propia = SOLO las fotos asignadas a esa
       // variante, en el ORDEN QUE LA USUARIA ELIGIÓ PARA ESA VARIANTE (v.tn.image_ids, el que
       // arma variant-photos-dialog) — NO el orden de la galería general, que es de dónde salía
