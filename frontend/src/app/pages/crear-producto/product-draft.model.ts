@@ -46,7 +46,6 @@ export interface CommonData {
   lengthCm: number | null;
   widthCm: number | null;
   heightCm: number | null;
-  seoKeywords: string;
   /** Stock del producto SIMPLE (sin variantes). Es el mismo en ambos canales, no hay uno por canal. */
   baseStock: number | null;
   /**
@@ -150,6 +149,17 @@ export interface ProductVariant {
  */
 export const CONDITIONAL_REQUIRED_TRIGGERS: Record<string, string[]> = {
   UNITS_PER_PACK: ['SALE_FORMAT', 'PACK_INFO', 'UNIT']
+};
+
+/**
+ * Atributos de medida de ML que repiten una medida de "Datos comunes" (en cm). Vacíos, toman ese
+ * valor; si la usuaria escribe uno propio, gana el suyo (una hoja puede ser más chica que la tapa).
+ */
+export const ML_ATTR_FROM_COMMON: Record<string, 'lengthCm' | 'widthCm'> = {
+  LENGTH: 'lengthCm',
+  PAPER_HEIGHT: 'lengthCm',
+  WIDTH: 'widthCm',
+  PAPER_WIDTH: 'widthCm'
 };
 
 /** Atributo de categoría de ML (se descubren con GET /categories/{id}/attributes). */
@@ -285,7 +295,6 @@ export function emptyDraft(): ProductDraft {
       lengthCm: null,
       widthCm: null,
       heightCm: null,
-      seoKeywords: '',
       baseStock: null,
       mpn: '',
       ageGroup: 'adult',
