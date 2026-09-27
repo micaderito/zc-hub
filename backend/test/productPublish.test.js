@@ -77,12 +77,44 @@ test('buildMlItems: agrega atributos SELLER_PACKAGE_* (peso/dimensiones enteros 
   assert.equal(val('SELLER_PACKAGE_WEIGHT'), '480 g');
 });
 
-test('buildMlItems: NO agrega SELLER_PACKAGE_* si falta un dato o no cumple el mínimo (dim ≥3cm, peso ≥50g)', () => {
+test('buildMlItems: un paquete finito (alto < 3 cm) igual manda sus 4 medidas', () => {
+  // Bug: había un mínimo inventado (dim ≥ 3 cm, peso ≥ 50 g) y el paquete era todo-o-nada: un
+  // cuaderno de 2 cm de alto se publicaba SIN ninguna medida de paquete, en silencio.
   const items = buildMlItems(
-    { ml: { ...mlBase }, axes: [], variants: [], common: { lengthCm: 30, widthCm: 22, heightCm: 2, weightG: 480 } },
+    { ml: { ...mlBase }, axes: [], variants: [], common: { lengthCm: 30, widthCm: 22, heightCm: 1.5, weightG: 40 } },
     picMap
   );
-  assert.ok(!items[0].attributes.some((a) => String(a.id).startsWith('SELLER_PACKAGE_')));
+  const val = (id) => items[0].attributes.find((a) => a.id === id)?.value_name;
+  assert.equal(val('SELLER_PACKAGE_LENGTH'), '30 cm');
+  assert.equal(val('SELLER_PACKAGE_WIDTH'), '22 cm');
+  assert.equal(val('SELLER_PACKAGE_HEIGHT'), '2 cm'); // redondea para ARRIBA: nunca achica el paquete
+  assert.equal(val('SELLER_PACKAGE_WEIGHT'), '40 g');
+});
+
+test('buildMlItems: manda las medidas de paquete que haya aunque falte alguna, y omite las vacías/0', () => {
+  const items = buildMlItems(
+    { ml: { ...mlBase }, axes: [], variants: [], common: { lengthCm: 30, widthCm: null, heightCm: 0, weightG: 480 } },
+    picMap
+  );
+  const ids = items[0].attributes.map((a) => a.id).filter((id) => String(id).startsWith('SELLER_PACKAGE_'));
+  assert.deepEqual(ids.sort(), ['SELLER_PACKAGE_LENGTH', 'SELLER_PACKAGE_WEIGHT']);
+});
+
+test('buildMlItems (one_per_variant): cada publicación lleva las medidas del paquete', () => {
+  const items = buildMlItems(
+    {
+      ml: { ...mlBase, mapping_mode: 'one_per_variant' },
+      axes: [{ name: 'Color' }],
+      variants: [
+        { sku: 'A', values: ['Rojo'], ml: { price: 1, stock: 1 } },
+        { sku: 'B', values: ['Azul'], ml: { price: 1, stock: 1 } }
+      ],
+      common: { lengthCm: 30, widthCm: 22, heightCm: 1, weightG: 300 }
+    },
+    picMap,
+    { userProducts: true }
+  );
+  for (const it of items) assert.ok(it.attributes.some((a) => a.id === 'SELLER_PACKAGE_HEIGHT' && a.value_name === '1 cm'));
 });
 
 test('buildMlItems (single_with_variants): variations[] con SELLER_SKU y picture_ids por variación', () => {
@@ -676,4 +708,47 @@ test('sanitizeMlAttributeValues: fail-open — sin definición de la categoría 
 test('sanitizeMlAttributeValues: deja pasar tal cual lo que ya viene por value_name', () => {
   const attrs = [{ id: 'YEAR', value_name: '2027' }, { id: 'SELLER_SKU', value_name: 'CUA-1' }];
   assert.deepEqual(sanitizeMlAttributeValues(attrs, catAttrs), attrs);
+});
+
+/* ---------- number_unit: un número pelado lleva la unidad por defecto de la categoría ---------- */
+
+const catDims = [
+  { id: 'WIDTH', name: 'Ancho', value_type: 'number_unit', default_unit: 'cm', allowed_units: [{ id: 'cm', name: 'cm' }] },
+  { id: 'LENGTH', name: 'Largo', value_type: 'number_unit', default_unit: 'cm', allowed_units: [{ id: 'cm', name: 'cm' }, { id: 'mm', name: 'mm' }] },
+  { id: 'SHEETS_NUMBER', name: 'Cantidad de hojas', value_type: 'number' }
+];
+
+test('sanitizeMlAttributeValues: number_unit sin unidad ("20") sale con la unidad por defecto ("20 cm")', () => {
+  // Bug: ML descarta en silencio un number_unit sin unidad — "Ancho: 20" no aparecía en la publicación.
+  const out = sanitizeMlAttributeValues(
+    [{ id: 'WIDTH', value_name: '20' }, { id: 'LENGTH', value_name: '29,7' }, { id: 'SHEETS_NUMBER', value_name: '80' }],
+    catDims
+  );
+  assert.deepEqual(out, [
+    { id: 'WIDTH', value_name: '20 cm' },
+    { id: 'LENGTH', value_name: '29.7 cm' },
+    { id: 'SHEETS_NUMBER', value_name: '80' } // `number` no lleva unidad
+  ]);
+});
+
+test('sanitizeMlAttributeValues: number_unit que ya trae unidad se respeta (con o sin espacio)', () => {
+  const out = sanitizeMlAttributeValues([{ id: 'LENGTH', value_name: '297 mm' }, { id: 'WIDTH', value_name: '21cm' }], catDims);
+  assert.deepEqual(out, [{ id: 'LENGTH', value_name: '297 mm' }, { id: 'WIDTH', value_name: '21 cm' }]);
+});
+
+test('medidas: ML recibe Largo/Ancho/Grosor como paquete y el backend pasa las de TN tal cual las arma el front', () => {
+  const common = { lengthCm: 20, widthCm: 15, heightCm: 1, weightG: 300 };
+  const ml = buildMlItems({ ml: { ...mlBase }, axes: [], variants: [], common }, picMap)[0].attributes;
+  const val = (id) => ml.find((a) => a.id === id)?.value_name;
+  assert.equal(val('SELLER_PACKAGE_LENGTH'), '20 cm');
+  assert.equal(val('SELLER_PACKAGE_WIDTH'), '15 cm');
+  assert.equal(val('SELLER_PACKAGE_HEIGHT'), '1 cm');
+  const tn = buildTnProducts({
+    tn: { ...tnBase, base_price: 100, base_stock: 1, variants: [{ sku: 'X', depth: 20, width: 15, height: 1, weight: 0.3 }] },
+    variants: []
+  })[0].variants[0];
+  assert.equal(tn.depth, '20.00');
+  assert.equal(tn.width, '15.00');
+  assert.equal(tn.height, '1.00');
+  assert.equal(tn.weight, '0.30');
 });

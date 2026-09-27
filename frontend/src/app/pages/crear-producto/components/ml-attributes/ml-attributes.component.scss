@@ -58,4 +58,11 @@
 .attr-unit {
   display: flex;
   flex: 1;
+  align-items: center;
+  gap: 0.4rem;
+}
+.unit-suffix {
+  color: var(--text-2);
+  font-size: 0.85rem;
+  white-space: nowrap;
 }

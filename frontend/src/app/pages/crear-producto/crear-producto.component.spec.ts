@@ -1463,10 +1463,45 @@ describe('CrearProductoComponent', () => {
       expect(payload.common.lengthCm).toBe(30);
     });
 
+    it('medidas a TN con variantes: mismo mapeo en cada variante', () => {
+      const d = component.draft();
+      d.common = { ...d.common, lengthCm: 20, widthCm: 15, heightCm: 1 };
+      component.addAxis();
+      const v = ((component.buildPayloads().tn as any).variants as any[])[0];
+      expect([v.height, v.width, v.depth]).toEqual([20, 15, 1]);
+    });
+
+    it('medidas a TN (producto parado): Largo → height (Alto), Ancho → width, Grosor → depth (Profundidad)', () => {
+      // Cuaderno 20×15×1: en TN tiene que verse Alto 20 · Ancho 15 · Profundidad 1.
+      const d = component.draft();
+      d.common = { ...d.common, lengthCm: 20, widthCm: 15, heightCm: 1, weightG: 300 };
+      const v = ((component.buildPayloads().tn as any).variants as any[])[0];
+      expect(v.height).toBe(20);
+      expect(v.width).toBe(15);
+      expect(v.depth).toBe(1);
+      expect(v.weight).toBe(0.3);
+    });
+
     it('usa el valor efectivo (propio u heredado) para el título y la descripción de ML', () => {
       const payload = component.buildPayloads();
       const ml = payload.ml as any;
       expect(ml.title).toBe(component.draft().ml.title.value);
+    });
+
+    it('un atributo con unidad (number_unit) escrito como número pelado sale con la unidad por defecto', () => {
+      // ML descarta en silencio "Ancho: 20" (sin unidad): la publicación salía sin ese dato.
+      component.draft().ml.attributes = [
+        { id: 'WIDTH', name: 'Ancho', value: '20', valueType: 'number_unit', allowedUnits: ['cm'], defaultUnit: 'cm' },
+        { id: 'LENGTH', name: 'Largo', value: '29,7', valueType: 'number_unit', allowedUnits: ['cm', 'mm'], defaultUnit: 'cm' },
+        { id: 'HEIGHT', name: 'Alto', value: '5 mm', valueType: 'number_unit', allowedUnits: ['cm', 'mm'], defaultUnit: 'cm' },
+        { id: 'SHEETS_NUMBER', name: 'Hojas', value: '80', valueType: 'number' }
+      ] as any;
+      const attrs = (component.buildPayloads().ml as any).attributes;
+      const val = (id: string) => attrs.find((a: any) => a.id === id)?.value_name;
+      expect(val('WIDTH')).toBe('20 cm');
+      expect(val('LENGTH')).toBe('29.7 cm');
+      expect(val('HEIGHT')).toBe('5 mm'); // ya traía unidad: se respeta
+      expect(val('SHEETS_NUMBER')).toBe('80'); // `number` no lleva unidad
     });
 
     it('agrega el SELLER_SKU al final de los atributos de ML con el SKU común', () => {
@@ -1507,8 +1542,8 @@ describe('CrearProductoComponent', () => {
         barcode: component.draft().common.barcode,
         weight: component.draft().common.weightG! / 1000,
         width: component.draft().common.widthCm,
-        height: component.draft().common.heightCm,
-        depth: component.draft().common.lengthCm,
+        height: component.draft().common.lengthCm, // TN: producto parado, el Largo es el Alto
+        depth: component.draft().common.heightCm, // el grosor es la Profundidad
         age_group: 'adult',
         gender: 'unisex'
       });
