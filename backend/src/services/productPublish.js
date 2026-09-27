@@ -141,6 +141,11 @@ function gtinAttr(barcode) {
  * product-draft.model: CONDITIONAL_REQUIRED_TRIGGERS), así que en un "Pack" real el usuario ya
  * mandó la cantidad y esto no la pisa.
  */
+
+/** `value_id` con el que ML entiende "No aplica" (con `value_name: null`; si no, lo ignora). */
+export const ML_NOT_APPLICABLE_VALUE_ID = '-1';
+const isNotApplicable = (attr) => String(attr?.value_id ?? '') === ML_NOT_APPLICABLE_VALUE_ID;
+
 /**
  * Saca los `value_id` que ML no puede aceptar. Un `value_id` solo es válido si el atributo de la
  * categoría declara una lista cerrada (`values[]`) y el id está entre ellos; para cualquier otro
@@ -166,6 +171,16 @@ export function sanitizeMlAttributeValues(attributes, mlCategoryAttrs) {
       continue;
     }
     const def = byId.get(String(attr.id ?? ''));
+    // "No aplica": el -1 nunca está en `values[]`, así que no pasa por la validación de abajo (que lo
+    // descartaría). ML lo ignora si `value_name` no es null, y lo rechaza en un atributo de variantes.
+    if (isNotApplicable(attr)) {
+      if (def?.tags?.allow_variations) {
+        console.warn(`[Publish] ${attr.id}: "No aplica" en un atributo de variantes — ML no lo acepta, se descarta.`);
+      } else {
+        out.push({ id: attr.id, value_id: ML_NOT_APPLICABLE_VALUE_ID, value_name: null });
+      }
+      continue;
+    }
     // Sin value_id, o atributo que la categoría no declara (ej. uno personalizado): no opinamos.
     if (!def) {
       out.push(attr);
@@ -216,7 +231,7 @@ async function withSanitizedMlAttributes(payload, mlToken) {
 
 function withUnitsPerPack(attributes) {
   const attrs = attributes || [];
-  const hasSaleFormat = attrs.some((a) => a.id === 'SALE_FORMAT' && (a.value_id || a.value_name));
+  const hasSaleFormat = attrs.some((a) => a.id === 'SALE_FORMAT' && !isNotApplicable(a) && (a.value_id || a.value_name));
   if (!hasSaleFormat) return attrs;
   // ML quiere un entero positivo por `value_name` (nunca `value_id`). Un borrador migrado de antes
   // del fix puede traer `UNITS_PER_PACK` vacío, con basura o con un `value_id` espurio (que ML
@@ -417,7 +432,11 @@ export async function publishMlUnit(itemBody, mlToken, descriptionText) {
 export function mlDroppedAttributes(sentAttrs, createdItem) {
   const hasValue = (a) => (a?.value_id != null && a.value_id !== '') || (a?.value_name != null && String(a.value_name).trim() !== '');
   const kept = new Set((createdItem?.attributes || []).filter(hasValue).map((a) => String(a.id)));
-  const missing = (sentAttrs || []).filter((a) => a?.id && hasValue(a) && !kept.has(String(a.id))).map((a) => String(a.id));
+  // Los "No aplica" no vuelven en la respuesta (ML los esconde sin `include_internal_attributes`):
+  // no son descartes.
+  const missing = (sentAttrs || [])
+    .filter((a) => a?.id && hasValue(a) && !isNotApplicable(a) && !kept.has(String(a.id)))
+    .map((a) => String(a.id));
   const warnings = (Array.isArray(createdItem?.warnings) ? createdItem.warnings : [])
     .map((w) => (typeof w === 'string' ? w : w?.message || w?.code))
     .filter(Boolean);

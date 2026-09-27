@@ -516,6 +516,99 @@ describe('CrearProductoComponent', () => {
     });
   });
 
+  describe('atributos ML: "No aplica"', () => {
+    const attrs = () => component.draft().ml.attributes;
+    const byId = (id: string) => attrs().find((a) => a.id === id)!;
+    const sent = (id: string) => (component.buildPayloads().ml as any).attributes.find((a: any) => a.id === id);
+
+    beforeEach(() => {
+      component.draft().ml.attributes = [
+        { id: 'BRAND', name: 'Marca', value: 'ZC', required: true, inherited: true },
+        { id: 'MODEL', name: 'Modelo', value: '', required: true, inherited: false },
+        { id: 'SHEET_TYPE', name: 'Tipo de hoja', value: '', required: false, inherited: false, valueType: 'string' },
+        { id: 'COLOR', name: 'Color', value: '', required: false, inherited: false, allowVariations: true },
+        { id: 'SALE_FORMAT', name: 'Formato de venta', value: '', required: false, inherited: false, valueType: 'list',
+          allowedValues: [{ id: '1359391', name: 'Unidad' }] },
+        { id: 'UNITS_PER_PACK', name: 'Unidades por pack', value: '', required: false, inherited: false, conditionalRequired: true },
+        { id: 'PAPER_HEIGHT', name: 'Altura de la hoja', value: '', required: false, inherited: false, valueType: 'number_unit',
+          allowedUnits: ['cm'], defaultUnit: 'cm' }
+      ] as any;
+      component.touch();
+    });
+
+    it('se ofrece en todo lo que ML acepta: no en obligatorios, heredados ni atributos de variantes', () => {
+      const can = (id: string) => component.store.canBeNotApplicable(byId(id));
+      expect(can('SHEET_TYPE')).toBeTrue();
+      expect(can('SALE_FORMAT')).toBeTrue();
+      expect(can('UNITS_PER_PACK')).toBeTrue(); // condicional sin disparar
+      expect(can('MODEL')).toBeFalse(); // ML: "is a required attribute … and cannot be not applicable"
+      expect(can('BRAND')).toBeFalse();
+      expect(can('COLOR')).toBeFalse(); // allow_variations
+
+      component.store.setMlAttributeValue(byId('SALE_FORMAT'), '1359391');
+      expect(can('UNITS_PER_PACK')).toBeFalse(); // condicional disparado = obligatorio
+    });
+
+    it('marcado viaja como value_id -1 + value_name null, y gana sobre la medida de Datos comunes', () => {
+      component.draft().common.lengthCm = 21;
+      component.store.setMlAttributeNotApplicable(byId('SHEET_TYPE'), true);
+      component.store.setMlAttributeNotApplicable(byId('PAPER_HEIGHT'), true);
+      expect(sent('SHEET_TYPE')).toEqual({ id: 'SHEET_TYPE', value_id: '-1', value_name: null });
+      expect(sent('PAPER_HEIGHT')).toEqual({ id: 'PAPER_HEIGHT', value_id: '-1', value_name: null });
+    });
+
+    it('marcarlo vacía el valor; cargar un valor lo desmarca', () => {
+      component.store.setMlAttributeFreeValue(byId('SHEET_TYPE'), 'Rayada');
+      component.store.setMlAttributeNotApplicable(byId('SHEET_TYPE'), true);
+      expect(byId('SHEET_TYPE').value).toBe('');
+
+      component.store.setMlAttributeFreeValue(byId('SHEET_TYPE'), 'Lisa');
+      expect(byId('SHEET_TYPE').notApplicable).toBeFalsy();
+      expect(sent('SHEET_TYPE')).toEqual({ id: 'SHEET_TYPE', value_name: 'Lisa' });
+    });
+
+    it('"Formato de venta: No aplica" no vuelve obligatorio "Unidades por pack" ni bloquea publicar', () => {
+      component.store.setMlAttributeNotApplicable(byId('SALE_FORMAT'), true);
+      expect(component.store.attrIsRequired(byId('UNITS_PER_PACK'))).toBeFalse();
+      expect(byId('UNITS_PER_PACK').value).toBe('');
+      expect(component.store.publishBlockers().some((b) => b.includes('Unidades por pack'))).toBeFalse();
+    });
+
+    it('un "No aplica" que quedó en un atributo ahora obligatorio no se manda como N/A', () => {
+      byId('UNITS_PER_PACK').notApplicable = true;
+      component.store.setMlAttributeValue(byId('SALE_FORMAT'), '1359391'); // dispara el condicional
+      expect(sent('UNITS_PER_PACK')).toEqual({ id: 'UNITS_PER_PACK', value_name: '1' });
+    });
+
+    it('con variantes: un atributo usado como eje no se manda como N/A a nivel producto', () => {
+      component.store.setMlAttributeNotApplicable(byId('SHEET_TYPE'), true);
+      component.addAxis();
+      component.draft().axes[0].mlAttributeId = 'SHEET_TYPE';
+      component.touch();
+      expect(sent('SHEET_TYPE')).toBeUndefined();
+    });
+
+    it('DOM: el checkbox aparece solo donde ML lo acepta y deshabilita el campo al marcarlo', fakeAsync(() => {
+      component.store.mlOptionalOpen.set(true);
+      fixture.detectChanges();
+      flushMicrotasks();
+
+      const row = (name: string) =>
+        Array.from(fixture.nativeElement.querySelectorAll('zc-ml-attributes .attr-row') as NodeListOf<HTMLElement>)
+          .find((r) => r.querySelector('.attr-name')?.textContent?.includes(name))!;
+      expect(row('Modelo').querySelector('.attr-na')).toBeNull();
+      const na = row('Tipo de hoja').querySelector('.attr-na input') as HTMLInputElement;
+      expect(na).not.toBeNull();
+
+      na.click();
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(byId('SHEET_TYPE').notApplicable).toBeTrue();
+      expect((row('Tipo de hoja').querySelector('input.attr-input') as HTMLInputElement).disabled).toBeTrue();
+      component.store.cancelAutosave();
+    }));
+  });
+
   describe('SEO con IA', () => {
     it('generateSeo() carga título, descripción Y tags en los campos SEO de TN', async () => {
       component.draft().common.baseName = 'Cuaderno A4 Tapa Dura';

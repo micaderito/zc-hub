@@ -6,6 +6,7 @@
 
 .attr-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
   background: var(--surface-2);
@@ -17,6 +18,27 @@
 .attr-name {
   color: var(--text-2);
   flex: 1;
+}
+
+// "No aplica" en su propia línea, debajo del campo (como en el formulario de ML).
+.attr-na {
+  flex-basis: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  color: var(--text-2);
+  font-size: 0.7rem;
+  cursor: pointer;
+  user-select: none;
+  input {
+    margin: 0;
+    accent-color: var(--brand);
+  }
+}
+
+.attr-row.is-na .attr-name {
+  color: var(--text-3);
 }
 
 .attr-val {
