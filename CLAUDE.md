@@ -192,7 +192,8 @@ stock por cancelación o devolución aprobada, así el filtro que ya existía en
 
 ### Cola de tareas (`ml_pending_tasks`): locks que vencen
 
-El worker (`backend/src/lib/mlTaskQueue.js`, tick cada 500 ms) reclama una tarea y la pasa a
+El worker (`backend/src/lib/mlTaskQueue.js`, tick cada 500 ms, espaciado hasta 5 s con la cola
+vacía — ver "Egress de Supabase" más abajo) reclama una tarea y la pasa a
 `processing`. Si el proceso se muere ahí en el medio — **un deploy es el caso típico** — nadie
 vuelve a mirar esa fila: `claimNextMlTask` busca `pending`/`failed`, no `processing`. Incidente
 2026-08-02: dos `stock_ml_set` quedaron "En proceso" con `intentos = 0` y sin error, esperando
@@ -732,6 +733,28 @@ es CSV, se filtra con `LIKE`. Ruta `GET /api/products/publish-jobs`. Front:
 expandirla (`getPublishJob`) muestra las unidades con su id externo (link a ML; TN sin URL pública
 deducible, solo el id) y `detail`. Reintentar/cancelar/borrar reusan `/jobs/:id/*`. Ítem de nav en
 `layout.component.ts` (debajo de "Crear producto"), ruta en `app.routes.ts`.
+
+### Egress de Supabase: el polling de las colas era el piso de consumo
+
+Incidente 2026-09-27: la organización de Supabase pasó el cupo de egress del plan Free (6,46 GB de
+5 GB; grace period hasta 2026-10-23, después las requests pueden volver 402). El egress cuenta TODO
+lo que sale de Supabase — base (pooler), Storage, API — no el espacio ocupado (ese es 1 GB aparte,
+`STORAGE_LIMIT_BYTES`). El gráfico por día mostró un piso fijo de ~110 MB/día de "Shared Pooler"
+todos los días, más picos de Storage solo en la semana de pruebas de publicación con fotos.
+
+El piso eran los dos workers (`mlTaskQueue.js` y `publishWorker.js`) preguntando a la base cada
+500 ms aunque no hubiera nada (~350k consultas/día por backend prendido). `lib/queuePolling.js`
+mantiene el `setInterval` de 500 ms (así no cambia cuántas tareas corren en paralelo) pero con la
+cola vacía saltea ticks: 1 s → 2 s → 4 s → tope `QUEUE_IDLE_MAX_MS` (5 s). `tick()` de cada worker
+devuelve si encontró trabajo. Encolar o reintentar desde el mismo proceso (`enqueueMlTask`,
+`retryMlTask`, `createPublishJob`, `retryPublishJob` en `db.js`) llama a `wakeQueue()` y vuelve al
+ritmo rápido al instante — los webhooks los recibe el mismo backend, así que en la práctica la
+demora de hasta 5 s solo aplica a reintentos programados (`next_run_at`) o a otro proceso. El
+barrido de jobs trabados del publish worker va cada 20 ticks reales: 10 s con actividad, ~100 s
+con la cola quieta.
+
+Ojo al levantar backends locales contra la base de Supabase: cada uno suma su propio polling al
+mismo cupo (es por organización, no por proyecto).
 
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y

@@ -28,14 +28,18 @@ import { planMlUnits, planTnUnits, publishMlUnit, publishTnUnit } from './produc
 import { reconcileStalePublishJobs } from '../db.js';
 import { getMlToken, tokens } from '../store.js';
 
-const POLL_INTERVAL_MS = 500;
+import { startQueuePolling, stopQueuePolling, QUEUE_POLL_MS, QUEUE_IDLE_MAX_MS } from '../lib/queuePolling.js';
+
 /**
  * Techo de tiempo real que puede correr un job. Pasado esto, el latido deja de refrescar `locked_at`
  * para que `claimNextPublishJob` pueda recuperarlo por lock vencido en vez de quedar clavado en
  * `processing` para siempre (ej. un request a ML/TN colgado — que igual ya tiene timeout de red).
  */
 const PUBLISH_JOB_MAX_RUNTIME_MS = 15 * 60 * 1000;
-/** Cada cuántos ticks se corre el barrido de jobs trabados (500ms * 20 = 10 s). Exportada para los tests. */
+/**
+ * Cada cuántos ticks se corre el barrido de jobs trabados: 10 s con la cola activa, hasta ~100 s
+ * con la cola quieta (los ticks se espacian a 5 s). Exportada para los tests.
+ */
 export const STALE_SWEEP_EVERY_TICKS = 20;
 /** Reintentos del `finishPublishJob` final: sin esto, un hipo de la base deja el job abierto. */
 const FINISH_RETRIES = 2;
@@ -184,10 +188,15 @@ export async function processJob(job) {
   }
 }
 
+/** Devuelve true si reclamó un job (para el espaciado de `startQueuePolling`). */
 export async function tick() {
+  let found = false;
   try {
     const job = await claimNextPublishJob();
-    if (job) await processJob(job);
+    if (job) {
+      found = true;
+      await processJob(job);
+    }
   } catch (e) {
     console.error('[PublishQueue] Error en tick:', e.message);
   }
@@ -202,6 +211,7 @@ export async function tick() {
     });
     if (fixed) console.log(`[PublishQueue] Barrido de trabados: ${fixed} job(s) cerrados.`);
   }
+  return found;
 }
 
 export function startPublishWorker() {
@@ -210,13 +220,13 @@ export function startPublishWorker() {
     return;
   }
   if (workerTimer) return;
-  workerTimer = setInterval(tick, POLL_INTERVAL_MS);
-  console.log('[PublishQueue] Worker de publicación iniciado (polling cada 500ms).');
+  workerTimer = startQueuePolling('publish', tick);
+  console.log(`[PublishQueue] Worker de publicación iniciado (polling cada ${QUEUE_POLL_MS}ms, hasta ${QUEUE_IDLE_MAX_MS}ms con la cola vacía).`);
 }
 
 export function stopPublishWorker() {
   if (workerTimer) {
-    clearInterval(workerTimer);
+    stopQueuePolling('publish', workerTimer);
     workerTimer = null;
     console.log('[PublishQueue] Worker de publicación detenido.');
   }
