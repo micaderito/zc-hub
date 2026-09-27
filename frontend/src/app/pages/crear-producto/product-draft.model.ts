@@ -175,6 +175,8 @@ export interface MlAttribute {
   allowedValues?: { id: string; name: string }[];
   /** Unidades permitidas (atributos 'number_unit', ej. ["cm","mm"]). */
   allowedUnits?: string[];
+  /** Unidad por defecto de la categoría ('number_unit'): la que se usa si se escribe solo el número. */
+  defaultUnit?: string;
   /** true = candidato a EJE de variante (COLOR, SIZE…), ver VariantAxis.mlAttributeId. */
   allowVariations?: boolean;
 }

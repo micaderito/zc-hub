@@ -444,6 +444,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           valueType: a.valueType,
           allowedValues: a.allowedValues,
           allowedUnits: a.allowedUnits,
+          defaultUnit: a.defaultUnit,
           allowVariations: a.allowVariations
         };
       });
@@ -497,7 +498,8 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           // categoría ya no reconoce (borrador viejo, o categoría que cambió sus valores): ese id
           // ML lo rechaza, así que se descarta y queda el texto que haya.
           const valueId = prev.valueId && a.allowedValues?.some((v) => v.id === prev.valueId) ? prev.valueId : undefined;
-          return { ...prev, valueId, name: a.name, required: a.required, conditionalRequired: a.conditionalRequired, valueType: a.valueType, allowedValues: a.allowedValues, allowedUnits: a.allowedUnits, allowVariations: a.allowVariations };
+          return { ...prev, valueId, name: a.name, required: a.required, conditionalRequired: a.conditionalRequired, valueType: a.valueType, allowedValues: a.allowedValues, allowedUnits: a.allowedUnits,
+          defaultUnit: a.defaultUnit, allowVariations: a.allowVariations };
         }
         return {
           id: a.id,
@@ -509,6 +511,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           valueType: a.valueType,
           allowedValues: a.allowedValues,
           allowedUnits: a.allowedUnits,
+          defaultUnit: a.defaultUnit,
           allowVariations: a.allowVariations
         };
       });
@@ -896,15 +899,18 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       gender: d.common.gender
     };
     if (d.common.mpn) shopping.mpn = d.common.mpn;
+    // TN piensa el producto PARADO: Alto = el lado largo, Profundidad = el grosor. En el hub se carga
+    // como paquete (Largo × Ancho × Grosor, igual que ML): un cuaderno 20×15×1 va a TN como
+    // Alto 20 · Ancho 15 · Profundidad 1. Antes el Largo iba a `depth` y el grosor a `height`, al
+    // revés de como lo muestra TN. Al envío le da igual (usa el volumen); es lo que se ve en la ficha.
+    const tnDims = { width: d.common.widthCm, height: d.common.lengthCm, depth: d.common.heightCm };
     if (d.variants.length === 0) {
       return [
         {
           sku: d.common.sku,
           barcode: d.common.barcode,
           weight: weightKg,
-          width: d.common.widthCm,
-          height: d.common.heightCm,
-          depth: d.common.lengthCm,
+          ...tnDims,
           ...shopping
         }
       ];
@@ -920,9 +926,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
       stock: v.stock,
       barcode: v.barcode || d.common.barcode,
       weight: weightKg,
-      width: d.common.widthCm,
-      height: d.common.heightCm,
-      depth: d.common.lengthCm,
+      ...tnDims,
       ...shopping
     }));
   }
