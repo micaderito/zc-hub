@@ -1504,6 +1504,49 @@ describe('CrearProductoComponent', () => {
       expect(val('SHEETS_NUMBER')).toBe('80'); // `number` no lleva unidad
     });
 
+    it('las medidas de ML vacías heredan Largo/Ancho de Datos comunes; un valor propio gana', () => {
+      component.draft().common.lengthCm = 21;
+      component.draft().common.widthCm = 14.8;
+      component.draft().ml.attributes = [
+        { id: 'PAPER_HEIGHT', name: 'Altura de la hoja', value: '', valueType: 'number_unit', allowedUnits: ['"', 'cm', 'mm'], defaultUnit: 'cm' },
+        { id: 'PAPER_WIDTH', name: 'Ancho de la hoja', value: '14', valueType: 'number_unit', allowedUnits: ['cm'], defaultUnit: 'cm' },
+        { id: 'LENGTH', name: 'Largo', value: '', valueType: 'number_unit', allowedUnits: ['cm', 'mm'], defaultUnit: 'cm' },
+        { id: 'PAPER_THICKNESS', name: 'Espesor de la hoja', value: '', valueType: 'number_unit', allowedUnits: ['g', 'mg'], defaultUnit: 'g' }
+      ] as any;
+      const attrs = (component.buildPayloads().ml as any).attributes;
+      const val = (id: string) => attrs.find((a: any) => a.id === id)?.value_name;
+      expect(val('PAPER_HEIGHT')).toBe('21 cm');
+      expect(val('PAPER_WIDTH')).toBe('14 cm'); // escrito a mano: gana sobre Datos comunes
+      expect(val('LENGTH')).toBe('21 cm');
+      expect(val('PAPER_THICKNESS')).toBeUndefined(); // no mapeado: vacío no viaja
+    });
+
+    it('con variantes: una medida heredable usada como EJE no se manda también como característica común', () => {
+      component.draft().common.lengthCm = 21;
+      component.draft().common.widthCm = 14.8;
+      component.addAxis();
+      component.draft().axes[0].mlAttributeId = 'LENGTH';
+      component.draft().ml.attributes = [
+        { id: 'LENGTH', name: 'Largo', value: '', valueType: 'number_unit', allowedUnits: ['cm'], defaultUnit: 'cm' },
+        { id: 'PAPER_WIDTH', name: 'Ancho de la hoja', value: '', valueType: 'number_unit', allowedUnits: ['cm'], defaultUnit: 'cm' }
+      ] as any;
+      const attrs = (component.buildPayloads().ml as any).attributes;
+      expect(attrs.filter((a: any) => a.id === 'LENGTH').length).toBe(0); // lo manda el backend por variante
+      expect(attrs.find((a: any) => a.id === 'PAPER_WIDTH')?.value_name).toBe('14.8 cm');
+    });
+
+    it('sin la medida en Datos comunes, o si el atributo no acepta cm, no se hereda nada', () => {
+      component.draft().common.lengthCm = null;
+      component.draft().common.widthCm = 20;
+      component.draft().ml.attributes = [
+        { id: 'PAPER_HEIGHT', name: 'Altura de la hoja', value: '', valueType: 'number_unit', allowedUnits: ['cm'], defaultUnit: 'cm' },
+        { id: 'WIDTH', name: 'Ancho', value: '', valueType: 'number_unit', allowedUnits: ['mm'], defaultUnit: 'mm' }
+      ] as any;
+      const attrs = (component.buildPayloads().ml as any).attributes;
+      expect(attrs.find((a: any) => a.id === 'PAPER_HEIGHT')).toBeUndefined();
+      expect(attrs.find((a: any) => a.id === 'WIDTH')).toBeUndefined();
+    });
+
     it('agrega el SELLER_SKU al final de los atributos de ML con el SKU común', () => {
       const payload = component.buildPayloads();
       const ml = payload.ml as any;

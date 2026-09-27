@@ -710,6 +710,14 @@ Alto 20 · Ancho 15 · Profundidad 1. Hasta 2026-09-27 el Largo iba a `depth` y 
 (al revés de como lo lee la usuaria). Al costo de envío no le cambia nada (usa el volumen). Los 4
 casilleros tienen etiqueta visible: con solo placeholder, al escribir el número se perdía cuál era cuál.
 
+**Atributos que ML descarta en silencio + medidas heredadas.** ML puede crear el ítem OK y no
+guardar un atributo (sin error). `publishMlUnit` compara lo mandado contra el ítem que devuelve
+`POST /items` (`mlDroppedAttributes`) y suma al `detail` de la unidad "ML no guardó: X" + los
+`warnings` de la respuesta — visible en la página Publicaciones y en los logs (`[Publish]`). En el
+form, los atributos de medida que repiten Datos comunes (`ML_ATTR_FROM_COMMON`: `LENGTH`/
+`PAPER_HEIGHT` ← Largo, `WIDTH`/`PAPER_WIDTH` ← Ancho, en cm) se mandan con ese valor si quedan
+vacíos (se ve como placeholder); escribir uno propio lo pisa.
+
 **Default de tipo de publicación = "Clásica" (`gold_special`).** Antes era `gold_pro` ("Premium"),
 que activa "cuotas sin interés" (las financia ML y el vendedor paga más comisión) — salía sin que
 la usuaria lo pidiera. Se puede subir a Premium por producto en el form.

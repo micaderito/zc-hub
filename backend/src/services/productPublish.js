@@ -399,7 +399,29 @@ export async function publishMlUnit(itemBody, mlToken, descriptionText) {
   if (item?.id && descriptionText?.trim()) {
     await ml.setItemDescription(mlToken, item.id, descriptionText);
   }
-  return { externalId: item?.id, detail: `Publicación ${item?.id} creada` };
+  let detail = `Publicación ${item?.id} creada`;
+  const { missing, warnings } = mlDroppedAttributes(itemBody?.attributes, item);
+  if (missing.length || warnings.length) {
+    console.warn(`[Publish] ${item?.id}: ML no guardó [${missing.join(', ')}]; warnings: ${JSON.stringify(item?.warnings ?? [])}`);
+    if (missing.length) detail += ` · ML no guardó: ${missing.join(', ')}`;
+    if (warnings.length) detail += ` · Avisos de ML: ${warnings.join(' | ')}`;
+  }
+  return { externalId: item?.id, detail };
+}
+
+/**
+ * ML descarta atributos EN SILENCIO al crear un ítem (la publicación sale bien, sin ese dato), así
+ * que la única forma de enterarse es comparar lo mandado contra el ítem que devuelve `POST /items`
+ * y leer sus `warnings`. Devuelve los ids mandados con valor que no volvieron, y los avisos.
+ */
+export function mlDroppedAttributes(sentAttrs, createdItem) {
+  const hasValue = (a) => (a?.value_id != null && a.value_id !== '') || (a?.value_name != null && String(a.value_name).trim() !== '');
+  const kept = new Set((createdItem?.attributes || []).filter(hasValue).map((a) => String(a.id)));
+  const missing = (sentAttrs || []).filter((a) => a?.id && hasValue(a) && !kept.has(String(a.id))).map((a) => String(a.id));
+  const warnings = (Array.isArray(createdItem?.warnings) ? createdItem.warnings : [])
+    .map((w) => (typeof w === 'string' ? w : w?.message || w?.code))
+    .filter(Boolean);
+  return { missing, warnings };
 }
 
 async function publishMl(payload, mlToken) {

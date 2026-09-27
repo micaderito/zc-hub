@@ -104,7 +104,6 @@ describe('product-draft.model', () => {
         lengthCm: null,
         widthCm: null,
         heightCm: null,
-        seoKeywords: '',
         baseStock: null,
         mpn: '',
         ageGroup: 'adult',

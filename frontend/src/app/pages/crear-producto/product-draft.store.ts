@@ -16,6 +16,7 @@ import {
   CONDITIONAL_REQUIRED_TRIGGERS,
   DraftImage,
   MappingMode,
+  ML_ATTR_FROM_COMMON,
   MlAttribute,
   OverrideField,
   ProductDraft,
@@ -505,7 +506,22 @@ export class ProductDraftStore {
       return { id: attr.id, value_id: attr.valueId };
     }
     const text = attr.value?.trim();
-    return text ? { id: attr.id, value_name: this.withDefaultUnit(attr, text) } : null;
+    if (text) return { id: attr.id, value_name: this.withDefaultUnit(attr, text) };
+    const fromCommon = this.mlAttrCommonDefault(attr);
+    return fromCommon ? { id: attr.id, value_name: `${fromCommon} cm` } : null;
+  }
+
+  /**
+   * Medida de "Datos comunes" que hereda un atributo de ML vacío (ver ML_ATTR_FROM_COMMON), como
+   * número en cm, o `null` si no aplica: atributo no mapeado, medida sin cargar, o categoría que no
+   * acepta cm para ese atributo.
+   */
+  mlAttrCommonDefault(attr: MlAttribute): string | null {
+    const key = ML_ATTR_FROM_COMMON[attr.id];
+    if (!key) return null;
+    if (attr.allowedUnits?.length && !attr.allowedUnits.includes('cm')) return null;
+    const n = Number(this.draft().common[key]);
+    return Number.isFinite(n) && n > 0 ? String(n) : null;
   }
 
   /**
