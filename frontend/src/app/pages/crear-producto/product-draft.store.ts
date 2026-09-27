@@ -505,7 +505,21 @@ export class ProductDraftStore {
       return { id: attr.id, value_id: attr.valueId };
     }
     const text = attr.value?.trim();
-    return text ? { id: attr.id, value_name: text } : null;
+    return text ? { id: attr.id, value_name: this.withDefaultUnit(attr, text) } : null;
+  }
+
+  /**
+   * Un `number_unit` (ej. "Ancho" en cuadernos) tiene que viajar con unidad: con un número pelado
+   * ("20") ML no rechaza la publicación, descarta el atributo en silencio. Si solo hay número le
+   * pone la unidad por defecto de la categoría (coma decimal → punto); si ya trae unidad, la respeta.
+   * El backend aplica la misma regla como red de seguridad (`withDefaultUnit` en productPublish.js).
+   */
+  private withDefaultUnit(attr: MlAttribute, text: string): string {
+    if (attr.valueType !== 'number_unit') return text;
+    const m = text.match(/^(\d+(?:[.,]\d+)?)\s*(\S*)$/);
+    if (!m) return text;
+    const unit = m[2] || attr.defaultUnit;
+    return unit ? `${m[1].replace(',', '.')} ${unit}` : text;
   }
 
   /**

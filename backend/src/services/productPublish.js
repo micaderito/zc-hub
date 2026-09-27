@@ -60,24 +60,25 @@ function categoryAttrs(attributes, axes) {
 }
 
 /**
- * Atributos de peso y dimensiones del paquete para ME2 (`SELLER_PACKAGE_*`). ML los quiere como
- * enteros con unidad (cm/g) y con mínimos (dimensiones ≥ 3 cm, peso ≥ 50 g). Los omite si falta
- * algún dato o no cumple el mínimo. `common` trae lengthCm/widthCm/heightCm (cm) y weightG (g).
+ * Atributos de peso y dimensiones del paquete para ME2 (`SELLER_PACKAGE_*`), como enteros con unidad
+ * (cm/g). `common` trae lengthCm/widthCm/heightCm (cm) y weightG (g). Redondea para ARRIBA (un
+ * paquete de 1,5 cm de alto se declara de 2, nunca de 1: achicarlo abarata un envío que después
+ * no entra) y manda cada medida que tenga dato, aunque falte otra.
+ *
+ * Antes había un mínimo (dimensiones ≥ 3 cm, peso ≥ 50 g) que no sale de la API de ML, y el
+ * paquete era todo-o-nada: un cuaderno de 2 cm de alto se publicaba sin NINGUNA medida, en silencio.
  */
 function packageAttributes(common) {
   if (!common) return [];
-  const dim = (v) => (v != null && Number(v) >= 3 ? Math.round(Number(v)) : null);
-  const length = dim(common.lengthCm);
-  const width = dim(common.widthCm);
-  const height = dim(common.heightCm);
-  const weight = common.weightG != null && Number(common.weightG) >= 50 ? Math.round(Number(common.weightG)) : null;
-  if (length == null || width == null || height == null || weight == null) return [];
+  const int = (v) => (v != null && v !== '' && Number(v) > 0 ? Math.ceil(Number(v)) : null);
   return [
-    { id: 'SELLER_PACKAGE_LENGTH', value_name: `${length} cm` },
-    { id: 'SELLER_PACKAGE_WIDTH', value_name: `${width} cm` },
-    { id: 'SELLER_PACKAGE_HEIGHT', value_name: `${height} cm` },
-    { id: 'SELLER_PACKAGE_WEIGHT', value_name: `${weight} g` }
-  ];
+    ['SELLER_PACKAGE_LENGTH', int(common.lengthCm), 'cm'],
+    ['SELLER_PACKAGE_WIDTH', int(common.widthCm), 'cm'],
+    ['SELLER_PACKAGE_HEIGHT', int(common.heightCm), 'cm'],
+    ['SELLER_PACKAGE_WEIGHT', int(common.weightG), 'g']
+  ]
+    .filter(([, n]) => n != null)
+    .map(([id, n, unit]) => ({ id, value_name: `${n} ${unit}` }));
 }
 
 /** Combinaciones de atributos de una variación LEGACY (ej. [{name:'Color', value_name:'Negro'}]). */
@@ -151,6 +152,8 @@ function gtinAttr(barcode) {
  * categorías: el predictor resuelve los valores contra el catálogo del DOMINIO y `POST /items` los
  * valida contra el de la CATEGORÍA, que no siempre los tiene.
  *
+ * De paso completa la unidad de los `number_unit` que vienen sin ella (ver withDefaultUnit).
+ *
  * Fail-open: sin la definición de la categoría (ML no contestó) no se toca nada.
  */
 export function sanitizeMlAttributeValues(attributes, mlCategoryAttrs) {
@@ -158,7 +161,11 @@ export function sanitizeMlAttributeValues(attributes, mlCategoryAttrs) {
   const byId = new Map(mlCategoryAttrs.map((a) => [String(a?.id ?? ''), a]));
   const out = [];
   for (const attr of attributes || []) {
-    const def = attr?.value_id ? byId.get(String(attr.id ?? '')) : null;
+    if (!attr?.value_id) {
+      out.push(withDefaultUnit(attr, byId.get(String(attr?.id ?? ''))));
+      continue;
+    }
+    const def = byId.get(String(attr.id ?? ''));
     // Sin value_id, o atributo que la categoría no declara (ej. uno personalizado): no opinamos.
     if (!def) {
       out.push(attr);
@@ -178,6 +185,21 @@ export function sanitizeMlAttributeValues(attributes, mlCategoryAttrs) {
     }
   }
   return out;
+}
+
+/**
+ * Un atributo `number_unit` (ej. `WIDTH` "Ancho" en cuadernos) tiene que ir con unidad: `"20 cm"`.
+ * Con un número pelado (`"20"`) ML NO rechaza la publicación: descarta el atributo en silencio y la
+ * publicación sale sin ese dato. Si el valor es solo un número, le pone la unidad por defecto de la
+ * categoría (coma decimal → punto); si ya trae unidad, solo normaliza el espacio ("21cm" → "21 cm").
+ */
+function withDefaultUnit(attr, def) {
+  if (def?.value_type !== 'number_unit' || attr?.value_name == null) return attr;
+  const m = String(attr.value_name).trim().match(/^(\d+(?:[.,]\d+)?)\s*(\S*)$/);
+  if (!m) return attr;
+  const num = m[1].replace(',', '.');
+  const unit = m[2] || def.default_unit?.id || def.default_unit || def.allowed_units?.[0]?.id;
+  return unit ? { ...attr, value_name: `${num} ${unit}` } : attr;
 }
 
 /**

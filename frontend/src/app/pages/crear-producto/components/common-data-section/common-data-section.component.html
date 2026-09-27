@@ -34,13 +34,17 @@
 
   <div class="field">
     <span class="lbl">Peso y dimensiones <span class="req">*</span></span>
-    <div class="grid-4">
-      <input class="zc-input" type="number" [(ngModel)]="store.draft().common.weightG" placeholder="Peso (g)" />
-      <input class="zc-input" type="number" [(ngModel)]="store.draft().common.lengthCm" placeholder="Largo (cm)" />
-      <input class="zc-input" type="number" [(ngModel)]="store.draft().common.widthCm" placeholder="Ancho (cm)" />
-      <input class="zc-input" type="number" [(ngModel)]="store.draft().common.heightCm" placeholder="Alto (cm)" />
+    <div class="grid-4 dims">
+      <label><span class="sub">Peso (g)</span>
+        <input class="zc-input" type="number" [(ngModel)]="store.draft().common.weightG" placeholder="ej. 480" /></label>
+      <label title="El lado más largo. En TN va como «Alto»."><span class="sub">Largo (cm)</span>
+        <input class="zc-input" type="number" [(ngModel)]="store.draft().common.lengthCm" placeholder="ej. 30" /></label>
+      <label><span class="sub">Ancho (cm)</span>
+        <input class="zc-input" type="number" [(ngModel)]="store.draft().common.widthCm" placeholder="ej. 22" /></label>
+      <label title="El espesor (ej. un cuaderno: 1-2 cm). En TN va como «Profundidad»."><span class="sub">Grosor (cm)</span>
+        <input class="zc-input" type="number" [(ngModel)]="store.draft().common.heightCm" placeholder="ej. 2" /></label>
     </div>
-    <span class="hint"><i class="ti ti-arrows-shuffle"></i> ML: «30x22x3,480» (g/cm) · TN: kg + cm — se convierte automáticamente</span>
+    <span class="hint"><i class="ti ti-arrows-shuffle"></i> En TN se ve parado: Largo → Alto, Grosor → Profundidad. ML en cm/g, TN en cm/kg: se convierte solo.</span>
   </div>
 
   <label class="field">

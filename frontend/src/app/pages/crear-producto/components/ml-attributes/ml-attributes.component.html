@@ -50,9 +50,11 @@
       </select>
     } @else if (attr.valueType === 'number_unit' && attr.allowedUnits?.length) {
       <!-- Valor libre: va por el store para que limpie un `valueId` heredado (ver setMlAttributeFreeValue). -->
+      <!-- Sin unidad, ML descarta el dato en silencio: el número pelado sale con la unidad por defecto. -->
       <span class="attr-unit">
         <input class="zc-input attr-input" [ngModel]="attr.value" (ngModelChange)="store.setMlAttributeFreeValue(attr, $event)"
-               placeholder="ej. 20 {{ attr.allowedUnits![0] }}" />
+               placeholder="ej. 20" />
+        <span class="unit-suffix" title="Si escribís solo el número, se manda en esta unidad">{{ attr.defaultUnit || attr.allowedUnits![0] }}</span>
       </span>
     } @else {
       <input class="zc-input attr-input" [ngModel]="attr.value" (ngModelChange)="store.setMlAttributeFreeValue(attr, $event)"

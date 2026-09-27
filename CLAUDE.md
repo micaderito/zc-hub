@@ -684,6 +684,31 @@ acción llamaba a `touch()` (cambiar el modo lo hacía). El handler delegado de 
 raíz de la página ahora llama a `store.touch()` (antes solo `scheduleAutosave()`), así cualquier
 campo recalcula los bloqueadores al tipear.
 
+**Medidas y características con unidad que ML descartaba en silencio.** Incidente 2026-09-27: las
+publicaciones salían sin alto/ancho y sin algunas características opcionales, sin ningún error.
+Dos causas:
+- **`number_unit` sin unidad**: atributos como `WIDTH` ("Ancho") o `LENGTH` ("Largo") de cuadernos
+  son `number_unit` (default `cm`). Con `"20"` pelado ML crea la publicación igual y **tira el
+  atributo**. `mlAttrPayload` (store) y `withDefaultUnit` (`productPublish.js`, dentro de
+  `sanitizeMlAttributeValues` — cubre borradores viejos y `POST /jobs/:id/retry`) le ponen la
+  unidad por defecto de la categoría (`defaultUnit`, NO `allowedUnits[0]`: en algunas categorías
+  la primera es `"` = pulgadas); coma decimal → punto; si ya trae unidad, se respeta. En la UI el
+  campo muestra la unidad al lado.
+- **Paquete todo-o-nada con mínimo inventado**: `packageAttributes` exigía dim ≥ 3 cm y peso ≥ 50 g
+  (no sale de la API de ML) y si una medida no cumplía no mandaba NINGUNA `SELLER_PACKAGE_*` — un
+  cuaderno de 2 cm de alto salía sin medidas. Ahora manda cada medida con dato, redondeando para
+  ARRIBA (nunca declara un paquete más chico que el real). Sin verificar en vivo que ML acepte
+  medidas < 3 cm: si las rechazara, el error ahora se ve en el panel de publicación en vez de
+  perderse.
+
+**Medidas del paquete (Largo × Ancho × Grosor).** Se cargan una vez como paquete, igual que ML:
+Largo → `SELLER_PACKAGE_LENGTH`, Ancho → `_WIDTH`, Grosor → `_HEIGHT`. TN, en cambio, muestra el
+producto PARADO, así que ahí va rotado (`tnDims` en `crear-producto.component.ts`): Largo → `height`
+("Alto"), Ancho → `width`, Grosor → `depth` ("Profundidad"). Un cuaderno 20×15×1 se ve en TN como
+Alto 20 · Ancho 15 · Profundidad 1. Hasta 2026-09-27 el Largo iba a `depth` y el grosor a `height`
+(al revés de como lo lee la usuaria). Al costo de envío no le cambia nada (usa el volumen). Los 4
+casilleros tienen etiqueta visible: con solo placeholder, al escribir el número se perdía cuál era cuál.
+
 **Default de tipo de publicación = "Clásica" (`gold_special`).** Antes era `gold_pro` ("Premium"),
 que activa "cuotas sin interés" (las financia ML y el vendedor paga más comisión) — salía sin que
 la usuaria lo pidiera. Se puede subir a Premium por producto en el form.

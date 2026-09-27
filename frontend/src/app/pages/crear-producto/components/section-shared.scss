@@ -111,6 +111,22 @@ label {
   gap: 0.6rem;
 }
 
+/* Medidas del paquete: cada casillero con su nombre visible (con solo placeholder, al escribir
+   el número desaparecía y se cruzaban Largo/Alto). */
+.dims label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.dims .sub {
+  font-size: 0.64rem;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .with-btn {
   display: flex;
   gap: 0.4rem;
