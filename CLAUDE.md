@@ -672,6 +672,18 @@ spinner eterno. Tres piezas:
   y tras 5 pasa a la fase nueva **`unknown`** ("No pudimos confirmar el estado" + botón
   **Actualizar** = `retryPoll()`), en vez de spinner infinito.
 
+**Producto simple (sin variantes): el modo de mapeo no aplica.** Incidente 2026-09-27: un producto
+de una sola cosa publicado con TN en "1 producto por variante" se creaba en TN **sin fotos**.
+`buildTnProducts` ya armaba UN producto en cualquier modo cuando no hay variantes, pero
+`planTnUnits` entraba igual a la rama `one_per_variant` y buscaba las fotos en `variants[0]` (que no
+existe) → `uploadIds = []`. Ahora, sin variantes, sube la galería general del canal sin importar el
+modo. De paso: la usuaria cambiaba a ese modo porque con el default le seguía apareciendo "Falta el
+stock" ya cargado — no era por el modo, sino porque los `[(ngModel)]` sin `(ngModelChange)` no
+renuevan la referencia de `draft()` y el `computed` `publishBlockers` quedaba viejo hasta que otra
+acción llamaba a `touch()` (cambiar el modo lo hacía). El handler delegado de `input`/`change` de la
+raíz de la página ahora llama a `store.touch()` (antes solo `scheduleAutosave()`), así cualquier
+campo recalcula los bloqueadores al tipear.
+
 **Default de tipo de publicación = "Clásica" (`gold_special`).** Antes era `gold_pro` ("Premium"),
 que activa "cuotas sin interés" (las financia ML y el vendedor paga más comisión) — salía sin que
 la usuaria lo pidiera. Se puede subir a Premium por producto en el form.
