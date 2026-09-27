@@ -26,7 +26,8 @@ import { getMlToken, tokens } from '../store.js';
 import * as ml from './mercadolibre.js';
 import * as tn from './tiendanube.js';
 
-const POLL_INTERVAL_MS = 500;
+import { startQueuePolling, stopQueuePolling, QUEUE_POLL_MS, QUEUE_IDLE_MAX_MS } from './queuePolling.js';
+
 let workerTimer = null;
 
 export async function processTask(task) {
@@ -250,12 +251,16 @@ export async function processTask(task) {
   }
 }
 
+/** Devuelve true si reclamó una tarea (para el espaciado de `startQueuePolling`). */
 export async function tick() {
   try {
     const task = await claimNextMlTask();
-    if (task) await processTask(task);
+    if (!task) return false;
+    await processTask(task);
+    return true;
   } catch (e) {
     console.error('[MLQueue] Error en tick:', e.message);
+    return false;
   }
 }
 
@@ -265,13 +270,13 @@ export function startMlTaskWorker() {
     return;
   }
   if (workerTimer) return;
-  workerTimer = setInterval(tick, POLL_INTERVAL_MS);
-  console.log('[MLQueue] Worker iniciado (polling cada 500ms).');
+  workerTimer = startQueuePolling('ml', tick);
+  console.log(`[MLQueue] Worker iniciado (polling cada ${QUEUE_POLL_MS}ms, hasta ${QUEUE_IDLE_MAX_MS}ms con la cola vacía).`);
 }
 
 export function stopMlTaskWorker() {
   if (workerTimer) {
-    clearInterval(workerTimer);
+    stopQueuePolling('ml', workerTimer);
     workerTimer = null;
     console.log('[MLQueue] Worker detenido.');
   }
