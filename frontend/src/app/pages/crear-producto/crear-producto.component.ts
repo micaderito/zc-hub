@@ -13,6 +13,7 @@ import {
 } from '../../core/services/catalog.service';
 import {
   Channel,
+  MlAttrPayload,
   MlAttribute,
   OverrideField,
   ProductDraft,
@@ -835,7 +836,7 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
           ...d.ml.attributes
             .filter((a) => a.id && !d.axes.some((ax) => ax.mlAttributeId === a.id))
             .map((a) => this.store.mlAttrPayload(a))
-            .filter((a): a is { id: string; value_id: string } | { id: string; value_name: string } => a !== null),
+            .filter((a): a is MlAttrPayload => a !== null),
           { id: 'SELLER_SKU', value_name: d.common.sku }
         ],
         // Garantía: si es "Sin garantía" no mandamos WARRANTY_TIME (ML lo rechaza / no aplica).

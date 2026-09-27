@@ -803,3 +803,61 @@ for (const [mode, userProducts] of [['single_with_variants', true], ['one_per_va
     }
   });
 }
+
+test('"No aplica": sanitize lo deja pasar normalizado (value_name null) y lo saca de un atributo de variantes', (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const defs = [
+    { id: 'SHEET_TYPE', value_type: 'string', values: [{ id: '2350959', name: 'Rayada' }] },
+    { id: 'PAPER_THICKNESS', value_type: 'number_unit', default_unit: 'g' },
+    { id: 'COLOR', value_type: 'list', tags: { allow_variations: true }, values: [{ id: '52049', name: 'Negro' }] }
+  ];
+  const out = sanitizeMlAttributeValues(
+    [
+      { id: 'SHEET_TYPE', value_id: '-1', value_name: 'basura' },
+      { id: 'PAPER_THICKNESS', value_id: '-1', value_name: null },
+      { id: 'COLOR', value_id: '-1', value_name: null }
+    ],
+    defs
+  );
+  assert.deepEqual(out, [
+    { id: 'SHEET_TYPE', value_id: '-1', value_name: null },
+    { id: 'PAPER_THICKNESS', value_id: '-1', value_name: null }
+  ]);
+});
+
+test('"No aplica" en SALE_FORMAT no dispara UNITS_PER_PACK', () => {
+  const items = buildMlItems(
+    { ml: { ...mlBase, attributes: [...mlBase.attributes, { id: 'SALE_FORMAT', value_id: '-1', value_name: null }] }, axes: [], variants: [] },
+    picMap
+  );
+  assert.equal(items[0].attributes.some((a) => a.id === 'UNITS_PER_PACK'), false);
+});
+
+test('mlDroppedAttributes: un "No aplica" que ML no devuelve no cuenta como descartado', () => {
+  const sent = [{ id: 'SHEET_TYPE', value_id: '-1', value_name: null }, { id: 'PAPER_SIZE', value_id: '93218' }];
+  assert.deepEqual(mlDroppedAttributes(sent, { attributes: [{ id: 'PAPER_SIZE', value_id: '93218' }] }).missing, []);
+});
+
+for (const [mode, userProducts] of [['single_with_variants', true], ['one_per_variant', true], ['single_with_variants', false]]) {
+  test(`variantes (${mode}, ${userProducts ? 'User Products' : 'legacy'}): un "No aplica" viaja en cada ítem sin tocar el eje`, () => {
+    const attributes = [...mlBase.attributes, { id: 'SHEET_TYPE', value_id: '-1', value_name: null }];
+    const items = buildMlItems(
+      {
+        ml: { ...mlBase, mapping_mode: mode, attributes },
+        axes: [{ name: 'Color', mlAttributeId: 'COLOR' }],
+        variants: [
+          { sku: 'A', values: ['Rojo'], ml: { price: 1, stock: 1 } },
+          { sku: 'B', values: ['Azul'], ml: { price: 1, stock: 1 } }
+        ]
+      },
+      picMap,
+      { userProducts }
+    );
+    for (const it of items) {
+      assert.deepEqual(it.attributes.find((a) => a.id === 'SHEET_TYPE'), { id: 'SHEET_TYPE', value_id: '-1', value_name: null });
+    }
+    if (userProducts) {
+      assert.deepEqual(items.map((it) => it.attributes.find((a) => a.id === 'COLOR')?.value_name), ['Rojo', 'Azul']);
+    }
+  });
+}

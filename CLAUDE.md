@@ -718,6 +718,22 @@ form, los atributos de medida que repiten Datos comunes (`ML_ATTR_FROM_COMMON`: 
 `PAPER_HEIGHT` ← Largo, `WIDTH`/`PAPER_WIDTH` ← Ancho, en cm) se mandan con ese valor si quedan
 vacíos (se ve como placeholder); escribir uno propio lo pisa.
 
+**"No aplica" en características de ML.** Sin él, ML cuenta la característica como incompleta. Se
+manda como `{ id, value_id: "-1", value_name: null }` (si `value_name` no es null, ML lo ignora).
+**ML no informa por atributo cuáles lo admiten** — verificado 2026-09-27: ni `GET
+/categories/{id}/attributes` ni la ficha técnica (`/domains/{domain}/technical_specs/input`) traen
+esa marca. La regla, genérica para cualquier categoría, sale de lo que rechaza `POST /items`
+(probado con `POST /items/validate`): no en un `required` (*"X is a required attribute … and
+cannot be not applicable"*), no en un `conditional_required` ya disparado (`UNITS_PER_PACK` con
+`SALE_FORMAT` completo) y no en `allow_variations` (doc de ML). `store.canBeNotApplicable()` la
+implementa (además de no ofrecerlo en heredados, `BRAND`); el checkbox va debajo del campo y lo
+deshabilita. "No aplica" gana sobre la medida heredada de Datos comunes, un disparador en "No
+aplica" no dispara su condicional (front `attrIsRequired` y back `withUnitsPerPack`), y si el
+atributo pasa a obligatorio después, el N/A se ignora al armar el payload. Backend:
+`sanitizeMlAttributeValues` deja pasar el `-1` normalizado (antes lo descartaba por no estar en
+`values[]`) salvo en `allow_variations`, y `mlDroppedAttributes` no lo cuenta como descartado (ML
+no devuelve los N/A sin `include_internal_attributes=true`).
+
 **Default de tipo de publicación = "Clásica" (`gold_special`).** Antes era `gold_pro` ("Premium"),
 que activa "cuotas sin interés" (las financia ML y el vendedor paga más comisión) — salía sin que
 la usuaria lo pidiera. Se puede subir a Premium por producto en el form.
