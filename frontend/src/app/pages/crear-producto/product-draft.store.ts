@@ -17,6 +17,8 @@ import {
   DraftImage,
   MappingMode,
   ML_ATTR_FROM_COMMON,
+  ML_NOT_APPLICABLE_VALUE_ID,
+  MlAttrPayload,
   MlAttribute,
   OverrideField,
   ProductDraft,
@@ -398,7 +400,35 @@ export class ProductDraftStore {
     if (attr.required) return true;
     if (!attr.conditionalRequired) return false;
     const triggers = CONDITIONAL_REQUIRED_TRIGGERS[attr.id] ?? [];
-    return all.some((t) => triggers.includes(t.id) && (t.valueId || t.value?.trim()));
+    // Un disparador en "No aplica" no dispara: "Formato de venta: No aplica" no pide "Unidades por pack".
+    return all.some((t) => triggers.includes(t.id) && !t.notApplicable && (t.valueId || t.value?.trim()));
+  }
+
+  /**
+   * true si ML acepta "No aplica" en este atributo. ML no lo informa por atributo (ni en
+   * `/categories/{id}/attributes` ni en la ficha técnica); la regla sale de lo que rechaza
+   * `POST /items`: un obligatorio ("X is a required attribute … and cannot be not applicable"), un
+   * condicional ya disparado (`UNITS_PER_PACK` con `SALE_FORMAT` completo) y los de variantes
+   * (`allow_variations`, según su doc). Todo el resto lo acepta.
+   */
+  canBeNotApplicable(attr: MlAttribute, all: MlAttribute[] = this.draft().ml.attributes): boolean {
+    return !attr.inherited && !attr.allowVariations && !this.attrIsRequired(attr, all);
+  }
+
+  /** "No aplica" marcado Y vigente (un atributo que pasó a obligatorio lo pierde). */
+  attrIsNotApplicable(attr: MlAttribute): boolean {
+    return !!attr.notApplicable && this.canBeNotApplicable(attr);
+  }
+
+  /** Marca/desmarca "No aplica". Marcarlo vacía el valor: el campo queda deshabilitado mientras tanto. */
+  setMlAttributeNotApplicable(attr: MlAttribute, on: boolean): void {
+    attr.notApplicable = on || undefined;
+    if (on) {
+      attr.value = '';
+      attr.valueId = undefined;
+    }
+    this.prefillConditionalRequired();
+    this.touch();
   }
 
   /** true si el atributo está mapeado a un eje de variante — lo maneja "Variantes", no la lista general. */
@@ -471,6 +501,7 @@ export class ProductDraftStore {
     const opt = attr.allowedValues?.find((v) => v.id === valueId);
     attr.valueId = valueId || undefined;
     attr.value = opt?.name ?? '';
+    if (attr.valueId) attr.notApplicable = undefined;
     this.prefillConditionalRequired();
     this.touch();
   }
@@ -483,6 +514,7 @@ export class ProductDraftStore {
   setMlAttributeFreeValue(attr: MlAttribute, value: string): void {
     attr.value = value ?? '';
     attr.valueId = undefined;
+    if (attr.value.trim()) attr.notApplicable = undefined;
     // A propósito NO llama a prefillConditionalRequired(): corre en cada tecla, y borrar
     // "Unidades por pack" para escribir otro número lo repondría en 1 en el medio. Los
     // disparadores conocidos (SALE_FORMAT y compañía) son listas, y esas sí pasan por
@@ -501,7 +533,12 @@ export class ProductDraftStore {
    * libre y no tiene lista) hace fallar la publicación con "El valor que ingresaste en X es
    * incorrecto" — encima descartando el valor que la usuaria escribió.
    */
-  mlAttrPayload(attr: MlAttribute): { id: string; value_id: string } | { id: string; value_name: string } | null {
+  mlAttrPayload(attr: MlAttribute): MlAttrPayload | null {
+    // "No aplica" gana sobre todo lo demás, incluida la medida heredada de Datos comunes. Si el
+    // atributo pasó a obligatorio después de marcarlo (ej. se disparó su condicional), se ignora.
+    if (this.attrIsNotApplicable(attr)) {
+      return { id: attr.id, value_id: ML_NOT_APPLICABLE_VALUE_ID, value_name: null };
+    }
     if (attr.valueId && attr.allowedValues?.some((v) => v.id === attr.valueId)) {
       return { id: attr.id, value_id: attr.valueId };
     }
@@ -549,6 +586,7 @@ export class ProductDraftStore {
     for (const a of all) {
       if (a.conditionalRequired && !a.value?.trim() && !a.valueId && this.attrIsRequired(a, all)) {
         a.value = '1';
+        a.notApplicable = undefined;
       }
     }
   }

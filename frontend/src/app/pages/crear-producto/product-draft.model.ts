@@ -162,6 +162,12 @@ export const ML_ATTR_FROM_COMMON: Record<string, 'lengthCm' | 'widthCm'> = {
   PAPER_WIDTH: 'widthCm'
 };
 
+/** `value_id` con el que ML entiende "No aplica" (siempre con `value_name: null`, si no lo ignora). */
+export const ML_NOT_APPLICABLE_VALUE_ID = '-1';
+
+/** Lo que viaja de un atributo de ML al publicar (ver `ProductDraftStore.mlAttrPayload`). */
+export type MlAttrPayload = { id: string; value_id: string; value_name?: null } | { id: string; value_name: string };
+
 /** Atributo de categoría de ML (se descubren con GET /categories/{id}/attributes). */
 export interface MlAttribute {
   id: string;
@@ -189,6 +195,12 @@ export interface MlAttribute {
   defaultUnit?: string;
   /** true = candidato a EJE de variante (COLOR, SIZE…), ver VariantAxis.mlAttributeId. */
   allowVariations?: boolean;
+  /**
+   * "No aplica" marcado por la usuaria: viaja a ML como `value_id: "-1"` + `value_name: null`, y ML
+   * lo cuenta como característica completa. Solo tiene efecto donde ML lo acepta (ver
+   * `ProductDraftStore.canBeNotApplicable`).
+   */
+  notApplicable?: boolean;
 }
 
 export interface MlListing {
