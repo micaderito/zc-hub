@@ -616,6 +616,21 @@ test('planTnUnits (one_per_variant): una unidad POR VARIANTE, unitKey = su SKU, 
   assert.deepEqual(units[1].uploadIds, ['g3']);
 });
 
+test('planTnUnits: producto SIMPLE (sin variantes) sube la galería general en cualquier modo', () => {
+  // Bug: con `one_per_variant` y sin variantes, buscaba las fotos en `variants[0]` (inexistente)
+  // y el producto de TN se creaba sin ninguna foto.
+  for (const mapping_mode of ['one_per_variant', 'single_with_variants']) {
+    const units = planTnUnits({
+      tn: { ...tnBase, mapping_mode, image_ids: ['g1', 'g2'], variants: [{ sku: 'CUA-1' }], base_price: 100, base_stock: 5 },
+      variants: []
+    });
+    assert.equal(units.length, 1, mapping_mode);
+    assert.equal(units[0].unitKey, '', mapping_mode);
+    assert.deepEqual(units[0].uploadIds, ['g1', 'g2'], mapping_mode);
+    assert.deepEqual(units[0].forVariants, [], mapping_mode);
+  }
+});
+
 /* ---------- sanitizeMlAttributeValues: value_id que ML no puede aceptar ---------- */
 
 /**
