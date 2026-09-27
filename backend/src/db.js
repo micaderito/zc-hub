@@ -6,6 +6,7 @@
 
 import pg from 'pg';
 import { hashPassword } from './lib/authTokens.js';
+import { wakeQueue } from './lib/queuePolling.js';
 
 const { Pool } = pg;
 
@@ -1292,6 +1293,7 @@ export async function enqueueMlTask({ kind, itemId, variationId = null, targetQt
        RETURNING id`,
       [kind, itemId, variationId, targetQty, targetSku, targetPrice, contextJson, idempotencyKey]
     );
+    wakeQueue('ml');
     return r.rows[0]?.id ?? null;
   } catch (e) {
     console.error('enqueueMlTask:', e.message);
@@ -1512,7 +1514,9 @@ export async function retryMlTask(taskId) {
                   AND locked_at < NOW() - ($2::int * INTERVAL '1 millisecond')))`,
       [taskId, MLTASK_STALE_LOCK_MS]
     );
-    return (r.rowCount ?? 0) > 0;
+    const ok = (r.rowCount ?? 0) > 0;
+    if (ok) wakeQueue('ml');
+    return ok;
   } catch (e) {
     console.error('retryMlTask:', e.message);
     return false;
@@ -3108,6 +3112,7 @@ export async function createPublishJob({ id, draftId, channels, payloadJson }) {
       `INSERT INTO product_publish_jobs (id, draft_id, channels, payload_json) VALUES ($1, $2, $3, $4)`,
       [id, draftId, channels, payloadJson]
     );
+    wakeQueue('publish');
     return id;
   } catch (e) {
     console.error('createPublishJob:', e.message);
@@ -3379,6 +3384,7 @@ export async function retryPublishJob(jobId) {
     const ok = (r.rowCount ?? 0) > 0;
     if (ok) {
       await p.query(`UPDATE product_publish_units SET status = 'pending', updated_at = NOW() WHERE job_id = $1 AND status = 'error'`, [jobId]);
+      wakeQueue('publish');
     }
     return ok;
   } catch (e) {

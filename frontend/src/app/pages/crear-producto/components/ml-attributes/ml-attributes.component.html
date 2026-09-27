@@ -52,8 +52,10 @@
       <!-- Valor libre: va por el store para que limpie un `valueId` heredado (ver setMlAttributeFreeValue). -->
       <!-- Sin unidad, ML descarta el dato en silencio: el número pelado sale con la unidad por defecto. -->
       <span class="attr-unit">
+        <!-- Vacío, hereda la medida de Datos comunes (se ve como placeholder y se manda esa). -->
         <input class="zc-input attr-input" [ngModel]="attr.value" (ngModelChange)="store.setMlAttributeFreeValue(attr, $event)"
-               placeholder="ej. 20" />
+               [placeholder]="store.mlAttrCommonDefault(attr) ? store.mlAttrCommonDefault(attr) + ' · de Datos comunes' : 'ej. 20'"
+               [title]="store.mlAttrCommonDefault(attr) ? 'Vacío, se manda la medida de Datos comunes. Escribí otra para cambiarla.' : ''" />
         <span class="unit-suffix" title="Si escribís solo el número, se manda en esta unidad">{{ attr.defaultUnit || attr.allowedUnits![0] }}</span>
       </span>
     } @else {

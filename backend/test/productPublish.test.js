@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMlItems, buildTnProducts, mlUnitKey, planTnUnits, sanitizeMlAttributeValues } from '../src/services/productPublish.js';
+import { buildMlItems, buildTnProducts, mlUnitKey, planTnUnits, sanitizeMlAttributeValues, mlDroppedAttributes } from '../src/services/productPublish.js';
 
 const mlBase = {
   mapping_mode: 'single_with_variants',
@@ -752,3 +752,54 @@ test('medidas: ML recibe Largo/Ancho/Grosor como paquete y el backend pasa las d
   assert.equal(tn.height, '1.00');
   assert.equal(tn.weight, '0.30');
 });
+
+test('mlDroppedAttributes: detecta lo mandado con valor que ML no devolvió en el ítem creado', () => {
+  const sent = [
+    { id: 'PAPER_HEIGHT', value_name: '21 cm' },
+    { id: 'PAPER_THICKNESS', value_name: '80 g' },
+    { id: 'PAPER_SIZE', value_id: '93218' },
+    { id: 'SHEET_TYPE', value_name: '' }
+  ];
+  const created = {
+    id: 'MLA1',
+    attributes: [
+      { id: 'PAPER_HEIGHT', value_name: '21 cm' },
+      { id: 'PAPER_SIZE', value_id: null, value_name: null }
+    ],
+    warnings: [{ code: 'item.attributes.invalid', message: 'Attribute PAPER_THICKNESS was dropped' }, 'otro aviso']
+  };
+  const { missing, warnings } = mlDroppedAttributes(sent, created);
+  assert.deepEqual(missing, ['PAPER_THICKNESS', 'PAPER_SIZE']);
+  assert.deepEqual(warnings, ['Attribute PAPER_THICKNESS was dropped', 'otro aviso']);
+});
+
+test('mlDroppedAttributes: sin diferencias ni warnings devuelve listas vacías', () => {
+  const sent = [{ id: 'PAPER_WIDTH', value_name: '14.8 cm' }];
+  assert.deepEqual(mlDroppedAttributes(sent, { attributes: [{ id: 'PAPER_WIDTH', value_name: '14.8 cm' }] }), { missing: [], warnings: [] });
+  assert.deepEqual(mlDroppedAttributes(undefined, null), { missing: [], warnings: [] });
+});
+
+for (const [mode, userProducts] of [['single_with_variants', true], ['one_per_variant', true], ['single_with_variants', false]]) {
+  test(`variantes (${mode}, ${userProducts ? 'User Products' : 'legacy'}): las medidas viajan en cada ítem y el diff no marca eje ni SKU como descartados`, () => {
+    const attributes = [...mlBase.attributes, { id: 'PAPER_HEIGHT', value_name: '21 cm' }, { id: 'PAPER_THICKNESS', value_name: '90 g' }];
+    const items = buildMlItems(
+      {
+        ml: { ...mlBase, mapping_mode: mode, attributes },
+        axes: [{ name: 'Color', mlAttributeId: 'COLOR' }],
+        variants: [
+          { sku: 'A', values: ['Rojo'], ml: { price: 1, stock: 1 } },
+          { sku: 'B', values: ['Azul'], ml: { price: 1, stock: 1 } }
+        ]
+      },
+      picMap,
+      { userProducts }
+    );
+    assert.equal(items.length, userProducts ? 2 : 1);
+    for (const it of items) {
+      assert.ok(it.attributes.some((a) => a.id === 'PAPER_HEIGHT' && a.value_name === '21 cm'));
+      assert.ok(it.attributes.some((a) => a.id === 'PAPER_THICKNESS' && a.value_name === '90 g'));
+      // ML devuelve lo mismo que se mandó (eco): nada tiene que figurar como descartado.
+      assert.deepEqual(mlDroppedAttributes(it.attributes, { attributes: it.attributes }).missing, []);
+    }
+  });
+}
