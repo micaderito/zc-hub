@@ -251,6 +251,15 @@ describe('product-draft.model', () => {
       expect(d.common.gender).toBe('unisex');
       expect(d.common.mpn).toBe('');
     });
+
+    it('un borrador de antes de la alerta de stock la trae apagada; uno parcial completa el pack nuevo', () => {
+      expect(normalizeDraft({}).alert).toEqual(emptyDraft().alert);
+      expect(normalizeDraft({}).alert.enabled).toBeFalse();
+      const d = normalizeDraft({ alert: { enabled: true, threshold: 5, newPack: { name: 'X' } } });
+      expect(d.alert.enabled).toBeTrue();
+      expect(d.alert.packMode).toBe('none');
+      expect(d.alert.newPack).toEqual({ name: 'X', unitCount: 8, mode: 'assorted', sku: '' });
+    });
   });
 
   describe('defaultVariantTitle()', () => {

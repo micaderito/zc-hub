@@ -26,6 +26,7 @@ import {
 } from '../db.js';
 import { planMlUnits, planTnUnits, publishMlUnit, publishTnUnit } from './productPublish.js';
 import { reconcileStalePublishJobs } from '../db.js';
+import { applyPublishAlert } from './publishAlert.js';
 import { getMlToken, tokens } from '../store.js';
 
 import { startQueuePolling, stopQueuePolling, QUEUE_POLL_MS, QUEUE_IDLE_MAX_MS } from '../lib/queuePolling.js';
@@ -179,6 +180,20 @@ export async function processJob(job) {
         `(${attempted.map((r) => `${r.channel}:${r.status}`).join(' ')})${finished ? '' : ' — ⚠️ finishPublishJob no actualizó la fila'}`
     );
     await recomputeDraftStatus(job.draftId);
+    // Alerta de stock configurada en "Crear producto": solo si quedó algo publicado en algún canal
+    // (sin eso el SKU no existe). Idempotente, así que un reintento del job la vuelve a aplicar igual.
+    // Va en su propio try: el job ya quedó cerrado y un fallo acá no puede marcarlo como error.
+    if (payload.alert) {
+      try {
+        const units = await getPublishUnits(job.id);
+        if (units.some((u) => u.status === 'ok')) {
+          const res = await applyPublishAlert(payload.alert);
+          if (res.applied) console.log(`[PublishQueue] Job ${job.id}: alerta de stock dada de alta (${res.rules} SKU${res.packId ? `, pack ${res.packId}` : ''}).`);
+        }
+      } catch (e) {
+        console.error(`[PublishQueue] Job ${job.id}: no se pudo dar de alta la alerta:`, e.message);
+      }
+    }
   } catch (e) {
     console.error(`[PublishQueue] Job ${job.id} falló inesperadamente:`, e.message);
     await finishWithRetry(job.id, 'error', e.message);

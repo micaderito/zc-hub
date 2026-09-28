@@ -242,6 +242,23 @@ export interface TnListing {
   basePrice: number | null;
 }
 
+/**
+ * Alerta de stock bajo que se da de alta junto con la publicación (misma regla que Alertas →
+ * Reglas: un umbral por SKU, evaluado contra min(ML, TN)). Con variantes, se crea una regla por
+ * cada SKU de variante con el mismo umbral. El pack es la unidad de compra al proveedor (Productos
+ * → Packs): define si "Para reponer" sugiere packs o unidades sueltas.
+ * La aplica el backend cuando el job termina con algo publicado (ver publishAlert.js).
+ */
+export interface DraftStockAlert {
+  enabled: boolean;
+  /** Avisa cuando el stock queda en este número o menos. */
+  threshold: number | null;
+  /** Cómo se le compra al proveedor: suelto, en un pack que ya existe, o en uno nuevo. */
+  packMode: 'none' | 'existing' | 'new';
+  packId: number | null;
+  newPack: { name: string; unitCount: number | null; mode: 'assorted' | 'single'; sku: string };
+}
+
 export interface ProductDraft {
   common: CommonData;
   axes: VariantAxis[];
@@ -249,6 +266,7 @@ export interface ProductDraft {
   ml: MlListing;
   tn: TnListing;
   cost: DraftCost;
+  alert: DraftStockAlert;
 }
 
 /** Resultado por canal al publicar (cada uno informa por separado). */
@@ -356,6 +374,13 @@ export function emptyDraft(): ProductDraft {
       discount2: 5,
       unitCost: null,
       marginPct: 100
+    },
+    alert: {
+      enabled: false,
+      threshold: 3,
+      packMode: 'none',
+      packId: null,
+      newPack: { name: '', unitCount: 8, mode: 'assorted', sku: '' }
     }
   };
 }
@@ -413,6 +438,11 @@ export function normalizeDraft(raw: unknown): ProductDraft {
     variants: Array.isArray(d.variants) ? d.variants.map((v, i) => normalizeVariant(v, i)) : [],
     ml: { ...base.ml, ...(d.ml ?? {}) },
     tn: { ...base.tn, ...(d.tn ?? {}) },
-    cost: { ...base.cost, ...(d.cost ?? {}) }
+    cost: { ...base.cost, ...(d.cost ?? {}) },
+    alert: {
+      ...base.alert,
+      ...(d.alert ?? {}),
+      newPack: { ...base.alert.newPack, ...(d.alert?.newPack ?? {}) }
+    }
   };
 }

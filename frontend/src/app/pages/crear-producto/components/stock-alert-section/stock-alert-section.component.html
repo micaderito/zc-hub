@@ -1,0 +1,118 @@
+<section class="zc-card block">
+  <div class="block-head">
+    <i class="ti ti-bell ico-brand"></i>
+    <span class="block-title">Alerta de stock</span>
+    <span class="block-note">— se da de alta sola al publicar; después se edita en Alertas</span>
+  </div>
+
+  <label class="check">
+    <input type="checkbox" [ngModel]="alert().enabled" (ngModelChange)="toggle($event)" />
+    Avisarme cuando quede poco stock de este producto
+  </label>
+
+  @if (alert().enabled) {
+    <div class="alert-body">
+      <label class="field threshold">
+        <span class="lbl">Umbral <span class="req">*</span></span>
+        <div class="with-unit">
+          <input class="zc-input" type="number" min="0" step="1" [(ngModel)]="alert().threshold" (ngModelChange)="store.touch()" />
+          <span class="muted">unidades</span>
+        </div>
+        <span class="hint">Avisa cuando el menor de los dos canales (ML / TN) quede en este número o menos.</span>
+      </label>
+
+      <div class="field">
+        <span class="lbl">SKUs que se van a vigilar</span>
+        @if (store.alertSkus().length) {
+          <div class="sku-chips">
+            @for (s of store.alertSkus(); track s.sku) {
+              <span class="zc-badge" [title]="s.label">{{ s.sku }}</span>
+            }
+          </div>
+          @if (store.alertSkus().length > 1) {
+            <span class="hint">Una regla por variante, todas con el mismo umbral.</span>
+          }
+        } @else {
+          <span class="hint">Cargá el SKU (o el de cada variante) para ver qué se va a vigilar.</span>
+        }
+      </div>
+
+      <div class="field">
+        <span class="lbl">¿Cómo se lo comprás al proveedor?</span>
+        <div class="mode-toggle">
+          <button type="button" class="mode-opt" [class.on]="alert().packMode === 'none'" (click)="setPackMode('none')">
+            <i class="ti ti-box"></i> Suelto
+          </button>
+          <button type="button" class="mode-opt" [class.on]="alert().packMode === 'existing'" (click)="setPackMode('existing')">
+            <i class="ti ti-packages"></i> En un pack que ya existe
+          </button>
+          <button type="button" class="mode-opt" [class.on]="alert().packMode === 'new'" (click)="setPackMode('new')">
+            <i class="ti ti-plus"></i> En un pack nuevo
+          </button>
+        </div>
+        <span class="hint">
+          Con pack, "Para reponer" sugiere cuántos packs pedir en vez de unidades sueltas.
+        </span>
+      </div>
+
+      @if (alert().packMode === 'existing') {
+        <label class="field">
+          <span class="lbl">Pack <span class="req">*</span></span>
+          @if (packsQuery.isPending()) {
+            <span class="hint"><i class="ti ti-loader-2 spin"></i> Cargando packs…</span>
+          } @else if (packsQuery.isError()) {
+            <span class="hint error">No se pudieron cargar los packs.</span>
+          } @else if (!packs().length) {
+            <span class="hint">Todavía no hay packs: elegí "En un pack nuevo".</span>
+          } @else {
+            <select class="zc-select" [(ngModel)]="alert().packId" (ngModelChange)="store.touch()">
+              <option [ngValue]="null" disabled>Elegí un pack…</option>
+              @for (p of packs(); track p.id) {
+                <option [ngValue]="p.id">{{ p.name }}{{ p.sku ? ' (' + p.sku + ')' : '' }} — {{ p.unitCount }} u.</option>
+              }
+            </select>
+            @if (selectedPack(); as p) {
+              <span class="hint">
+                {{ p.mode === 'assorted' ? 'Surtido' : 'Un modelo por pack' }} · {{ p.unitCount }} unidades ·
+                {{ p.products.length }} producto(s) ya en el pack
+              </span>
+            }
+          }
+        </label>
+      }
+
+      @if (alert().packMode === 'new') {
+        <div class="grid-4 field">
+          <label>
+            <span class="lbl">Nombre del pack <span class="req">*</span></span>
+            <input class="zc-input" type="text" placeholder="Ej. Cuadernos A5 x8" [(ngModel)]="alert().newPack.name" (ngModelChange)="store.touch()" />
+          </label>
+          <label>
+            <span class="lbl">Unidades por pack <span class="req">*</span></span>
+            <input class="zc-input" type="number" min="1" step="1" [(ngModel)]="alert().newPack.unitCount" (ngModelChange)="store.touch()" />
+          </label>
+          <label>
+            <span class="lbl">Tipo</span>
+            <select class="zc-select" [(ngModel)]="alert().newPack.mode" (ngModelChange)="store.touch()">
+              <option value="assorted">Surtido</option>
+              <option value="single">Un modelo por pack</option>
+            </select>
+          </label>
+          <label>
+            <span class="lbl">SKU del pack</span>
+            <input class="zc-input" type="text" placeholder="Opcional" [(ngModel)]="alert().newPack.sku" (ngModelChange)="store.touch()" />
+          </label>
+        </div>
+        <span class="hint">Si ya hay un pack con ese nombre, se usa ese en vez de crear otro.</span>
+      }
+
+      @if (store.alertBlockers().length) {
+        <ul class="alert-missing">
+          @for (b of store.alertBlockers(); track b) {
+            <li><i class="ti ti-alert-circle"></i> {{ b }}</li>
+          }
+        </ul>
+      }
+    </div>
+  }
+</section>

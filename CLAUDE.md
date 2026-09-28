@@ -745,6 +745,18 @@ ML (el refresh token es de un solo uso — si local lo rota, prod pierde la sesi
 ventas ni el purgado de imágenes. Nunca ponerla en el deploy. Durante la prueba conviene pausar
 Railway para que el job lo tome el worker local (`FOR UPDATE SKIP LOCKED` lo da a cualquiera de los dos).
 
+**Alerta de stock al crear el producto.** Sección "Alerta de stock" (`components/stock-alert-section`,
+`d.alert` en el borrador): checkbox, umbral y cómo se le compra al proveedor — suelto, pack
+existente (`packId`) o pack nuevo (nombre, unidades, surtido/un modelo, SKU del pack). Es la misma
+regla de Alertas → Reglas: una por SKU (con variantes, una por SKU de variante, mismo umbral). Viaja
+en `payload.alert` del job y la aplica el publish worker (`applyPublishAlert`,
+`backend/src/services/publishAlert.js`) **solo si quedó al menos una unidad `ok`** — sin nada
+publicado el SKU no existe. Es idempotente para que reintentar no duplique: `upsertStockAlert`,
+`setSkuPack` (upsert) y el pack nuevo se busca por nombre (sin mayúsculas) antes de crearlo. Va en
+su propio `try` después de cerrar el job: un fallo acá nunca cambia el resultado de la publicación.
+Con la alerta activada, `alertBlockers` (umbral, pack elegido, nombre/unidades del pack nuevo) se
+suma a `publishBlockers`.
+
 ### Página "Publicaciones" (`/publicaciones`): historial de lo publicado
 
 `product_publish_jobs` + `product_publish_units` ya guardaban todo (incl. `external_id` = id de ML/TN
