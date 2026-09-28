@@ -278,6 +278,10 @@ label {
   color: var(--danger, #c0392b);
 }
 
+.hint.warn {
+  color: var(--warn);
+}
+
 .ship-row {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr;

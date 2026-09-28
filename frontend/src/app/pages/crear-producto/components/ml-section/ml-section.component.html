@@ -143,6 +143,9 @@
       </div>
     } @else {
       <textarea class="zc-textarea is-own" rows="2" [(ngModel)]="store.draft().ml.description.value" placeholder="Describí el producto para la publicación de ML"></textarea>
+      @if (store.mlDescriptionWarning(); as warning) {
+        <span class="hint warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i> {{ warning }}</span>
+      }
       <span class="hint revert" (click)="store.revert(store.draft().ml.description)"><i class="ti ti-rotate"></i> volver a heredar</span>
     }
   </div>

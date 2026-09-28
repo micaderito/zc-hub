@@ -342,9 +342,32 @@ test('publishProduct (ML con imágenes): sube el binario a /pictures/items/uploa
 
 const isMlDescPost = (url, opts) => /\/items\/[^/]+\/description$/.test(url) && opts.method === 'POST';
 
-test('publishProduct (ML descripción): tras crear el ítem, setea la descripción en un POST aparte a /items/{id}/description', async () => {
+const isMlDescGet = (url, opts) => /\/items\/[^/]+\/description$/.test(url) && (opts.method ?? 'GET') === 'GET';
+
+test('publishProduct (ML descripción): viaja dentro del POST /items y, si quedó guardada, no hay POST aparte', async () => {
   state.responder = (url, opts) => {
     if (isMlPost(url, opts)) return makeRes({ json: { id: 'MLA555' } });
+    if (isMlDescGet(url, opts)) return makeRes({ json: { plain_text: 'Cuaderno premium tapa dura.' } });
+    throw new Error(`URL inesperada: ${opts.method} ${url}`);
+  };
+  const payload = {
+    common: { sku: 'CUA-1' },
+    axes: [],
+    variants: [],
+    ml: { ...mlBlock, description: { plain_text: 'Cuaderno premium tapa dura.' } },
+    tn: { ...tnBlock }
+  };
+  const { results } = await publishProduct(payload, { mlToken: 't', channels: ['ml'] });
+  assert.equal(results[0].status, 'ok');
+  const itemCall = state.calls.find((c) => isMlPost(c.url, c));
+  assert.deepEqual(itemCall.body.description, { plain_text: 'Cuaderno premium tapa dura.' });
+  assert.equal(state.calls.some((c) => isMlDescPost(c.url, c)), false);
+});
+
+test('publishProduct (ML descripción): si el ítem quedó sin descripción, la carga con un POST aparte', async () => {
+  state.responder = (url, opts) => {
+    if (isMlPost(url, opts)) return makeRes({ json: { id: 'MLA557' } });
+    if (isMlDescGet(url, opts)) return makeRes({ status: 404, json: { message: 'not found' } });
     if (isMlDescPost(url, opts)) return makeRes({ json: { plain_text: JSON.parse(opts.body).plain_text } });
     throw new Error(`URL inesperada: ${opts.method} ${url}`);
   };
@@ -358,12 +381,8 @@ test('publishProduct (ML descripción): tras crear el ítem, setea la descripci�
   const { results } = await publishProduct(payload, { mlToken: 't', channels: ['ml'] });
   assert.equal(results[0].status, 'ok');
   const descCall = state.calls.find((c) => isMlDescPost(c.url, c));
-  assert.ok(descCall, 'debe haber POST a /items/MLA555/description');
-  assert.match(descCall.url, /\/items\/MLA555\/description$/);
+  assert.match(descCall.url, /\/items\/MLA557\/description$/);
   assert.equal(descCall.body.plain_text, 'Cuaderno premium tapa dura.');
-  // El body del POST /items NO debe incluir description (va aparte).
-  const itemCall = state.calls.find((c) => isMlPost(c.url, c));
-  assert.equal(itemCall.body.description, undefined);
 });
 
 test('publishProduct (ML descripción): si la descripción está vacía, NO llama a /description', async () => {

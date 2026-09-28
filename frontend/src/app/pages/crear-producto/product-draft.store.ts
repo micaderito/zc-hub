@@ -19,6 +19,7 @@ import {
   ML_ATTR_FROM_COMMON,
   ML_NOT_APPLICABLE_VALUE_ID,
   MlAttrPayload,
+  mlDescriptionIssues,
   MlAttribute,
   OverrideField,
   ProductDraft,
@@ -583,6 +584,12 @@ export class ProductDraftStore {
    * número en cm, o `null` si no aplica: atributo no mapeado, medida sin cargar, o categoría que no
    * acepta cm para ese atributo.
    */
+  /** Aviso bajo la descripción de ML si trae algo que ML rechaza (ver `mlDescriptionIssues`). */
+  mlDescriptionWarning(): string | null {
+    const desc = this.draft().ml.description;
+    return desc.inherited ? null : mlDescriptionIssues(desc.value);
+  }
+
   mlAttrCommonDefault(attr: MlAttribute): string | null {
     const key = ML_ATTR_FROM_COMMON[attr.id];
     if (!key) return null;
