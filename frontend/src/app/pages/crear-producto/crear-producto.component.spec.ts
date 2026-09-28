@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed, discardPeriodicTasks, fakeAsync, flush, flushMicrotasks, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { of } from 'rxjs';
 
 import { CrearProductoComponent } from './crear-producto.component';
@@ -235,6 +236,8 @@ describe('CrearProductoComponent', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        // La sección "Alerta de stock" usa injectQuery para la lista de packs.
+        provideTanStackQuery(new QueryClient({ defaultOptions: { queries: { retry: false } } })),
         { provide: CatalogService, useValue: catalog },
         { provide: PricingService, useValue: new PricingServiceMock() }
       ]
@@ -588,7 +591,7 @@ describe('CrearProductoComponent', () => {
       expect(sent('SHEET_TYPE')).toBeUndefined();
     });
 
-    it('DOM: el checkbox aparece solo donde ML lo acepta y deshabilita el campo al marcarlo', fakeAsync(() => {
+    it('DOM: el chip aparece solo donde ML lo acepta y al marcarlo reemplaza el campo por "No aplica"', fakeAsync(() => {
       component.store.mlOptionalOpen.set(true);
       fixture.detectChanges();
       flushMicrotasks();
@@ -604,7 +607,15 @@ describe('CrearProductoComponent', () => {
       fixture.detectChanges();
       flushMicrotasks();
       expect(byId('SHEET_TYPE').notApplicable).toBeTrue();
-      expect((row('Tipo de hoja').querySelector('input.attr-input') as HTMLInputElement).disabled).toBeTrue();
+      expect(row('Tipo de hoja').querySelector('.attr-input')).toBeNull();
+      expect(row('Tipo de hoja').querySelector('.na-box')?.textContent).toContain('No aplica');
+      expect(row('Tipo de hoja').querySelector('.attr-na')?.classList).toContain('on');
+
+      // Desmarcar vuelve a mostrar el campo editable.
+      (row('Tipo de hoja').querySelector('.attr-na input') as HTMLInputElement).click();
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(row('Tipo de hoja').querySelector('input.attr-input')).not.toBeNull();
       component.store.cancelAutosave();
     }));
   });
@@ -1807,6 +1818,88 @@ describe('CrearProductoComponent', () => {
       expect(component.variantChipLabel(v1)).toBe('Negro');
       v2.values = [''];
       expect(component.variantChipLabel(v2)).toBe('CUA-R');
+    });
+  });
+
+  describe('alerta de stock', () => {
+    const fillValid = () => {
+      const d = component.draft();
+      d.common.baseName = 'Cuaderno A4';
+      d.common.sku = 'CUA-1';
+      d.common.baseStock = 10;
+      d.ml.categoryId = 'MLA388307';
+      d.ml.basePrice = 3500;
+      d.tn.basePrice = 3200;
+      d.tn.categories = [10];
+      component.touch();
+    };
+
+    it('arranca apagada y no viaja en el payload', () => {
+      expect(component.draft().alert.enabled).toBeFalse();
+      expect(component.buildPayloads().alert).toBeUndefined();
+    });
+
+    it('producto simple: una regla para el SKU del producto, sin pack', () => {
+      fillValid();
+      const a = component.draft().alert;
+      a.enabled = true;
+      a.threshold = 4;
+      component.touch();
+      expect(component.buildPayloads().alert).toEqual({
+        threshold: 4,
+        skus: [{ sku: 'CUA-1', label: 'Cuaderno A4' }],
+        pack: null
+      });
+      expect(component.publishBlockers()).toEqual([]);
+    });
+
+    it('con variantes: una regla por SKU de variante, con el nombre de la variante', () => {
+      fillValid();
+      component.addAxis();
+      const v = component.draft().variants[0];
+      v.sku = 'CUA-R';
+      v.values = ['Rojo'];
+      const a = component.draft().alert;
+      a.enabled = true;
+      component.touch();
+      expect((component.buildPayloads().alert as any).skus).toEqual([{ sku: 'CUA-R', label: 'Cuaderno A4 Rojo' }]);
+    });
+
+    it('pack existente viaja por id; pack nuevo con sus datos', () => {
+      fillValid();
+      const a = component.draft().alert;
+      a.enabled = true;
+      a.packMode = 'existing';
+      a.packId = 7;
+      component.touch();
+      expect((component.buildPayloads().alert as any).pack).toEqual({ id: 7 });
+
+      a.packMode = 'new';
+      a.newPack = { name: ' Cuadernos x8 ', unitCount: 8, mode: 'single', sku: '' };
+      component.touch();
+      expect((component.buildPayloads().alert as any).pack).toEqual({ name: 'Cuadernos x8', unitCount: 8, mode: 'single', sku: null });
+    });
+
+    it('bloquea publicar si falta el umbral, el pack elegido o el nombre del pack nuevo', () => {
+      fillValid();
+      const a = component.draft().alert;
+      a.enabled = true;
+      a.threshold = null;
+      a.packMode = 'existing';
+      component.touch();
+      let b = component.publishBlockers();
+      expect(b.some((x) => x.includes('umbral'))).toBeTrue();
+      expect(b.some((x) => x.includes('elegí el pack'))).toBeTrue();
+
+      a.threshold = 2;
+      a.packMode = 'new';
+      component.touch();
+      b = component.publishBlockers();
+      expect(b).toEqual(['Alerta de stock: falta el nombre del pack nuevo']);
+
+      a.enabled = false;
+      component.touch();
+      expect(component.publishBlockers()).toEqual([]);
     });
   });
 

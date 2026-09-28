@@ -2,55 +2,128 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
 }
 
+// Cada característica es un bloque: etiqueta (+ chip "No aplica") arriba y el campo a todo el ancho
+// abajo. El mismo esqueleto en todas las filas es lo que las deja parejas en la grilla.
 .attr-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: 0.4rem;
+  min-width: 0;
   background: var(--surface-2);
   border-radius: var(--radius-sm);
-  padding: 0.35rem 0.5rem;
-  font-size: 0.74rem;
+  padding: 0.55rem 0.65rem 0.6rem;
 }
 
+.attr-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.3rem;
+}
+
+// Nombres largos ("Cantidad de repuestos por paquete") bajan a una segunda línea en vez de cortarse.
 .attr-name {
-  color: var(--text-2);
-  flex: 1;
-}
-
-// "No aplica" en su propia línea, debajo del campo (como en el formulario de ML).
-.attr-na {
-  flex-basis: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.3rem;
-  color: var(--text-2);
   font-size: 0.7rem;
-  cursor: pointer;
-  user-select: none;
-  input {
-    margin: 0;
-    accent-color: var(--brand);
-  }
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-2);
+  min-width: 0;
+  padding-top: 0.15rem;
 }
 
 .attr-row.is-na .attr-name {
   color: var(--text-3);
 }
 
-.attr-val {
+// Chip "No aplica": el checkbox real queda invisible pero enfocable (teclado y lectores de pantalla).
+.attr-na {
+  position: relative;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  border: 0.5px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: var(--text-3);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+  i {
+    font-size: 0.72rem;
+  }
+  input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  &:hover {
+    color: var(--text-2);
+    border-color: var(--text-3);
+  }
+  &:has(input:focus-visible) {
+    outline: 2px solid var(--brand);
+    outline-offset: 1px;
+  }
+  &.on {
+    background: var(--brand-bg);
+    border-color: transparent;
+    color: var(--brand);
+  }
 }
 
 .attr-input {
-  width: 110px;
-  padding: 0.2rem 0.4rem;
-  font-size: 0.72rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.attr-unit {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  .attr-input {
+    flex: 1;
+  }
+}
+
+.unit-suffix {
+  color: var(--text-2);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+// Valor que no se edita acá (heredado de Datos comunes, o marcado "No aplica"): caja punteada de
+// solo lectura, como el patrón "del común" de la guía de estilos. Misma altura que un input.
+.attr-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  min-height: 2rem;
+  padding: 0.4rem 0.55rem;
+  border: 0.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  color: var(--text-2);
+  &.na-box {
+    justify-content: flex-start;
+    color: var(--text-3);
+    i {
+      font-size: 0.85rem;
+    }
+  }
 }
 
 .attrs-actions {
@@ -75,16 +148,4 @@
   .attrs {
     margin-top: 0.5rem;
   }
-}
-
-.attr-unit {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 0.4rem;
-}
-.unit-suffix {
-  color: var(--text-2);
-  font-size: 0.85rem;
-  white-space: nowrap;
 }

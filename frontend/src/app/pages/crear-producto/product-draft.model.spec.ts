@@ -3,6 +3,7 @@ import {
   emptyDraft,
   inherited,
   listingTypeLabel,
+  mlDescriptionIssues,
   normalizeDraft,
   normalizeVariant,
   positiveLimit,
@@ -251,6 +252,15 @@ describe('product-draft.model', () => {
       expect(d.common.gender).toBe('unisex');
       expect(d.common.mpn).toBe('');
     });
+
+    it('un borrador de antes de la alerta de stock la trae apagada; uno parcial completa el pack nuevo', () => {
+      expect(normalizeDraft({}).alert).toEqual(emptyDraft().alert);
+      expect(normalizeDraft({}).alert.enabled).toBeFalse();
+      const d = normalizeDraft({ alert: { enabled: true, threshold: 5, newPack: { name: 'X' } } });
+      expect(d.alert.enabled).toBeTrue();
+      expect(d.alert.packMode).toBe('none');
+      expect(d.alert.newPack).toEqual({ name: 'X', unitCount: 8, mode: 'assorted', sku: '' });
+    });
   });
 
   describe('defaultVariantTitle()', () => {
@@ -265,5 +275,19 @@ describe('product-draft.model', () => {
     it('usa solo el título base si la variante no tiene valores', () => {
       expect(defaultVariantTitle('Cuaderno A4', [])).toBe('Cuaderno A4');
     });
+  });
+});
+
+describe('mlDescriptionIssues (descripción de ML)', () => {
+  it('texto común (acentos, °, ×, –, •, ™) no genera aviso', () => {
+    expect(mlDescriptionIssues('Cuaderno A5 • 90° · 21 × 14,8 cm – Mooving™ ©')).toBeNull();
+    expect(mlDescriptionIssues('Medidas < 21 cm')).toBeNull();
+    expect(mlDescriptionIssues('')).toBeNull();
+  });
+
+  it('avisa qué emojis se quitan (sin repetir) y si hay HTML', () => {
+    expect(mlDescriptionIssues('✔ Cuaderno 📒 ✔')).toBe('ML no acepta emojis ni HTML: al publicar se quitan ✔ 📒.');
+    expect(mlDescriptionIssues('<b>Cuaderno</b>')).toBe('ML no acepta emojis ni HTML: al publicar se quitan las etiquetas HTML.');
+    expect(mlDescriptionIssues('<p>Hola ♥</p>')).toBe('ML no acepta emojis ni HTML: al publicar se quitan ♥ y las etiquetas HTML.');
   });
 });

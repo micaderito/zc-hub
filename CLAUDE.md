@@ -726,8 +726,10 @@ esa marca. La regla, genérica para cualquier categoría, sale de lo que rechaza
 (probado con `POST /items/validate`): no en un `required` (*"X is a required attribute … and
 cannot be not applicable"*), no en un `conditional_required` ya disparado (`UNITS_PER_PACK` con
 `SALE_FORMAT` completo) y no en `allow_variations` (doc de ML). `store.canBeNotApplicable()` la
-implementa (además de no ofrecerlo en heredados, `BRAND`); el checkbox va debajo del campo y lo
-deshabilita. "No aplica" gana sobre la medida heredada de Datos comunes, un disparador en "No
+implementa (además de no ofrecerlo en heredados, `BRAND`). En la UI cada característica es un
+bloque parejo (etiqueta + chip "No aplica" arriba, campo a todo el ancho abajo); marcado, el campo
+se reemplaza por una caja punteada "No aplica a este producto" (mismo patrón de solo lectura que
+"del común"). "No aplica" gana sobre la medida heredada de Datos comunes, un disparador en "No
 aplica" no dispara su condicional (front `attrIsRequired` y back `withUnitsPerPack`), y si el
 atributo pasa a obligatorio después, el N/A se ignora al armar el payload. Backend:
 `sanitizeMlAttributeValues` deja pasar el `-1` normalizado (antes lo descartaba por no estar en
@@ -744,6 +746,18 @@ NO el worker de `ml_pending_tasks` (haría cambios de stock reales), NI el auto-
 ML (el refresh token es de un solo uso — si local lo rota, prod pierde la sesión), NI el barrido de
 ventas ni el purgado de imágenes. Nunca ponerla en el deploy. Durante la prueba conviene pausar
 Railway para que el job lo tome el worker local (`FOR UPDATE SKIP LOCKED` lo da a cualquiera de los dos).
+
+**Alerta de stock al crear el producto.** Sección "Alerta de stock" (`components/stock-alert-section`,
+`d.alert` en el borrador): checkbox, umbral y cómo se le compra al proveedor — suelto, pack
+existente (`packId`) o pack nuevo (nombre, unidades, surtido/un modelo, SKU del pack). Es la misma
+regla de Alertas → Reglas: una por SKU (con variantes, una por SKU de variante, mismo umbral). Viaja
+en `payload.alert` del job y la aplica el publish worker (`applyPublishAlert`,
+`backend/src/services/publishAlert.js`) **solo si quedó al menos una unidad `ok`** — sin nada
+publicado el SKU no existe. Es idempotente para que reintentar no duplique: `upsertStockAlert`,
+`setSkuPack` (upsert) y el pack nuevo se busca por nombre (sin mayúsculas) antes de crearlo. Va en
+su propio `try` después de cerrar el job: un fallo acá nunca cambia el resultado de la publicación.
+Con la alerta activada, `alertBlockers` (umbral, pack elegido, nombre/unidades del pack nuevo) se
+suma a `publishBlockers`.
 
 ### Página "Publicaciones" (`/publicaciones`): historial de lo publicado
 

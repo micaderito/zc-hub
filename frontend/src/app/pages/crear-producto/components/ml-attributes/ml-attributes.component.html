@@ -33,17 +33,35 @@
 </div>
 
 <ng-template #attrRow let-attr="attr">
+  <!-- Mismo esqueleto en todas las filas (etiqueta + chip arriba, campo a todo el ancho abajo), así
+       quedan parejas en la grilla tengan o no "No aplica". -->
   <div class="attr-row" [class.is-na]="store.attrIsNotApplicable(attr)">
-    <span class="attr-name">
-      {{ attr.name || attr.id }}
-      @if (store.attrIsRequired(attr)) { <span class="req">*</span> }
-    </span>
+    <div class="attr-head">
+      <span class="attr-name">
+        {{ attr.name || attr.id }}@if (store.attrIsRequired(attr)) {<span class="req"> *</span>}
+      </span>
+      <!-- Solo donde ML lo acepta (no en obligatorios ni en los de variantes, ver canBeNotApplicable). -->
+      @if (store.canBeNotApplicable(attr)) {
+        <label class="attr-na" [class.on]="!!attr.notApplicable"
+               title="Marcalo si esta característica no corresponde al producto: ML la cuenta como completa.">
+          <input type="checkbox" [checked]="!!attr.notApplicable"
+                 (change)="store.setMlAttributeNotApplicable(attr, $any($event.target).checked)" />
+          <i class="ti" [class.ti-check]="!!attr.notApplicable" [class.ti-ban]="!attr.notApplicable" aria-hidden="true"></i>
+          No aplica
+        </label>
+      }
+    </div>
+
     @if (attr.inherited) {
-      <span class="attr-val">{{ attr.value }} <span class="tag tag-com"><i class="ti ti-link"></i></span></span>
+      <div class="attr-box">
+        <span>{{ attr.value }}</span>
+        <span class="tag tag-com"><i class="ti ti-link" aria-hidden="true"></i> del común</span>
+      </div>
+    } @else if (store.attrIsNotApplicable(attr)) {
+      <div class="attr-box na-box"><i class="ti ti-ban" aria-hidden="true"></i> No aplica a este producto</div>
     } @else if (attr.allowedValues?.length) {
       <!-- Cualquier atributo con valores cerrados (list, boolean Sí/No, etc.) va como desplegable. -->
-      <select class="zc-select attr-input" [ngModel]="attr.valueId ?? ''" (ngModelChange)="store.setMlAttributeValue(attr, $event)"
-              [disabled]="store.attrIsNotApplicable(attr)">
+      <select class="zc-select attr-input" [ngModel]="attr.valueId ?? ''" (ngModelChange)="store.setMlAttributeValue(attr, $event)">
         <option value="">{{ attr.valueType === 'boolean' ? 'Sí / No…' : 'Elegí una opción…' }}</option>
         @for (opt of attr.allowedValues; track opt.id) {
           <option [value]="opt.id">{{ opt.name }}</option>
@@ -52,25 +70,16 @@
     } @else if (attr.valueType === 'number_unit' && attr.allowedUnits?.length) {
       <!-- Valor libre: va por el store para que limpie un `valueId` heredado (ver setMlAttributeFreeValue). -->
       <!-- Sin unidad, ML descarta el dato en silencio: el número pelado sale con la unidad por defecto. -->
-      <span class="attr-unit">
+      <div class="attr-unit">
         <!-- Vacío, hereda la medida de Datos comunes (se ve como placeholder y se manda esa). -->
         <input class="zc-input attr-input" [ngModel]="attr.value" (ngModelChange)="store.setMlAttributeFreeValue(attr, $event)"
-               [disabled]="store.attrIsNotApplicable(attr)"
-               [placeholder]="store.attrIsNotApplicable(attr) ? '' : store.mlAttrCommonDefault(attr) ? store.mlAttrCommonDefault(attr) + ' · de Datos comunes' : 'ej. 20'"
+               [placeholder]="store.mlAttrCommonDefault(attr) ? store.mlAttrCommonDefault(attr) + ' · de Datos comunes' : 'ej. 20'"
                [title]="store.mlAttrCommonDefault(attr) ? 'Vacío, se manda la medida de Datos comunes. Escribí otra para cambiarla.' : ''" />
         <span class="unit-suffix" title="Si escribís solo el número, se manda en esta unidad">{{ attr.defaultUnit || attr.allowedUnits![0] }}</span>
-      </span>
+      </div>
     } @else {
       <input class="zc-input attr-input" [ngModel]="attr.value" (ngModelChange)="store.setMlAttributeFreeValue(attr, $event)"
-             [disabled]="store.attrIsNotApplicable(attr)"
              [attr.type]="attr.valueType === 'number' ? 'number' : 'text'" />
-    }
-    <!-- Solo donde ML lo acepta (no en obligatorios ni en los de variantes, ver canBeNotApplicable). -->
-    @if (store.canBeNotApplicable(attr)) {
-      <label class="attr-na" title="Marcalo si esta característica no corresponde al producto: ML la cuenta como completa.">
-        <input type="checkbox" [checked]="!!attr.notApplicable" (change)="store.setMlAttributeNotApplicable(attr, $any($event.target).checked)" />
-        No aplica
-      </label>
     }
   </div>
 </ng-template>

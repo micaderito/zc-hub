@@ -28,7 +28,7 @@ import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { getImage, getImageUrl } from './imageStore.js';
 import { isUserProductSeller } from '../lib/mlUserProducts.js';
-import { plainTextToHtml } from '../lib/richText.js';
+import { plainTextToHtml, toMlPlainText } from '../lib/richText.js';
 
 /* ============================ Mercado Libre ============================ */
 
@@ -408,13 +408,23 @@ export async function planMlUnits(payload, mlToken) {
 /**
  * Crea UN ítem de ML (y su descripción) — la unidad mínima de publicación. La usa tanto
  * `publishMl` (todo de una) como el worker en background (una unidad por vez, con progreso).
+ *
+ * La descripción viaja DENTRO del `POST /items` (ML acepta `description: { plain_text }` al crear)
+ * y después se verifica. Antes iba solo en un `POST /items/{id}/description` aparte que, si fallaba
+ * (ítem recién creado todavía no disponible, rechazo de ML), quedaba solo en los logs: la
+ * publicación salía sin descripción y nadie se enteraba.
  */
-export async function publishMlUnit(itemBody, mlToken, descriptionText) {
-  const item = await ml.createItem(mlToken, itemBody);
-  if (item?.id && descriptionText?.trim()) {
-    await ml.setItemDescription(mlToken, item.id, descriptionText);
-  }
+export async function publishMlUnit(itemBody, mlToken, descriptionText, { descriptionRetryMs = 2000 } = {}) {
+  const text = toMlPlainText(descriptionText);
+  const item = await createMlItemWithDescription(mlToken, itemBody, text);
   let detail = `Publicación ${item?.id} creada`;
+  if (item?.id && text.trim()) {
+    const descError = await ensureMlDescription(mlToken, item.id, text, descriptionRetryMs);
+    if (descError) {
+      console.warn(`[Publish] ${item.id}: la descripción no quedó guardada — ${descError}`);
+      detail += ` · ML no guardó la descripción (${descError})`;
+    }
+  }
   const { missing, warnings } = mlDroppedAttributes(itemBody?.attributes, item);
   if (missing.length || warnings.length) {
     console.warn(`[Publish] ${item?.id}: ML no guardó [${missing.join(', ')}]; warnings: ${JSON.stringify(item?.warnings ?? [])}`);
@@ -422,6 +432,40 @@ export async function publishMlUnit(itemBody, mlToken, descriptionText) {
     if (warnings.length) detail += ` · Avisos de ML: ${warnings.join(' | ')}`;
   }
   return { externalId: item?.id, detail };
+}
+
+/**
+ * `POST /items` con la descripción adentro. Si ML rechaza el campo `description` en la creación (no
+ * verificado para cuentas User Products), no se pierde la publicación: se crea sin él y la
+ * descripción sale por el camino aparte de `ensureMlDescription`.
+ */
+async function createMlItemWithDescription(mlToken, itemBody, text) {
+  if (!text.trim()) return ml.createItem(mlToken, itemBody);
+  try {
+    return await ml.createItem(mlToken, { ...itemBody, description: { plain_text: text } });
+  } catch (e) {
+    if (e?.mlStatus !== 400 || !/description/i.test(String(e.message))) throw e;
+    console.warn(`[Publish] ML rechazó la descripción en POST /items (${e.message}) — se crea sin ella y se carga aparte.`);
+    return ml.createItem(mlToken, itemBody);
+  }
+}
+
+/**
+ * Verifica que el ítem quedó con descripción y, si no, la carga con `POST /items/{id}/description`,
+ * reintentando por si el ítem recién creado todavía no está disponible. Devuelve `null` si quedó, o
+ * el motivo del último fallo.
+ */
+async function ensureMlDescription(mlToken, itemId, text, retryMs) {
+  let lastError = 'ML no la guardó';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, retryMs * attempt));
+    const current = await ml.getItemDescription(mlToken, itemId).catch(() => null);
+    if (current?.trim()) return null;
+    const res = await ml.setItemDescription(mlToken, itemId, text);
+    if (res?.ok) return null;
+    lastError = res?.error || lastError;
+  }
+  return lastError;
 }
 
 /**
