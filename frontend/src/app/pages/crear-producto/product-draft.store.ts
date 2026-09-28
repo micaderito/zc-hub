@@ -462,7 +462,37 @@ export class ProductDraftStore {
       if (new Set(skus).size !== skus.length) out.push('Hay SKUs de variante repetidos');
     }
 
+    out.push(...this.alertBlockers());
     return out;
+  });
+
+  /** Faltantes de la alerta de stock (solo si está activada); los suma `publishBlockers`. */
+  readonly alertBlockers = computed<string[]>(() => {
+    const a = this.draft().alert;
+    if (!a.enabled) return [];
+    const out: string[] = [];
+    if (a.threshold == null || !Number.isFinite(Number(a.threshold)) || Number(a.threshold) < 0) {
+      out.push('Alerta de stock: el umbral tiene que ser 0 o más');
+    }
+    if (a.packMode === 'existing' && a.packId == null) out.push('Alerta de stock: elegí el pack');
+    if (a.packMode === 'new') {
+      if (!a.newPack.name.trim()) out.push('Alerta de stock: falta el nombre del pack nuevo');
+      if (a.newPack.unitCount == null || Number(a.newPack.unitCount) < 1) out.push('Alerta de stock: el pack tiene que traer al menos 1 unidad');
+    }
+    return out;
+  });
+
+  /**
+   * SKUs que va a vigilar la alerta, con el nombre que se ve en Alertas: uno por variante, o el SKU
+   * del producto simple. Los SKUs vacíos no entran (ya los frena `publishBlockers`).
+   */
+  readonly alertSkus = computed<{ sku: string; label: string }[]>(() => {
+    const d = this.draft();
+    const base = d.common.baseName.trim();
+    const rows = d.variants.length
+      ? d.variants.map((v) => ({ sku: v.sku.trim(), label: [base, variantLabel(v.values)].filter(Boolean).join(' ') }))
+      : [{ sku: d.common.sku.trim(), label: base }];
+    return rows.filter((r) => r.sku);
   });
   readonly canPublish = computed(() => this.publishBlockers().length === 0);
 

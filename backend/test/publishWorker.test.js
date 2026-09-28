@@ -30,6 +30,7 @@ const publishState = {
   mlCallCount: 0,
   mlFailOnCall: null // si se setea, publishMlUnit tira en esa llamada N (1-based)
 };
+const alertState = { calls: [] };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '9' } } };
 
 let publishWorker;
@@ -62,7 +63,9 @@ before(async () => {
         dbState.upserts.push(u);
         return true;
       },
-      getPublishUnits: async () => dbState.existingUnits,
+      // Al arrancar el job `upserts` está vacío (= las de intentos anteriores); al final del job
+      // incluye lo recién publicado, que es lo que mira el alta de la alerta.
+      getPublishUnits: async () => [...dbState.existingUnits, ...dbState.upserts],
       recomputeDraftStatus: async (draftId) => {
         dbState.recomputed = draftId;
         return 'done';
@@ -103,10 +106,19 @@ before(async () => {
       tokens: storeState.tokens
     }
   });
+  mock.module('../src/services/publishAlert.js', {
+    exports: {
+      applyPublishAlert: async (alert) => {
+        alertState.calls.push(alert);
+        return { applied: true, rules: 1, packId: null };
+      }
+    }
+  });
   publishWorker = await import('../src/services/publishWorker.js');
 });
 
 beforeEach(() => {
+  alertState.calls = [];
   dbState.claimedJob = null;
   dbState.claimThrows = false;
   dbState.staleSweeps = 0;
@@ -334,4 +346,32 @@ test('processJob: si el job está cancelado, el finish en false NO se reintenta'
   dbState.cancelledAfter = 1; // isPublishJobCancelled true desde la primera consulta
   await publishWorker.processJob(baseJob);
   assert.equal(dbState.finishCalls, 1);
+});
+
+test('processJob: con alerta en el payload y algo publicado, da de alta la alerta', async () => {
+  const alert = { threshold: 3, skus: [{ sku: 'CUA-N', label: 'Cuaderno' }], pack: null };
+  await publishWorker.processJob({ ...baseJob, payloadJson: JSON.stringify({ alert }) });
+  assert.deepEqual(alertState.calls, [alert]);
+  assert.equal(dbState.finished.status, 'done');
+});
+
+test('processJob: con error parcial (un canal ok) igual da de alta la alerta', async () => {
+  publishState.tnThrows = new Error('TN caído');
+  const alert = { threshold: 2, skus: [{ sku: 'CUA-N' }] };
+  await publishWorker.processJob({ ...baseJob, payloadJson: JSON.stringify({ alert }) });
+  assert.equal(dbState.finished.status, 'error');
+  assert.equal(alertState.calls.length, 1);
+});
+
+test('processJob: si no se publicó nada en ningún canal, NO da de alta la alerta', async () => {
+  publishState.mlThrows = new Error('ML rechazó');
+  publishState.tnThrows = new Error('TN rechazó');
+  const alert = { threshold: 2, skus: [{ sku: 'CUA-N' }] };
+  await publishWorker.processJob({ ...baseJob, payloadJson: JSON.stringify({ alert }) });
+  assert.equal(alertState.calls.length, 0);
+});
+
+test('processJob: sin alerta en el payload no llama al alta', async () => {
+  await publishWorker.processJob(baseJob);
+  assert.equal(alertState.calls.length, 0);
 });

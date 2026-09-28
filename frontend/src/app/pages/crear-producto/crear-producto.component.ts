@@ -33,6 +33,7 @@ import { MlSectionComponent } from './components/ml-section/ml-section.component
 import { PriceProfitSectionComponent } from './components/price-profit-section/price-profit-section.component';
 import { TnSectionComponent } from './components/tn-section/tn-section.component';
 import { VariantsSectionComponent } from './components/variants-section/variants-section.component';
+import { StockAlertSectionComponent } from './components/stock-alert-section/stock-alert-section.component';
 
 /**
  * Página de creación de producto.
@@ -55,7 +56,8 @@ import { VariantsSectionComponent } from './components/variants-section/variants
     MlSectionComponent,
     PriceProfitSectionComponent,
     TnSectionComponent,
-    VariantsSectionComponent
+    VariantsSectionComponent,
+    StockAlertSectionComponent
   ],
   templateUrl: './crear-producto.component.html',
   styleUrl: './crear-producto.component.scss',
@@ -795,9 +797,11 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     variants: unknown[];
     ml: unknown;
     tn: unknown;
+    alert?: unknown;
   } {
     const d = this.draft();
     return {
+      alert: this.alertPayload(),
       common: d.common,
       axes: d.axes,
       // Variantes con las referencias de imagen que espera el backend (snake_case).
@@ -885,6 +889,22 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
         published: true
       }
     };
+  }
+
+  /**
+   * Alerta de stock a dar de alta al terminar la publicación (la aplica el publish worker, ver
+   * publishAlert.js); `undefined` si está apagada. Un umbral por SKU, igual que en Alertas → Reglas.
+   */
+  private alertPayload(): unknown {
+    const a = this.draft().alert;
+    if (!a.enabled) return undefined;
+    const pack =
+      a.packMode === 'existing' && a.packId != null
+        ? { id: a.packId }
+        : a.packMode === 'new'
+          ? { name: a.newPack.name.trim(), unitCount: a.newPack.unitCount, mode: a.newPack.mode, sku: a.newPack.sku.trim() || null }
+          : null;
+    return { threshold: a.threshold, skus: this.store.alertSkus(), pack };
   }
 
   private tnVariants(): unknown[] {

@@ -1,0 +1,49 @@
+.alert-body {
+  margin-top: 0.9rem;
+}
+
+.threshold {
+  max-width: 260px;
+}
+
+.with-unit {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  .zc-input {
+    max-width: 110px;
+  }
+}
+
+.mode-toggle {
+  flex-wrap: wrap;
+}
+
+.sku-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.alert-missing {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  font-size: 0.68rem;
+  color: var(--warn);
+  li {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
