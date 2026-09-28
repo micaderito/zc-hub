@@ -726,8 +726,10 @@ esa marca. La regla, genérica para cualquier categoría, sale de lo que rechaza
 (probado con `POST /items/validate`): no en un `required` (*"X is a required attribute … and
 cannot be not applicable"*), no en un `conditional_required` ya disparado (`UNITS_PER_PACK` con
 `SALE_FORMAT` completo) y no en `allow_variations` (doc de ML). `store.canBeNotApplicable()` la
-implementa (además de no ofrecerlo en heredados, `BRAND`); el checkbox va debajo del campo y lo
-deshabilita. "No aplica" gana sobre la medida heredada de Datos comunes, un disparador en "No
+implementa (además de no ofrecerlo en heredados, `BRAND`). En la UI cada característica es un
+bloque parejo (etiqueta + chip "No aplica" arriba, campo a todo el ancho abajo); marcado, el campo
+se reemplaza por una caja punteada "No aplica a este producto" (mismo patrón de solo lectura que
+"del común"). "No aplica" gana sobre la medida heredada de Datos comunes, un disparador en "No
 aplica" no dispara su condicional (front `attrIsRequired` y back `withUnitsPerPack`), y si el
 atributo pasa a obligatorio después, el N/A se ignora al armar el payload. Backend:
 `sanitizeMlAttributeValues` deja pasar el `-1` normalizado (antes lo descartaba por no estar en

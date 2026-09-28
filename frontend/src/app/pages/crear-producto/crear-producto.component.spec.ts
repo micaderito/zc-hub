@@ -588,7 +588,7 @@ describe('CrearProductoComponent', () => {
       expect(sent('SHEET_TYPE')).toBeUndefined();
     });
 
-    it('DOM: el checkbox aparece solo donde ML lo acepta y deshabilita el campo al marcarlo', fakeAsync(() => {
+    it('DOM: el chip aparece solo donde ML lo acepta y al marcarlo reemplaza el campo por "No aplica"', fakeAsync(() => {
       component.store.mlOptionalOpen.set(true);
       fixture.detectChanges();
       flushMicrotasks();
@@ -604,7 +604,15 @@ describe('CrearProductoComponent', () => {
       fixture.detectChanges();
       flushMicrotasks();
       expect(byId('SHEET_TYPE').notApplicable).toBeTrue();
-      expect((row('Tipo de hoja').querySelector('input.attr-input') as HTMLInputElement).disabled).toBeTrue();
+      expect(row('Tipo de hoja').querySelector('.attr-input')).toBeNull();
+      expect(row('Tipo de hoja').querySelector('.na-box')?.textContent).toContain('No aplica');
+      expect(row('Tipo de hoja').querySelector('.attr-na')?.classList).toContain('on');
+
+      // Desmarcar vuelve a mostrar el campo editable.
+      (row('Tipo de hoja').querySelector('.attr-na input') as HTMLInputElement).click();
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(row('Tipo de hoja').querySelector('input.attr-input')).not.toBeNull();
       component.store.cancelAutosave();
     }));
   });

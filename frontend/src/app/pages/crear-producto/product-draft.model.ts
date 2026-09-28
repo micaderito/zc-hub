@@ -162,6 +162,20 @@ export const ML_ATTR_FROM_COMMON: Record<string, 'lengthCm' | 'widthCm'> = {
   PAPER_WIDTH: 'widthCm'
 };
 
+/**
+ * Qué le va a quitar el backend (`toMlPlainText`) a la descripción de ML antes de mandarla: ML
+ * rechaza la que trae emojis o HTML y el ítem queda sin descripción. Misma regla que el backend
+ * (pictogramas salvo © ® ™, y etiquetas HTML). `null` si no hay nada que quitar.
+ */
+export function mlDescriptionIssues(text: string): string | null {
+  const t = String(text || '');
+  const emojis = [...new Set(t.match(/\p{Extended_Pictographic}/gu) ?? [])].filter((c) => !['©', '®', '™'].includes(c));
+  const html = /<\/?[a-z][^>]*>/i.test(t);
+  if (!emojis.length && !html) return null;
+  const parts = [emojis.length ? emojis.join(' ') : '', html ? 'las etiquetas HTML' : ''].filter(Boolean);
+  return `ML no acepta emojis ni HTML: al publicar se quitan ${parts.join(' y ')}.`;
+}
+
 /** `value_id` con el que ML entiende "No aplica" (siempre con `value_name: null`, si no lo ignora). */
 export const ML_NOT_APPLICABLE_VALUE_ID = '-1';
 

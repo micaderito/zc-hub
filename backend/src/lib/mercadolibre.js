@@ -294,7 +294,7 @@ export async function createItem(accessToken, itemBody) {
  */
 export async function setItemDescription(accessToken, itemId, plainText) {
   const text = String(plainText || '');
-  if (!text.trim()) return false;
+  if (!text.trim()) return { ok: false, error: 'descripción vacía' };
   const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
   const body = JSON.stringify({ plain_text: text });
   let res = await fetchWith429Retry(`${BASE}/items/${itemId}/description`, { method: 'POST', headers, body }, 'setItemDescription');
@@ -303,10 +303,24 @@ export async function setItemDescription(accessToken, itemId, plainText) {
     res = await fetchWith429Retry(`${BASE}/items/${itemId}/description?api_version=2`, { method: 'PUT', headers, body }, 'setItemDescription:put');
   }
   if (!res.ok) {
-    console.warn('[ML] setItemDescription %s → HTTP %s: %s', itemId, res.status, await errorMessage(res));
-    return false;
+    const error = `HTTP ${res.status}: ${await errorMessage(res)}`;
+    console.warn('[ML] setItemDescription %s → %s', itemId, error);
+    return { ok: false, error };
   }
-  return true;
+  return { ok: true };
+}
+
+/** Texto de la descripción de un ítem ('' si no tiene: ML contesta 404), o `null` si no se pudo leer. */
+export async function getItemDescription(accessToken, itemId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/items/${itemId}/description`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getItemDescription'
+  );
+  if (res.status === 404) return '';
+  if (!res.ok) return null;
+  const json = await res.json().catch(() => null);
+  return String(json?.plain_text ?? json?.text ?? '');
 }
 
 /**
