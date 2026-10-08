@@ -24,7 +24,7 @@ const analysisState = {
 };
 
 const syncServiceState = { persistResult: { ml: true, tn: true } };
-const dbState = { enqueueResult: 5, taskStatus: null, auditRows: [] };
+const dbState = { enqueueResult: 5, taskStatus: null, auditRows: [], stockAlerts: [] };
 // tnSnapshotRow: lo que readTnSnapshotRow devuelve como fila previa (null = no está en el snapshot).
 // Se lee ANTES de escribir en TN — ver conflictsService.js — así que ya no depende de lo que
 // devuelva patchTnStock (que ahora solo mantiene la foto al día, ignorado por el historial).
@@ -80,6 +80,7 @@ before(async () => {
       enqueueMlTask: async () => dbState.enqueueResult,
       getMlTaskStatus: async () => dbState.taskStatus,
       insertAuditLog: async (row) => { dbState.auditRows.push(row); },
+      listStockAlerts: async () => dbState.stockAlerts,
     },
   });
   mock.module('../src/lib/mercadolibre.js', {
@@ -126,6 +127,7 @@ beforeEach(() => {
   dbState.enqueueResult = 5;
   dbState.taskStatus = null;
   dbState.auditRows = [];
+  dbState.stockAlerts = [];
   mlState.updateVariationSkuError = null;
   mlState.updateItemSkuError = null;
   mlState.updateStockResult = true;
@@ -172,6 +174,29 @@ test('GET /: stockTotal suma el mínimo ML/TN por par y respeta el filtro activo
   const body = await res.json();
   // Solo el par 'X' (stock distinto) pasa el filtro; su stock vendible es el mínimo entre canales.
   assert.deepEqual(body.stockTotal, { units: 3, products: 1 });
+});
+
+test('GET /: withoutAlertRule=1 saca los que ya tienen regla ANTES de paginar', async () => {
+  // 3 coincidencias con "agenda": las 2 primeras ya tienen regla. Con limit=5 (el mínimo) y el
+  // filtro aplicado después de paginar, la tercera quedaría afuera si hubiera más con regla.
+  analysisState.result.matched = [
+    { ml: { stock: 1, title: 'Agenda 1' }, tn: { stock: 1 }, sku: 'AG1' },
+    { ml: { stock: 1, title: 'Agenda 2', sku: 'AG2' }, tn: { stock: 1 } },
+    { ml: { stock: 1, title: 'Agenda 3' }, tn: { stock: 1 }, sku: 'AG3' },
+    { ml: { stock: 1, title: 'Cuaderno' }, tn: { stock: 1 }, sku: 'CU1' },
+  ];
+  dbState.stockAlerts = [{ sku: 'AG1' }, { sku: 'AG2' }];
+  const res = await fetch(`${baseUrl}/?tab=coincidencias&search=agenda&limit=5&withoutAlertRule=1`);
+  const body = await res.json();
+  assert.deepEqual(body.matched.map((p) => p.sku), ['AG3']);
+  assert.equal(body.paging.total, 1);
+});
+
+test('GET /: sin withoutAlertRule no filtra por reglas', async () => {
+  dbState.stockAlerts = [{ sku: 'A' }];
+  const res = await fetch(`${baseUrl}/?tab=coincidencias`);
+  const body = await res.json();
+  assert.equal(body.matched.length, 1);
 });
 
 // ─── POST /update-sku ────────────────────────────────────────────────────

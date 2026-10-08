@@ -37,6 +37,9 @@ interface ProductOption {
   thumbnail: string | null;
 }
 
+/** Tope de resultados del buscador de "Vigilar productos" (el máximo que acepta GET /conflicts). */
+const NEW_RULE_SEARCH_LIMIT = 100;
+
 @Component({
   selector: 'app-alertas',
   standalone: true,
@@ -356,19 +359,27 @@ export class AlertasComponent {
     { initialValue: '' }
   );
 
-  /** Busca entre los productos matcheados (ML+TN por SKU), por título o SKU. */
+  /**
+   * Busca entre los productos matcheados (ML+TN por SKU), por título o SKU, SIN los que ya tienen
+   * regla. Ese filtro lo hace el backend (`withoutAlertRule`) antes de paginar: filtrando acá, si
+   * las primeras N coincidencias tenían regla la lista quedaba vacía aunque hubiera más.
+   * La cantidad de reglas va en la key para que agregar una vuelva a llenar la lista.
+   */
   readonly newRuleSearchQuery = injectQuery(() => ({
-    queryKey: ['alertas', 'product-search', this.debouncedNewRuleQuery()],
-    queryFn: async (): Promise<ProductOption[]> => {
+    queryKey: ['alertas', 'product-search', this.debouncedNewRuleQuery(), this.rules().length],
+    queryFn: async (): Promise<{ options: ProductOption[]; total: number }> => {
       const q = this.debouncedNewRuleQuery().trim();
-      const analysis = await this.conflicts.getAnalysisPromise({ tab: 'coincidencias', search: q, limit: 15 });
-      return (analysis.matched ?? [])
+      const analysis = await this.conflicts.getAnalysisPromise({
+        tab: 'coincidencias', search: q, limit: NEW_RULE_SEARCH_LIMIT, withoutAlertRule: true,
+      });
+      const options = (analysis.matched ?? [])
         .filter((pair) => !!(pair.sku || pair.ml.sku))
         .map((pair) => ({
           sku: (pair.sku || pair.ml.sku)!,
           label: mlLabel(pair.ml),
           thumbnail: pair.ml.thumbnail ?? pair.tn.thumbnail ?? null,
         }));
+      return { options, total: analysis.paging?.total ?? options.length };
     },
     enabled: this.debouncedNewRuleQuery().trim().length >= 2,
     refetchOnWindowFocus: false,
@@ -377,11 +388,19 @@ export class AlertasComponent {
 
   readonly newRuleSearchLoading = computed(() => this.newRuleSearchQuery.isFetching());
 
-  /** Resultados sin los que ya tienen una regla — para eso está la tabla de abajo, no esta alta. */
+  /**
+   * Resultados sin los que ya tienen una regla (para eso está la tabla de abajo, no esta alta). El
+   * backend ya los saca; este filtro solo cubre el instante entre agregar una regla y el refetch.
+   */
   readonly newRuleSearchResults = computed<ProductOption[]>(() => {
     const withRule = new Set(this.rules().map((r) => r.sku));
-    return (this.newRuleSearchQuery.data() ?? []).filter((opt) => !withRule.has(opt.sku));
+    return (this.newRuleSearchQuery.data()?.options ?? []).filter((opt) => !withRule.has(opt.sku));
   });
+
+  /** Coincidencias sin regla que no entraron en la lista (pasan el tope por búsqueda). */
+  readonly newRuleSearchHidden = computed(() =>
+    Math.max(0, (this.newRuleSearchQuery.data()?.total ?? 0) - (this.newRuleSearchQuery.data()?.options.length ?? 0))
+  );
 
   isNewRuleSelected(sku: string): boolean {
     return this.selectedNewSkus().has(sku);
