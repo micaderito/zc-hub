@@ -331,7 +331,7 @@
           @if (newRuleSearchLoading()) {
             <div class="product-result-hint"><i class="ti ti-loader-2" aria-hidden="true"></i> Buscando…</div>
           } @else if (newRuleSearchResults().length === 0) {
-            <div class="product-result-hint">Sin resultados para "{{ newRuleQuery() }}" (o ya tienen regla).</div>
+            <div class="product-result-hint">Sin productos sin regla para "{{ newRuleQuery() }}".</div>
           } @else {
             @for (opt of newRuleSearchResults(); track opt.sku) {
               <label class="product-result">
@@ -346,6 +346,9 @@
                   <span class="result-sku">{{ opt.sku }}</span>
                 </span>
               </label>
+            }
+            @if (newRuleSearchHidden() > 0) {
+              <div class="product-result-hint">Hay {{ newRuleSearchHidden() }} más — refiná la búsqueda para verlos.</div>
             }
           }
         </div>

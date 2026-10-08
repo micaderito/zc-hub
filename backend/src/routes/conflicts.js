@@ -10,7 +10,7 @@ import {
 } from '../services/conflictsService.js';
 import { rememberStockWrite, forgetStockWrite, tnStockEchoKey } from '../lib/stockEcho.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { enqueueMlTask, getMlTaskStatus, insertAuditLog } from '../db.js';
+import { enqueueMlTask, getMlTaskStatus, insertAuditLog, listStockAlerts } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -25,6 +25,9 @@ let updatePricesTail = Promise.resolve();
 
 /** GET análisis: coincidencias, solo ML, solo TN, sin SKU, duplicados.
  *  Soporta paginación: ?page=1&limit=25&filter=all|mismatch|synced|no-stock|with-stock&search=texto
+ *  &withoutAlertRule=1 (solo coincidencias): saca los SKUs que ya tienen regla de alerta de stock —
+ *  lo usa el buscador de Alertas → Reglas. Va ANTES de paginar: filtrar después en el front dejaba
+ *  la página vacía si las primeras N coincidencias ya tenían regla.
  */
 conflictsRoutes.get('/', async (req, res) => {
   try {
@@ -81,6 +84,11 @@ conflictsRoutes.get('/', async (req, res) => {
             .filter(Boolean).join(' ').toLowerCase();
           return searchTokens.every(t => text.includes(t));
         });
+      }
+
+      if (req.query.withoutAlertRule === '1') {
+        const withRule = new Set((await listStockAlerts()).map(a => a.sku));
+        filtered = filtered.filter(p => !withRule.has(p.sku || p.ml?.sku));
       }
 
       total = filtered.length;
