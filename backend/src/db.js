@@ -507,6 +507,53 @@ export async function initDb() {
       );
     }
 
+    // ── Pedidos al proveedor ─────────────────────────────────────────────────
+    // El pedido es una entidad propia (antes era implícito: "Para reponer" + un corte de período).
+    // Las alertas solo sugieren qué agregar; el pedido se arma a mano, se guarda y queda en el
+    // historial. Estados: borrador → pendiente (se mandó a la fábrica) → recibido (`partial` si no
+    // llegó todo). Recibir NO toca stock: solo registra qué llegó (ver CLAUDE.md).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS supplier_orders (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(256) NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'borrador' CHECK (status IN ('borrador', 'pendiente', 'recibido')),
+        partial BOOLEAN NOT NULL DEFAULT FALSE,
+        discount_1 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        discount_2 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        note TEXT,
+        based_on_id INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ordered_at TIMESTAMPTZ,
+        received_at TIMESTAMPTZ
+      );
+    `);
+    // Una línea = un pack (o el bulto de un SKU sin pack) o un ítem libre (producto que el hub no
+    // tiene). code/description/unit_price son una COPIA editable: el pedido es lo que se le mandó a
+    // la fábrica, no tiene que cambiar si después cambia el mapeo o la lista de precios.
+    // price_source = 'precios' marca las que siguen al precio de Precios (se refrescan mientras el
+    // pedido es borrador); 'manual' las que la usuaria pisó.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS supplier_order_lines (
+        id SERIAL PRIMARY KEY,
+        order_id INTEGER NOT NULL REFERENCES supplier_orders(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        kind VARCHAR(8) NOT NULL CHECK (kind IN ('pack', 'sku', 'free')),
+        pack_id INTEGER,
+        sku VARCHAR(128),
+        code VARCHAR(128),
+        description VARCHAR(512),
+        detail VARCHAR(1024),
+        qty INTEGER NOT NULL DEFAULT 1,
+        unit_price NUMERIC(15,2),
+        price_source VARCHAR(8) NOT NULL DEFAULT 'precios',
+        units_per_pack INTEGER,
+        origin VARCHAR(8) NOT NULL DEFAULT 'manual',
+        received_qty INTEGER
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_supplier_order_lines_order ON supplier_order_lines (order_id, position);`);
+
     // ── Usuarios del hub (login) ────────────────────────────────────────────
     // Sin roles por ahora: cualquier usuario ve y hace todo. token_version se usa para invalidar
     // tokens ya emitidos (desactivar, "cerrar sesión en todos lados", cambio de contraseña) sin
@@ -3630,4 +3677,274 @@ export async function getAllDraftJsonBlobs() {
     console.error('getAllDraftJsonBlobs:', e.message);
     return [];
   }
+}
+
+// ── Pedidos al proveedor ──────────────────────────────────────────────────────
+
+const ORDER_DEFAULTS_KEY = 'supplier_order_defaults';
+/** Descuentos que hace siempre el proveedor: 25% sobre los productos y después 5% sobre el total. */
+export const DEFAULT_ORDER_DISCOUNTS = { discount1: 25, discount2: 5 };
+
+/** Descuentos por defecto para un pedido nuevo (configurables desde la página de Pedidos). */
+export async function getOrderDefaults() {
+  const p = getPool();
+  if (!p) return { ...DEFAULT_ORDER_DISCOUNTS };
+  try {
+    const r = await p.query('SELECT value FROM sync_settings WHERE key = $1', [ORDER_DEFAULTS_KEY]);
+    const raw = r.rows[0]?.value;
+    const parsed = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : {};
+    return { ...DEFAULT_ORDER_DISCOUNTS, ...parsed };
+  } catch (e) {
+    console.error('getOrderDefaults:', e.message);
+    return { ...DEFAULT_ORDER_DISCOUNTS };
+  }
+}
+
+export async function setOrderDefaults({ discount1, discount2 }) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `INSERT INTO sync_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      [ORDER_DEFAULTS_KEY, JSON.stringify({ discount1, discount2 })]
+    );
+    return true;
+  } catch (e) {
+    console.error('setOrderDefaults:', e.message);
+    return false;
+  }
+}
+
+const iso = (v) => (v ? new Date(v).toISOString() : null);
+const numOrNull = (v) => (v == null ? null : Number(v));
+
+function mapOrderRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    partial: !!row.partial,
+    discount1: Number(row.discount_1),
+    discount2: Number(row.discount_2),
+    note: row.note ?? '',
+    basedOnId: row.based_on_id ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+    orderedAt: iso(row.ordered_at),
+    receivedAt: iso(row.received_at),
+  };
+}
+
+function mapOrderLineRow(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    packId: row.pack_id ?? null,
+    sku: row.sku ?? null,
+    code: row.code ?? '',
+    description: row.description ?? '',
+    detail: row.detail ?? '',
+    qty: Number(row.qty),
+    unitPrice: numOrNull(row.unit_price),
+    priceSource: row.price_source,
+    unitsPerPack: row.units_per_pack == null ? null : Number(row.units_per_pack),
+    origin: row.origin,
+    receivedQty: row.received_qty == null ? null : Number(row.received_qty),
+  };
+}
+
+/** Reemplaza todas las líneas de un pedido (dentro de la transacción del llamador). */
+async function replaceOrderLines(client, orderId, lines) {
+  await client.query('DELETE FROM supplier_order_lines WHERE order_id = $1', [orderId]);
+  let position = 0;
+  for (const l of lines || []) {
+    await client.query(
+      `INSERT INTO supplier_order_lines
+         (order_id, position, kind, pack_id, sku, code, description, detail, qty, unit_price,
+          price_source, units_per_pack, origin, received_qty)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [
+        orderId, position++, l.kind, l.packId ?? null, l.sku ?? null, l.code ?? null, l.description ?? null,
+        l.detail ?? null, l.qty, l.unitPrice ?? null, l.priceSource ?? 'precios', l.unitsPerPack ?? null,
+        l.origin ?? 'manual', l.receivedQty ?? null,
+      ]
+    );
+  }
+}
+
+/** Todos los pedidos (más nuevos primero), cada uno con sus líneas — son pocos y chicos. */
+export async function listSupplierOrders({ status } = {}) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const params = [];
+    let where = '';
+    if (status) { params.push(status); where = 'WHERE status = $1'; }
+    const orders = await p.query(
+      `SELECT * FROM supplier_orders ${where} ORDER BY COALESCE(ordered_at, created_at) DESC, id DESC`, params
+    );
+    if (!orders.rows.length) return [];
+    const ids = orders.rows.map((o) => o.id);
+    const lines = await p.query(
+      `SELECT * FROM supplier_order_lines WHERE order_id = ANY($1::int[]) ORDER BY order_id, position`, [ids]
+    );
+    const byOrder = new Map();
+    for (const row of lines.rows) {
+      if (!byOrder.has(row.order_id)) byOrder.set(row.order_id, []);
+      byOrder.get(row.order_id).push(mapOrderLineRow(row));
+    }
+    return orders.rows.map((o) => ({ ...mapOrderRow(o), lines: byOrder.get(o.id) || [] }));
+  } catch (e) {
+    console.error('listSupplierOrders:', e.message);
+    return [];
+  }
+}
+
+/** Un pedido con sus líneas, o `null` si no existe. */
+export async function getSupplierOrder(id) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const o = await p.query('SELECT * FROM supplier_orders WHERE id = $1', [id]);
+    if (!o.rows[0]) return null;
+    const lines = await p.query('SELECT * FROM supplier_order_lines WHERE order_id = $1 ORDER BY position', [id]);
+    return { ...mapOrderRow(o.rows[0]), lines: lines.rows.map(mapOrderLineRow) };
+  } catch (e) {
+    console.error('getSupplierOrder:', e.message);
+    return null;
+  }
+}
+
+/** Crea un pedido (vacío o con líneas, ej. al duplicar). Devuelve el pedido creado o `null`. */
+export async function createSupplierOrder({ name, status = 'borrador', discount1, discount2, note = '', basedOnId = null, lines = [] }) {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    // ordered_at se calcula acá y no con un CASE sobre $2: reusar el mismo parámetro como valor de
+    // columna y en una comparación hace que Postgres deduzca dos tipos y rechace la query (ver
+    // publishJobsRealDb.test.js).
+    const r = await client.query(
+      `INSERT INTO supplier_orders (name, status, discount_1, discount_2, note, based_on_id, ordered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [name, status, discount1, discount2, note, basedOnId, status === 'pendiente' ? new Date() : null]
+    );
+    const id = r.rows[0].id;
+    await replaceOrderLines(client, id, lines);
+    await client.query('COMMIT');
+    return getSupplierOrder(id);
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('createSupplierOrder:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Guarda el contenido de un BORRADOR (nombre, nota, descuentos y todas sus líneas). Devuelve el
+ * pedido, `'not_found'` o `'not_draft'` (un pedido ya mandado no se edita: es lo que se pidió).
+ */
+export async function updateSupplierOrderDraft(id, { name, note, discount1, discount2, lines }) {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query('SELECT status FROM supplier_orders WHERE id = $1 FOR UPDATE', [id]);
+    if (!cur.rows[0]) { await client.query('ROLLBACK'); return 'not_found'; }
+    if (cur.rows[0].status !== 'borrador') { await client.query('ROLLBACK'); return 'not_draft'; }
+    await client.query(
+      `UPDATE supplier_orders SET name = $2, note = $3, discount_1 = $4, discount_2 = $5, updated_at = NOW() WHERE id = $1`,
+      [id, name, note, discount1, discount2]
+    );
+    await replaceOrderLines(client, id, lines);
+    await client.query('COMMIT');
+    return getSupplierOrder(id);
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('updateSupplierOrderDraft:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Borrador → pendiente. Devuelve `true` si cambió (no era borrador o no existe → `false`). */
+export async function placeSupplierOrder(id) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE supplier_orders SET status = 'pendiente', ordered_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND status = 'borrador'`, [id]
+    );
+    return r.rowCount > 0;
+  } catch (e) {
+    console.error('placeSupplierOrder:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Anota cuántos packs llegaron de cada línea (`received`: Map/obj lineId → qty|null). Con
+ * `close`, el pedido pasa a 'recibido' y `partial` queda en true si alguna línea llegó corta (sin
+ * dato = no llegó). Solo sobre pedidos 'pendiente'. Devuelve el pedido, 'not_found' o 'not_pending'.
+ */
+export async function receiveSupplierOrder(id, received, { close = false } = {}) {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query('SELECT status FROM supplier_orders WHERE id = $1 FOR UPDATE', [id]);
+    if (!cur.rows[0]) { await client.query('ROLLBACK'); return 'not_found'; }
+    if (cur.rows[0].status !== 'pendiente') { await client.query('ROLLBACK'); return 'not_pending'; }
+    for (const [lineId, qty] of Object.entries(received || {})) {
+      await client.query(
+        `UPDATE supplier_order_lines SET received_qty = $3 WHERE order_id = $1 AND id = $2`,
+        [id, Number(lineId), qty]
+      );
+    }
+    if (close) {
+      await client.query(`UPDATE supplier_order_lines SET received_qty = 0 WHERE order_id = $1 AND received_qty IS NULL`, [id]);
+      const short = await client.query(
+        `SELECT 1 FROM supplier_order_lines WHERE order_id = $1 AND received_qty < qty LIMIT 1`, [id]
+      );
+      await client.query(
+        `UPDATE supplier_orders SET status = 'recibido', partial = $2, received_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [id, short.rows.length > 0]
+      );
+    }
+    await client.query('COMMIT');
+    return getSupplierOrder(id);
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('receiveSupplierOrder:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Borra un borrador (los pedidos mandados son historial: no se borran). */
+export async function deleteSupplierOrderDraft(id) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(`DELETE FROM supplier_orders WHERE id = $1 AND status = 'borrador'`, [id]);
+    return r.rowCount > 0;
+  } catch (e) {
+    console.error('deleteSupplierOrderDraft:', e.message);
+    return false;
+  }
+}
+
+/** Mapa código → descripción del catálogo del proveedor (para precargar la descripción de una línea). */
+export async function getSupplierCodeDescriptions(supplier = 'punto_cero') {
+  const map = new Map();
+  for (const c of await getSupplierCodes(supplier)) if (c.description) map.set(c.code, c.description);
+  return map;
 }

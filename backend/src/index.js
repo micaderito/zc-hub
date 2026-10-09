@@ -22,6 +22,7 @@ import { productRoutes } from './routes/products.js';
 import { pricingRoutes } from './routes/pricing.js';
 import { alertsRoutes } from './routes/alerts.js';
 import { depositoRoutes } from './routes/deposito.js';
+import { ordersRoutes } from './routes/orders.js';
 import { sessionRoutes } from './routes/session.js';
 import { usersRoutes } from './routes/users.js';
 import { salesRoutes } from './routes/sales.js';
@@ -82,6 +83,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/pricing', requireAuth, pricingRoutes);
 app.use('/api/alerts', requireAuth, alertsRoutes);
 app.use('/api/deposito', requireAuth, depositoRoutes);
+app.use('/api/orders', requireAuth, ordersRoutes);
 app.use('/api/sales', requireAuth, salesRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));

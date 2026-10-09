@@ -1,5 +1,5 @@
 /**
- * Único test del proyecto que corre contra un Postgres REAL en vez de mockear `pg`. Se salta solo
+ * Los tests del proyecto que corren contra un Postgres REAL en vez de mockear `pg`. Se salta solo
  * si no hay `DATABASE_URL` (CI sin base, o quien corra `npm test` sin el `.env` symlinkeado).
  *
  * Por qué existe: `finishPublishJob` y `reconcileStalePublishJobs` tenían un bug real donde
@@ -86,6 +86,69 @@ test(
     } finally {
       await pool.query('DELETE FROM product_publish_jobs WHERE id = ANY($1)', [jobs]);
       await pool.query('DELETE FROM product_drafts WHERE id = ANY($1)', [drafts]);
+      await pool.end();
+    }
+  }
+);
+
+// Pedidos al proveedor: vive en este mismo archivo a propósito. `node --test` corre cada archivo en
+// su propio proceso y en paralelo; dos archivos llamando a initDb() a la vez chocan creando las
+// mismas tablas ("duplicate key ... pg_class_relname_nsp_index"). En un solo archivo van en serie.
+test(
+  'pedidos: crear, guardar borrador, marcar como pedido, recibir incompleto y duplicar faltantes contra Postgres real',
+  { skip: hasDb ? false : 'requiere DATABASE_URL (correr con el .env symlinkeado del worktree, o el de backend/)' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined,
+    });
+    assert.equal(await db.initDb(), true, 'initDb() debería poder conectar con DATABASE_URL configurada');
+
+    const created = [];
+    try {
+      const pending = await db.createSupplierOrder({ name: `t-repetido-${Date.now()}`, status: 'pendiente', discount1: 25, discount2: 5 });
+      created.push(pending.id);
+      assert.equal(pending.status, 'pendiente');
+      assert.ok(pending.orderedAt, 'un pedido creado como pendiente tiene fecha de pedido');
+
+      const draft = await db.createSupplierOrder({ name: `t-pedido-${Date.now()}`, discount1: 25, discount2: 5 });
+      created.push(draft.id);
+      assert.equal(draft.status, 'borrador');
+      assert.equal(draft.orderedAt, null);
+
+      const saved = await db.updateSupplierOrderDraft(draft.id, {
+        name: 'Pedido test', note: 'nota', discount1: 30, discount2: 0,
+        lines: [
+          { kind: 'pack', packId: 999999, code: 'PK', description: 'Pack', detail: 'rosa', qty: 2, unitPrice: 96000.5, priceSource: 'precios', unitsPerPack: 8, origin: 'alerta' },
+          { kind: 'free', code: '5520', description: 'Planner', qty: 3, unitPrice: null, priceSource: 'manual', origin: 'libre' },
+        ],
+      });
+      assert.equal(saved.discount1, 30);
+      assert.deepEqual(saved.lines.map((l) => [l.kind, l.qty, l.unitPrice, l.detail]), [['pack', 2, 96000.5, 'rosa'], ['free', 3, null, '']]);
+
+      assert.equal(await db.placeSupplierOrder(draft.id), true);
+      assert.equal(await db.placeSupplierOrder(draft.id), false, 'no se marca dos veces');
+      assert.equal(await db.updateSupplierOrderDraft(draft.id, { ...saved, lines: [] }), 'not_draft');
+      assert.equal(await db.deleteSupplierOrderDraft(draft.id), false, 'un pedido mandado no se borra');
+
+      const [l1, l2] = saved.lines;
+      const partial = await db.receiveSupplierOrder(draft.id, { [l1.id]: 2 });
+      assert.equal(partial.status, 'pendiente');
+      const closed = await db.receiveSupplierOrder(draft.id, { [l2.id]: 1 }, { close: true });
+      assert.equal(closed.status, 'recibido');
+      assert.equal(closed.partial, true);
+      assert.ok(closed.receivedAt);
+      assert.deepEqual(closed.lines.map((l) => l.receivedQty), [2, 1]);
+
+      const list = await db.listSupplierOrders({ status: 'recibido' });
+      assert.ok(list.some((o) => o.id === draft.id && o.lines.length === 2));
+
+      await db.setOrderDefaults({ discount1: 25, discount2: 5 });
+      assert.deepEqual(await db.getOrderDefaults(), { discount1: 25, discount2: 5 });
+    } finally {
+      if (created.length) await pool.query('DELETE FROM supplier_orders WHERE id = ANY($1::int[])', [created]);
       await pool.end();
     }
   }

@@ -6,7 +6,6 @@ import { ApiService } from './api.service';
 
 /** Query keys de Alertas; invalidar tras cualquier alta/edición/borrado. */
 export const ALERTS_RULES_QUERY_KEY = ['alerts', 'rules'] as const;
-export const ALERTS_RESTOCK_QUERY_KEY = ['alerts', 'restock'] as const;
 export const ALERTS_NOTIFICATIONS_QUERY_KEY = ['alerts', 'notifications'] as const;
 export const ALERTS_UNWATCHED_QUERY_KEY = ['alerts', 'unwatched'] as const;
 
@@ -18,11 +17,6 @@ export interface PackRef {
   sku: string | null;
   unitCount: number;
   mode: 'assorted' | 'single';
-}
-
-/** El pack de una fila de "Para reponer": trae además la cantidad de packs sugerida (ver computePackSuggestedQty en el backend). */
-export interface RestockPackRef extends PackRef {
-  suggestedPacks: SuggestedQty | null;
 }
 
 /** Una regla de alerta, con el stock de hoy y el pack ya resueltos (lo que pinta la pestaña Reglas). */
@@ -58,39 +52,6 @@ export interface NotificationsInbox {
   unreadCount: number;
 }
 
-export type RestockState = 'still-low' | 'out' | 'restocked' | 'unknown';
-
-/** Cantidad sugerida a pedir: en packs si el producto tiene uno, en unidades sueltas si no. */
-export interface SuggestedQty {
-  unit: 'packs' | 'unidades';
-  qty: number;
-}
-
-export interface RestockRow {
-  sku: string;
-  productLabel: string | null;
-  firstTriggeredAt: string | null;
-  timesTriggered: number;
-  threshold: number;
-  stockMl: number | null;
-  stockTn: number | null;
-  stockEffective: number | null;
-  /** Stock físico en Depósito Marañón para este SKU (aparte de lo publicado en ML/TN); `null` si no hay fila cargada. */
-  depositoStock: number | null;
-  state: RestockState;
-  pack: RestockPackRef | null;
-  /** `null` cuando el producto tiene pack y no se cargó un ajuste manual: la sugerencia real es la del pack (`pack.suggestedPacks`). */
-  suggested: SuggestedQty | null;
-}
-
-export interface RestockList {
-  rows: RestockRow[];
-  /** Desde cuándo cuenta el período actual (`null` = todo el historial). */
-  cutoff: string | null;
-}
-
-export type RestockPeriod = 'last-order' | '30d' | 'all';
-
 /** Producto matcheado (ML+TN) sin regla de alerta todavía, para la pestaña "Sin alertas". */
 export interface UnwatchedProduct {
   sku: string;
@@ -117,13 +78,8 @@ export class AlertsService {
 
   private invalidateAll(): void {
     this.queryClient.invalidateQueries({ queryKey: ALERTS_RULES_QUERY_KEY });
-    this.queryClient.invalidateQueries({ queryKey: ALERTS_RESTOCK_QUERY_KEY });
     this.queryClient.invalidateQueries({ queryKey: ALERTS_NOTIFICATIONS_QUERY_KEY });
     this.queryClient.invalidateQueries({ queryKey: ALERTS_UNWATCHED_QUERY_KEY });
-  }
-
-  private invalidateRestock(): void {
-    this.queryClient.invalidateQueries({ queryKey: ALERTS_RESTOCK_QUERY_KEY });
   }
 
   getRules(): Observable<{ rules: StockAlertRule[] }> {
@@ -169,52 +125,11 @@ export class AlertsService {
     this.invalidateAll();
   }
 
-  getRestock(period: RestockPeriod = 'last-order'): Observable<RestockList> {
-    const params = new HttpParams().set('period', period);
-    return this.http.get<RestockList>(`${this.api.baseUrl}/alerts/restock`, { params });
-  }
-
-  getRestockPromise(period: RestockPeriod = 'last-order'): Promise<RestockList> {
-    return lastValueFrom(this.getRestock(period));
-  }
-
-  /** "Marcar pedido como hecho": cierra el período. No borra reglas ni notificaciones. */
-  async closeRestockPeriod(): Promise<void> {
-    await lastValueFrom(this.http.post<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/done`, {}));
-    this.invalidateAll();
-  }
-
   getUnwatched(): Observable<UnwatchedProductsResponse> {
     return this.http.get<UnwatchedProductsResponse>(`${this.api.baseUrl}/alerts/unwatched`);
   }
 
   getUnwatchedPromise(): Promise<UnwatchedProductsResponse> {
     return lastValueFrom(this.getUnwatched());
-  }
-
-  /** Ajusta a mano la cantidad "a pedir" de un SKU o un pack; `qty: null` la borra y vuelve a la sugerida. */
-  async saveRestockOverride(targetType: 'sku' | 'pack', targetId: string, qty: number | null): Promise<void> {
-    await lastValueFrom(
-      this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/override`, { targetType, targetId, qty })
-    );
-    this.invalidateRestock();
-  }
-
-  /** Saca una fila de "Para reponer" del pedido en curso (ya repuesta); vuelve sola si dispara otra alerta. */
-  async dismissRestockRow(sku: string): Promise<void> {
-    await lastValueFrom(
-      this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/alerts/restock/${encodeURIComponent(sku)}/dismiss`, { dismissed: true })
-    );
-    this.invalidateRestock();
-  }
-}
-
-/** Etiqueta legible para el estado de una fila de "Para reponer". */
-export function restockStateLabel(state: RestockState): string {
-  switch (state) {
-    case 'out': return 'Sin stock';
-    case 'restocked': return 'Ya repuesto';
-    case 'still-low': return 'Sigue bajo';
-    default: return 'Sin datos';
   }
 }
