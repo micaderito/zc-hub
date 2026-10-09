@@ -94,6 +94,7 @@ export class LayoutComponent {
     { path: '/crear', label: 'Crear producto', icon: 'ti-plus' },
     { path: '/publicaciones', label: 'Publicaciones', icon: 'ti-rocket' },
     { path: '/alertas', label: 'Alertas', icon: 'ti-bell' },
+    { path: '/pedidos', label: 'Pedidos', icon: 'ti-truck-delivery' },
     { path: '/ventas', label: 'Ventas', icon: 'ti-map-pin' },
     { path: '/conflictos', label: 'Conflictos', icon: 'ti-alert-triangle' },
     { path: '/sincronizacion', label: 'Sincronización', icon: 'ti-refresh' },

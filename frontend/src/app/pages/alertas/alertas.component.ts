@@ -1,34 +1,24 @@
 import { Component, inject, signal, computed, effect, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import {
   AlertsService,
   ALERTS_RULES_QUERY_KEY,
-  ALERTS_RESTOCK_QUERY_KEY,
   ALERTS_NOTIFICATIONS_QUERY_KEY,
   ALERTS_UNWATCHED_QUERY_KEY,
   StockAlertRule,
-  RestockRow,
-  RestockPeriod,
   UnwatchedProduct,
-  RestockPackRef,
-  restockStateLabel,
 } from '../../core/services/alerts.service';
 import { ConflictsService, mlLabel } from '../../core/services/conflicts.service';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 
-type Tab = 'reponer' | 'notificaciones' | 'sin-alertas' | 'reglas';
-
-interface RestockGroup {
-  pack: RestockPackRef;
-  rows: RestockRow[];
-}
+type Tab = 'notificaciones' | 'sin-alertas' | 'reglas';
 
 /** Resultado del buscador de productos (para vigilar uno nuevo). */
 interface ProductOption {
@@ -43,7 +33,7 @@ const NEW_RULE_SEARCH_LIMIT = 100;
 @Component({
   selector: 'app-alertas',
   standalone: true,
-  imports: [CommonModule, FormsModule, TabsComponent, SearchBarComponent, ConfirmDialogComponent],
+  imports: [CommonModule, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent],
   templateUrl: './alertas.component.html',
   styleUrl: './alertas.component.scss',
 })
@@ -51,9 +41,9 @@ export class AlertasComponent {
   private readonly alertsSvc = inject(AlertsService);
   private readonly conflicts = inject(ConflictsService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
-  readonly activeTab = signal<Tab>('reponer');
-  protected readonly restockStateLabel = restockStateLabel;
+  readonly activeTab = signal<Tab>('notificaciones');
 
   onTabChange(key: string): void {
     this.activeTab.set(key as Tab);
@@ -65,138 +55,6 @@ export class AlertasComponent {
    * de más abajo; si no, queda listo para pegarlo en "Vigilar un producto nuevo").
    */
   private readonly queryParams = toSignal(this.route.queryParamMap, { initialValue: null });
-
-  /* ══════════════════════════ Para reponer ══════════════════════════ */
-
-  readonly restockPeriod = signal<RestockPeriod>('last-order');
-  readonly restockSearch = signal('');
-  readonly restockView = signal<'pack' | 'flat'>('pack');
-
-  readonly restockQuery = injectQuery(() => ({
-    queryKey: [...ALERTS_RESTOCK_QUERY_KEY, this.restockPeriod()],
-    queryFn: () => this.alertsSvc.getRestockPromise(this.restockPeriod()),
-    refetchOnWindowFocus: false,
-    staleTime: 60 * 1000,
-  }));
-
-  readonly restockLoading = computed(() => this.restockQuery.isLoading());
-  readonly restockRows = computed(() => this.restockQuery.data()?.rows ?? []);
-  readonly restockCutoff = computed(() => this.restockQuery.data()?.cutoff ?? null);
-
-  readonly filteredRestockRows = computed(() => {
-    const q = this.restockSearch().trim().toLowerCase();
-    const rows = this.restockRows();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      r.sku.toLowerCase().includes(q) ||
-      (r.productLabel || '').toLowerCase().includes(q) ||
-      (r.pack?.name || '').toLowerCase().includes(q)
-    );
-  });
-
-  /** Filas agrupadas por pack (vista "Por pack") + las que se piden sueltas. */
-  readonly restockGroups = computed<{ groups: RestockGroup[]; noPack: RestockRow[] }>(() => {
-    const byPack = new Map<number, RestockGroup>();
-    const noPack: RestockRow[] = [];
-    for (const r of this.filteredRestockRows()) {
-      if (r.pack) {
-        let g = byPack.get(r.pack.packId);
-        if (!g) { g = { pack: r.pack, rows: [] }; byPack.set(r.pack.packId, g); }
-        g.rows.push(r);
-      } else {
-        noPack.push(r);
-      }
-    }
-    const groups = [...byPack.values()].sort((a, b) => a.pack.name.localeCompare(b.pack.name, 'es'));
-    return { groups, noPack };
-  });
-
-  /** Vista "Lista plana": una fila por producto, la más urgente primero. */
-  readonly restockFlatRows = computed(() => {
-    const rank: Record<string, number> = { out: 0, 'still-low': 1, unknown: 2, restocked: 3 };
-    return [...this.filteredRestockRows()].sort((a, b) => {
-      const byState = (rank[a.state] ?? 9) - (rank[b.state] ?? 9);
-      if (byState !== 0) return byState;
-      return (a.stockEffective ?? 0) - (b.stockEffective ?? 0);
-    });
-  });
-
-  readonly restockTotals = computed(() => {
-    const { groups, noPack } = this.restockGroups();
-    let packs = 0, looseUnits = 0, units = 0;
-    for (const g of groups) {
-      const qty = g.pack.suggestedPacks?.qty ?? 0;
-      packs += qty;
-      units += qty * g.pack.unitCount;
-      for (const r of g.rows) {
-        if (r.suggested) { looseUnits += r.suggested.qty; units += r.suggested.qty; }
-      }
-    }
-    for (const r of noPack) {
-      if (r.suggested) { looseUnits += r.suggested.qty; units += r.suggested.qty; }
-    }
-    return { packs, looseUnits, units };
-  });
-
-  /** Ajusta a mano la sugerencia de un modelo puntual (SKU sin pack, o un extra dentro de un pack). */
-  async updateRowSuggested(row: RestockRow, value: number | string | null): Promise<void> {
-    const qty = value === null || value === undefined || value === '' ? null : Number(value);
-    if (qty != null && (!Number.isFinite(qty) || qty < 0)) return;
-    await this.alertsSvc.saveRestockOverride('sku', row.sku, qty);
-  }
-
-  /** Ajusta a mano cuántos packs completos pedir de un pack (pisa la sugerencia calculada). */
-  async updatePackSuggested(pack: RestockPackRef, value: number | string | null): Promise<void> {
-    const qty = value === null || value === undefined || value === '' ? null : Number(value);
-    if (qty != null && (!Number.isFinite(qty) || qty < 0)) return;
-    await this.alertsSvc.saveRestockOverride('pack', String(pack.packId), qty);
-  }
-
-  /** Saca del pedido en curso una fila ya repuesta; vuelve sola si el SKU dispara otra alerta. */
-  async dismissRestockRow(row: RestockRow): Promise<void> {
-    await this.alertsSvc.dismissRestockRow(row.sku);
-  }
-
-  readonly showCloseConfirm = signal(false);
-  readonly closingPeriod = signal(false);
-
-  async confirmClosePeriod(): Promise<void> {
-    this.closingPeriod.set(true);
-    try {
-      await this.alertsSvc.closeRestockPeriod();
-      this.showCloseConfirm.set(false);
-    } finally {
-      this.closingPeriod.set(false);
-    }
-  }
-
-  /** Respeta la vista activa: agrupado por pack, o el listado completo de "Lista plana". */
-  copyRestockList(): void {
-    const lines = this.restockView() === 'pack' ? this.buildPackCopyLines() : this.buildFlatCopyLines();
-    navigator.clipboard?.writeText(lines.join('\n')).catch(() => {});
-  }
-
-  private buildPackCopyLines(): string[] {
-    const lines: string[] = [];
-    for (const g of this.restockGroups().groups) {
-      const qty = g.pack.suggestedPacks?.qty ?? 0;
-      lines.push(`${g.pack.name}${g.pack.sku ? ` (${g.pack.sku})` : ''} — ${qty} pack${qty === 1 ? '' : 's'}`);
-      for (const r of g.rows) {
-        if (r.suggested) lines.push(`  ${r.productLabel ?? r.sku} (${r.sku}) — ${r.suggested.qty} extra`);
-      }
-    }
-    for (const r of this.restockGroups().noPack) {
-      if (r.suggested) lines.push(`${r.productLabel ?? r.sku} (${r.sku}) — ${r.suggested.qty} ${r.suggested.unit}`);
-    }
-    return lines;
-  }
-
-  private buildFlatCopyLines(): string[] {
-    return this.restockFlatRows().map((r) => {
-      const qty = r.suggested ? `${r.suggested.qty} ${r.suggested.unit}` : r.pack ? `ver pack ${r.pack.name}` : '—';
-      return `${r.productLabel ?? r.sku} (${r.sku}) — ${qty}`;
-    });
-  }
 
   /* ══════════════════════════ Notificaciones ══════════════════════════ */
 
@@ -307,7 +165,9 @@ export class AlertasComponent {
       const tab = params.get('tab');
       const sku = params.get('sku');
       untracked(() => {
-        if (tab === 'reglas' || tab === 'reponer' || tab === 'notificaciones' || tab === 'sin-alertas') this.activeTab.set(tab);
+        // "Para reponer" se mudó a Pedidos: un link viejo a esa pestaña lleva ahí.
+        if (tab === 'reponer') { this.router.navigate(['/pedidos']); return; }
+        if (tab === 'reglas' || tab === 'notificaciones' || tab === 'sin-alertas') this.activeTab.set(tab);
         if (sku) {
           this.rulesSearch.set(sku);
           this.newRuleQuery.set(sku);
@@ -437,11 +297,9 @@ export class AlertasComponent {
   /* ══════════════════════════ Tabs ══════════════════════════ */
 
   readonly tabs = computed<TabDef[]>(() => {
-    const reponerCount = this.restockRows().length;
     const unread = this.unreadCount();
     const unwatchedCount = this.unwatchedProducts().length;
     return [
-      { key: 'reponer', label: 'Para reponer', count: reponerCount, countVariant: reponerCount ? 'warn' : undefined },
       { key: 'notificaciones', label: 'Notificaciones', count: unread, countVariant: unread ? 'warn' : undefined },
       { key: 'sin-alertas', label: 'Sin alertas', count: unwatchedCount, countVariant: unwatchedCount ? 'warn' : undefined },
       { key: 'reglas', label: 'Reglas', count: this.rules().length },

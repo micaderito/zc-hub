@@ -1,0 +1,48 @@
+@use './pedidos-shared' as *;
+
+.pedidos { max-width: 100%; }
+
+.seg .count {
+  font-size: 0.64rem;
+  opacity: 0.75;
+  margin-left: 0.15rem;
+}
+
+.defaults {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  color: var(--text-2);
+
+  b { color: var(--text); font-weight: 500; }
+
+  .pct {
+    width: 3.6rem;
+    padding: 0.3rem 0.45rem;
+    text-align: right;
+  }
+}
+
+.zc-table {
+  min-width: 760px;
+
+  // Hover en la FILA, no en celdas sueltas: con fondo por celda + celdas de distinto alto quedaban
+  // franjas blancas entre medio.
+  .order-row {
+    cursor: pointer;
+    &:hover { background: var(--surface-2); }
+  }
+
+  .strong { font-weight: 500; }
+  .muted { color: var(--text-2); }
+  .nowrap { white-space: nowrap; }
+
+  .actions {
+    text-align: right;
+    white-space: nowrap;
+
+    .zc-btn + .zc-btn { margin-left: 0.35rem; }
+  }
+}
+

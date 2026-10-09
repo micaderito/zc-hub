@@ -1,0 +1,359 @@
+@use './pedidos-shared' as *;
+
+$cell-h: 30px;
+
+.pedido { max-width: 100%; }
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--brand);
+  text-decoration: none;
+  margin-bottom: 0.4rem;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+
+  h1 { font-size: 1.35rem; font-weight: 600; }
+
+  .name-input {
+    font-family: inherit;
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: var(--text);
+    background: transparent;
+    border: 0.5px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 0.15rem 0.4rem;
+    margin-left: -0.4rem;
+    min-width: 16rem;
+
+    &:hover { border-color: var(--border); }
+    &:focus { outline: none; border-color: var(--brand); background: var(--bg); }
+  }
+
+  a { color: var(--brand); }
+}
+
+.save-state {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+
+  &.err { color: var(--err); }
+}
+
+.flash {
+  font-size: 0.78rem;
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.85rem;
+  margin-bottom: 0.9rem;
+  font-size: 0.8rem;
+  color: var(--text-2);
+
+  > .ti { font-size: 1.1rem; color: var(--brand); }
+  > .ti.warn { color: var(--warn); }
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 1rem;
+  align-items: start;
+
+  @media (max-width: 1250px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+// ── Líneas del pedido ─────────────────────────────────────────────────────────
+// Todas las celdas arriba (vertical-align: top) y el texto plano con la misma altura de renglón que
+// un input: así los inputs de Packs/Precio quedan alineados con el resto aunque la descripción o el
+// precio tengan un renglón extra debajo.
+.zc-table.lines {
+  min-width: 760px;
+
+  td {
+    vertical-align: top;
+    padding: 0.45rem 0.4rem;
+  }
+
+  th { padding: 0.5rem 0.4rem; }
+  th:first-child, td:first-child { padding-left: 0.75rem; }
+
+  .c-code { width: 7rem; }
+  .c-desc { width: 32%; }
+  .c-detail { width: 22%; }
+  .c-qty { width: 4.5rem; }
+  .c-recv { width: 6rem; }
+  .c-price { width: 7.5rem; }
+  .c-sub { width: 7rem; }
+  .c-del { width: 2.2rem; }
+
+  .cell-text {
+    display: inline-block;
+    line-height: $cell-h;
+    min-height: $cell-h;
+  }
+
+  .mono { font-variant-numeric: tabular-nums; }
+
+  tr.free td { background: color-mix(in srgb, var(--brand-bg) 40%, transparent); }
+  tr.miss td { background: color-mix(in srgb, var(--err-bg) 60%, transparent); }
+  tr.part td { background: color-mix(in srgb, var(--warn-bg) 60%, transparent); }
+
+  .recv-text { font-weight: 500; }
+  tr.miss .recv-text { color: var(--err); }
+  tr.part .recv-text { color: var(--warn); }
+}
+
+.cell-input {
+  font-family: inherit;
+  font-size: 0.78rem;
+  width: 100%;
+  height: $cell-h;
+  padding: 0 0.45rem;
+  border: 0.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+
+  &:hover { border-color: var(--border); }
+  &:focus { outline: none; border-color: var(--brand); background: var(--bg); }
+  &::placeholder { color: var(--text-3); }
+
+  &.boxed { border-color: var(--border); background: var(--bg); }
+  &.is-own { border-color: var(--brand); }
+  &.num-input { text-align: right; font-variant-numeric: tabular-nums; }
+  &.small { width: 3.2rem; }
+}
+
+.line-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-size: 0.64rem;
+  color: var(--text-3);
+  padding: 0.15rem 0.45rem 0;
+}
+
+.price-tag {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.64rem;
+  padding-top: 0.15rem;
+  min-height: 1rem;
+  white-space: nowrap;
+}
+
+.zc-badge.tiny {
+  font-size: 0.58rem;
+  padding: 0 0.4rem;
+}
+
+.link-btn.tiny {
+  font-size: 0.64rem;
+  padding: 0 0.2rem;
+}
+
+.link-btn.danger { color: var(--err); &:hover:not(:disabled) { background: var(--err-bg); } }
+
+.recv {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tick {
+  height: $cell-h;
+  padding: 0 0.45rem;
+  color: var(--ok);
+  font-weight: 400;
+}
+
+.add-free {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.75rem;
+  border-top: 0.5px solid var(--border);
+}
+
+.muted { color: var(--text-3); }
+.warn-text { color: var(--warn); }
+.err-text { color: var(--err); }
+.ok-text { color: var(--ok); }
+.small { font-size: 0.7rem; }
+
+// ── Catálogo ──────────────────────────────────────────────────────────────────
+.catalog {
+  margin-top: 1.5rem;
+
+  h2 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+
+    .ti { color: var(--brand); }
+  }
+
+  .seg .count { font-size: 0.64rem; opacity: 0.75; }
+}
+
+.zc-table.cat {
+  min-width: 760px;
+
+  td .hint, td .zc-badge { white-space: nowrap; }
+
+  tr.group { cursor: pointer; background: var(--surface-2); }
+  tr.in-order { background: color-mix(in srgb, var(--brand-bg) 55%, transparent); }
+  tr.member td:first-child { padding-left: 2.6rem; }
+
+  .unit-name {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .caret {
+    color: var(--text-3);
+    transition: transform 0.15s ease;
+    &.open { transform: rotate(90deg); }
+  }
+
+  .pack-icon { color: var(--brand); }
+  .box-icon { color: var(--text-3); margin-left: 1.15rem; }
+  .strong { font-weight: 500; }
+
+  .unit-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    font-size: 0.66rem;
+    color: var(--text-2);
+    margin-top: 0.1rem;
+  }
+
+  .last { font-size: 0.72rem; color: var(--text-2); white-space: nowrap; }
+  .add-cell { white-space: nowrap; }
+  .zc-badge.plain { background: none; color: var(--text-3); }
+}
+
+.add-btn {
+  font-size: 0.7rem;
+  font-weight: 400;
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+
+  &:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); background: var(--surface); }
+
+  &.in {
+    background: var(--brand-bg);
+    color: var(--brand);
+    border-color: transparent;
+  }
+}
+
+// ── Panel lateral ─────────────────────────────────────────────────────────────
+.side {
+  padding: 1rem;
+  position: sticky;
+  top: 1rem;
+
+  @media (max-width: 1250px) { position: static; }
+
+  h2 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+
+    .ti { color: var(--brand); }
+  }
+
+  .hint { line-height: 1.5; margin: 0.4rem 0 0; b { font-weight: 500; color: var(--text-2); } }
+}
+
+.sum-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.3rem 0;
+
+  .v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  &.total {
+    font-size: 0.95rem;
+    font-weight: 600;
+    border-top: 0.5px solid var(--border);
+    margin-top: 0.3rem;
+    padding-top: 0.6rem;
+  }
+}
+
+.pct {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+
+  .zc-input {
+    width: 3.4rem;
+    padding: 0.25rem 0.4rem;
+    text-align: right;
+  }
+}
+
+.note { margin: 0.8rem 0 0.7rem; font-size: 0.76rem; }
+
+.side-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+
+  .zc-btn { justify-content: center; }
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+
+  input { accent-color: var(--brand); }
+}
+
+.modal-note { margin-top: 0.75rem !important; }
+a.zc-btn { text-decoration: none; }
