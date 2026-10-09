@@ -360,8 +360,7 @@ que avisa se pide (hay en el depósito; en un pack surtido de 8 modelos se agot�
 se pide algo que no avisó (compra para tener). Ahora el pedido es una entidad propia
 (`supplier_orders` + `supplier_order_lines`, `services/ordersService.js`, `routes/orders.js`,
 `frontend/.../pages/pedidos/`) y la pestaña "Para reponer" de Alertas se reemplazó por un aviso con
-link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-10-08-pedidos-proveedor-design.md`,
-prototipo `docs/prototype/pedidos-prototipo.html`.
+link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-10-08-pedidos-proveedor-design.md`.
 
 - **Nada entra solo al pedido.** El catálogo (`GET /api/orders/catalog`, `buildCatalog`) lista cada
   unidad de compra con filtro *Con alerta / Todos*: stock ML/TN, depósito, estado de la alerta (reusa

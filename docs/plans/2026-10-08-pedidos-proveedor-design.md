@@ -1,7 +1,5 @@
 # Pedidos al proveedor — diseño
 
-Prototipo aprobado: [`docs/prototype/pedidos-prototipo.html`](../prototype/pedidos-prototipo.html).
-
 ## Problema
 
 "Para reponer" (Alertas) mezclaba dos cosas: avisar que algo se está quedando sin stock y armar el

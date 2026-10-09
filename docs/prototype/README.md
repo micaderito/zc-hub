@@ -7,7 +7,6 @@ Prototipos **estáticos y no funcionales**: sirven como guía visual del product
 | `zona-cuaderno-hub.html` | El rediseño del hub (stock de Mercado Libre + Tienda Nube). |
 | `precios-prototipo.html` | La sección de **Precios** — dos opciones de UI para el mismo motor de cálculo. |
 | `alertas-prototipo.html` | Las **Alertas de stock** — dos opciones de UI para configurar avisos y armar el pedido. |
-| `pedidos-prototipo.html` | **Pedidos al proveedor** — armar pedidos con o sin alerta, historial, recepción y vista para la fábrica. |
 
 ## Cómo verlos
 
@@ -73,13 +72,6 @@ alerta. En Alertas el pack solo se muestra y se usa para agrupar y sumar.
 
 Queda en el switch como referencia: el umbral se ponía desde la fila de Productos y los avisos
 vivían en una barra superior nueva. **No** tiene packs, ni buscador, ni edición en la fila.
-
-## `pedidos-prototipo.html`
-
-Diseño aprobado de la página **Pedidos** (reemplaza la pestaña "Para reponer" de Alertas). Navegable:
-lista de pedidos por estado, editor con catálogo (*Con alerta / Todos*, stock, depósito, último pedido),
-ítems libres, precio editable por línea, descuentos encadenados (25% + 5% por defecto), vista para
-la fábrica y recepción parcial. Plan: [`../plans/2026-10-08-pedidos-proveedor-design.md`](../plans/2026-10-08-pedidos-proveedor-design.md).
 
 ## Relacionado
 
