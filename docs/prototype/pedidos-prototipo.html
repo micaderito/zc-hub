@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zona Cuaderno Hub — prototipo de Pedidos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #e9ebef; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; }
+    .doc-note { max-width: 1340px; margin: 0 auto 16px; font-size: 13px; color: #5d6373; line-height: 1.55; }
+    .doc-note b { color: #1a1c2e; }
+    #zcp { max-width: 1340px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div class="doc-note">
+    Prototipo de <b>Pedidos al proveedor</b> (v2). No guarda nada, pero se usa: abrí un pedido de la
+    lista, sumá productos con <b>+ Agregar</b> o un <b>ítem libre</b>, editá cantidades, detalle y
+    descuentos, abrí la <b>vista para la fábrica</b>, marcalo como pedido y después <b>registrá qué llegó</b>
+    (abrí el pedido #16, que está pendiente). Modo claro / oscuro abajo a la izquierda.
+  </div>
+
+  <div id="zcp">
+    <style>
+      #zcp{--zc-bg:#f5f6f8;--zc-surf:#ffffff;--zc-surf2:#eef0f3;--zc-bd:rgba(20,22,40,.12);--zc-bds:rgba(20,22,40,.22);--zc-tx:#1a1c2e;--zc-tx2:#5d6373;--zc-tx3:#9aa0ad;--zc-brand:#5b54e6;--zc-brandbg:#ecebfd;--zc-ml:#ffe600;--zc-tn:#2b8aef;--zc-ok:#1d9e75;--zc-okbg:#e1f5ee;--zc-warn:#ba7517;--zc-warnbg:#faeeda;--zc-err:#d04444;--zc-errbg:#fcebeb;--zc-pop:0 8px 28px rgba(20,22,40,.12);
+        font-family:'Inter',sans-serif;border-radius:16px;overflow:hidden;border:0.5px solid var(--zc-bd);background:var(--zc-bg);color:var(--zc-tx);display:flex;min-height:860px;position:relative}
+      #zcp.dark{--zc-bg:#0e1017;--zc-surf:#171a22;--zc-surf2:#1f232d;--zc-bd:rgba(255,255,255,.11);--zc-bds:rgba(255,255,255,.2);--zc-tx:#e8eaf0;--zc-tx2:#a2a8b5;--zc-tx3:#6a7180;--zc-brand:#8b85ff;--zc-brandbg:#26233f;--zc-ok:#5dcaa5;--zc-okbg:#0f3a30;--zc-warn:#efa83a;--zc-warnbg:#3a2a0e;--zc-err:#e07a7a;--zc-errbg:#3a1414;--zc-tn:#67abf5;--zc-pop:0 8px 28px rgba(0,0,0,.5)}
+      #zcp *{box-sizing:border-box}
+
+      #zcp aside{width:186px;flex-shrink:0;background:var(--zc-surf);border-right:0.5px solid var(--zc-bd);padding:14px 10px;display:flex;flex-direction:column;gap:3px}
+      #zcp .brand{display:flex;align-items:center;gap:9px;padding:6px 10px 14px}
+      #zcp .brand .mark{width:30px;height:30px;border-radius:9px;background:var(--zc-brand);display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
+      #zcp .nav-i{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;color:var(--zc-tx2);cursor:pointer;font-size:13px;border:none;background:none;width:100%;text-align:left;font-family:inherit}
+      #zcp .nav-i:hover{background:var(--zc-surf2)}
+      #zcp .nav-i.on{background:var(--zc-brandbg);color:var(--zc-brand);font-weight:500}
+      #zcp .nav-i i{font-size:17px}
+
+      #zcp .main{flex:1;display:flex;flex-direction:column;min-width:0;padding:16px 20px 24px}
+      #zcp .card{background:var(--zc-surf);border:0.5px solid var(--zc-bd);border-radius:12px}
+      #zcp .btn{font-family:inherit;font-size:12.5px;border:0.5px solid var(--zc-bd);background:var(--zc-surf);color:var(--zc-tx);border-radius:9px;padding:7px 13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+      #zcp .btn:hover{background:var(--zc-surf2)}
+      #zcp .btn.pri{background:var(--zc-brand);color:#fff;border-color:transparent}
+      #zcp .btn.pri:hover{filter:brightness(1.08)}
+      #zcp .btn-s{font-size:11px;padding:5px 10px}
+      #zcp .btn:disabled{opacity:.45;cursor:default}
+      #zcp .lnk{font-family:inherit;font-size:12px;color:var(--zc-brand);background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:7px;display:inline-flex;gap:4px;align-items:center}
+      #zcp .lnk:hover{background:var(--zc-brandbg)}
+      #zcp .in{font-family:inherit;font-size:12.5px;width:100%;padding:7px 10px;border:0.5px solid var(--zc-bd);border-radius:8px;background:var(--zc-bg);color:var(--zc-tx)}
+      #zcp .in:focus{outline:none;border-color:var(--zc-brand)}
+      #zcp .badge{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+      #zcp .bok{background:var(--zc-okbg);color:var(--zc-ok)}
+      #zcp .bwarn{background:var(--zc-warnbg);color:var(--zc-warn)}
+      #zcp .berr{background:var(--zc-errbg);color:var(--zc-err)}
+      #zcp .bbrand{background:var(--zc-brandbg);color:var(--zc-brand)}
+      #zcp .bneu{background:var(--zc-surf2);color:var(--zc-tx2)}
+      #zcp .btn2{background:#e3eefc;color:#114e8e}
+      #zcp.dark .btn2{background:#13314f;color:#9cc7f7}
+      #zcp table{width:100%;border-collapse:collapse}
+      #zcp th{font-size:10px;color:var(--zc-tx3);font-weight:500;text-align:left;padding:7px 9px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+      #zcp td{font-size:12px;padding:7px 9px;border-top:0.5px solid var(--zc-bd);vertical-align:middle}
+      #zcp .num{text-align:right;font-variant-numeric:tabular-nums}
+      #zcp .pname{font-size:12px;line-height:1.25}
+      #zcp .psku{font-size:10px;color:var(--zc-tx3);font-variant-numeric:tabular-nums}
+      #zcp .dot{width:8px;height:8px;border-radius:2px;display:inline-block}
+      #zcp .stk{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums;font-size:11.5px;margin-left:6px}
+      #zcp .note{font-size:10.5px;color:var(--zc-tx3);line-height:1.5}
+      #zcp .cellin{font-family:inherit;font-size:12px;padding:4px 6px;border:0.5px solid transparent;border-radius:7px;background:transparent;color:var(--zc-tx);width:100%}
+      #zcp .cellin:hover{border-color:var(--zc-bd)}
+      #zcp .cellin:focus{border-color:var(--zc-brand);background:var(--zc-bg);outline:none}
+      #zcp .cellin.box{border-color:var(--zc-bd);background:var(--zc-bg)}
+      #zcp .cellin.n{text-align:right;font-variant-numeric:tabular-nums;width:58px}
+      #zcp .cellin::placeholder{color:var(--zc-tx3)}
+      #zcp .iconbtn{background:none;border:0.5px solid transparent;border-radius:7px;padding:3px 6px;cursor:pointer;color:var(--zc-tx3);font-family:inherit;font-size:13px}
+      #zcp .iconbtn:hover{border-color:var(--zc-bd);color:var(--zc-err)}
+      #zcp .seg{display:inline-flex;border:0.5px solid var(--zc-bd);border-radius:9px;overflow:hidden;background:var(--zc-surf)}
+      #zcp .seg button{font-family:inherit;font-size:11px;padding:6px 11px;border:none;background:none;color:var(--zc-tx2);cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+      #zcp .seg button.on{background:var(--zc-brandbg);color:var(--zc-brand);font-weight:500}
+      #zcp .srch{position:relative;flex:1;max-width:300px}
+      #zcp .srch i{position:absolute;left:9px;top:7px;font-size:14px;color:var(--zc-tx3)}
+      #zcp .srch input{padding-left:29px;padding-top:6px;padding-bottom:6px;font-size:11.5px}
+      #zcp h2{margin:0;font-size:18px;font-weight:500}
+      #zcp h3{margin:0;font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+      #zcp .sub{margin:3px 0 0;font-size:12px;color:var(--zc-tx2)}
+      #zcp .row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+      #zcp .scr{display:none}
+      #zcp .scr.on{display:block}
+
+      /* lista de pedidos */
+      #zcp tr.ord{cursor:pointer}
+      #zcp tr.ord:hover td{background:var(--zc-surf2)}
+
+      /* editor */
+      #zcp .ed-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;align-items:start;margin-top:12px}
+      #zcp .lines td{padding:5px 7px}
+      #zcp .lines tr.free td{background:color-mix(in srgb,var(--zc-brandbg) 40%,transparent)}
+      #zcp .lines tr.miss td{background:color-mix(in srgb,var(--zc-errbg) 50%,transparent)}
+      #zcp .lines tr.part td{background:color-mix(in srgb,var(--zc-warnbg) 50%,transparent)}
+      #zcp .lines .code{font-variant-numeric:tabular-nums;font-size:11.5px;width:96px}
+      #zcp .src{font-size:9.5px;color:var(--zc-tx3);padding-left:7px;display:flex;gap:5px;align-items:center}
+      #zcp .sumrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:5px 0}
+      #zcp .sumrow .v{font-variant-numeric:tabular-nums}
+      #zcp .sumrow.total{font-size:15px;font-weight:600;border-top:0.5px solid var(--zc-bd);margin-top:4px;padding-top:9px}
+      #zcp .pct{display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+      #zcp .pct input{width:46px;text-align:right}
+      #zcp .side{padding:14px;position:sticky;top:14px}
+      #zcp .recv{display:inline-flex;gap:4px;align-items:center}
+      #zcp .qbtn{font-family:inherit;font-size:10px;border:0.5px solid var(--zc-bd);background:var(--zc-surf);color:var(--zc-tx2);border-radius:7px;padding:3px 6px;cursor:pointer}
+      #zcp .qbtn:hover{border-color:var(--zc-bds);color:var(--zc-tx)}
+      #zcp .banner{display:flex;gap:10px;align-items:center;padding:9px 13px;font-size:12px;color:var(--zc-tx2);margin-top:12px}
+      #zcp .banner i{font-size:17px}
+
+      /* catálogo */
+      #zcp tr.grp td{background:var(--zc-surf2);cursor:pointer}
+      #zcp tr.grp .caret{transition:transform .15s;color:var(--zc-tx3);display:inline-block}
+      #zcp tr.grp.open .caret{transform:rotate(90deg)}
+      #zcp tr.member td:first-child{padding-left:34px}
+      #zcp tr.member{display:none}
+      #zcp tr.member.show{display:table-row}
+      #zcp tr.incart td{background:color-mix(in srgb,var(--zc-brandbg) 55%,transparent)}
+      #zcp .dep{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;background:var(--zc-brandbg);color:var(--zc-brand);display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+      #zcp .add{font-family:inherit;font-size:11px;border:0.5px solid var(--zc-bd);background:var(--zc-surf);color:var(--zc-tx);border-radius:8px;padding:4px 9px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+      #zcp .add:hover{border-color:var(--zc-brand);color:var(--zc-brand)}
+      #zcp .add.in{background:var(--zc-brandbg);color:var(--zc-brand);border-color:transparent}
+      #zcp .sug{font-size:10px;color:var(--zc-tx3);margin-top:2px}
+      #zcp .summary{font-size:10.5px;color:var(--zc-tx2);display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+      /* modal + toast */
+      #zcp .scrim{position:absolute;inset:0;background:rgba(10,12,20,.34);z-index:25;display:flex;align-items:flex-start;justify-content:center;padding-top:110px}
+      #zcp .scrim.hid{display:none}
+      #zcp .modal{width:520px;background:var(--zc-surf);border:0.5px solid var(--zc-bd);border-radius:14px;box-shadow:var(--zc-pop);padding:18px}
+      #zcp .modal h3{font-size:15px;margin-bottom:8px}
+      #zcp .modal p{font-size:12.5px;color:var(--zc-tx2);line-height:1.5;margin:0 0 10px}
+      #zcp .modal ul{font-size:12px;color:var(--zc-tx2);padding-left:18px;margin:0 0 14px;line-height:1.6}
+      #zcp .modal .acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}
+      #zcp .modal pre{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:var(--zc-bg);border:0.5px solid var(--zc-bd);border-radius:8px;padding:10px;max-height:260px;overflow:auto;white-space:pre-wrap;margin:0;color:var(--zc-tx)}
+      #zcp .modal.wide{width:720px}
+      #zcp .sheet{background:#fff;color:#1a1c2e;border:0.5px solid rgba(20,22,40,.12);border-radius:8px;padding:22px 24px}
+      #zcp .sh-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px}
+      #zcp .sh-title{font-size:17px;font-weight:600}
+      #zcp .sh-sub{font-size:11.5px;color:#5d6373;margin-top:2px;line-height:1.5}
+      #zcp .sh-t th{font-size:10.5px;color:#5d6373;background:#eef0f3;border:0.5px solid rgba(20,22,40,.18);padding:7px 9px}
+      #zcp .sh-t td{font-size:13px;color:#1a1c2e;border:0.5px solid rgba(20,22,40,.18);padding:8px 9px}
+      #zcp .sh-t tfoot td{border:none;font-size:12px;color:#5d6373;padding-top:9px}
+      #zcp .sh-t .c{text-align:center}
+      #zcp .sh-t .mono{font-variant-numeric:tabular-nums;white-space:nowrap}
+      #zcp .sh-note{font-size:12px;color:#1a1c2e;margin-top:10px}
+      #zcp .toast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);background:var(--zc-tx);color:var(--zc-bg);font-size:12px;padding:9px 14px;border-radius:10px;z-index:30;display:flex;gap:7px;align-items:center}
+      #zcp .toast.hid{display:none}
+      #zcp label.chk{display:flex;gap:7px;align-items:center;font-size:12px;color:var(--zc-tx2);cursor:pointer}
+      #zcp input[type=checkbox]{accent-color:var(--zc-brand)}
+
+      @media (max-width:1180px){
+        body{padding:8px}
+        #zcp aside{display:none}
+        #zcp .ed-grid{grid-template-columns:1fr}
+        #zcp .side{position:static}
+      }
+    </style>
+
+    <aside>
+      <div class="brand">
+        <div class="mark"><i class="ti ti-notebook" style="font-size:18px"></i></div>
+        <div style="line-height:1.1"><div style="font-size:13px;font-weight:500">Zona Cuaderno</div><div style="font-size:10px;color:var(--zc-tx3)">Hub de ventas</div></div>
+      </div>
+      <button class="nav-i"><i class="ti ti-layout-dashboard"></i>Inicio</button>
+      <button class="nav-i"><i class="ti ti-box"></i>Productos</button>
+      <button class="nav-i"><i class="ti ti-tag"></i>Precios</button>
+      <button class="nav-i"><i class="ti ti-bell"></i>Alertas</button>
+      <button class="nav-i on" id="nav-ped"><i class="ti ti-truck-delivery"></i>Pedidos</button>
+      <button class="nav-i"><i class="ti ti-building-warehouse"></i>Depósito</button>
+      <button class="nav-i"><i class="ti ti-refresh"></i>Sincronización</button>
+      <div style="flex:1"></div>
+      <button class="nav-i" id="theme"><i class="ti ti-moon"></i><span>Modo oscuro</span></button>
+    </aside>
+
+    <div class="main">
+      <!-- ══════════ Lista de pedidos ══════════ -->
+      <div class="scr on" data-scr="list">
+        <div class="row" style="justify-content:space-between;align-items:flex-end">
+          <div>
+            <h2>Pedidos al proveedor</h2>
+            <p class="sub">Armá pedidos con lo que avisó o con lo que quieras. Las alertas sugieren, vos decidís.</p>
+          </div>
+          <button class="btn pri" id="new"><i class="ti ti-plus"></i>Nuevo pedido</button>
+        </div>
+        <div class="row" style="margin:14px 0 9px">
+          <div class="seg" id="sfilter">
+            <button class="on" data-s="">Todos</button>
+            <button data-s="borrador">Borradores</button>
+            <button data-s="pendiente">Pendientes</button>
+            <button data-s="recibido">Recibidos</button>
+          </div>
+          <div class="srch"><i class="ti ti-search"></i><input class="in" id="lq" placeholder="Buscar pedido, código o producto…"></div>
+        </div>
+        <div class="card" style="overflow:hidden">
+          <table>
+            <thead><tr><th>Pedido</th><th>Estado</th><th>Fecha</th><th>Contenido</th><th class="num">Total estimado</th><th class="num" style="width:230px"></th></tr></thead>
+            <tbody id="olist"></tbody>
+          </table>
+        </div>
+        <p class="note" style="margin-top:8px"><i class="ti ti-info-circle"></i>
+          <b>Repetir</b> crea un pedido nuevo idéntico. <b>Duplicar</b> crea un borrador para sumar o sacar cosas.
+          En los dos casos el original queda igual.</p>
+      </div>
+
+      <!-- ══════════ Editor de un pedido ══════════ -->
+      <div class="scr" data-scr="edit">
+        <button class="lnk" id="back" style="margin-left:-6px"><i class="ti ti-arrow-left"></i>Pedidos</button>
+        <div class="row" style="margin-top:4px">
+          <input class="in" id="oname" style="font-size:18px;font-weight:500;width:auto;min-width:300px;border-color:transparent;background:transparent;padding:4px 6px;margin-left:-6px">
+          <span id="ostate"></span>
+          <span class="psku" id="ometa"></span>
+        </div>
+        <div id="obanner"></div>
+
+        <div class="ed-grid">
+          <div>
+            <div class="card" style="overflow:hidden">
+              <table class="lines">
+                <thead id="lhead"></thead>
+                <tbody id="lbody"></tbody>
+              </table>
+              <div class="row" style="padding:8px 10px;border-top:0.5px solid var(--zc-bd)" id="laddrow">
+                <button class="btn btn-s" id="addfree"><i class="ti ti-pencil-plus"></i>Ítem libre</button>
+                <span class="note">Para productos nuevos del proveedor que todavía no cargaste: código, descripción, cantidad y precio si lo sabés.</span>
+              </div>
+            </div>
+
+            <!-- catálogo, solo en borradores -->
+            <div id="catwrap" style="margin-top:16px">
+              <div class="row" style="margin-bottom:9px">
+                <h3><i class="ti ti-plus" style="color:var(--zc-brand)"></i>Agregar productos</h3>
+                <span style="flex:1"></span>
+                <div class="seg" id="filter">
+                  <button class="on" data-f="alert"><i class="ti ti-bell-ringing" style="font-size:13px"></i>Con alerta</button>
+                  <button data-f="all"><i class="ti ti-list" style="font-size:13px"></i>Todos</button>
+                </div>
+                <div class="srch"><i class="ti ti-search"></i><input class="in" id="q" placeholder="Buscar producto, SKU, código o pack…"></div>
+                <button class="btn btn-s" id="add-all"><i class="ti ti-playlist-add"></i>Agregar sugeridos</button>
+              </div>
+              <div class="card" style="overflow:hidden">
+                <table>
+                  <thead><tr><th>Producto</th><th class="num">Stock ML · TN</th><th>Depósito</th><th>Alerta</th><th>Último pedido</th><th class="num">Precio pack</th><th class="num" style="width:130px"></th></tr></thead>
+                  <tbody id="cat"></tbody>
+                </table>
+              </div>
+              <p class="note" style="margin-top:8px"><i class="ti ti-info-circle"></i>
+                Todo se pide por pack. Un pack surtido muestra <b>todos</b> sus modelos aunque haya avisado uno solo, para ver si el resto todavía tiene stock —
+                los diseños que querés van en la columna <b>Detalle</b> del pedido.</p>
+            </div>
+          </div>
+
+          <div class="card side" id="side"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scrim hid" id="scrim"><div class="modal" id="modal"></div></div>
+    <div class="toast hid" id="toast"></div>
+  </div>
+
+<script>
+(() => {
+  const root = document.getElementById('zcp');
+  const $ = (s) => root.querySelector(s);
+  const money = (n) => n == null ? '—' : new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // ── catálogo de ejemplo ── (precio = lista del bulto en Precios, antes de descuentos)
+  const P = {
+    'CE-1923-TD': { name: 'Cuaderno Éxito 19×23 tapa dura', ml: 1, tn: 1, dep: 0, th: 3, alerted: true, pack: 'ci' },
+    'CR-1621-TF': { name: 'Cuaderno Rivadavia 16×21 flexible', ml: 2, tn: 2, dep: 0, th: 3, alerted: true, pack: 'ci' },
+    'CI-A5-RAY':  { name: 'Cuaderno inteligente A5 rayado', ml: 0, tn: 0, dep: 8, th: 2, alerted: true, pack: 'ci' },
+    'CI-A4-CUA':  { name: 'Cuaderno inteligente A4 cuadriculado', ml: 6, tn: 6, dep: 0, th: 2, pack: 'ci' },
+    'CI-A5-LIS':  { name: 'Cuaderno inteligente A5 liso', ml: 7, tn: 7, dep: 0, th: 2, pack: 'ci' },
+    'AG-27-ROS':  { name: 'Agenda 2027 semanal rosa', ml: 0, tn: 0, dep: 0, th: 2, alerted: true, pack: 'ag' },
+    'AG-27-NEG':  { name: 'Agenda 2027 semanal negra', ml: 9, tn: 9, dep: 0, th: 2, pack: 'ag' },
+    'AG-27-VER':  { name: 'Agenda 2027 semanal verde', ml: 11, tn: 11, dep: 0, th: 2, pack: 'ag' },
+    'AG-27-LIL':  { name: 'Agenda 2027 semanal lila', ml: 7, tn: 7, dep: 0, th: 2, pack: 'ag' },
+    'RH-A5-R':    { name: 'Repuesto hojas A5 rayadas', ml: 3, tn: 3, dep: 16, th: 4, alerted: true, pack: 'rh' },
+    'LG-NEG':     { name: 'Lapicera gel negra', ml: 4, tn: 4, dep: 20, th: 5, alerted: true, pack: 'lg' },
+    'WT-SET':     { name: 'Washi tape set x5', ml: 2, tn: 3, dep: 0, th: 3, alerted: true, pack: 'wt' },
+    'RP-6':       { name: 'Resaltadores pastel x6', ml: 12, tn: 12, dep: 0, th: null, pack: 'rp' },
+    'CT-TUB':     { name: 'Cartuchera tubo', ml: 15, tn: 15, dep: 0, th: null, pack: 'ct' },
+    'NA-76':      { name: 'Notas adhesivas 76×76', ml: 9, tn: 9, dep: 4, th: 5, pack: 'na' },
+  };
+  // "pack" = unidad de compra. Los productos sin pack del hub se piden por el bulto cargado en Precios.
+  const PK = {
+    ci: { name: 'Cuadernos inteligentes', code: '4410-SUR', desc: 'CUADERNO INTELIGENTE SURTIDO X8', units: 8, mode: 'surtido', price: 96000, models: ['CE-1923-TD','CR-1621-TF','CI-A5-RAY','CI-A4-CUA','CI-A5-LIS'] },
+    ag: { name: 'Agendas 2027', code: '2027-SEM', desc: 'AGENDA 2027 SEMANAL SURTIDA X6', units: 6, mode: 'surtido', price: 81000, models: ['AG-27-ROS','AG-27-NEG','AG-27-VER','AG-27-LIL'] },
+    rh: { name: 'Repuestos A5 rayados', code: '3305', desc: 'REPUESTO A5 RAYADO 96H', units: 8, mode: 'bulto', price: 22400, models: ['RH-A5-R'] },
+    lg: { name: 'Lapicera gel negra', code: 'GEL-07N', desc: 'LAPICERA GEL 0.7 NEGRA', units: 12, mode: 'bulto', price: 14400, models: ['LG-NEG'] },
+    wt: { name: 'Washi tape set x5', code: 'WT-5P', desc: 'WASHI TAPE PASTEL X5', units: 10, mode: 'bulto', price: 30000, models: ['WT-SET'] },
+    rp: { name: 'Resaltadores pastel x6', code: 'RES-P6', desc: 'RESALTADOR PASTEL ESTUCHE X6', units: 6, mode: 'bulto', price: 27600, models: ['RP-6'] },
+    ct: { name: 'Cartuchera tubo', code: 'CART-TB', desc: 'CARTUCHERA TUBO SILICONA', units: 12, mode: 'bulto', price: 50400, models: ['CT-TUB'] },
+    na: { name: 'Notas adhesivas 76×76', code: null, desc: null, units: 12, mode: 'bulto', price: null, models: ['NA-76'] },
+  };
+
+  const line = (pk, qty, extra = {}) => ({ kind: 'pack', ref: pk, code: PK[pk].code ?? '', desc: PK[pk].desc ?? PK[pk].name, qty, detail: '', price: PK[pk].price, origin: 'manual', recv: null, ...extra });
+  let nextId = 19;
+  const ORDERS = [
+    { id: 18, name: 'Agendas 2027', state: 'borrador', date: '07/10/26', d1: 30, d2: 0, note: 'Lista de agendas con descuento aparte', lines: [line('ag', 4, { detail: 'sin rosa — más negras y verdes', origin: 'alerta' })] },
+    { id: 17, name: 'Pedido octubre', state: 'borrador', date: '06/10/26', d1: 25, d2: 5, note: '', lines: [
+      line('ci', 2, { origin: 'alerta', detail: 'si hay, todo A5 rayado' }),
+      { kind: 'free', ref: null, code: '5520', desc: 'PLANNER SEMANAL A4 ANILLADO (nuevo)', qty: 1, detail: 'diseños flores y lisos', price: 42000, origin: 'libre', recv: null },
+    ] },
+    { id: 16, name: 'Pedido septiembre', state: 'pendiente', date: '01/10/26', d1: 25, d2: 5, note: '', lines: [
+      line('ci', 2, { detail: 'modelos nuevos' }), line('rh', 1), line('lg', 2), line('rp', 2, { detail: 'pastel, no flúor' }),
+    ] },
+    { id: 15, name: 'Pedido agosto', state: 'recibido', partial: true, date: '12/08/26', d1: 25, d2: 5, note: '', lines: [
+      line('ci', 3, { recv: 3 }), line('ag', 2, { recv: 1 }), line('wt', 1, { recv: 0 }),
+    ] },
+    { id: 14, name: 'Compra para tener — fiestas', state: 'recibido', date: '03/07/26', d1: 25, d2: 5, note: '', lines: [
+      line('ct', 2, { recv: 2 }), line('rp', 4, { recv: 4 }), line('ag', 4, { recv: 4 }),
+    ] },
+  ];
+  // último pedido de cada pack (no borradores), del más nuevo al más viejo
+  const lastOf = (pk) => { for (const o of ORDERS) if (o.state !== 'borrador') { const l = o.lines.find((x) => x.ref === pk); if (l) return `${o.date.slice(0, 5)} · ${l.qty} pack${l.qty > 1 ? 's' : ''}`; } return null; };
+  const pendingOf = (pk) => ORDERS.find((o) => o.state === 'pendiente' && o.lines.some((l) => l.ref === pk));
+
+  let cur = null;          // pedido abierto
+  let filter = 'alert';
+  let query = '';
+  let sfilter = '';
+  let lquery = '';
+  let receiving = false;
+  const open = new Set(['ci', 'ag']);
+
+  // ── dominio ──
+  const eff = (p) => Math.min(p.ml, p.tn);
+  const state = (p) => {
+    if (p.th == null) return null;
+    const e = eff(p);
+    if (!p.alerted) return e <= p.th ? 'low' : null;
+    return e <= 0 ? 'out' : e <= p.th ? 'low' : 'ok';
+  };
+  const stateBadge = (p) => {
+    const s = state(p);
+    if (p.th == null) return '<span class="psku">sin regla</span>';
+    if (s === 'out') return '<span class="badge berr">Sin stock</span>';
+    if (s === 'low') return `<span class="badge bwarn">Bajo · umbral ${p.th}</span>`;
+    if (s === 'ok') return '<span class="badge bok">Ya repuesto</span>';
+    return '<span class="psku">ok</span>';
+  };
+  const packAlerted = (pk) => PK[pk].models.some((s) => P[s].alerted);
+  const packSuggest = (pk) => {
+    const k = PK[pk];
+    const alerted = k.models.map((s) => P[s]).filter((p) => p.alerted && state(p) !== 'ok');
+    if (!alerted.length) return 1;
+    const per = Math.max(1, Math.floor(k.units / k.models.length));
+    return Math.max(1, Math.ceil(Math.max(...alerted.map((p) => Math.max(p.th - eff(p), 1))) / per));
+  };
+  const stock = (p) => `<span class="stk"><span class="dot" style="background:var(--zc-ml)"></span>${p.ml}</span><span class="stk"><span class="dot" style="background:var(--zc-tn)"></span>${p.tn}</span>`;
+  const dep = (n) => (n ? `<span class="dep"><i class="ti ti-building-warehouse"></i>${n} u.</span>` : '<span class="psku">—</span>');
+  const totals = (o) => {
+    const priced = o.lines.filter((l) => l.price != null);
+    const sub = priced.reduce((a, l) => a + l.qty * l.price, 0);
+    const a1 = sub * (1 - o.d1 / 100);
+    return { sub, a1, total: a1 * (1 - o.d2 / 100), missing: o.lines.length - priced.length, packs: o.lines.reduce((a, l) => a + l.qty, 0) };
+  };
+  const stateLabel = (o) => o.state === 'borrador' ? '<span class="badge bneu"><i class="ti ti-pencil"></i>Borrador</span>'
+    : o.state === 'pendiente' ? '<span class="badge btn2"><i class="ti ti-truck"></i>Pendiente</span>'
+    : o.partial ? '<span class="badge bwarn"><i class="ti ti-package-import"></i>Recibido incompleto</span>'
+    : '<span class="badge bok"><i class="ti ti-check"></i>Recibido</span>';
+
+  // ── lista ──
+  function renderList() {
+    const rows = ORDERS.filter((o) => (!sfilter || o.state === sfilter) &&
+      (!lquery || (o.name + ' ' + o.lines.map((l) => l.code + ' ' + l.desc).join(' ')).toLowerCase().includes(lquery)));
+    $('#olist').innerHTML = rows.map((o) => {
+      const t = totals(o);
+      return `<tr class="ord" data-open="${o.id}">
+        <td><div class="pname" style="font-weight:500">${esc(o.name)}</div><div class="psku">#${o.id}${o.basedOn ? ' · copia del #' + o.basedOn : ''}</div></td>
+        <td>${stateLabel(o)}</td><td>${o.date}</td>
+        <td class="summary">${o.lines.length} línea${o.lines.length === 1 ? '' : 's'} · ${t.packs} packs</td>
+        <td class="num">${money(t.total)}<div class="psku">−${o.d1}%${o.d2 ? ' −' + o.d2 + '%' : ''}</div></td>
+        <td class="num">${o.state === 'borrador' ? '' : `<button class="btn btn-s" data-repeat="${o.id}"><i class="ti ti-repeat"></i>Repetir</button> `}
+          <button class="btn btn-s" data-dup="${o.id}"><i class="ti ti-copy"></i>Duplicar</button></td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="note" style="text-align:center;padding:24px">No hay pedidos con ese filtro.</td></tr>';
+  }
+
+  // Precio editable en borrador: hereda de Precios (o vacío), y si se pisa queda marcado "editado"
+  // con opción de volver al de Precios. Nunca escribe en Precios.
+  function priceCell(l, i) {
+    const base = l.ref ? PK[l.ref].price : null;
+    const own = l.kind !== 'free' && l.price !== base;
+    const tag = l.kind === 'free' ? ''
+      : own ? `<div class="src" style="justify-content:flex-end;padding:0"><span class="badge bbrand" style="font-size:9px"><i class="ti ti-pencil"></i>editado</span>
+          <button class="lnk" style="font-size:10px;padding:0 2px" data-revert="${i}" title="Volver al precio de Precios (${money(base)})"><i class="ti ti-rotate"></i>${base == null ? 'quitar' : money(base)}</button></div>`
+      : base == null ? '<div class="src" style="justify-content:flex-end;padding:0;color:var(--zc-warn)">no está en Precios</div>'
+      : '<div class="src" style="justify-content:flex-end;padding:0"><i class="ti ti-link"></i>de Precios</div>';
+    return `<input class="cellin n box" type="number" min="0" placeholder="$ a mano" value="${l.price ?? ''}" data-f="price" data-i="${i}"
+      style="width:92px;${own ? 'border-color:var(--zc-brand)' : ''}">${tag}`;
+  }
+
+  // ── editor ──
+  function renderEditor() {
+    const o = cur;
+    const draft = o.state === 'borrador';
+    const recvCol = o.state === 'recibido' || receiving;
+    $('#oname').value = o.name;
+    $('#oname').disabled = !draft;
+    $('#ostate').innerHTML = stateLabel(o);
+    $('#ometa').textContent = `#${o.id} · ${o.state === 'borrador' ? 'creado' : 'pedido'} ${o.date}${o.basedOn ? ' · copia del #' + o.basedOn : ''}`;
+    $('#obanner').innerHTML = o.state === 'pendiente' && !receiving
+      ? `<div class="card banner"><i class="ti ti-truck" style="color:var(--zc-tn)"></i>Esperando la mercadería. Cuando llegue, registrá qué vino y qué no.<span style="flex:1"></span><button class="btn pri btn-s" id="startrecv"><i class="ti ti-package-import"></i>Registrar recepción</button></div>`
+      : receiving ? `<div class="card banner"><i class="ti ti-package-import" style="color:var(--zc-brand)"></i>Anotá cuántos packs llegaron de cada línea. Vacío = no llegó.<span style="flex:1"></span><button class="btn btn-s" id="allarrived"><i class="ti ti-checks"></i>Llegó todo</button><button class="btn pri btn-s" id="closerecv">Cerrar recepción</button></div>`
+      : o.partial ? `<div class="card banner"><i class="ti ti-alert-triangle" style="color:var(--zc-warn)"></i>No llegó todo. Las líneas en rojo/amarillo quedaron cortas.<span style="flex:1"></span><button class="btn btn-s" id="missingdraft"><i class="ti ti-copy"></i>Pasar lo que faltó a un borrador</button></div>` : '';
+
+    $('#lhead').innerHTML = `<tr><th style="width:100px">Código</th><th style="width:40%">Descripción</th><th style="width:24%">Detalle</th><th class="num">Packs</th>${recvCol ? '<th class="num">Llegó</th>' : ''}<th class="num">Precio lista</th><th class="num">Subtotal</th>${draft ? '<th></th>' : ''}</tr>`;
+    $('#lbody').innerHTML = o.lines.map((l, i) => {
+      const pk = l.ref && PK[l.ref];
+      const cls = l.kind === 'free' ? 'free' : '';
+      const rcls = recvCol && l.recv != null ? (l.recv === 0 ? 'miss' : l.recv < l.qty ? 'part' : '') : '';
+      const src = l.kind === 'free' ? '<span class="badge bbrand" style="font-size:9px">ítem libre</span>'
+        : `<span class="badge ${l.origin === 'alerta' ? 'bwarn' : l.origin === 'copia' ? 'bneu' : 'bneu'}" style="font-size:9px">${l.origin === 'alerta' ? 'alerta' : l.origin === 'copia' ? 'copia' : 'a mano'}</span>${esc(pk.name)} · ${pk.units} u.${!pk.code ? ' · <span style="color:var(--zc-warn)">sin código en Precios</span>' : ''}`;
+      const ro = draft ? '' : 'disabled';
+      const recvCell = recvCol ? `<td class="num">${receiving
+        ? `<span class="recv"><input class="cellin n box" type="number" min="0" max="${l.qty}" value="${l.recv ?? ''}" placeholder="0" data-recv="${i}" style="width:46px"><button class="qbtn" data-fill="${i}" title="Llegó completo">✓</button></span>`
+        : `<span style="color:${l.recv === 0 ? 'var(--zc-err)' : l.recv < l.qty ? 'var(--zc-warn)' : 'var(--zc-ok)'}">${l.recv} / ${l.qty}</span>`}</td>` : '';
+      return `<tr class="${cls} ${rcls}">
+        <td><input class="cellin code" value="${esc(l.code)}" placeholder="código" data-f="code" data-i="${i}" ${ro}></td>
+        <td><input class="cellin" value="${esc(l.desc)}" data-f="desc" data-i="${i}" ${ro}><div class="src">${src}</div></td>
+        <td><input class="cellin" value="${esc(l.detail)}" placeholder="${draft ? 'diseños, colores…' : ''}" data-f="detail" data-i="${i}" ${ro}></td>
+        <td class="num"><input class="cellin n ${draft ? 'box' : ''}" type="number" min="1" value="${l.qty}" data-f="qty" data-i="${i}" ${ro}></td>
+        ${recvCell}
+        <td class="num">${draft ? priceCell(l, i) : l.price == null ? '<span class="badge bwarn">sin precio</span>' : money(l.price)}</td>
+        <td class="num">${l.price == null ? '—' : money(l.price * l.qty)}</td>
+        ${draft ? `<td><button class="iconbtn" data-del="${i}" aria-label="Quitar"><i class="ti ti-x"></i></button></td>` : ''}</tr>`;
+    }).join('') || `<tr><td colspan="8" class="note" style="text-align:center;padding:24px">El pedido está vacío. Sumá productos desde abajo o agregá un ítem libre.</td></tr>`;
+    $('#laddrow').style.display = draft ? '' : 'none';
+    $('#catwrap').style.display = draft ? '' : 'none';
+    renderSide();
+    if (draft) renderCatalog();
+  }
+
+  function renderSide() {
+    const o = cur;
+    const draft = o.state === 'borrador';
+    const t = totals(o);
+    $('#side').innerHTML = `
+      <h3 style="margin-bottom:8px"><i class="ti ti-receipt" style="color:var(--zc-brand)"></i>Estimado</h3>
+      <div class="sumrow"><span style="color:var(--zc-tx2)">${o.lines.length} líneas · ${t.packs} packs</span></div>
+      <div class="sumrow"><span>Subtotal de lista</span><span class="v">${money(t.sub)}</span></div>
+      <div class="sumrow"><span class="pct">Descuento
+        <input class="cellin n box" type="number" min="0" max="100" value="${o.d1}" data-d="d1" ${draft ? '' : 'disabled'}>%</span><span class="v" style="color:var(--zc-ok)">−${money(t.sub - t.a1)}</span></div>
+      <div class="sumrow"><span class="pct">Descuento sobre el total
+        <input class="cellin n box" type="number" min="0" max="100" value="${o.d2}" data-d="d2" ${draft ? '' : 'disabled'}>%</span><span class="v" style="color:var(--zc-ok)">−${money(t.a1 - t.total)}</span></div>
+      <div class="sumrow total"><span>Total estimado</span><span class="v">${money(t.total)}</span></div>
+      ${t.missing ? `<div class="note" style="color:var(--zc-warn);margin-top:4px"><i class="ti ti-alert-triangle"></i> ${t.missing} línea${t.missing > 1 ? 's' : ''} sin precio no suma${t.missing > 1 ? 'n' : ''}.</div>` : ''}
+      <div class="note" style="margin-top:4px">El precio de lista sale de <b>Precios</b>${draft ? ' y se puede pisar a mano en cada línea (solo para este pedido)' : ''}. Descuentos por defecto 25% + 5% (configurables).</div>
+      <textarea class="in" rows="2" placeholder="Nota del pedido…" style="resize:vertical;font-size:11.5px;margin:12px 0 10px" ${draft ? '' : 'disabled'}>${esc(o.note)}</textarea>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        <button class="btn" id="copy" ${o.lines.length ? '' : 'disabled'}><i class="ti ti-file-text"></i>Vista para la fábrica</button>
+        ${draft ? `<button class="btn pri" id="done" ${o.lines.length ? '' : 'disabled'}><i class="ti ti-send"></i>Marcar como pedido</button>`
+          : `<button class="btn" data-dup="${o.id}"><i class="ti ti-copy"></i>Duplicar como borrador</button>`}
+        ${draft ? `<button class="lnk" id="deldraft" style="color:var(--zc-err);justify-content:center"><i class="ti ti-trash"></i>Borrar borrador</button>` : ''}
+      </div>`;
+  }
+
+  function renderCatalog() {
+    let html = '';
+    const inCart = (pk) => cur.lines.find((l) => l.ref === pk);
+    for (const [id, pk] of Object.entries(PK)) {
+      const models = pk.models.map((s) => [s, P[s]]);
+      const anyAlert = packAlerted(id);
+      if (filter === 'alert' && !anyAlert) continue;
+      if (query && !(pk.name + ' ' + (pk.code || '') + ' ' + (pk.desc || '') + ' ' + models.map(([s, p]) => s + ' ' + p.name).join(' ')).toLowerCase().includes(query)) continue;
+      const single = models.length === 1;
+      const out = models.filter(([, p]) => state(p) === 'out').length;
+      const low = models.filter(([, p]) => state(p) === 'low').length;
+      const fine = models.length - out - low;
+      const depTot = models.reduce((a, [, p]) => a + p.dep, 0);
+      const l = inCart(id);
+      const sug = packSuggest(id);
+      const pend = pendingOf(id);
+      const btn = l ? `<button class="add in" data-rm="${id}" title="Quitar del pedido"><i class="ti ti-check"></i>En el pedido · ${l.qty}</button>`
+        : `<button class="add" data-add="${id}" data-q="${sug}"><i class="ti ti-plus"></i>Agregar</button>`;
+      const p0 = single ? models[0][1] : null;
+      html += `<tr class="${single ? '' : 'grp'} ${open.has(id) ? 'open' : ''} ${l ? 'incart' : ''}" ${single ? '' : `data-tg="${id}"`}>
+        <td><div style="display:flex;gap:8px;align-items:center">
+          ${single ? '<i class="ti ti-box" style="color:var(--zc-tx3);font-size:15px;margin-left:2px"></i>' : '<i class="ti ti-chevron-right caret"></i><i class="ti ti-stack-2" style="color:var(--zc-brand);font-size:15px"></i>'}
+          <div><div class="pname" style="${single ? '' : 'font-weight:500'}">${esc(pk.name)} <span class="psku">${pk.code ?? 'sin código'}</span></div>
+          <div class="summary"><span>${single ? 'bulto' : 'pack'} de ${pk.units} u.${single ? '' : ' · ' + pk.mode}</span>
+            ${!single && out ? `<span style="color:var(--zc-err)">${out} sin stock</span>` : ''}
+            ${!single && low ? `<span style="color:var(--zc-warn)">${low} bajo${low > 1 ? 's' : ''}</span>` : ''}
+            ${!single ? `<span style="color:var(--zc-ok)">${fine} de ${models.length} con stock</span>` : ''}
+            ${pend ? `<span class="badge btn2" style="font-size:9px"><i class="ti ti-truck"></i>en camino · #${pend.id}</span>` : ''}</div></div></div></td>
+        <td class="num">${single ? stock(p0) : ''}</td>
+        <td>${dep(depTot)}</td>
+        <td>${single ? stateBadge(p0) : anyAlert ? '<span class="badge bwarn"><i class="ti ti-bell-ringing"></i>avisó</span>' : '<span class="psku">—</span>'}</td>
+        <td><span class="${lastOf(id) ? '' : 'psku'}" style="font-size:11px">${lastOf(id) ?? 'nunca'}</span></td>
+        <td class="num">${pk.price == null ? '<span class="badge bwarn">sin precio</span>' : money(pk.price)}</td>
+        <td class="num">${btn}${!l && anyAlert ? `<div class="sug">sugerido: ${sug} pack${sug > 1 ? 's' : ''}</div>` : ''}</td></tr>`;
+      if (!single) for (const [s, p] of models) {
+        html += `<tr class="member ${open.has(id) ? 'show' : ''}">
+          <td><div class="pname">${esc(p.name)}</div><div class="psku">${s}</div></td>
+          <td class="num">${stock(p)}</td><td>${dep(p.dep)}</td><td>${stateBadge(p)}</td><td></td><td></td><td></td></tr>`;
+      }
+    }
+    $('#cat').innerHTML = html || '<tr><td colspan="7" class="note" style="text-align:center;padding:20px">Sin coincidencias.</td></tr>';
+  }
+
+  // ── navegación / modal / toast ──
+  const show = (s) => root.querySelectorAll('.scr').forEach((x) => x.classList.toggle('on', x.dataset.scr === s));
+  const openOrder = (id) => { cur = ORDERS.find((o) => o.id === id); receiving = false; show('edit'); renderEditor(); };
+  const modal = (html, wide = false) => { $('#modal').classList.toggle('wide', wide); $('#modal').innerHTML = html; $('#scrim').classList.remove('hid'); };
+  const close = () => $('#scrim').classList.add('hid');
+  let tt;
+  const toast = (msg) => { const t = $('#toast'); t.innerHTML = '<i class="ti ti-check"></i>' + msg; t.classList.remove('hid'); clearTimeout(tt); tt = setTimeout(() => t.classList.add('hid'), 2800); };
+  const today = '08/10/26';
+  const cloneOrder = (o, opts = {}) => {
+    const n = { id: nextId++, name: opts.name ?? o.name + ' (copia)', state: 'borrador', date: today, d1: o.d1, d2: o.d2, note: o.note, basedOn: o.id,
+      lines: (opts.lines ?? o.lines).map((l) => ({ ...l, recv: null, origin: l.kind === 'free' ? 'libre' : 'copia' })) };
+    ORDERS.unshift(n);
+    return n;
+  };
+  // Hoja para mandar a la fábrica: siempre fondo blanco (sirve igual sacándole captura en modo oscuro).
+  const sheetHtml = (o) => `
+    <div class="sh-head"><div><div class="sh-title">${esc(o.name)}</div><div class="sh-sub">Zona Cuaderno · ${o.date}</div></div>
+      <div class="sh-sub" style="text-align:right">Pedido #${o.id}<br>${o.lines.length} productos · ${o.lines.reduce((a, l) => a + l.qty, 0)} packs</div></div>
+    <table class="sh-t"><thead><tr><th style="width:90px">Código</th><th>Descripción</th><th class="c" style="width:70px">Cantidad</th><th>Detalle</th></tr></thead>
+    <tbody>${o.lines.map((l) => `<tr><td class="mono">${esc(l.code) || '—'}</td><td>${esc(l.desc)}</td><td class="c"><b>${l.qty}</b></td><td>${esc(l.detail)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td></td><td style="text-align:right">Total</td><td class="c"><b>${o.lines.reduce((a, l) => a + l.qty, 0)}</b></td><td></td></tr></tfoot></table>
+    ${o.note ? `<div class="sh-note"><b>Nota:</b> ${esc(o.note)}</div>` : ''}`;
+  const copyText = (o) => [`${o.name} — Zona Cuaderno`, '', 'CÓDIGO | DESCRIPCIÓN | CANT. (packs) | DETALLE',
+    ...o.lines.map((l) => `${l.code || '(sin código)'} | ${l.desc} | ${l.qty} | ${l.detail || ''}`), ...(o.note ? ['', 'Nota: ' + o.note] : [])].join('\n');
+
+  // ── eventos ──
+  root.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t.closest('#theme')) {
+      root.classList.toggle('dark');
+      return t.closest('#theme').querySelector('span').textContent = root.classList.contains('dark') ? 'Modo claro' : 'Modo oscuro';
+    }
+    if (t.closest('#back') || t.closest('#nav-ped')) { show('list'); return renderList(); }
+    const sf = t.closest('#sfilter button');
+    if (sf) { sfilter = sf.dataset.s; root.querySelectorAll('#sfilter button').forEach((b) => b.classList.toggle('on', b === sf)); return renderList(); }
+    const rep = t.closest('[data-repeat]');
+    if (rep) {
+      e.stopPropagation();
+      const o = ORDERS.find((x) => x.id === Number(rep.dataset.repeat));
+      return modal(`<h3><i class="ti ti-repeat" style="color:var(--zc-brand)"></i>Repetir "${esc(o.name)}"</h3>
+        <p>Se crea un pedido nuevo con las mismas ${o.lines.length} líneas, cantidades, detalles y descuentos.</p>
+        <ul>${o.lines.map((l) => `<li>${esc(l.code)} — ${esc(l.desc)} — ${l.qty} packs</li>`).join('')}</ul>
+        <div class="acts"><button class="btn btn-s" data-x>Cancelar</button>
+        <button class="btn btn-s" data-repdraft="${o.id}">Crear como borrador</button>
+        <button class="btn pri btn-s" data-repsend="${o.id}"><i class="ti ti-send"></i>Copiar y marcar como pedido</button></div>`);
+    }
+    const rd = t.closest('[data-repdraft]');
+    if (rd) { close(); const n = cloneOrder(ORDERS.find((x) => x.id === Number(rd.dataset.repdraft)), { name: 'Pedido octubre (repetido)' }); openOrder(n.id); return toast('Borrador creado — revisá cantidades con el stock de hoy'); }
+    const rs = t.closest('[data-repsend]');
+    if (rs) { close(); const n = cloneOrder(ORDERS.find((x) => x.id === Number(rs.dataset.repsend)), { name: 'Pedido octubre (repetido)' }); n.state = 'pendiente'; renderList(); return toast(`Pedido #${n.id} creado como pendiente — lista copiada`); }
+    const dup = t.closest('[data-dup]');
+    if (dup) { e.stopPropagation(); close(); const n = cloneOrder(ORDERS.find((x) => x.id === Number(dup.dataset.dup))); openOrder(n.id); return toast('Borrador duplicado — sumá o sacá lo que quieras'); }
+    const op = t.closest('[data-open]');
+    if (op) return openOrder(Number(op.dataset.open));
+    if (t.closest('#new')) { const n = { id: nextId++, name: 'Pedido nuevo', state: 'borrador', date: today, d1: 25, d2: 5, note: '', lines: [] }; ORDERS.unshift(n); return openOrder(n.id); }
+
+    // editor
+    const f = t.closest('#filter button');
+    if (f) { filter = f.dataset.f; root.querySelectorAll('#filter button').forEach((b) => b.classList.toggle('on', b === f)); return renderCatalog(); }
+    const tg = t.closest('[data-tg]');
+    if (tg && !t.closest('button')) { const id = tg.dataset.tg; open.has(id) ? open.delete(id) : open.add(id); return renderCatalog(); }
+    const add = t.closest('[data-add]');
+    if (add) { const id = add.dataset.add; cur.lines.push(line(id, Number(add.dataset.q), { origin: packAlerted(id) ? 'alerta' : 'manual' })); return renderEditor(); }
+    const rm = t.closest('[data-rm]');
+    if (rm) { cur.lines = cur.lines.filter((l) => l.ref !== rm.dataset.rm); return renderEditor(); }
+    const rv = t.closest('[data-revert]');
+    if (rv) { const l = cur.lines[Number(rv.dataset.revert)]; l.price = PK[l.ref].price; return renderEditor(); }
+    const del = t.closest('[data-del]');
+    if (del) { cur.lines.splice(Number(del.dataset.del), 1); return renderEditor(); }
+    if (t.closest('#addfree')) { cur.lines.push({ kind: 'free', ref: null, code: '', desc: '', qty: 1, detail: '', price: null, origin: 'libre', recv: null }); renderEditor(); return $('#lbody tr:last-child input').focus(); }
+    if (t.closest('#add-all')) {
+      let n = 0;
+      for (const id of Object.keys(PK)) if (packAlerted(id) && !cur.lines.some((l) => l.ref === id)) { cur.lines.push(line(id, packSuggest(id), { origin: 'alerta' })); n++; }
+      renderEditor(); return toast(n ? `${n} sugerencias agregadas — sacá las que no vayas a pedir` : 'Todas las alertas ya están en el pedido');
+    }
+    if (t.closest('#copy')) {
+      return modal(`<div class="row" style="margin-bottom:10px"><h3 style="margin:0"><i class="ti ti-file-text" style="color:var(--zc-brand)"></i>Vista para la fábrica</h3>
+          <span class="note">Lista para sacarle captura — sin precios, alertas ni iconos.</span></div>
+        <div class="sheet">${sheetHtml(cur)}</div>
+        <div class="acts"><button class="btn btn-s" data-x>Cerrar</button>
+          <button class="btn btn-s" data-copied="tabla"><i class="ti ti-table"></i>Copiar como tabla</button>
+          <button class="btn pri btn-s" data-copied="img"><i class="ti ti-photo-down"></i>Descargar imagen</button></div>`, true);
+    }
+    if (t.closest('[data-copied]')) {
+      close();
+      return toast(t.closest('[data-copied]').dataset.copied === 'img' ? 'Imagen descargada (PNG)' : 'Tabla copiada — pegala en un mail o en Excel');
+    }
+    if (t.closest('#done')) {
+      const noCode = cur.lines.filter((l) => !l.code).length;
+      return modal(`<h3><i class="ti ti-send" style="color:var(--zc-brand)"></i>Marcar "${esc(cur.name)}" como pedido</h3>
+        <ul><li>Pasa a <b>Pendiente</b> hasta que registres qué llegó.</li>
+        <li>Los packs del pedido aparecen como "en camino" en Alertas y en otros borradores.</li>
+        <li>Las alertas vuelven a contar desde hoy (como el "Marcar pedido como hecho" de ahora).</li>
+        ${noCode ? `<li style="color:var(--zc-warn)">${noCode} línea${noCode > 1 ? 's' : ''} sin código.</li>` : ''}</ul>
+        <label class="chk"><input type="checkbox" checked> Abrir la vista para la fábrica</label>
+        <div class="acts"><button class="btn btn-s" data-x>Cancelar</button><button class="btn pri btn-s" data-send>Marcar como pedido</button></div>`);
+    }
+    if (t.closest('[data-send]')) { close(); cur.state = 'pendiente'; cur.date = today; renderEditor(); return toast('Pedido pendiente'); }
+    if (t.closest('#deldraft')) {
+      return modal(`<h3><i class="ti ti-trash" style="color:var(--zc-err)"></i>Borrar "${esc(cur.name)}"</h3><p>El borrador se elimina. Los pedidos ya hechos no se tocan.</p>
+        <div class="acts"><button class="btn btn-s" data-x>Cancelar</button><button class="btn pri btn-s" data-delok style="background:var(--zc-err)">Borrar</button></div>`);
+    }
+    if (t.closest('[data-delok]')) { close(); ORDERS.splice(ORDERS.indexOf(cur), 1); show('list'); renderList(); return toast('Borrador borrado'); }
+    if (t.closest('#startrecv')) { receiving = true; return renderEditor(); }
+    if (t.closest('#allarrived')) { cur.lines.forEach((l) => (l.recv = l.qty)); return renderEditor(); }
+    const fill = t.closest('[data-fill]');
+    if (fill) { const l = cur.lines[Number(fill.dataset.fill)]; l.recv = l.qty; return renderEditor(); }
+    if (t.closest('#closerecv')) {
+      const lines = cur.lines.map((l) => ({ ...l, recv: l.recv ?? 0 }));
+      const short = lines.filter((l) => l.recv < l.qty);
+      return modal(`<h3><i class="ti ti-package-import" style="color:var(--zc-brand)"></i>Cerrar recepción</h3>
+        ${short.length ? `<p>Llegaron completas ${lines.length - short.length} de ${lines.length} líneas. Faltó:</p>
+          <ul>${short.map((l) => `<li>${esc(l.desc)} — llegaron ${l.recv} de ${l.qty}</li>`).join('')}</ul>
+          <label class="chk"><input type="checkbox" id="mkdraft" checked> Crear un borrador con lo que faltó</label>`
+        : '<p>Llegó todo. El pedido queda como <b>Recibido</b>.</p>'}
+        <div class="acts"><button class="btn btn-s" data-x>Seguir anotando</button><button class="btn pri btn-s" data-recvok>Cerrar recepción</button></div>`);
+    }
+    if (t.closest('[data-recvok]')) {
+      const mk = $('#mkdraft')?.checked;
+      cur.lines.forEach((l) => (l.recv = l.recv ?? 0));
+      const short = cur.lines.filter((l) => l.recv < l.qty);
+      cur.state = 'recibido'; cur.partial = short.length > 0; receiving = false; close();
+      if (short.length && mk) cloneOrder(cur, { name: 'Faltantes de ' + cur.name, lines: short.map((l) => ({ ...l, qty: l.qty - l.recv })) });
+      renderEditor();
+      return toast(short.length ? (mk ? 'Recibido incompleto — borrador con faltantes creado' : 'Recibido incompleto') : 'Pedido recibido');
+    }
+    if (t.closest('#missingdraft')) {
+      const short = cur.lines.filter((l) => l.recv < l.qty);
+      const n = cloneOrder(cur, { name: 'Faltantes de ' + cur.name, lines: short.map((l) => ({ ...l, qty: l.qty - l.recv })) });
+      openOrder(n.id); return toast('Borrador con lo que faltó');
+    }
+    if (t.closest('[data-x]') || t === $('#scrim')) return close();
+  });
+
+  root.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!cur) return;
+    if (t.dataset.f) {
+      const l = cur.lines[Number(t.dataset.i)];
+      l[t.dataset.f] = t.dataset.f === 'qty' ? Math.max(1, Number(t.value) || 1) : t.dataset.f === 'price' ? (t.value === '' ? null : Number(t.value)) : t.value;
+      return renderEditor();
+    }
+    if (t.dataset.recv) { const l = cur.lines[Number(t.dataset.recv)]; l.recv = t.value === '' ? null : Math.min(l.qty, Math.max(0, Number(t.value))); return renderEditor(); }
+    if (t.dataset.d) { cur[t.dataset.d] = Math.min(100, Math.max(0, Number(t.value) || 0)); return renderSide(); }
+    if (t.id === 'oname') cur.name = t.value;
+  });
+  $('#q').addEventListener('input', (e) => { query = e.target.value.trim().toLowerCase(); renderCatalog(); });
+  $('#lq').addEventListener('input', (e) => { lquery = e.target.value.trim().toLowerCase(); renderList(); });
+
+  renderList();
+})();
+</script>
+</body>
+</html>

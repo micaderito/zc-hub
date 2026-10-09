@@ -353,6 +353,49 @@ con 3 disparados de una pedía "3 packs" en vez de 1).
   (repuesto → bajo otra vez) no la esconde para siempre. Se limpia al cerrar el período, mismo
   motivo que `restock_order_overrides`: es del pedido en curso, no config permanente.
 
+### Pedidos al proveedor (`/pedidos`): las alertas sugieren, la usuaria decide
+
+"Para reponer" mezclaba avisar con armar el pedido, y el pedido no quedaba guardado. Pero no todo lo
+que avisa se pide (hay en el depósito; en un pack surtido de 8 modelos se agotó uno solo) y a veces
+se pide algo que no avisó (compra para tener). Ahora el pedido es una entidad propia
+(`supplier_orders` + `supplier_order_lines`, `services/ordersService.js`, `routes/orders.js`,
+`frontend/.../pages/pedidos/`) y la pestaña "Para reponer" de Alertas se reemplazó por un aviso con
+link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-10-08-pedidos-proveedor-design.md`,
+prototipo `docs/prototype/pedidos-prototipo.html`.
+
+- **Nada entra solo al pedido.** El catálogo (`GET /api/orders/catalog`, `buildCatalog`) lista cada
+  unidad de compra con filtro *Con alerta / Todos*: stock ML/TN, depósito, estado de la alerta (reusa
+  `getRestockList` desde el último pedido), último pedido y si ya está **en camino** en uno
+  pendiente. "Agregar sugeridos" es un atajo explícito.
+- **Siempre se pide por pack.** La unidad es el pack del hub; un SKU sin pack se pide por el bulto de
+  Precios (`product_costs.bulk_qty`, 1 si no hay). Un pack surtido muestra TODOS sus modelos aunque
+  haya avisado uno; los diseños/colores que se quieren van en la columna libre **Detalle**.
+- **Código** (lo que necesita la fábrica): `pack_code_map` → `product_packs.sku` → (pack de un solo
+  modelo) `sku_code_map` del modelo; SKU suelto: `sku_code_map`. **Descripción**: la de
+  `supplier_codes` para ese código, si no el nombre. Ambos se copian a la línea y son editables.
+- **Precio de lista por pack** = precio por unidad del bulto de Precios (`bulk_price / bulk_qty`) ×
+  unidades del pack. Editable por línea **solo para ese pedido** (nunca escribe en Precios):
+  `price_source = 'manual'`. Las líneas `'precios'` de un borrador se refrescan al abrirlo
+  (`refreshLinePrices`) y al duplicar; las editadas no. Ítems libres (productos que el hub no tiene)
+  son siempre `'manual'`.
+- **Descuentos encadenados por pedido**: `discount_1` sobre el subtotal y `discount_2` sobre lo que
+  queda. Default 25% + 5% en `sync_settings` (`supplier_order_defaults`), editable desde la lista.
+- **Estados**: `borrador` (varios a la vez, autoguardado con `PUT /:id` que reemplaza las líneas) →
+  `pendiente` (`POST /:id/place`, corre el corte de alertas como el viejo "Marcar pedido como hecho")
+  → `recibido` (`PUT /:id/receive` con `close`; `partial` si alguna línea llegó corta, sin dato = no
+  llegó). **Recibir no toca stock** (ni ML/TN ni depósito): solo registra. Solo un borrador se edita
+  o se borra (409 si no).
+- **Repetir / Duplicar** (`POST /:id/duplicate`): `mode: 'missing'` copia solo lo que faltó con la
+  cantidad faltante; `status: 'pendiente'` es "Repetir y marcar como pedido".
+- **Vista para la fábrica** (`factory-sheet.ts`): hoja con código · descripción · cantidad · detalle,
+  siempre en fondo blanco (sin tokens, es lo que se manda afuera). "Descargar imagen" la dibuja en
+  canvas (sin dependencias) y "Copiar como tabla" pone HTML + TSV en el portapapeles.
+- `createSupplierOrder` calcula `ordered_at` en JS: reusar un `$n` como valor de columna y en un
+  `CASE` hace que Postgres deduzca dos tipos (mismo bug que tuvo `finishPublishJob`).
+
+Los endpoints viejos de "Para reponer" (`/api/alerts/restock*`, overrides, descartes) siguen en el
+backend —`getRestockList` alimenta el estado de alerta del catálogo— pero ya no tienen UI.
+
 ### Dashboard de ventas por provincia (`/ventas`): duplica ventas de ML localmente
 
 Informe mensual para el contador: total facturado por provincia, sin canceladas ni devoluciones.
@@ -818,6 +861,13 @@ por pack completo tomando el mayor faltante,
 ajustes manuales por SKU/pack y su borrado, stock de Depósito Marañón por SKU, descartar una fila
 y que vuelva sola tras un nuevo disparo, limpieza al cerrar el período) en
 `backend/test/alertsService.test.js`. El dashboard de ventas por provincia está cubierto en
+`backend/test/ordersService.test.js` (Pedidos: código/descr./precio por pack y suelto, sugerido,
+último pedido / en camino, totales con descuentos encadenados, refresco de precios, duplicar todo /
+faltantes, validación) y `backend/test/routesOrders.test.js` (ciclo borrador → pendiente → recibido
+incompleto, 409 fuera de estado, repetir como pendiente, descuentos por defecto) + el SQL real en
+`backend/test/publishJobsRealDb.test.js` (mismo archivo a propósito: dos archivos con `initDb()` en
+paralelo chocan creando tablas); en el front
+`orders.service.spec.ts`, `factory-sheet.spec.ts` y `pedido-editor.component.spec.ts`.
 `backend/test/salesService.test.js` (clasificación, armado de la fila, período anterior,
 agregación por provincia con comparativa y excluidas, y que un pack de varios productos cuente
 como 1 venta y no una por línea de orden), `backend/test/routesSales.test.js`

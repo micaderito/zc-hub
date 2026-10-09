@@ -1,0 +1,140 @@
+<div class="pedidos">
+  <div class="page-header">
+    <div>
+      <h1><i class="ti ti-truck-delivery" aria-hidden="true"></i> Pedidos al proveedor</h1>
+      <p class="subtitle">Armá pedidos con lo que avisó o con lo que quieras. Las alertas sugieren, vos decidís.</p>
+    </div>
+    <button type="button" class="zc-btn primary" [disabled]="busy()" (click)="newOrder()">
+      <i class="ti ti-plus" aria-hidden="true"></i> Nuevo pedido
+    </button>
+  </div>
+
+  @if (error()) { <p class="alert-error">{{ error() }}</p> }
+
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="Filtrar por estado">
+      @for (opt of statusOptions; track opt.key) {
+        <button type="button" [class.on]="statusFilter() === opt.key" (click)="statusFilter.set(opt.key)">
+          {{ opt.label }} <span class="count">{{ counts()[opt.key] }}</span>
+        </button>
+      }
+    </div>
+    <zc-search-bar [value]="search()" (valueChange)="search.set($event)" placeholder="Buscar pedido o producto…" ariaLabel="Buscar pedidos" />
+    <span class="spacer"></span>
+    <div class="defaults">
+      @if (editingDefaults()) {
+        <span class="hint">Descuentos por defecto</span>
+        <input class="zc-input pct" type="number" min="0" max="100" [(ngModel)]="defaultsDraft.discount1" aria-label="Descuento sobre los productos" />%
+        <span class="hint">+</span>
+        <input class="zc-input pct" type="number" min="0" max="100" [(ngModel)]="defaultsDraft.discount2" aria-label="Descuento sobre el total" />%
+        <button type="button" class="zc-btn small" (click)="editingDefaults.set(false)">Cancelar</button>
+        <button type="button" class="zc-btn small primary" [disabled]="busy()" (click)="saveDefaults()">Guardar</button>
+      } @else {
+        <span class="hint">Descuentos por defecto:
+          <b>{{ settingsQuery.data()?.discount1 ?? 25 }}%</b> + <b>{{ settingsQuery.data()?.discount2 ?? 5 }}%</b> sobre el total</span>
+        <button type="button" class="link-btn" (click)="startEditDefaults()"><i class="ti ti-pencil" aria-hidden="true"></i> Cambiar</button>
+      }
+    </div>
+  </div>
+
+  @if (loading()) {
+    <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
+  } @else if (loadError()) {
+    <p class="alert-error">No se pudieron cargar los pedidos.</p>
+  } @else {
+    <div class="zc-card table-scroll">
+      <table class="zc-table">
+        <thead>
+          <tr>
+            <th>Pedido</th>
+            <th>Estado</th>
+            <th>Fecha</th>
+            <th>Contenido</th>
+            <th class="num">Total estimado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (o of visibleOrders(); track o.id) {
+            <tr class="order-row" (click)="open(o)">
+              <td>
+                <div class="prod-name strong">{{ o.name }}</div>
+                <div class="prod-sku">#{{ o.id }}@if (o.basedOnId) { · copia del #{{ o.basedOnId }} }</div>
+              </td>
+              <td>
+                <span class="zc-badge"
+                      [class.neutral]="o.status === 'borrador'"
+                      [class.busy]="o.status === 'pendiente'"
+                      [class.ok]="o.status === 'recibido' && !o.partial"
+                      [class.warn]="o.status === 'recibido' && o.partial">
+                  <i class="ti" [class.ti-pencil]="o.status === 'borrador'" [class.ti-truck]="o.status === 'pendiente'"
+                     [class.ti-check]="o.status === 'recibido' && !o.partial" [class.ti-package-import]="o.status === 'recibido' && o.partial" aria-hidden="true"></i>
+                  {{ statusLabel(o) }}
+                </span>
+              </td>
+              <td class="nowrap">{{ (o.orderedAt ?? o.createdAt) | date: 'dd/MM/yy' }}</td>
+              <td class="muted">{{ o.totals.lineCount }} línea{{ o.totals.lineCount === 1 ? '' : 's' }} · {{ o.totals.packs }} pack{{ o.totals.packs === 1 ? '' : 's' }}</td>
+              <td class="num">
+                {{ o.totals.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}
+                <div class="prod-sku">−{{ o.discount1 }}%@if (o.discount2) { −{{ o.discount2 }}% }</div>
+              </td>
+              <td class="actions">
+                @if (o.status !== 'borrador') {
+                  <button type="button" class="zc-btn small" [disabled]="busy()" (click)="askRepeat(o, $event)">
+                    <i class="ti ti-repeat" aria-hidden="true"></i> Repetir
+                  </button>
+                }
+                <button type="button" class="zc-btn small" [disabled]="busy()" (click)="duplicate(o, $event)">
+                  <i class="ti ti-copy" aria-hidden="true"></i> Duplicar
+                </button>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6">
+                <p class="empty">
+                  @if (allOrders().length === 0) {
+                    Todavía no hay pedidos. Armá el primero con <b>Nuevo pedido</b>.
+                  } @else {
+                    No hay pedidos con ese filtro.
+                  }
+                </p>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="footnote">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      <b>Repetir</b> crea un pedido nuevo idéntico (como borrador, o directo como pedido). <b>Duplicar</b> crea un borrador
+      para sumar o sacar cosas. En los dos casos el original queda igual.
+    </p>
+  }
+
+  @if (repeating(); as src) {
+    <div class="modal-backdrop" (click)="repeating.set(null)">
+      <div class="modal-card" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+        <h2><i class="ti ti-repeat" aria-hidden="true"></i> Repetir “{{ src.name }}”</h2>
+        <p>Se crea un pedido nuevo con las mismas {{ src.lines.length }} líneas, cantidades, detalles y descuentos
+          (con los precios de hoy). El original queda igual.</p>
+        <ul>
+          @for (l of src.lines; track $index) {
+            <li><span class="prod-sku">{{ l.code || '—' }}</span> {{ l.description }} — <b>{{ l.qty }}</b> pack{{ l.qty === 1 ? '' : 's' }}</li>
+          }
+        </ul>
+        <div class="modal-actions">
+          <button type="button" class="zc-btn small" (click)="repeating.set(null)">Cancelar</button>
+          <button type="button" class="zc-btn small" (click)="repeatAsDraft()">Crear como borrador</button>
+          <button type="button" class="zc-btn small primary" (click)="repeatAndPlace()">
+            <i class="ti ti-send" aria-hidden="true"></i> Repetir y marcar como pedido
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (sheetOrder(); as o) {
+    <app-factory-sheet-dialog [order]="o" (closed)="sheetOrder.set(null)" />
+  }
+</div>
