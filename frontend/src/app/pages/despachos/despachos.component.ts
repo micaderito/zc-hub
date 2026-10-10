@@ -18,15 +18,16 @@ export interface DispatchSection {
   icon: string;
   title: string;
   hint: string | null;
-  tone: 'err' | 'neutral';
+  tone: 'err' | 'neutral' | 'ok';
+  /** Se puede plegar (Despachados hoy): arranca plegada. */
+  collapsible?: boolean;
   packages: DispatchPackage[];
 }
 
 const AR_TZ = 'America/Argentina/Buenos_Aires';
 
+/** Logística fuera de lo habitual. Llevar al correo/punto es lo de siempre: no se muestra. */
 const LOGISTIC_LABELS: Record<string, string> = {
-  drop_off: 'Llevar al correo',
-  xd_drop_off: 'Llevar al punto',
   cross_docking: 'Colecta',
   self_service: 'Flex',
   pickup: 'Retiro en el local',
@@ -74,6 +75,7 @@ export class DespachosComponent {
   readonly tab = signal<DispatchTab>('today');
   readonly channel = signal<ChannelFilter>('all');
   readonly hidePrepared = signal(false);
+  readonly showDispatched = signal(false);
   readonly refreshing = signal(false);
   readonly errorMsg = signal<string | null>(null);
 
@@ -127,16 +129,18 @@ export class DespachosComponent {
   });
 
   readonly cancelled = computed(() => this.byChannel().filter((p) => p.bucket === 'cancelled'));
+  readonly dispatched = computed(() => this.byChannel().filter((p) => p.bucket === 'dispatched'));
 
+  /** Lo que todavía hay que despachar: sin cancelados ni ya despachados. */
   private readonly active = computed(() => {
     const hide = this.hidePrepared();
-    const list = this.byChannel().filter((p) => p.bucket !== 'cancelled' && !(hide && p.preparedAt));
+    const list = this.byChannel().filter((p) => p.bucket !== 'cancelled' && p.bucket !== 'dispatched' && !(hide && p.preparedAt));
     // Preparados al final dentro de cada grupo (el backend ya ordena por horario).
     return [...list.filter((p) => !p.preparedAt), ...list.filter((p) => p.preparedAt)];
   });
 
   readonly counts = computed(() => {
-    const all = this.byChannel().filter((p) => p.bucket !== 'cancelled');
+    const all = this.byChannel().filter((p) => p.bucket !== 'cancelled' && p.bucket !== 'dispatched');
     const pendingToday = all.filter((p) => (p.bucket === 'overdue' || p.bucket === 'today'));
     return {
       overdue: all.filter((p) => p.bucket === 'overdue').length,
@@ -144,6 +148,7 @@ export class DespachosComponent {
       upcoming: all.filter((p) => p.bucket === 'upcoming').length,
       toPrepare: pendingToday.filter((p) => !p.preparedAt).reduce((s, p) => s + p.items.reduce((a, i) => a + i.qty, 0), 0),
       prepared: pendingToday.filter((p) => p.preparedAt).length,
+      dispatched: this.dispatched().length,
     };
   });
 
@@ -152,7 +157,7 @@ export class DespachosComponent {
     const sections: DispatchSection[] = [];
     const overdue = list.filter((p) => p.bucket === 'overdue');
     if (overdue.length) {
-      sections.push({ key: 'overdue', icon: 'ti-alert-triangle', title: 'Atrasado', hint: 'Se pasó el horario: despachalo cuanto antes', tone: 'err', packages: overdue });
+      sections.push({ key: 'overdue', icon: 'ti-alert-triangle', title: 'Atrasado', hint: 'Se pasó el horario y todavía no se despachó', tone: 'err', packages: overdue });
     }
     const mlToday = list.filter((p) => p.channel === 'ml' && p.bucket === 'today');
     const byTime = new Map<string, DispatchPackage[]>();
@@ -163,11 +168,10 @@ export class DespachosComponent {
     }
     for (const [time, pkgs] of [...byTime].sort(([a], [b]) => (a || '99').localeCompare(b || '99'))) {
       const first = pkgs.find((p) => p.deadline)?.deadline ?? null;
-      const label = LOGISTIC_LABELS[pkgs[0].logisticType ?? ''] ?? 'Despachar';
       sections.push({
         key: `ml-${time || 'sin-hora'}`,
         icon: 'ti-clock',
-        title: time ? `${label} antes de las ${time}` : 'Mercado Libre · despachar hoy',
+        title: time ? `Despachar antes de las ${time}` : 'Mercado Libre · despachar hoy',
         hint: first && time ? countdown(first, this.now()) : null,
         tone: 'neutral',
         packages: pkgs,
@@ -197,13 +201,35 @@ export class DespachosComponent {
     }));
   });
 
-  readonly sections = computed<DispatchSection[]>(() => {
+  private readonly dispatchedSection = computed<DispatchSection[]>(() => {
+    const pkgs = this.dispatched();
+    if (!pkgs.length) return [];
+    return [{
+      key: 'dispatched',
+      icon: 'ti-circle-check',
+      title: `Despachados hoy (${pkgs.length})`,
+      hint: 'Ya los dejaste en el punto',
+      tone: 'ok',
+      collapsible: true,
+      packages: pkgs,
+    }];
+  });
+
+  /** Secciones con cosas por despachar (sin "Despachados hoy"): define si se muestra "no hay nada pendiente". */
+  readonly pendingSections = computed<DispatchSection[]>(() => {
     switch (this.tab()) {
       case 'today': return this.todaySections();
       case 'upcoming': return this.upcomingSections();
       default: return [...this.todaySections(), ...this.upcomingSections()];
     }
   });
+
+  readonly sections = computed<DispatchSection[]>(() =>
+    this.tab() === 'upcoming' ? this.pendingSections() : [...this.pendingSections(), ...this.dispatchedSection()]);
+
+  isCollapsed(s: DispatchSection): boolean {
+    return !!s.collapsible && !this.showDispatched();
+  }
 
   readonly showCancelled = computed(() => this.tab() !== 'upcoming' && this.cancelled().length > 0);
 
@@ -287,7 +313,7 @@ export class DespachosComponent {
     const today = this.data()?.today ?? '';
     const yesterday = today ? new Date(new Date(`${today}T12:00:00-03:00`).getTime() - 86_400_000).toISOString().slice(0, 10) : '';
     const day = p.deadlineDay === today ? 'hoy' : p.deadlineDay === yesterday ? 'ayer' : dayLabel(p.deadlineDay ?? '');
-    return p.deadlineHasTime ? `Venció ${day} ${timeAr(p.deadline)}` : `Venció ${day}`;
+    return `${p.deadlineHasTime ? `Venció ${day} ${timeAr(p.deadline)}` : `Venció ${day}`} · sin despachar`;
   }
 
   dateTime(iso: string | null | undefined): string {

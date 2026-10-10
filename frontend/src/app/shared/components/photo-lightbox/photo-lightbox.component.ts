@@ -1,4 +1,4 @@
-import { Component, HostListener, computed, input, output, signal, effect } from '@angular/core';
+import { Component, HostListener, OnInit, computed, input, output, signal } from '@angular/core';
 
 /**
  * Foto grande de un producto, con flechas para pasar entre sus fotos. Pensado para identificar
@@ -24,14 +24,15 @@ import { Component, HostListener, computed, input, output, signal, effect } from
           } @else {
             <span class="lb-empty"><i class="ti ti-photo-off" aria-hidden="true"></i> Sin foto</span>
           }
-          @if (photos().length > 1) {
+          @if (list().length > 1) {
             <button type="button" class="lb-nav prev" (click)="step(-1)" aria-label="Foto anterior"><i class="ti ti-chevron-left"></i></button>
             <button type="button" class="lb-nav next" (click)="step(1)" aria-label="Foto siguiente"><i class="ti ti-chevron-right"></i></button>
+            <span class="lb-count">{{ index() + 1 }} / {{ list().length }}</span>
           }
         </div>
-        @if (photos().length > 1) {
+        @if (list().length > 1) {
           <div class="lb-strip">
-            @for (p of photos(); track p; let i = $index) {
+            @for (p of list(); track $index; let i = $index) {
               <button type="button" class="lb-mini" [class.on]="i === index()" (click)="index.set(i)" [attr.aria-label]="'Foto ' + (i + 1)">
                 <img [src]="p" alt="" />
               </button>
@@ -69,14 +70,21 @@ import { Component, HostListener, computed, input, output, signal, effect } from
     }
     .lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius-md); }
     .lb-empty { color: var(--text-3); font-size: 0.8rem; display: inline-flex; gap: 6px; align-items: center; }
+    /* Centrado sin transform: el button:active global (scale) lo pisaba, la flecha saltaba 18px al
+       apretarla y el click terminaba afuera del botón (con el mouse no pasaba de foto). */
     .lb-nav {
-      position: absolute; top: 50%; transform: translateY(-50%);
-      width: 36px; height: 36px; border-radius: 50%;
+      position: absolute; top: calc(50% - 18px);
+      width: 36px; height: 36px; padding: 0; border-radius: 50%;
       border: 0.5px solid var(--border-strong); background: var(--surface); color: var(--text);
       cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px;
     }
     .lb-nav.prev { left: 10px; }
     .lb-nav.next { right: 10px; }
+    .lb-count {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      font-size: 11px; color: var(--text-2); background: var(--surface);
+      border: 0.5px solid var(--border); border-radius: 999px; padding: 1px 8px;
+    }
     .lb-strip { display: flex; gap: 6px; overflow-x: auto; }
     .lb-mini {
       flex-shrink: 0; width: 52px; height: 52px; padding: 0; cursor: pointer;
@@ -86,22 +94,25 @@ import { Component, HostListener, computed, input, output, signal, effect } from
     .lb-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
   `],
 })
-export class PhotoLightboxComponent {
+export class PhotoLightboxComponent implements OnInit {
   readonly photos = input<string[]>([]);
   readonly title = input('');
   readonly subtitle = input<string | null>(null);
   readonly startIndex = input(0);
   readonly closed = output<void>();
 
+  /** Sin repetidas: con la misma URL dos veces, la flecha "pasaba" a una foto idéntica. */
+  readonly list = computed(() => [...new Set(this.photos().filter(Boolean))]);
   readonly index = signal(0);
-  readonly current = computed(() => this.photos()[this.index()] ?? null);
+  readonly current = computed(() => this.list()[Math.min(this.index(), Math.max(this.list().length - 1, 0))] ?? null);
 
-  constructor() {
-    effect(() => this.index.set(Math.min(this.startIndex(), Math.max(this.photos().length - 1, 0))), { allowSignalWrites: true });
+  /** La foto inicial se fija una sola vez al abrir: nada que re-renderice el padre la vuelve a pisar. */
+  ngOnInit(): void {
+    this.index.set(Math.min(Math.max(this.startIndex(), 0), Math.max(this.list().length - 1, 0)));
   }
 
   step(delta: number): void {
-    const n = this.photos().length;
+    const n = this.list().length;
     if (n < 2) return;
     this.index.set((this.index() + delta + n) % n);
   }
@@ -109,7 +120,10 @@ export class PhotoLightboxComponent {
   @HostListener('document:keydown', ['$event'])
   onKey(e: KeyboardEvent): void {
     if (e.key === 'Escape') this.closed.emit();
-    else if (e.key === 'ArrowRight') this.step(1);
-    else if (e.key === 'ArrowLeft') this.step(-1);
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      // Que la flecha no scrollee la página de atrás ni mueva otro control con foco.
+      e.preventDefault();
+      this.step(e.key === 'ArrowRight' ? 1 : -1);
+    }
   }
 }

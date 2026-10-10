@@ -411,6 +411,14 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
 - **"Despachá el X día"** = substatus `buffered`: la etiqueta recién se habilita en
   `lead_time.buffering.date`. Va a la pestaña "Próximos días", no a "Hoy".
 - **Carritos**: un paquete = `pack_id ?? order_id` (mismo criterio que ventas), con todas las líneas.
+- **Despachado ≠ atrasado**: con drop_off, al dejar el paquete en el punto el envío **sigue
+  `ready_to_ship`** (substatus `dropped_off`/`in_hub`/`picked_up`) hasta que el correo lo levanta y
+  pasa a `shipped`. `mlDispatchInfo` lo da por despachado y `isPendingShipment` lo excluye (si no, con
+  el SLA vencido aparecía "Atrasado" algo que ya se había entregado). Lo entregado **hoy** (hora AR)
+  va a la sección plegada "Despachados hoy" (`bucket: 'dispatched'`); lo de días anteriores no se
+  muestra. La hora sale de `substatus_history` y si no de `status_history.date_shipped`.
+  "Atrasado" = venció **y** no se despachó. El chip de logística ("Llevar al punto") no se muestra
+  para drop_off/xd_drop_off: es lo de siempre.
 - **Fotos**: `getItems` multiget → `pictures[].secure_url` de la variación (por `picture_ids`, en su
   orden) o del ítem; thumbnail = misma URL con sufijo `-I`. TN trae `products[].image.src` en la orden.
 - **TN**: `listOrders` (`lib/tiendanube.js`) con `status=open&payment_status=paid` y
@@ -428,10 +436,16 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
 - Si un canal falla (429, token), el otro se devuelve igual con `errors.{ml,tn}` y la UI lo avisa:
   una lista vacía nunca debe significar "no hay pedidos" cuando en realidad ML no contestó.
 - `zc-photo-lightbox` (`shared/components/photo-lightbox/`) es reusable: foto grande, flechas/teclado, Esc.
+  Ojo: las flechas se centran con `top: calc(50% - 18px)`, NO con `transform` — el `button:active`
+  global (`transform: scale(.98)`) pisaba el `translateY(-50%)`, el botón saltaba al apretarlo y el
+  click caía afuera (con el teclado andaba, con el mouse no). Mismo cuidado con cualquier botón
+  posicionado con `transform`.
 
 **Sin verificar contra la cuenta real** (las credenciales locales son de un usuario de prueba sin
 órdenes): la forma exacta de `/shipments/:id/sla` y de `lead_time.buffering` en el formato nuevo,
-y que `logistic.type` de la cuenta sea `drop_off`. Confirmar la primera vez en prod comparando con
+y que `logistic.type` de la cuenta sea `drop_off`. Tampoco los substatus de "entregado en el punto" ni la
+forma de `substatus_history`/`status_history` con `x-format-new`: `loadMl` loguea
+`[Despachos] envíos ML: {status/substatus: n}` para confirmarlo en prod. Confirmar la primera vez en prod comparando con
 "Ventas → Preparar envío" de ML. El webhook `shipments` de ML podría invalidar la caché antes; no
 hace falta para que funcione.
 

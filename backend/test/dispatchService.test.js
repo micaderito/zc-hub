@@ -202,6 +202,62 @@ test('despachados, Full y entregados no aparecen; el envío despachado se memori
   assert.deepEqual(state.calls.getShipment, ['502'], 'el despachado no se vuelve a pedir');
 });
 
+test('mlDispatchInfo: entregado en el punto (ready_to_ship) o shipped, con la hora de la entrega', () => {
+  assert.deepEqual(svc.mlDispatchInfo(shipment(1, { substatus: 'printed' })), { dispatched: false, dispatchedAt: null });
+  const dropped = {
+    ...shipment(1, { substatus: 'dropped_off' }),
+    substatus_history: [
+      { status: 'ready_to_ship', substatus: 'printed', date: '2026-10-08T10:00:00.000-03:00' },
+      { status: 'ready_to_ship', substatus: 'dropped_off', date: '2026-10-08T17:01:00.000-03:00' },
+      { status: 'ready_to_ship', substatus: 'in_hub', date: '2026-10-08T18:00:00.000-03:00' },
+    ],
+  };
+  const info = svc.mlDispatchInfo(dropped);
+  assert.equal(info.dispatched, true);
+  assert.equal(info.dispatchedAt.toISOString(), '2026-10-08T20:01:00.000Z');
+  assert.equal(svc.isPendingShipment(dropped), false, 'ya entregado: no es pendiente');
+  const shipped = { ...shipment(2, { status: 'shipped', substatus: null }), status_history: { date_shipped: '2026-10-09T09:30:00.000-03:00' } };
+  assert.equal(svc.mlDispatchInfo(shipped).dispatchedAt.toISOString(), '2026-10-09T12:30:00.000Z');
+  assert.equal(svc.mlDispatchInfo(shipment(3, { substatus: 'in_hub' })).dispatchedAt, null);
+});
+
+test('stateLabel: despachado con la hora', () => {
+  assert.deepEqual(
+    svc.stateLabel({ channel: 'ml', bucket: 'dispatched', dispatchedAt: '2026-10-09T20:01:00.000Z' }),
+    { label: 'Despachado 17:01', tone: 'ok' }
+  );
+  assert.equal(svc.stateLabel({ channel: 'ml', bucket: 'dispatched', dispatchedAt: null }).label, 'Despachado');
+});
+
+test('entregado en el punto con el horario vencido → "despachado", no atrasado; sin pedir el SLA', async () => {
+  state.orders = [mlOrder(1, { shipId: 501 }), mlOrder(2, { shipId: 502 })];
+  state.shipments = {
+    501: { ...shipment(501, { substatus: 'dropped_off' }), substatus_history: [{ substatus: 'dropped_off', date: '2026-10-09T09:15:00.000-03:00' }] },
+    502: shipment(502, { substatus: 'printed' }),
+  };
+  state.slas = { 502: { status: 'delayed', expected_date: '2026-10-08T16:00:00.000-03:00' } };
+  state.items = [{ id: 'MLA1', pictures: [{ id: 'p', secure_url: 'https://x/p-O.jpg' }] }];
+  const r = await svc.getDispatchList({ now: NOW });
+  const bySale = Object.fromEntries(r.packages.map((p) => [p.saleId, p]));
+  assert.equal(bySale['1'].bucket, 'dispatched');
+  assert.equal(bySale['1'].state.label, 'Despachado 09:15');
+  assert.deepEqual(bySale['1'].items[0].pictures, ['https://x/p-O.jpg'], 'trae las fotos igual');
+  assert.equal(bySale['2'].bucket, 'overdue', 'vencido y sin entregar sigue atrasado');
+  assert.deepEqual(state.calls.getShipmentSla, ['502']);
+});
+
+test('despachados de días anteriores no aparecen; los de hoy sí', async () => {
+  state.orders = [mlOrder(1, { shipId: 501 }), mlOrder(2, { shipId: 502 }), mlOrder(3, { shipId: 503 })];
+  state.shipments = {
+    501: { ...shipment(501, { status: 'shipped', substatus: null }), status_history: { date_shipped: '2026-10-09T08:00:00.000-03:00' } },
+    502: { ...shipment(502, { status: 'shipped', substatus: null }), status_history: { date_shipped: '2026-10-08T17:00:00.000-03:00' } },
+    // Sigue en el punto pero ML no da la fecha: se muestra (es reciente).
+    503: shipment(503, { substatus: 'in_hub' }),
+  };
+  const r = await svc.getDispatchList({ now: NOW });
+  assert.deepEqual(r.packages.map((p) => [p.saleId, p.bucket]).sort(), [['1', 'dispatched'], ['3', 'dispatched']]);
+});
+
 test('"Despachá el X día" (buffered) va a próximos días', async () => {
   state.orders = [mlOrder(1)];
   state.shipments = { 500: shipment(500, { substatus: 'buffered', leadTime: { buffering: { date: '2026-10-12T00:00:00.000-03:00' } } }) };
