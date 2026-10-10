@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Menú lateral: opciones</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root, :root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3;
+  --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad;
+  --brand:#5b54e6; --brand-bg:#ecebfd;
+  --ml:#ffe600; --tn:#2b8aef;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d;
+  --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180;
+  --brand:#8b85ff; --brand-bg:#26233f;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+}}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d;
+  --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180;
+  --brand:#8b85ff; --brand-bg:#26233f;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,-apple-system,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased}
+.page{max-width:1180px;margin:0 auto;padding:28px 16px 64px}
+header.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{font-size:22px;font-weight:600;margin:0 0 4px}
+.lead{color:var(--text-2);margin:0;max-width:720px;line-height:1.5}
+.btn{font:inherit;font-size:13px;border:.5px solid var(--border-strong);background:var(--surface);color:var(--text);border-radius:8px;padding:6px 10px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.btn:hover{background:var(--surface-2)}
+
+.options{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px}
+@media (max-width:900px){.options{grid-template-columns:1fr}}
+.opt{background:var(--surface);border:.5px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.opt-head{padding:16px 18px 12px;border-bottom:.5px solid var(--border)}
+.opt-tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--brand);background:var(--brand-bg);border-radius:999px;padding:2px 8px;margin-bottom:6px}
+.opt-head h2{font-size:16px;margin:0 0 4px;font-weight:600}
+.opt-head p{margin:0;color:var(--text-2);font-size:13px;line-height:1.5}
+.opt-body{display:flex;gap:0;min-height:600px;background:var(--bg)}
+.notes{flex:1;padding:16px 18px;font-size:13px;color:var(--text-2);line-height:1.55;min-width:0}
+.notes h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin:0 0 6px;font-weight:600}
+.notes ul{margin:0 0 14px;padding-left:18px}
+.notes li{margin-bottom:4px}
+.notes b{color:var(--text);font-weight:600}
+.pro{color:var(--ok)} .con{color:var(--warn)}
+
+/* ── Sidebar mock (copia el layout real: 220px / 60px) ── */
+.sb{width:220px;flex-shrink:0;background:var(--surface);border-right:.5px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:2px;transition:width .2s}
+.sb.collapsed{width:60px;padding:14px 8px}
+.brand{display:flex;align-items:center;gap:9px;padding:2px 6px 12px}
+.logo{width:34px;height:34px;border-radius:50%;background:var(--brand-bg);color:var(--brand);display:grid;place-items:center;font-weight:600;font-size:13px;flex-shrink:0}
+.brand-name{font-weight:600;font-size:14px;line-height:1.1}
+.brand-sub{font-size:11px;color:var(--text-3)}
+.sb.collapsed .brand{justify-content:center;padding:2px 0 12px}
+.sb.collapsed .brand-txt,.sb.collapsed .lbl,.sb.collapsed .sec-title,.sb.collapsed .chev{display:none}
+
+.sec-title{font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);padding:12px 10px 4px}
+.sec-title:first-of-type{padding-top:4px}
+.sb.collapsed .sec-sep{display:block}
+.sec-sep{display:none;height:.5px;background:var(--border);margin:8px 6px}
+
+.item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:var(--text-2);cursor:pointer;font-size:13.5px;position:relative;user-select:none;border:none;background:none;font-family:inherit;width:100%;text-align:left}
+.item i{font-size:18px;flex-shrink:0}
+.item:hover{background:var(--surface-2);color:var(--text)}
+.item.active{background:var(--brand-bg);color:var(--brand);font-weight:500}
+.item .lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb.collapsed .item{justify-content:center;padding:8px}
+.badge{font-size:11px;font-weight:600;border-radius:999px;padding:1px 7px;line-height:16px;background:var(--brand);color:#fff}
+.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.badge.err{background:var(--err-bg);color:var(--err)}
+.sb.collapsed .badge{position:absolute;top:2px;right:2px;padding:0 5px;font-size:10px;line-height:14px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--err)}
+.sb.collapsed .dot{position:absolute;top:6px;right:8px}
+
+.spacer{flex:1}
+.foot{border-top:.5px solid var(--border);padding-top:8px;margin-top:8px;display:flex;flex-direction:column;gap:2px}
+
+/* opción B: grupos acordeón */
+.group > .item.head{color:var(--text)}
+.group > .item.head .chev{font-size:15px;color:var(--text-3);transition:transform .15s}
+.group.open > .item.head .chev{transform:rotate(90deg)}
+.group .kids{display:none;flex-direction:column;gap:2px;margin:1px 0 4px 19px;padding-left:8px;border-left:.5px solid var(--border)}
+.group.open .kids{display:flex}
+.group .kids .item{padding:6px 10px;font-size:13px}
+.group .kids .item i{display:none}
+.group.has-active > .item.head{color:var(--brand)}
+.sb.collapsed .group .kids{display:none}
+.sb.collapsed .group.has-active > .item.head{background:var(--brand-bg)}
+.flyout{display:none}
+.sb.collapsed .group:hover .flyout{display:flex}
+.flyout{position:absolute;left:52px;top:0;z-index:5;flex-direction:column;gap:2px;background:var(--surface);border:.5px solid var(--border-strong);border-radius:10px;padding:6px;box-shadow:0 8px 28px rgba(20,22,40,.14);min-width:180px}
+.flyout .ft{font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);padding:4px 8px}
+.flyout .item{justify-content:flex-start!important;padding:6px 8px!important}
+.flyout .item .lbl{display:block!important}
+.group{position:relative}
+
+/* tabla de renombres */
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;margin-top:20px;overflow:hidden}
+.card h2{font-size:16px;margin:0;padding:16px 18px 4px;font-weight:600}
+.card > p{margin:0;padding:0 18px 12px;color:var(--text-2);font-size:13px}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);padding:8px 18px;border-top:.5px solid var(--border);border-bottom:.5px solid var(--border);background:var(--surface-2)}
+td{padding:9px 18px;border-bottom:.5px solid var(--border);vertical-align:top;color:var(--text-2)}
+td:first-child,td:nth-child(2){white-space:nowrap;color:var(--text)}
+td i{color:var(--text-3);margin-right:6px}
+.same{color:var(--text-3)}
+.chip{display:inline-block;font-size:11px;border-radius:999px;padding:1px 7px;background:var(--warn-bg);color:var(--warn);font-weight:500;margin-left:4px}
+.open-q{margin-top:20px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:16px 18px}
+.open-q h2{font-size:16px;margin:0 0 8px;font-weight:600}
+.open-q ol{margin:0;padding-left:20px;color:var(--text-2);line-height:1.6;font-size:13.5px}
+.open-q b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div>
+      <h1>Menú lateral: dos agrupaciones</h1>
+      <p class="lead">Hoy son 12 ítems sueltos (13 con <b>Para despachar</b>, que está en otra rama). Las dos opciones
+        ponen arriba lo que se hace todos los días y mandan lo técnico (conexiones, mapeo de SKUs, cola) al fondo.
+        Los sidebars son clickeables: probá el botón de colapsar y, en la B, abrir y cerrar grupos.</p>
+    </div>
+    <button class="btn" id="themeBtn"><i class="ti ti-moon"></i><span>Modo oscuro</span></button>
+  </header>
+
+  <div class="options">
+    <!-- ═══════════ OPCIÓN A ═══════════ -->
+    <section class="opt">
+      <div class="opt-head">
+        <span class="opt-tag">Opción A</span>
+        <h2>Secciones con título, todo a la vista</h2>
+        <p>Igual que hoy (lista plana, un clic a cualquier lado) pero con encabezados por tarea. Solo "Configuración" se pliega.</p>
+      </div>
+      <div class="opt-body">
+        <nav class="sb" id="sbA">
+          <div class="brand"><div class="logo">ZC</div><div class="brand-txt"><div class="brand-name">Zona Cuaderno</div><div class="brand-sub">Hub de ventas</div></div></div>
+
+          <div class="sec-title">Día a día</div>
+          <a class="item active" data-nav><i class="ti ti-package"></i><span class="lbl">Para preparar</span><span class="badge">7</span></a>
+          <a class="item" data-nav><i class="ti ti-arrow-back-up"></i><span class="lbl">Devoluciones</span><span class="badge warn">2</span></a>
+          <a class="item" data-nav><i class="ti ti-bell"></i><span class="lbl">Alertas de stock</span><span class="badge warn">3</span></a>
+
+          <div class="sec-sep"></div>
+          <div class="sec-title">Catálogo</div>
+          <a class="item" data-nav><i class="ti ti-box"></i><span class="lbl">Productos</span></a>
+          <a class="item" data-nav><i class="ti ti-tag"></i><span class="lbl">Actualizar precios</span></a>
+          <a class="item" data-nav><i class="ti ti-plus"></i><span class="lbl">Crear producto</span></a>
+          <a class="item" data-nav><i class="ti ti-rocket"></i><span class="lbl">Publicaciones</span></a>
+
+          <div class="sec-sep"></div>
+          <div class="sec-title">Compras</div>
+          <a class="item" data-nav><i class="ti ti-clipboard-list"></i><span class="lbl">Pedidos al proveedor</span></a>
+          <a class="item" data-nav><i class="ti ti-building-warehouse"></i><span class="lbl">Depósito</span></a>
+
+          <div class="sec-sep"></div>
+          <div class="sec-title">Informes</div>
+          <a class="item" data-nav><i class="ti ti-chart-bar"></i><span class="lbl">Ventas por provincia</span></a>
+
+          <div class="spacer"></div>
+          <div class="foot">
+            <div class="group" id="cfgA">
+              <button class="item head" data-toggle><i class="ti ti-settings"></i><span class="lbl">Configuración</span><span class="dot" title="Una conexión necesita atención"></span><i class="ti ti-chevron-right chev"></i></button>
+              <div class="kids">
+                <a class="item" data-nav><i class="ti ti-plug"></i><span class="lbl">Conexiones</span></a>
+                <a class="item" data-nav><i class="ti ti-arrows-exchange-2"></i><span class="lbl">Vincular SKUs</span></a>
+                <a class="item" data-nav><i class="ti ti-history"></i><span class="lbl">Historial y cola</span></a>
+                <a class="item" data-nav><i class="ti ti-users"></i><span class="lbl">Usuarios</span></a>
+              </div>
+              <div class="flyout"><div class="ft">Configuración</div>
+                <a class="item" data-nav><span class="lbl">Conexiones</span></a>
+                <a class="item" data-nav><span class="lbl">Vincular SKUs</span></a>
+                <a class="item" data-nav><span class="lbl">Historial y cola</span></a>
+                <a class="item" data-nav><span class="lbl">Usuarios</span></a>
+              </div>
+            </div>
+            <a class="item" data-collapse="sbA"><i class="ti ti-layout-sidebar-left-collapse"></i><span class="lbl">Colapsar</span></a>
+          </div>
+        </nav>
+        <div class="notes">
+          <h3>Cómo queda</h3>
+          <ul>
+            <li>4 secciones + Configuración plegada abajo: <b>10 ítems a la vista</b> (hoy 12, todos iguales).</li>
+            <li>Colapsado (60 px), los títulos pasan a ser líneas divisorias y Configuración abre un menú flotante.</li>
+            <li>El punto rojo en Configuración avisa si ML o TN se desconectaron — lo único de esa sección que sí hay que ver.</li>
+          </ul>
+          <h3>A favor</h3>
+          <ul class="pro"><li><span style="color:var(--text-2)">Cambio mínimo de hábito: todo sigue a un clic, solo se reordena.</span></li>
+            <li><span style="color:var(--text-2)">Fácil de construir: el array <code>nav</code> pasa a tener secciones.</span></li></ul>
+          <h3>En contra</h3>
+          <ul class="con"><li><span style="color:var(--text-2)">Sigue siendo una columna larga; con 2–3 páginas más vuelve a crecer.</span></li></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════ OPCIÓN B ═══════════ -->
+    <section class="opt">
+      <div class="opt-head">
+        <span class="opt-tag">Opción B</span>
+        <h2>Grupos plegables por área</h2>
+        <p>4 grupos (Ventas, Productos, Compras, Ajustes). Solo está abierto el del lugar donde estás; el resto queda en una línea.</p>
+      </div>
+      <div class="opt-body">
+        <nav class="sb" id="sbB">
+          <div class="brand"><div class="logo">ZC</div><div class="brand-txt"><div class="brand-name">Zona Cuaderno</div><div class="brand-sub">Hub de ventas</div></div></div>
+
+          <div class="group open has-active">
+            <button class="item head" data-toggle><i class="ti ti-shopping-bag"></i><span class="lbl">Ventas</span><span class="badge">9</span><i class="ti ti-chevron-right chev"></i></button>
+            <div class="kids">
+              <a class="item active" data-nav><i class="ti ti-package"></i><span class="lbl">Para preparar</span><span class="badge">7</span></a>
+              <a class="item" data-nav><i class="ti ti-arrow-back-up"></i><span class="lbl">Devoluciones</span><span class="badge warn">2</span></a>
+              <a class="item" data-nav><i class="ti ti-chart-bar"></i><span class="lbl">Informe por provincia</span></a>
+            </div>
+            <div class="flyout"><div class="ft">Ventas</div>
+              <a class="item" data-nav><span class="lbl">Para preparar</span></a>
+              <a class="item" data-nav><span class="lbl">Devoluciones</span></a>
+              <a class="item" data-nav><span class="lbl">Informe por provincia</span></a>
+            </div>
+          </div>
+
+          <div class="group">
+            <button class="item head" data-toggle><i class="ti ti-box"></i><span class="lbl">Productos</span><i class="ti ti-chevron-right chev"></i></button>
+            <div class="kids">
+              <a class="item" data-nav><i class="ti ti-box"></i><span class="lbl">Stock y precio</span></a>
+              <a class="item" data-nav><i class="ti ti-tag"></i><span class="lbl">Actualizar precios</span></a>
+              <a class="item" data-nav><i class="ti ti-plus"></i><span class="lbl">Crear producto</span></a>
+              <a class="item" data-nav><i class="ti ti-rocket"></i><span class="lbl">Publicaciones</span></a>
+            </div>
+            <div class="flyout"><div class="ft">Productos</div>
+              <a class="item" data-nav><span class="lbl">Stock y precio</span></a>
+              <a class="item" data-nav><span class="lbl">Actualizar precios</span></a>
+              <a class="item" data-nav><span class="lbl">Crear producto</span></a>
+              <a class="item" data-nav><span class="lbl">Publicaciones</span></a>
+            </div>
+          </div>
+
+          <div class="group">
+            <button class="item head" data-toggle><i class="ti ti-truck-delivery"></i><span class="lbl">Compras</span><span class="badge warn">3</span><i class="ti ti-chevron-right chev"></i></button>
+            <div class="kids">
+              <a class="item" data-nav><i class="ti ti-bell"></i><span class="lbl">Alertas de stock</span><span class="badge warn">3</span></a>
+              <a class="item" data-nav><i class="ti ti-clipboard-list"></i><span class="lbl">Pedidos al proveedor</span></a>
+              <a class="item" data-nav><i class="ti ti-building-warehouse"></i><span class="lbl">Depósito</span></a>
+            </div>
+            <div class="flyout"><div class="ft">Compras</div>
+              <a class="item" data-nav><span class="lbl">Alertas de stock</span></a>
+              <a class="item" data-nav><span class="lbl">Pedidos al proveedor</span></a>
+              <a class="item" data-nav><span class="lbl">Depósito</span></a>
+            </div>
+          </div>
+
+          <div class="spacer"></div>
+          <div class="foot">
+            <div class="group">
+              <button class="item head" data-toggle><i class="ti ti-settings"></i><span class="lbl">Ajustes</span><span class="dot"></span><i class="ti ti-chevron-right chev"></i></button>
+              <div class="kids">
+                <a class="item" data-nav><i class="ti ti-plug"></i><span class="lbl">Conexiones</span></a>
+                <a class="item" data-nav><i class="ti ti-arrows-exchange-2"></i><span class="lbl">Vincular SKUs</span></a>
+                <a class="item" data-nav><i class="ti ti-history"></i><span class="lbl">Historial y cola</span></a>
+                <a class="item" data-nav><i class="ti ti-users"></i><span class="lbl">Usuarios</span></a>
+              </div>
+              <div class="flyout"><div class="ft">Ajustes</div>
+                <a class="item" data-nav><span class="lbl">Conexiones</span></a>
+                <a class="item" data-nav><span class="lbl">Vincular SKUs</span></a>
+                <a class="item" data-nav><span class="lbl">Historial y cola</span></a>
+                <a class="item" data-nav><span class="lbl">Usuarios</span></a>
+              </div>
+            </div>
+            <a class="item" data-collapse="sbB"><i class="ti ti-layout-sidebar-left-collapse"></i><span class="lbl">Colapsar</span></a>
+          </div>
+        </nav>
+        <div class="notes">
+          <h3>Cómo queda</h3>
+          <ul>
+            <li><b>4 líneas cerradas</b> + el grupo donde estás abierto. Entrar a la app cae en Ventas → Para preparar.</li>
+            <li>El badge sube al grupo cerrado (Compras <span class="badge warn">3</span>) para no perder avisos.</li>
+            <li>Colapsado, cada grupo es un ícono y al pasar el mouse abre su submenú.</li>
+          </ul>
+          <h3>A favor</h3>
+          <ul class="pro"><li><span style="color:var(--text-2)">El menú más corto posible, y escala: una página nueva entra en su grupo sin alargar nada.</span></li>
+            <li><span style="color:var(--text-2)">Agrupa por "de qué se trata", que es como se piensa la página nueva.</span></li></ul>
+          <h3>En contra</h3>
+          <ul class="con"><li><span style="color:var(--text-2)">Saltar entre grupos cuesta un clic extra (ej. de Para preparar a Pedidos).</span></li>
+            <li><span style="color:var(--text-2)">Un poco más de trabajo: estado abierto/cerrado y menú flotante.</span></li></ul>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Renombres propuestos (valen para las dos opciones)</h2>
+    <p>La URL no tiene por qué cambiar: es solo el texto del menú (y el título de la página).</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Hoy</th><th>Propuesta</th><th>Por qué</th></tr></thead>
+      <tbody>
+        <tr><td><i class="ti ti-layout-dashboard"></i>Inicio</td><td><i class="ti ti-plug"></i>Conexiones</td><td>La página solo muestra si ML y TN están conectados y un botón de sincronizar precios. No es un inicio: se mira cuando algo falla.</td></tr>
+        <tr><td><span class="same">— (otra rama)</span></td><td><i class="ti ti-package"></i>Para preparar <span class="chip">nuevo inicio</span></td><td>Es la página <code>/despachos</code> ("Para despachar"). Pasa a ser la que abre la app, porque es lo que se hace todos los días. Hay que elegir un solo nombre — ver preguntas abajo.</td></tr>
+        <tr><td><i class="ti ti-box"></i>Productos</td><td><i class="ti ti-box"></i>Productos / Stock y precio</td><td>En A queda "Productos"; en B, como el grupo ya se llama Productos, el ítem pasa a "Stock y precio" (que es lo que se edita ahí).</td></tr>
+        <tr><td><i class="ti ti-tag"></i>Precios</td><td><i class="ti ti-tag"></i>Actualizar precios</td><td>Se confunde con Productos (ahí también hay precios). Esta es la carga masiva desde la lista del proveedor: el verbo lo deja claro.</td></tr>
+        <tr><td><i class="ti ti-building-warehouse"></i>Depósito Marañón</td><td><i class="ti ti-building-warehouse"></i>Depósito</td><td>Más corto; "Marañón" queda en el título de la página. Si algún día hay otro depósito se vuelve a nombrar.</td></tr>
+        <tr><td><i class="ti ti-bell"></i>Alertas</td><td><i class="ti ti-bell"></i>Alertas de stock</td><td>Que no se confunda con la campanita de notificaciones del pie del menú.</td></tr>
+        <tr><td><i class="ti ti-truck-delivery"></i>Pedidos</td><td><i class="ti ti-clipboard-list"></i>Pedidos al proveedor</td><td>Al lado de "Para preparar", "pedidos" suena a pedidos de clientes. El ícono de camión pasa al grupo Compras / se reserva para envíos.</td></tr>
+        <tr><td><i class="ti ti-map-pin"></i>Ventas</td><td><i class="ti ti-chart-bar"></i>Ventas por provincia / Informe por provincia</td><td>Hoy "Ventas" es solo el informe para el contador, no un listado de ventas. Con Para preparar en el menú, el nombre genérico confunde.</td></tr>
+        <tr><td><i class="ti ti-alert-triangle"></i>Conflictos</td><td><i class="ti ti-arrows-exchange-2"></i>Vincular SKUs</td><td>Lo que se hace ahí es unir publicaciones de ML con productos de TN por SKU. "Conflictos" asusta y no dice qué hay adentro.</td></tr>
+        <tr><td><i class="ti ti-refresh"></i>Sincronización</td><td><i class="ti ti-history"></i>Historial y cola</td><td>Adentro hay Historial, Devoluciones, Cola ML y Estado — es un registro, no un botón de sincronizar.</td></tr>
+        <tr><td><span class="same">(pestaña de Sincronización)</span></td><td><i class="ti ti-arrow-back-up"></i>Devoluciones</td><td>Aprobar o descartar devoluciones es tarea del día, pero hoy está escondida en una pestaña. Se suma como acceso directo (lleva a esa pestaña, sin mover la página).</td></tr>
+        <tr><td><i class="ti ti-users"></i>Usuarios</td><td class="same">Usuarios</td><td>Igual, pero baja a Configuración / Ajustes.</td></tr>
+        <tr><td><i class="ti ti-rocket"></i>Publicaciones · <i class="ti ti-plus"></i>Crear producto</td><td class="same">Igual</td><td>Juntos en Catálogo / Productos, uno debajo del otro.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="open-q">
+    <h2>Para decidir</h2>
+    <ol>
+      <li><b>¿"Para preparar" o "Para despachar"?</b> La página de la otra rama se llama "Para despachar". Sugiero <b>Para preparar</b>: es lo que se hace en el día (armar paquetes) y "despachar" queda como la acción del final.</li>
+      <li><b>¿Devoluciones como ítem propio?</b> Si casi nunca hay, puede quedar solo dentro de Historial y cola y que el badge avise.</li>
+      <li><b>Notificaciones del pie + Alertas</b>: hoy las dos muestran el mismo número. Propongo dejar el número solo en Alertas de stock y que la campanita del pie sea un ícono sin badge (o al revés).</li>
+      <li><b>"Sincronizar precios"</b> que hoy está en Inicio: ¿se usa? Si sí, iría mejor dentro de Actualizar precios que en Conexiones.</li>
+    </ol>
+  </section>
+</div>
+
+<script>
+  // tema
+  const root = document.documentElement, tb = document.getElementById('themeBtn');
+  const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  const paint = () => { tb.innerHTML = isDark() ? '<i class="ti ti-sun"></i><span>Modo claro</span>' : '<i class="ti ti-moon"></i><span>Modo oscuro</span>'; };
+  tb.onclick = () => { root.dataset.theme = isDark() ? 'light' : 'dark'; paint(); };
+  paint();
+
+  // navegación simulada
+  document.querySelectorAll('.sb').forEach(sb => {
+    sb.addEventListener('click', e => {
+      const nav = e.target.closest('[data-nav]');
+      const tog = e.target.closest('[data-toggle]');
+      const col = e.target.closest('[data-collapse]');
+      if (col) { sb.classList.toggle('collapsed'); return; }
+      if (tog && !sb.classList.contains('collapsed')) {
+        const g = tog.parentElement;
+        // en B: abrir uno cierra los demás (salvo el pie)
+        if (sb.id === 'sbB' && !g.closest('.foot')) sb.querySelectorAll('.group').forEach(o => { if (o !== g) o.classList.remove('open'); });
+        g.classList.toggle('open'); return;
+      }
+      if (nav) {
+        const label = nav.querySelector('.lbl').textContent;
+        sb.querySelectorAll('.item.active').forEach(i => i.classList.remove('active'));
+        sb.querySelectorAll('.group').forEach(g => g.classList.remove('has-active'));
+        sb.querySelectorAll('.kids [data-nav], :scope > [data-nav]').forEach(i => {
+          if (i.querySelector('.lbl').textContent === label) {
+            i.classList.add('active');
+            const g = i.closest('.group');
+            if (g) { g.classList.add('has-active'); g.classList.add('open'); }
+          }
+        });
+      }
+    });
+  });
+</script>
+</body>
+</html>
