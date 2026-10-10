@@ -1,7 +1,7 @@
 <div class="conflicts">
   <div class="page-header">
     <div>
-      <h1><i class="ti ti-arrows-exchange-2" aria-hidden="true"></i> Conflictos de stock</h1>
+      <h1><i class="ti ti-arrows-exchange-2" aria-hidden="true"></i> Vincular SKUs</h1>
       <p class="subtitle">Productos sin par entre ML y TN. Vinculá por SKU o resolvé manualmente.</p>
     </div>
     @if (analysis && !loading) {
@@ -21,18 +21,18 @@
   } @else if (analysis && !analysis.mlConnected) {
     <div class="alert warn">
       <i class="ti ti-brand-mercadopago" aria-hidden="true"></i>
-      Conectá Mercado Libre desde <a routerLink="/">Inicio</a> para ver tus ítems.
+      Conectá Mercado Libre desde <a routerLink="/conexiones">Conexiones</a> para ver tus ítems.
     </div>
   } @else if (analysis && !analysis.tnConnected) {
     <div class="alert warn">
       <i class="ti ti-shopping-cart" aria-hidden="true"></i>
-      Conectá Tienda Nube desde <a routerLink="/">Inicio</a> para ver tus productos.
+      Conectá Tienda Nube desde <a routerLink="/conexiones">Conexiones</a> para ver tus productos.
     </div>
   } @else if (analysis) {
     @if (analysis.mlAuthError) {
       <div class="alert warn">
         <i class="ti ti-lock-open" aria-hidden="true"></i>
-        La sesión de Mercado Libre venció. <a routerLink="/">Reconectá desde Inicio</a> para ver los ítems.
+        La sesión de Mercado Libre venció. <a routerLink="/conexiones">Reconectá desde Conexiones</a> para ver los ítems.
       </div>
     }
 

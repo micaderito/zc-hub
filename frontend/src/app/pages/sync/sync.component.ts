@@ -2,7 +2,8 @@ import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { toObservable } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged, skip } from 'rxjs/operators';
 import { QueryClient, injectQuery, injectMutation } from '@tanstack/angular-query-experimental';
 import { SyncService, SyncConfig, SyncAuditRow, AuditSource, PendingReturnRow, PendingMlTask, PendingMlTasksResponse } from '../../core/services/sync.service';
@@ -16,6 +17,7 @@ const SYNC_PENDING_TASKS_QUERY_KEY = ['sync', 'pendingTasks'] as const;
 const AUDIT_PAGE_SIZE = 25;
 const RETURNS_PAGE_SIZE = 20;
 const TASKS_PAGE_SIZE = 20;
+const TAB_KEYS = ['historial', 'devoluciones', 'cola', 'estado'];
 
 @Component({
   selector: 'app-sync',
@@ -27,6 +29,8 @@ const TASKS_PAGE_SIZE = 20;
 export class SyncComponent implements OnInit {
   private readonly sync = inject(SyncService);
   private readonly queryClient = inject(QueryClient);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   readonly activeTab = signal<string>('historial');
 
@@ -155,6 +159,13 @@ export class SyncComponent implements OnInit {
   });
 
   constructor() {
+    // `?tab=devoluciones` es el acceso directo "Devoluciones" del menú lateral. Se escucha el
+    // query param (no solo el snapshot) porque el menú puede cambiarlo sin recrear la página.
+    this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe(params => {
+      const tab = params.get('tab') ?? 'historial';
+      if (TAB_KEYS.includes(tab) && tab !== this.activeTab()) this.onTabChange(tab);
+    });
+
     toObservable(this.auditSearchQuery)
       .pipe(skip(1), debounceTime(350), distinctUntilChanged())
       .subscribe(() => {
@@ -195,6 +206,17 @@ export class SyncComponent implements OnInit {
   onTabChange(key: string): void {
     const prev = this.activeTab();
     this.activeTab.set(key);
+    // La tab queda en la URL para que el menú lateral marque bien "Devoluciones" vs. "Historial y cola".
+    // Solo si cambió: si la tab ya vino en la URL (acceso directo del menú), re-navegar en plena
+    // carga cancela esa navegación y el menú nunca recibe el NavigationEnd.
+    if ((this.route.snapshot.queryParamMap.get('tab') ?? 'historial') !== key) {
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { tab: key === 'historial' ? null : key },
+        queryParamsHandling: 'merge',
+        replaceUrl: true
+      });
+    }
     if (key === 'devoluciones' && prev !== 'devoluciones' && this.hasDatabaseForReturns()) {
       this.fetchReturns();
     }

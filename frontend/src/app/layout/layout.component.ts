@@ -1,7 +1,9 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { filter, map } from 'rxjs/operators';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import { SessionService } from '../core/services/session.service';
 import { ThemeService } from '../core/services/theme.service';
@@ -11,8 +13,16 @@ interface NavItem {
   path: string;
   label: string;
   icon: string;
-  exact?: boolean;
+  /** Para accesos directos a una pestaña (ej. Devoluciones = /sincronizacion?tab=devoluciones). */
+  queryParams?: Record<string, string>;
 }
+
+interface NavSection {
+  title: string;
+  items: NavItem[];
+}
+
+const CONFIG_OPEN_KEY = 'zc-sidebar-config-open';
 
 /**
  * Shell de la app (sidebar + contenido), separado de AppComponent para que /login pueda existir
@@ -21,7 +31,7 @@ interface NavItem {
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, FormsModule],
+  imports: [CommonModule, RouterOutlet, RouterLink, FormsModule],
   templateUrl: './layout.component.html',
   styleUrl: './layout.component.scss'
 })
@@ -86,21 +96,100 @@ export class LayoutComponent {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   });
 
-  readonly nav: NavItem[] = [
-    { path: '/', label: 'Inicio', icon: 'ti-layout-dashboard', exact: true },
-    { path: '/precio-stock', label: 'Productos', icon: 'ti-box' },
-    { path: '/precios', label: 'Precios', icon: 'ti-tag' },
-    { path: '/deposito', label: 'Depósito Marañón', icon: 'ti-building-warehouse' },
-    { path: '/crear', label: 'Crear producto', icon: 'ti-plus' },
-    { path: '/publicaciones', label: 'Publicaciones', icon: 'ti-rocket' },
-    { path: '/alertas', label: 'Alertas', icon: 'ti-bell' },
-    { path: '/despachos', label: 'Para despachar', icon: 'ti-package-export' },
-    { path: '/pedidos', label: 'Pedidos', icon: 'ti-truck-delivery' },
-    { path: '/ventas', label: 'Ventas', icon: 'ti-map-pin' },
-    { path: '/conflictos', label: 'Conflictos', icon: 'ti-alert-triangle' },
-    { path: '/sincronizacion', label: 'Sincronización', icon: 'ti-refresh' },
-    { path: '/usuarios', label: 'Usuarios', icon: 'ti-users' }
+  /** Menú agrupado por tarea: arriba lo del día a día, abajo (plegado) lo técnico. */
+  readonly sections: NavSection[] = [
+    {
+      title: 'Día a día',
+      items: [
+        { path: '/despachos', label: 'Para preparar', icon: 'ti-package' },
+        { path: '/sincronizacion', label: 'Devoluciones', icon: 'ti-arrow-back-up', queryParams: { tab: 'devoluciones' } },
+        { path: '/alertas', label: 'Alertas de stock', icon: 'ti-bell' }
+      ]
+    },
+    {
+      title: 'Catálogo',
+      items: [
+        { path: '/precio-stock', label: 'Productos', icon: 'ti-box' },
+        { path: '/precios', label: 'Actualizar precios', icon: 'ti-tag' },
+        { path: '/crear', label: 'Crear producto', icon: 'ti-plus' },
+        { path: '/publicaciones', label: 'Publicaciones', icon: 'ti-rocket' }
+      ]
+    },
+    {
+      title: 'Compras',
+      items: [
+        { path: '/pedidos', label: 'Pedidos al proveedor', icon: 'ti-clipboard-list' },
+        { path: '/deposito', label: 'Depósito', icon: 'ti-building-warehouse' }
+      ]
+    },
+    {
+      title: 'Informes',
+      items: [{ path: '/ventas', label: 'Ventas por provincia', icon: 'ti-chart-bar' }]
+    }
   ];
+
+  readonly configSection: NavSection = {
+    title: 'Configuración',
+    items: [
+      { path: '/conexiones', label: 'Conexiones', icon: 'ti-plug' },
+      { path: '/conflictos', label: 'Vincular SKUs', icon: 'ti-arrows-exchange-2' },
+      { path: '/sincronizacion', label: 'Historial y cola', icon: 'ti-history' },
+      { path: '/usuarios', label: 'Usuarios', icon: 'ti-users' }
+    ]
+  };
+
+  /** Todos los ítems, en orden de aparición. */
+  readonly nav: NavItem[] = [...this.sections, this.configSection].flatMap(s => s.items);
+
+  private readonly currentUrl = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map(e => e.urlAfterRedirects)
+    ),
+    { initialValue: this.router.url }
+  );
+
+  /**
+   * El ítem activo. No alcanza con routerLinkActive: "Devoluciones" e "Historial y cola" comparten
+   * ruta y se distinguen por `?tab=`, así que gana el ítem con query params que coincidan y, si
+   * ninguno coincide, el que no tiene. `paths: 'subset'` para que /pedidos/12 marque Pedidos.
+   */
+  readonly activeItem = computed<NavItem | null>(() => {
+    this.currentUrl();
+    const matches = (item: NavItem) =>
+      this.router.isActive(this.router.createUrlTree([item.path], { queryParams: item.queryParams }), {
+        paths: 'subset',
+        queryParams: item.queryParams ? 'subset' : 'ignored',
+        fragment: 'ignored',
+        matrixParams: 'ignored'
+      });
+    const hits = this.nav.filter(matches);
+    return hits.find(i => i.queryParams) ?? hits[0] ?? null;
+  });
+
+  // Configuración arranca plegada; se recuerda si la usuaria la dejó abierta.
+  private readonly configOpenPref = signal(this.readConfigOpen());
+  readonly configOpen = computed(
+    () => this.configOpenPref() || this.configSection.items.includes(this.activeItem() as NavItem)
+  );
+
+  toggleConfig(): void {
+    const next = !this.configOpen();
+    this.configOpenPref.set(next);
+    try {
+      localStorage.setItem(CONFIG_OPEN_KEY, next ? '1' : '0');
+    } catch {
+      /* sin storage: queda solo en memoria */
+    }
+  }
+
+  private readConfigOpen(): boolean {
+    try {
+      return localStorage.getItem(CONFIG_OPEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
 
   /* ── Cajón de notificaciones ─────────────────────────────────────────────
      Vive en el shell (no en la página de Alertas) porque se abre desde
