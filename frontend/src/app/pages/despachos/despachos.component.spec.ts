@@ -78,14 +78,48 @@ describe('DespachosComponent', () => {
     ]);
     const sections = component.sections();
     expect(sections.map((s) => s.key)).toEqual(['overdue', 'ml-13:00', 'tn']);
-    expect(sections[1].title).toBe('Llevar al correo antes de las 13:00');
+    expect(sections[1].title).toBe('Despachar antes de las 13:00');
     expect(component.counts().today).toBe(3);
     expect(component.counts().upcoming).toBe(1);
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Venta #a');
     expect(text).toContain('Orden #1543');
     expect(text).not.toContain('Venta #d');
-    expect(text).toContain('Venció ayer 13:00');
+    expect(text).toContain('Venció ayer 13:00 · sin despachar');
+    // Llevar al correo/punto es lo de siempre: no ocupa un chip.
+    expect(text).not.toContain('Llevar al');
+  });
+
+  it('despachados hoy: sección propia plegada al final, fuera de atrasados y contadores', async () => {
+    await load([
+      pkg({ saleId: 'a', bucket: 'overdue', deadline: '2026-10-08T16:00:00.000Z', deadlineDay: '2026-10-08' }),
+      pkg({
+        saleId: 'z', bucket: 'dispatched', substatus: 'dropped_off', deadline: null, deadlineDay: null, deadlineHasTime: false,
+        dispatchedAt: '2026-10-09T20:01:00.000Z', state: { label: 'Despachado 17:01', tone: 'ok' },
+      }),
+    ]);
+    expect(component.sections().map((s) => s.key)).toEqual(['overdue', 'dispatched']);
+    expect(component.counts().overdue).toBe(1);
+    expect(component.counts().today).toBe(1);
+    expect(component.counts().dispatched).toBe(1);
+    let text = fixture.nativeElement.textContent;
+    expect(text).toContain('Despachados hoy (1)');
+    expect(text).not.toContain('Venta #z');
+
+    (fixture.nativeElement.querySelector('.sec-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    text = fixture.nativeElement.textContent;
+    expect(text).toContain('Venta #z');
+    expect(text).toContain('Despachado 17:01');
+    const row = fixture.nativeElement.querySelector('.pk.dispatched');
+    expect(row.querySelector('.pk-check')).toBeNull();
+    expect(row.textContent).not.toContain('Venció');
+  });
+
+  it('si solo hay despachados, avisa que no queda nada pendiente', async () => {
+    await load([pkg({ saleId: 'z', bucket: 'dispatched', deadline: null, deadlineDay: null, state: { label: 'Despachado', tone: 'ok' } })]);
+    expect(fixture.nativeElement.textContent).toContain('No hay nada pendiente de despachar');
+    expect(fixture.nativeElement.textContent).toContain('Despachados hoy (1)');
   });
 
   it('Próximos días agrupa por día, con los envíos en espera', async () => {
@@ -135,6 +169,36 @@ describe('DespachosComponent', () => {
     expect(lb).toBeTruthy();
     expect(lb.querySelectorAll('.lb-mini').length).toBe(2);
     expect(lb.textContent).toContain('Agenda 2027 semanal');
+  });
+
+  it('en el lightbox las flechas (botón y teclado) pasan de foto', async () => {
+    await load([pkg()]);
+    (fixture.nativeElement.querySelector('.thumb-btn') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const img = () => (fixture.nativeElement.querySelector('.lb-stage img') as HTMLImageElement).getAttribute('src');
+    expect(img()).toBe('https://x/a-O.jpg');
+    (fixture.nativeElement.querySelector('.lb-nav.next') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(img()).toBe('https://x/b-O.jpg');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    fixture.detectChanges();
+    expect(img()).toBe('https://x/a-O.jpg');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    fixture.detectChanges();
+    expect(img()).toBe('https://x/b-O.jpg');
+  });
+
+  it('el lightbox no repite fotos y muestra en cuál estás', async () => {
+    await load([pkg({ items: [{ sku: 'X', title: 'Repuesto', variation: null, qty: 1, thumb: null, pictures: ['https://x/a-O.jpg', 'https://x/a-O.jpg', 'https://x/b-O.jpg'] }] })]);
+    (fixture.nativeElement.querySelector('.thumb-btn') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const lb = fixture.nativeElement.querySelector('zc-photo-lightbox');
+    expect(lb.querySelectorAll('.lb-mini').length).toBe(2);
+    expect(lb.querySelector('.lb-count').textContent.trim()).toBe('1 / 2');
+    (lb.querySelector('.lb-nav.next') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(lb.querySelector('.lb-stage img').getAttribute('src')).toBe('https://x/b-O.jpg');
+    expect(lb.querySelector('.lb-count').textContent.trim()).toBe('2 / 2');
   });
 
   it('avisa si un canal no se pudo leer', async () => {

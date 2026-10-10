@@ -6,7 +6,7 @@ import { ApiService } from './api.service';
 export const DISPATCH_QUERY_KEY = ['dispatch', 'list'] as const;
 
 export type DispatchChannel = 'ml' | 'tn';
-export type DispatchBucket = 'cancelled' | 'overdue' | 'today' | 'upcoming';
+export type DispatchBucket = 'cancelled' | 'overdue' | 'today' | 'upcoming' | 'dispatched';
 export type DispatchTone = 'ok' | 'warn' | 'err' | 'neutral';
 
 export interface DispatchItem {
@@ -42,6 +42,8 @@ export interface DispatchPackage {
   bufferedDay: string | null;
   cancelled: boolean;
   cancelledAt?: string | null;
+  /** ML: cuándo se entregó en el punto (bucket 'dispatched'); null si ML no lo informa. */
+  dispatchedAt?: string | null;
   bucket: DispatchBucket;
   state: { label: string; tone: DispatchTone };
   preparedAt: string | null;

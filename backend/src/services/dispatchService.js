@@ -41,11 +41,51 @@ export function logisticTypeOf(shipment) {
   return shipment?.logistic?.type ?? shipment?.logistic_type ?? null;
 }
 
+/**
+ * Substatus de `ready_to_ship` que significan "la vendedora ya lo entregó": con drop_off el envío
+ * sigue `ready_to_ship` mientras el paquete está en el punto, hasta que el correo lo levanta y pasa a
+ * `shipped`. ML ya lo muestra como "En camino · Despachaste el paquete".
+ */
+const ML_HANDED_OVER_SUBSTATUSES = new Set(['dropped_off', 'in_hub', 'picked_up']);
+
+/**
+ * ¿La vendedora ya entregó el paquete, y cuándo? `dispatchedAt` sale del historial de substatus (la
+ * entrega en el punto) y si no, de `date_shipped`; null si ML no trae ninguno de los dos.
+ */
+export function mlDispatchInfo(shipment) {
+  const status = String(shipment?.status ?? '').toLowerCase();
+  const substatus = String(shipment?.substatus ?? '').toLowerCase();
+  const dispatched = status === 'shipped' || (status === 'ready_to_ship' && ML_HANDED_OVER_SUBSTATUSES.has(substatus));
+  if (!dispatched) return { dispatched: false, dispatchedAt: null };
+  const history = Array.isArray(shipment?.substatus_history) ? shipment.substatus_history : [];
+  const handedOver = history
+    .filter((h) => ML_HANDED_OVER_SUBSTATUSES.has(String(h?.substatus ?? '').toLowerCase()))
+    .map((h) => dateOrNull(h?.date))
+    .filter(Boolean)
+    .sort((a, b) => a.getTime() - b.getTime());
+  const dispatchedAt = handedOver[0] ?? dateOrNull(shipment?.status_history?.date_shipped);
+  return { dispatched: true, dispatchedAt };
+}
+
 /** ¿El envío está pendiente de despachar por la vendedora? Full lo despacha ML: nunca. */
 export function isPendingShipment(shipment) {
   if (!shipment) return false;
   if (logisticTypeOf(shipment) === 'fulfillment') return false;
-  return ML_PENDING_STATUSES.has(String(shipment.status ?? '').toLowerCase());
+  if (!ML_PENDING_STATUSES.has(String(shipment.status ?? '').toLowerCase())) return false;
+  return !mlDispatchInfo(shipment).dispatched;
+}
+
+/**
+ * ¿Se muestra en "Despachados hoy"? Solo lo entregado hoy (hora argentina). Si ML no da la fecha,
+ * un `ready_to_ship` entregado igual se muestra (sigue en el punto: es reciente); un `shipped` sin
+ * fecha no (no hay forma de saber si fue hoy).
+ */
+export function isDispatchedToday(shipment, now) {
+  if (!shipment || logisticTypeOf(shipment) === 'fulfillment') return false;
+  const { dispatched, dispatchedAt } = mlDispatchInfo(shipment);
+  if (!dispatched) return false;
+  if (dispatchedAt) return arDayKey(dispatchedAt) === arDayKey(now);
+  return String(shipment.status).toLowerCase() === 'ready_to_ship';
 }
 
 /** Clave del paquete: un carrito de ML son varias órdenes con el mismo pack_id. */
@@ -114,6 +154,9 @@ const ML_SUBSTATUS_LABELS = {
 /** Estado legible del paquete y su tono (para el chip): 'warn' | 'err' | 'neutral' | 'ok'. */
 export function stateLabel(pkg) {
   if (pkg.cancelled) return { label: 'Cancelado', tone: 'err' };
+  if (pkg.bucket === 'dispatched') {
+    return { label: pkg.dispatchedAt ? `Despachado ${formatTime(pkg.dispatchedAt)}` : 'Despachado', tone: 'ok' };
+  }
   if (pkg.channel === 'tn') {
     const s = String(pkg.shipStatus ?? '').toLowerCase();
     if (s === 'unpacked') return { label: 'Sin empaquetar', tone: 'warn' };
@@ -130,6 +173,10 @@ export function stateLabel(pkg) {
   if (String(pkg.shipStatus).toLowerCase() === 'handling') return { label: 'Preparando etiqueta', tone: 'neutral' };
   if (ML_SUBSTATUS_LABELS[sub]) return { label: ML_SUBSTATUS_LABELS[sub], tone: sub === 'ready_to_print' ? 'warn' : 'neutral' };
   return { label: 'Para despachar', tone: 'neutral' };
+}
+
+function formatTime(d) {
+  return new Intl.DateTimeFormat('es-AR', { timeZone: AR_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(d));
 }
 
 function formatDayShort(d) {
@@ -155,7 +202,7 @@ export function mlPicturesFor(item, variationId) {
     : null;
   const ids = Array.isArray(variation?.picture_ids) ? variation.picture_ids : [];
   const chosen = ids.length ? ids.map((id) => byId.get(String(id))).filter(Boolean) : all;
-  return chosen.map((p) => p.secure_url || p.url).filter(Boolean);
+  return [...new Set(chosen.map((p) => p.secure_url || p.url).filter(Boolean))];
 }
 
 function mlVariationLabel(orderItem) {
@@ -226,6 +273,17 @@ export function buildMlPackages(orders, { shipments, slas, items, now }) {
     }
 
     if (!group.some((o) => String(o.status).toLowerCase() === 'paid')) continue;
+    if (isDispatchedToday(shipment, now)) {
+      const { dispatchedAt } = mlDispatchInfo(shipment);
+      pending.push({
+        ...base,
+        cancelled: false,
+        deadline: null, deadlineHasTime: false, slaStatus: null, bufferedUntil: null,
+        dispatchedAt: dispatchedAt ? dispatchedAt.toISOString() : null,
+        bucket: 'dispatched',
+      });
+      continue;
+    }
     if (!isPendingShipment(shipment)) continue;
     const dl = mlDeadlineInfo(shipment, slas.get(String(shipmentId)));
     const pkg = {
@@ -363,6 +421,16 @@ async function mapLimit(list, limit, fn) {
   return out;
 }
 
+/** `{ 'ready_to_ship/printed': 3, … }` — para confirmar en los logs los substatus reales de la cuenta. */
+function countByStatus(shipments) {
+  const out = {};
+  for (const s of shipments.values()) {
+    const k = `${s?.status ?? '?'}/${s?.substatus ?? '-'}`;
+    out[k] = (out[k] ?? 0) + 1;
+  }
+  return out;
+}
+
 async function loadMl(now) {
   const token = await getMlToken();
   const sellerId = tokens.mercadolibre?.user_id;
@@ -387,6 +455,8 @@ async function loadMl(now) {
     if (s) { shipments.set(id, s); rememberFinal(s); }
   });
 
+  console.info('[Despachos] envíos ML:', JSON.stringify(countByStatus(shipments)));
+
   const slas = new Map();
   const pendingIds = shipmentIds.filter((id) => isPendingShipment(shipments.get(id)));
   await mapLimit(pendingIds, 4, async (id) => {
@@ -395,9 +465,10 @@ async function loadMl(now) {
   });
 
   // Fotos: solo de los ítems de paquetes que se van a mostrar.
+  const shownIds = new Set([...pendingIds, ...shipmentIds.filter((id) => isDispatchedToday(shipments.get(id), now))]);
   const shown = relevant.filter((o) => {
     const sid = getShipmentIdFromOrder(o);
-    return String(o.status).toLowerCase() === 'cancelled' || (sid && pendingIds.includes(String(sid)));
+    return String(o.status).toLowerCase() === 'cancelled' || (sid && shownIds.has(String(sid)));
   });
   const itemIds = [...new Set(shown.flatMap((o) => (o.order_items || []).map((it) => it?.item?.id)).filter(Boolean))];
   const itemList = itemIds.length ? await ml.getItems(token, itemIds, 'id,pictures,variations,secure_thumbnail') : [];
