@@ -480,3 +480,17 @@ test('getOrdersWindow: más de 1000 en la ventana parte el rango de fechas al me
   const results = await ml.getOrdersWindow(TOKEN, 999, '2026-07-01T00:00:00.000-03:00', '2026-07-31T23:59:59.999-03:00');
   assert.equal(results.length, 2, 'debería recursar en dos mitades y traer resultados de cada una');
 });
+
+// ─── SLA de envío (Para despachar) ───────────────────────────────────────────
+
+test('getShipmentSla: devuelve el límite de despacho; 404 → null; 429 tira con statusCode', async () => {
+  const sla = { status: 'on_time', expected_date: '2026-10-09T13:00:00.000-03:00' };
+  state.responder = (url) => {
+    assert.match(url, /\/shipments\/44\/sla$/);
+    return makeRes({ json: sla });
+  };
+  assert.deepEqual(await ml.getShipmentSla(TOKEN, 44), sla);
+
+  state.responder = () => makeRes({ status: 404, json: {} });
+  assert.equal(await ml.getShipmentSla(TOKEN, 44), null);
+});

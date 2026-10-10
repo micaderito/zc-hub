@@ -705,6 +705,24 @@ export async function initDb() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_publish_units_job ON product_publish_units (job_id, seq);`);
 
+    // ── Para despachar ────────────────────────────────────────────────────────
+    // Las ventas pendientes se leen en vivo de ML/TN (services/dispatchService.js); acá solo vive
+    // lo que el hub agrega encima: el tilde "preparado" y el "Entendido" de una cancelación. Una
+    // fila por paquete (`sale_id` = pack_id ?? order_id en ML, id de la orden en TN). Se purgan a
+    // los 30 días: para entonces el paquete ya salió o se canceló hace rato.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS dispatch_marks (
+        channel VARCHAR(2) NOT NULL,
+        sale_id VARCHAR(64) NOT NULL,
+        prepared_at TIMESTAMPTZ,
+        prepared_by VARCHAR(128),
+        cancel_seen_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (channel, sale_id)
+      );
+    `);
+    await p.query(`DELETE FROM dispatch_marks WHERE updated_at < NOW() - INTERVAL '30 days'`);
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -3947,4 +3965,66 @@ export async function getSupplierCodeDescriptions(supplier = 'punto_cero') {
   const map = new Map();
   for (const c of await getSupplierCodes(supplier)) if (c.description) map.set(c.code, c.description);
   return map;
+}
+
+// ── Para despachar: marcas del hub sobre paquetes pendientes ─────────────────
+
+/** Map<`${channel}:${saleId}`, { preparedAt, preparedBy, cancelSeenAt }> de todas las marcas vigentes. */
+export async function getDispatchMarks() {
+  const p = getPool();
+  const map = new Map();
+  if (!p) return map;
+  try {
+    const r = await p.query(
+      `SELECT channel, sale_id, prepared_at, prepared_by, cancel_seen_at FROM dispatch_marks`
+    );
+    for (const row of r.rows) {
+      map.set(`${row.channel}:${row.sale_id}`, {
+        preparedAt: row.prepared_at ? new Date(row.prepared_at).toISOString() : null,
+        preparedBy: row.prepared_by ?? null,
+        cancelSeenAt: row.cancel_seen_at ? new Date(row.cancel_seen_at).toISOString() : null,
+      });
+    }
+    return map;
+  } catch (e) {
+    console.error('getDispatchMarks:', e.message);
+    return map;
+  }
+}
+
+/** Tilda (prepared=true) o destilda un paquete como preparado. */
+export async function setDispatchPrepared(channel, saleId, prepared, by = null) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `INSERT INTO dispatch_marks (channel, sale_id, prepared_at, prepared_by, updated_at)
+       VALUES ($1, $2, CASE WHEN $3::boolean THEN NOW() END, CASE WHEN $3::boolean THEN $4::varchar END, NOW())
+       ON CONFLICT (channel, sale_id) DO UPDATE SET
+         prepared_at = EXCLUDED.prepared_at, prepared_by = EXCLUDED.prepared_by, updated_at = NOW()`,
+      [channel, String(saleId), !!prepared, by]
+    );
+    return true;
+  } catch (e) {
+    console.error('setDispatchPrepared:', e.message);
+    return false;
+  }
+}
+
+/** "Entendido" sobre un paquete cancelado: deja de mostrarse en el aviso de cancelados. */
+export async function setDispatchCancelSeen(channel, saleId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `INSERT INTO dispatch_marks (channel, sale_id, cancel_seen_at, updated_at)
+       VALUES ($1, $2, NOW(), NOW())
+       ON CONFLICT (channel, sale_id) DO UPDATE SET cancel_seen_at = NOW(), updated_at = NOW()`,
+      [channel, String(saleId)]
+    );
+    return true;
+  } catch (e) {
+    console.error('setDispatchCancelSeen:', e.message);
+    return false;
+  }
 }

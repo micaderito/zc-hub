@@ -492,6 +492,35 @@ export async function getProduct(accessToken, storeId, productId) {
  * que NO es el id interno que espera GET /orders/:id. Recorre /orders paginado (más recientes
  * primero) hasta encontrar el número o agotar maxPages. Devuelve la orden completa o null.
  */
+/**
+ * Lista órdenes con los filtros de `GET /orders` (`status`, `payment_status`, `shipping_status`,
+ * `updated_at_min`, …), paginando de a 200. TN contesta 404 cuando la página pedida no tiene
+ * resultados ("Last page is 0"): eso es una lista vacía, no un error. Cualquier otra falla tira,
+ * para que quien llama pueda avisar en vez de mostrar "no hay pedidos".
+ */
+export async function listOrders(accessToken, storeId, params = {}, { maxPages = 10 } = {}) {
+  const perPage = 200;
+  const headers = {
+    Authentication: `bearer ${accessToken}`,
+    'User-Agent': 'ZonacuadernoSync/1.0'
+  };
+  const out = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const qs = new URLSearchParams({ ...params, page: String(page), per_page: String(perPage) });
+    const res = await fetchTn(`${getBaseUrl(storeId)}/orders?${qs.toString()}`, { headers });
+    if (res.status === 404) break;
+    if (!res.ok) {
+      const e = new Error(`TN listOrders ${res.status}`);
+      e.statusCode = res.status;
+      throw e;
+    }
+    const list = toList(await res.json());
+    out.push(...list);
+    if (list.length < perPage) break;
+  }
+  return out;
+}
+
 export async function findOrderByNumber(accessToken, storeId, number) {
   const target = String(number).trim();
   if (!target) return null;
