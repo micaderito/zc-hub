@@ -47,6 +47,18 @@ export function logisticTypeOf(shipment) {
  * `shipped`. ML ya lo muestra como "En camino · Despachaste el paquete".
  */
 const ML_HANDED_OVER_SUBSTATUSES = new Set(['dropped_off', 'in_hub', 'picked_up']);
+/**
+ * Con drop_off, cuando el punto escanea el paquete ML lo pasa a `in_packing_list` ("Despachaste el
+ * paquete" en el panel). Confirmado con los logs de la cuenta (2026-10-10). En Colecta
+ * (`cross_docking`) en cambio significa "entró en la lista de retiro": ahí todavía no salió.
+ */
+const ML_DROP_OFF_TYPES = new Set(['drop_off', 'xd_drop_off']);
+
+function isHandedOverSubstatus(substatus, logisticType) {
+  const sub = String(substatus ?? '').toLowerCase();
+  if (ML_HANDED_OVER_SUBSTATUSES.has(sub)) return true;
+  return sub === 'in_packing_list' && ML_DROP_OFF_TYPES.has(String(logisticType ?? '').toLowerCase());
+}
 
 /**
  * ¿La vendedora ya entregó el paquete, y cuándo? `dispatchedAt` sale del historial de substatus (la
@@ -54,12 +66,12 @@ const ML_HANDED_OVER_SUBSTATUSES = new Set(['dropped_off', 'in_hub', 'picked_up'
  */
 export function mlDispatchInfo(shipment) {
   const status = String(shipment?.status ?? '').toLowerCase();
-  const substatus = String(shipment?.substatus ?? '').toLowerCase();
-  const dispatched = status === 'shipped' || (status === 'ready_to_ship' && ML_HANDED_OVER_SUBSTATUSES.has(substatus));
+  const logistic = logisticTypeOf(shipment);
+  const dispatched = status === 'shipped' || (status === 'ready_to_ship' && isHandedOverSubstatus(shipment?.substatus, logistic));
   if (!dispatched) return { dispatched: false, dispatchedAt: null };
   const history = Array.isArray(shipment?.substatus_history) ? shipment.substatus_history : [];
   const handedOver = history
-    .filter((h) => ML_HANDED_OVER_SUBSTATUSES.has(String(h?.substatus ?? '').toLowerCase()))
+    .filter((h) => isHandedOverSubstatus(h?.substatus, logistic))
     .map((h) => dateOrNull(h?.date))
     .filter(Boolean)
     .sort((a, b) => a.getTime() - b.getTime());
@@ -71,12 +83,16 @@ export function mlDispatchInfo(shipment) {
 export function isPendingShipment(shipment) {
   if (!shipment) return false;
   if (logisticTypeOf(shipment) === 'fulfillment') return false;
-  if (!ML_PENDING_STATUSES.has(String(shipment.status ?? '').toLowerCase())) return false;
+  const status = String(shipment.status ?? '').toLowerCase();
+  // "Despachá el X día": ML lo deja `pending/buffered` hasta que habilita la etiqueta. Es un envío
+  // por despachar (va a Próximos días), no uno sin pagar.
+  if (status === 'pending') return String(shipment.substatus ?? '').toLowerCase() === 'buffered';
+  if (!ML_PENDING_STATUSES.has(status)) return false;
   return !mlDispatchInfo(shipment).dispatched;
 }
 
 /**
- * ¿Se muestra en "Despachados hoy"? Solo lo entregado hoy (hora argentina). Si ML no da la fecha,
+ * ¿Se muestra en "Ya despachados"? Solo lo entregado hoy (hora argentina). Si ML no da la fecha,
  * un `ready_to_ship` entregado igual se muestra (sigue en el punto: es reciente); un `shipped` sin
  * fecha no (no hay forma de saber si fue hoy).
  */
@@ -122,6 +138,7 @@ export function mlDeadlineInfo(shipment, sla) {
     deadlineHasTime: !!slaDate,
     slaStatus: sla?.status ?? null,
     bufferedUntil: substatus === 'buffered' ? (bufferingDate ?? slaDate ?? handlingLimit) : null,
+    buffered: substatus === 'buffered',
   };
 }
 
@@ -129,9 +146,11 @@ export function mlDeadlineInfo(shipment, sla) {
  * En qué parte de la página va el paquete: 'overdue' | 'today' | 'upcoming'. Sin límite conocido
  * (o TN, que no tiene) va a "hoy": mejor que se vea de más a que quede escondido en otro día.
  */
-export function bucketFor({ deadline, deadlineHasTime, slaStatus, bufferedUntil }, now) {
+export function bucketFor({ deadline, deadlineHasTime, slaStatus, bufferedUntil, buffered }, now) {
   const today = arDayKey(now);
   if (bufferedUntil && arDayKey(bufferedUntil) > today) return 'upcoming';
+  // En espera sin fecha conocida: la etiqueta todavía no se puede imprimir, no es para hoy.
+  if (buffered && !bufferedUntil) return 'upcoming';
   if (!deadline) return 'today';
   const deadlineDay = arDayKey(deadline);
   if (slaStatus === 'delayed' || deadlineDay < today) return 'overdue';

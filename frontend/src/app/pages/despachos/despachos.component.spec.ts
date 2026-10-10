@@ -103,7 +103,7 @@ describe('DespachosComponent', () => {
     expect(component.counts().today).toBe(1);
     expect(component.counts().dispatched).toBe(1);
     let text = fixture.nativeElement.textContent;
-    expect(text).toContain('Despachados hoy (1)');
+    expect(text).toContain('Ya despachados (1)');
     expect(text).not.toContain('Venta #z');
 
     (fixture.nativeElement.querySelector('.sec-toggle') as HTMLButtonElement).click();
@@ -119,7 +119,7 @@ describe('DespachosComponent', () => {
   it('si solo hay despachados, avisa que no queda nada pendiente', async () => {
     await load([pkg({ saleId: 'z', bucket: 'dispatched', deadline: null, deadlineDay: null, state: { label: 'Despachado', tone: 'ok' } })]);
     expect(fixture.nativeElement.textContent).toContain('No hay nada pendiente de despachar');
-    expect(fixture.nativeElement.textContent).toContain('Despachados hoy (1)');
+    expect(fixture.nativeElement.textContent).toContain('Ya despachados (1)');
   });
 
   it('Próximos días agrupa por día, con los envíos en espera', async () => {
