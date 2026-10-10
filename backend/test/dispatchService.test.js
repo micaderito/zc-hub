@@ -258,6 +258,36 @@ test('despachados de días anteriores no aparecen; los de hoy sí', async () => 
   assert.deepEqual(r.packages.map((p) => [p.saleId, p.bucket]).sort(), [['1', 'dispatched'], ['3', 'dispatched']]);
 });
 
+test('datos reales de la cuenta: in_packing_list con drop off = despachado; pending/buffered = próximos días', async () => {
+  state.orders = [mlOrder(1, { shipId: 501 }), mlOrder(2, { shipId: 502 }), mlOrder(3, { shipId: 503 }), mlOrder(4, { shipId: 504 })];
+  state.shipments = {
+    // Lo dejó en el punto ayer a la tarde y ML todavía no lo marcó "shipped".
+    501: { ...shipment(501, { substatus: 'in_packing_list', logistic: 'xd_drop_off' }), substatus_history: [{ substatus: 'in_packing_list', date: '2026-10-09T08:40:00.000-03:00' }] },
+    // En Colecta, in_packing_list es "entró en la lista de retiro": sigue pendiente.
+    502: shipment(502, { substatus: 'in_packing_list', logistic: 'cross_docking' }),
+    // "Despachá el lunes": la etiqueta todavía no se puede imprimir.
+    503: shipment(503, { status: 'pending', substatus: 'buffered', logistic: 'xd_drop_off', leadTime: { buffering: { date: '2026-10-12T00:00:00.000-03:00' } } }),
+    // Pendiente por otra cosa (no es "en espera de fecha"): no se muestra.
+    504: shipment(504, { status: 'pending', substatus: 'creating_route' }),
+  };
+  state.slas = {
+    502: { status: 'on_time', expected_date: '2026-10-09T16:00:00.000-03:00' },
+    503: { status: 'on_time', expected_date: '2026-10-12T16:00:00.000-03:00' },
+  };
+  const r = await svc.getDispatchList({ now: NOW });
+  const bySale = Object.fromEntries(r.packages.map((p) => [p.saleId, p]));
+  assert.equal(bySale['1'].bucket, 'dispatched');
+  assert.equal(bySale['2'].bucket, 'today');
+  assert.equal(bySale['3'].bucket, 'upcoming');
+  assert.equal(bySale['3'].bufferedDay, '2026-10-12');
+  assert.equal(bySale['4'], undefined);
+  assert.deepEqual(state.calls.getShipmentSla.sort(), ['502', '503']);
+});
+
+test('bucketFor: en espera sin fecha conocida va a próximos días, no a hoy', () => {
+  assert.equal(svc.bucketFor({ deadline: null, buffered: true, bufferedUntil: null }, NOW), 'upcoming');
+});
+
 test('"Despachá el X día" (buffered) va a próximos días', async () => {
   state.orders = [mlOrder(1)];
   state.shipments = { 500: shipment(500, { substatus: 'buffered', leadTime: { buffering: { date: '2026-10-12T00:00:00.000-03:00' } } }) };
