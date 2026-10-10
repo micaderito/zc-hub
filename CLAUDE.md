@@ -395,6 +395,46 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
 Los endpoints viejos de "Para reponer" (`/api/alerts/restock*`, overrides, descartes) siguen en el
 backend —`getRestockList` alimenta el estado de alerta del catálogo— pero ya no tienen UI.
 
+### Para despachar (`/despachos`): pendientes de envío de ML y TN, en vivo
+
+Lista de paquetes que todavía no salieron, para armar y llevar al correo (la cuenta usa
+`drop_off`: se lleva al correo/punto antes de un horario). `services/dispatchService.js`,
+`routes/dispatch.js`, `frontend/.../pages/despachos/`. **Se lee en vivo de las APIs**, no de webhooks
+ni de una tabla: son pocos pedidos por día y lo que importa es el estado de ahora.
+
+- **ML no tiene "envíos pendientes del vendedor"** y `/orders/search` no filtra por estado del envío.
+  Se traen las órdenes de los últimos `ML_LOOKBACK_DAYS` (15) con `getOrdersWindow`, se descartan las
+  que no son `paid` (o tienen tag `delivered`), y por cada envío distinto `GET /shipments/:id`:
+  pendiente = `handling`/`ready_to_ship` y `logistic.type` ≠ `fulfillment` (Full lo despacha ML).
+- **Horario límite**: `GET /shipments/:id/sla` → `expected_date` (fecha + hora, el "antes de las X")
+  y `status` (`delayed` = atrasado). Sin SLA cae al `lead_time.estimated_handling_limit` (solo día).
+- **"Despachá el X día"** = substatus `buffered`: la etiqueta recién se habilita en
+  `lead_time.buffering.date`. Va a la pestaña "Próximos días", no a "Hoy".
+- **Carritos**: un paquete = `pack_id ?? order_id` (mismo criterio que ventas), con todas las líneas.
+- **Fotos**: `getItems` multiget → `pictures[].secure_url` de la variación (por `picture_ids`, en su
+  orden) o del ítem; thumbnail = misma URL con sufijo `-I`. TN trae `products[].image.src` en la orden.
+- **TN**: `listOrders` (`lib/tiendanube.js`) con `status=open&payment_status=paid` y
+  `shipping_status=unpacked` + `unfulfilled` (dedupe por id). TN no tiene horario límite: va a "Hoy",
+  por antigüedad. TN contesta 404 a una página vacía: es lista vacía, no error.
+- **Cancelados**: lo cancelado en las últimas 48 h que nunca salió (ML: pagado alguna vez + envío que
+  `isSafeToAutoRestore` da por no despachado; TN: `status=cancelled&updated_at_min`) se muestra arriba
+  en rojo "Cancelado, no despachar", con "desarmalo" si estaba tildado como preparado. "Entendido" lo oculta.
+- **Marcas del hub** (`dispatch_marks`, PK `channel + sale_id`): `prepared_at`/`prepared_by` (tilde
+  "Preparado") y `cancel_seen_at`. Se purgan a los 30 días en `initDb()`. Se mergean en cada request,
+  así un tilde se ve al instante aunque la lista venga de la caché.
+- **Costo para ML**: caché en memoria de 60 s (`?refresh=1` la saltea — botón "Actualizar") y los
+  envíos en estado final (`shipped`, `delivered`, …) se memorizan por proceso: no se reconsultan.
+  El front refresca solo cada 5 min y al volver a la pestaña.
+- Si un canal falla (429, token), el otro se devuelve igual con `errors.{ml,tn}` y la UI lo avisa:
+  una lista vacía nunca debe significar "no hay pedidos" cuando en realidad ML no contestó.
+- `zc-photo-lightbox` (`shared/components/photo-lightbox/`) es reusable: foto grande, flechas/teclado, Esc.
+
+**Sin verificar contra la cuenta real** (las credenciales locales son de un usuario de prueba sin
+órdenes): la forma exacta de `/shipments/:id/sla` y de `lead_time.buffering` en el formato nuevo,
+y que `logistic.type` de la cuenta sea `drop_off`. Confirmar la primera vez en prod comparando con
+"Ventas → Preparar envío" de ML. El webhook `shipments` de ML podría invalidar la caché antes; no
+hace falta para que funcione.
+
 ### Dashboard de ventas por provincia (`/ventas`): duplica ventas de ML localmente
 
 Informe mensual para el contador: total facturado por provincia, sin canceladas ni devoluciones.
@@ -923,5 +963,14 @@ fija el default `gold_special`. `publicaciones.component.spec.ts` cubre la pági
 pinta el historial, expandir una fila trae el detalle con el id externo, `externalUrl` arma el link
 de ML y no el de TN, reset de página al cambiar un filtro, Reintentar refetchea).
 `backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
+
+"Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y
+Full, carrito = un paquete con un solo GET de envío, buckets atrasado/hoy/próximos con `now`
+inyectado y hora argentina, `buffered` en su día, `stateLabel`, fotos por variación, cancelados
+recientes sí / pago rechazado no / "Entendido" los oculta, preparados al final, TN sin duplicar entre
+filtros, un canal caído no tumba al otro, caché de 60 s y memo de envíos despachados),
+`backend/test/routesDispatch.test.js`, `getShipmentSla` en `mercadolibre.test.js` y `listOrders` en
+`tiendanube.test.js`; en el front `despachos.component.spec.ts` (secciones de Hoy / Próximos días,
+filtro por canal, cancelados, tilde optimista, lightbox, aviso de canal caído).
 
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

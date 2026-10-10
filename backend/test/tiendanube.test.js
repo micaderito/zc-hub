@@ -208,3 +208,23 @@ test('fetchTn: reintenta ante 5xx transitorio y devuelve el 2xx', async () => {
   assert.equal(res.status, 200);
   assert.equal(n, 2, 'un 502 dispara un reintento que sale OK');
 });
+
+// ─── listOrders (Para despachar) ─────────────────────────────────────────────
+
+test('listOrders: pasa los filtros, pagina de a 200 y toma el 404 de página vacía como fin', async () => {
+  const full = Array.from({ length: 200 }, (_, i) => ({ id: i }));
+  state.responder = (url) => {
+    assert.match(url, /status=open/);
+    assert.match(url, /shipping_status=unpacked/);
+    if (url.includes('page=1&')) return makeRes({ json: full });
+    return makeRes({ status: 404, json: { description: 'Last page is 1' } });
+  };
+  const out = await tn.listOrders(TOKEN, STORE_ID, { status: 'open', shipping_status: 'unpacked' });
+  assert.equal(out.length, 200);
+  assert.equal(state.calls.length, 2);
+});
+
+test('listOrders: un error que no es 404 tira (no se confunde con "no hay pedidos")', async () => {
+  state.responder = () => makeRes({ status: 401, json: {} });
+  await assert.rejects(() => tn.listOrders(TOKEN, STORE_ID, {}), /401/);
+});

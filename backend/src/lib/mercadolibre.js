@@ -641,6 +641,29 @@ export async function getShipment(accessToken, shipmentId) {
 }
 
 /** Actualizar stock de un ítem sin variaciones (publicación simple). */
+/**
+ * Límite de despacho de un envío: `{ status: 'on_time'|'delayed'|…, expected_date, service, last_updated }`.
+ * `expected_date` es fecha + hora límite para despachar (en la zona del sitio) — es el "llevalo antes
+ * de las X" que muestra ML en "Ventas → Preparar envío". null si ML no lo tiene (404) o falla; tira
+ * `statusCode: 429` igual que `getShipment` para que el que llama distinga "no hay" de "no contestó".
+ */
+export async function getShipmentSla(accessToken, shipmentId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/shipments/${shipmentId}/sla`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getShipmentSla'
+  );
+  if (!res.ok) {
+    if (res.status === 429) {
+      const e = new Error(`ML rate limited (429) sla ${shipmentId}`);
+      e.statusCode = 429;
+      throw e;
+    }
+    return null;
+  }
+  return res.json();
+}
+
 export async function updateItemStock(accessToken, itemId, quantity) {
   const res = await fetchWith429Retry(
     `${BASE}/items/${itemId}`,
