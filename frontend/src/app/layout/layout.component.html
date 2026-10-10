@@ -10,52 +10,66 @@
       }
     </a>
 
+    <ng-template #navLink let-item>
+      <a
+        [routerLink]="item.path"
+        [queryParams]="item.queryParams"
+        class="nav-item"
+        [class.active]="activeItem() === item"
+        [attr.aria-current]="activeItem() === item ? 'page' : null"
+        [title]="collapsed() ? item.label : ''"
+      >
+        <i class="ti {{ item.icon }}"></i>
+        @if (!collapsed()) {
+          <span>{{ item.label }}</span>
+        }
+        @if (item.path === '/alertas' && unreadCount() > 0) {
+          <span class="nav-badge">{{ unreadCount() }}</span>
+        }
+      </a>
+    </ng-template>
+
     <nav class="nav">
-      @for (item of nav; track item.path) {
-        <a
-          [routerLink]="item.path"
-          routerLinkActive="active"
-          [routerLinkActiveOptions]="{ exact: !!item.exact }"
-          class="nav-item"
-          [title]="collapsed() ? item.label : ''"
+      @for (section of sections; track section.title; let first = $first) {
+        @if (collapsed()) {
+          @if (!first) {
+            <div class="nav-sep" role="separator"></div>
+          }
+        } @else {
+          <div class="nav-section-title">{{ section.title }}</div>
+        }
+        @for (item of section.items; track item.label) {
+          <ng-container *ngTemplateOutlet="navLink; context: { $implicit: item }" />
+        }
+      }
+
+      <!-- Configuración: lo técnico, plegado. Colapsado el panel, se ven sus íconos sueltos. -->
+      <div class="nav-sep" role="separator"></div>
+      @if (!collapsed()) {
+        <button
+          type="button"
+          class="nav-item nav-group-head"
+          [class.open]="configOpen()"
+          [attr.aria-expanded]="configOpen()"
+          (click)="toggleConfig()"
         >
-          <i class="ti {{ item.icon }}"></i>
-          @if (!collapsed()) {
-            <span>{{ item.label }}</span>
+          <i class="ti ti-settings"></i>
+          <span>{{ configSection.title }}</span>
+          <i class="ti ti-chevron-right chev" aria-hidden="true"></i>
+        </button>
+      }
+      @if (collapsed() || configOpen()) {
+        <div class="nav-group-items" [class.flat]="collapsed()">
+          @for (item of configSection.items; track item.label) {
+            <ng-container *ngTemplateOutlet="navLink; context: { $implicit: item }" />
           }
-          @if (item.path === '/alertas' && unreadCount() > 0) {
-            <span class="nav-badge">{{ unreadCount() }}</span>
-          }
-        </a>
+        </div>
       }
     </nav>
 
+    <!-- Pie: usuario + una fila de acciones con ícono (colapsado, en columna). Antes eran 5 filas
+         con texto y, con el menú por secciones, no entraba en pantallas de notebook. -->
     <div class="sidebar-foot">
-      <button
-        type="button"
-        class="nav-item"
-        (click)="toggleDrawer()"
-        [title]="collapsed() ? 'Notificaciones' : ''"
-      >
-        <i class="ti ti-bell-ringing"></i>
-        @if (!collapsed()) {
-          <span>Notificaciones</span>
-        }
-        @if (unreadCount() > 0) {
-          <span class="nav-badge">{{ unreadCount() }}</span>
-        }
-      </button>
-      <button
-        type="button"
-        class="nav-item theme-toggle"
-        (click)="theme.toggle()"
-        [title]="collapsed() ? (theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro') : ''"
-      >
-        <i class="ti" [class.ti-moon]="theme.theme() === 'light'" [class.ti-sun]="theme.theme() === 'dark'"></i>
-        @if (!collapsed()) {
-          <span>{{ theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro' }}</span>
-        }
-      </button>
       <button
         type="button"
         class="user-chip"
@@ -67,29 +81,35 @@
           <span class="user-name">{{ session.user()?.displayName || session.user()?.username }}</span>
         }
       </button>
-      <button
-        type="button"
-        class="nav-item logout-btn"
-        (click)="logout()"
-        [title]="collapsed() ? 'Cerrar sesión' : ''"
-      >
-        <i class="ti ti-logout"></i>
-        @if (!collapsed()) {
-          <span>Cerrar sesión</span>
-        }
-      </button>
-      <button
-        type="button"
-        class="nav-item collapse-toggle"
-        (click)="toggleSidebar()"
-        [title]="collapsed() ? 'Expandir panel' : 'Colapsar panel'"
-        aria-label="Colapsar panel"
-      >
-        <i class="ti" [class.ti-layout-sidebar-left-collapse]="!collapsed()" [class.ti-layout-sidebar-left-expand]="collapsed()"></i>
-        @if (!collapsed()) {
-          <span>Colapsar panel</span>
-        }
-      </button>
+      <div class="foot-actions">
+        <button type="button" class="foot-btn" (click)="toggleDrawer()" title="Notificaciones" aria-label="Notificaciones">
+          <i class="ti ti-bell-ringing"></i>
+          @if (unreadCount() > 0) {
+            <span class="nav-badge">{{ unreadCount() }}</span>
+          }
+        </button>
+        <button
+          type="button"
+          class="foot-btn theme-toggle"
+          (click)="theme.toggle()"
+          [title]="theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro'"
+          [attr.aria-label]="theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro'"
+        >
+          <i class="ti" [class.ti-moon]="theme.theme() === 'light'" [class.ti-sun]="theme.theme() === 'dark'"></i>
+        </button>
+        <button type="button" class="foot-btn logout-btn" (click)="logout()" title="Cerrar sesión" aria-label="Cerrar sesión">
+          <i class="ti ti-logout"></i>
+        </button>
+        <button
+          type="button"
+          class="foot-btn collapse-toggle"
+          (click)="toggleSidebar()"
+          [title]="collapsed() ? 'Expandir panel' : 'Colapsar panel'"
+          aria-label="Colapsar panel"
+        >
+          <i class="ti" [class.ti-layout-sidebar-left-collapse]="!collapsed()" [class.ti-layout-sidebar-left-expand]="collapsed()"></i>
+        </button>
+      </div>
     </div>
   </aside>
 

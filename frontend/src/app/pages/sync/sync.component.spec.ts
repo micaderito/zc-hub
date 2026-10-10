@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
 import { QueryClient, provideTanStackQuery } from '@tanstack/angular-query-experimental';
+import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 import { SyncComponent } from './sync.component';
 import {
@@ -149,6 +150,7 @@ describe('SyncComponent', () => {
     TestBed.configureTestingModule({
       imports: [SyncComponent],
       providers: [
+        provideRouter([]),
         provideTanStackQuery(new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })),
         { provide: SyncService, useValue: syncServiceSpy }
       ]
