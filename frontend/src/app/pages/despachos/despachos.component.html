@@ -82,20 +82,46 @@
       </section>
     }
 
-    @for (s of sections(); track s.key) {
-      <section class="ds-section">
-        <h2 [class.err]="s.tone === 'err'">
-          <i class="ti" [class]="s.icon" aria-hidden="true"></i>
-          <span class="cap">{{ s.title }}</span>
-          @if (s.hint) { <small>· {{ s.hint }}</small> }
-        </h2>
+    @if (!pendingSections().length && !showCancelled()) {
+      <div class="ds-empty">
+        <i class="ti ti-circle-check" aria-hidden="true"></i>
+        <p>
+          @switch (tab()) {
+            @case ('upcoming') { No hay envíos programados para los próximos días. }
+            @default { No hay nada pendiente de despachar. }
+          }
+        </p>
+      </div>
+    }
 
+    @for (s of sections(); track s.key) {
+      <section class="ds-section" [class.ok]="s.tone === 'ok'">
+        @if (s.collapsible) {
+          <h2>
+            <button type="button" class="sec-toggle" (click)="showDispatched.set(!showDispatched())" [attr.aria-expanded]="!isCollapsed(s)">
+              <i class="ti" [class]="s.icon" aria-hidden="true"></i>
+              <span class="cap">{{ s.title }}</span>
+              @if (s.hint) { <small>· {{ s.hint }}</small> }
+              <i class="ti chev" [class.ti-chevron-down]="isCollapsed(s)" [class.ti-chevron-up]="!isCollapsed(s)" aria-hidden="true"></i>
+            </button>
+          </h2>
+        } @else {
+          <h2 [class.err]="s.tone === 'err'">
+            <i class="ti" [class]="s.icon" aria-hidden="true"></i>
+            <span class="cap">{{ s.title }}</span>
+            @if (s.hint) { <small>· {{ s.hint }}</small> }
+          </h2>
+        }
+
+        @if (!isCollapsed(s)) {
         @for (p of s.packages; track key(p)) {
-          <article class="pk" [class.prepared]="p.preparedAt" [class.overdue]="p.bucket === 'overdue'">
+          <article class="pk" [class.prepared]="p.preparedAt" [class.overdue]="p.bucket === 'overdue'" [class.dispatched]="p.bucket === 'dispatched'">
             <div class="pk-head">
-              <label class="pk-check" [title]="p.preparedAt ? 'Destildar' : 'Marcar como preparado'">
-                <input type="checkbox" [checked]="!!p.preparedAt" (change)="togglePrepared(p)" [attr.aria-label]="'Preparado: ' + saleLabel(p)" />
-              </label>
+              @if (p.bucket !== 'dispatched') {
+                <label class="pk-check" [title]="p.preparedAt ? 'Destildar' : 'Marcar como preparado'">
+                  <input type="checkbox" [checked]="!!p.preparedAt" (change)="togglePrepared(p)" [attr.aria-label]="'Preparado: ' + saleLabel(p)" />
+                </label>
+              }
               <span class="ch" [class.ml]="p.channel === 'ml'" [class.tn]="p.channel === 'tn'">
                 @if (p.channel === 'ml') { <span class="dot ml" aria-hidden="true"></span> ML } @else { <i class="ti ti-shopping-bag" aria-hidden="true"></i> TN }
               </span>
@@ -111,7 +137,9 @@
               </span>
               <span class="pk-chips">
                 @if (deadlineLabel(p); as dl) { <span class="st err">{{ dl }}</span> }
-                @if (p.preparedAt) {
+                @if (p.bucket === 'dispatched') {
+                  <span class="st ok"><i class="ti ti-truck-delivery" aria-hidden="true"></i> {{ p.state.label }}</span>
+                } @else if (p.preparedAt) {
                   <span class="st ok"><i class="ti ti-check" aria-hidden="true"></i> Preparado</span>
                 } @else if (p.state.label !== 'Atrasado') {
                   <span class="st" [class.warn]="p.state.tone === 'warn'" [class.err]="p.state.tone === 'err'">{{ p.state.label }}</span>
@@ -140,19 +168,8 @@
             </ul>
           </article>
         }
+        }
       </section>
-    } @empty {
-      @if (!showCancelled()) {
-        <div class="ds-empty">
-          <i class="ti ti-circle-check" aria-hidden="true"></i>
-          <p>
-            @switch (tab()) {
-              @case ('upcoming') { No hay envíos programados para los próximos días. }
-              @default { No hay nada pendiente de despachar. }
-            }
-          </p>
-        </div>
-      }
     }
   }
 </div>
