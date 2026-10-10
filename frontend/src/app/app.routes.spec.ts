@@ -1,4 +1,7 @@
-import { routes } from './app.routes';
+import { Component } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
+import { homeRedirect, routes } from './app.routes';
 
 describe('routes', () => {
   it('define /login pública y una ruta raíz con el shell protegido por authGuard', () => {
@@ -13,7 +16,7 @@ describe('routes', () => {
     const shell = routes.find(r => r.path === '')!;
     const childPaths = (shell.children ?? []).map(r => r.path);
     expect(childPaths).toEqual([
-      '', 'conflictos', 'precio-stock', 'precios', 'deposito', 'crear', 'publicaciones', 'alertas', 'pedidos', 'pedidos/:id', 'ventas', 'sincronizacion', 'usuarios',
+      '', 'conexiones', 'conflictos', 'precio-stock', 'precios', 'deposito', 'crear', 'publicaciones', 'alertas', 'pedidos', 'pedidos/:id', 'despachos', 'ventas', 'sincronizacion', 'usuarios',
     ]);
   });
 
@@ -21,7 +24,8 @@ describe('routes', () => {
     expect(typeof routes.find(r => r.path === 'login')!.loadComponent).toBe('function');
     const shell = routes.find(r => r.path === '')!;
     expect(typeof shell.loadComponent).toBe('function');
-    for (const child of shell.children ?? []) {
+    // La raíz del shell es un redirect (a Para preparar), no una página.
+    for (const child of (shell.children ?? []).filter(r => r.path !== '')) {
       expect(typeof child.loadComponent).toBe('function');
     }
   });
@@ -31,8 +35,39 @@ describe('routes', () => {
     expect(typeof loginComponent).toBe('function');
 
     const shell = routes.find(r => r.path === '')!;
-    const dashboard = (shell.children ?? []).find(r => r.path === '')!;
-    const dashboardComponent = await (dashboard.loadComponent as unknown as () => Promise<unknown>)();
-    expect(typeof dashboardComponent).toBe('function');
+    const conexiones = (shell.children ?? []).find(r => r.path === 'conexiones')!;
+    const conexionesComponent = await (conexiones.loadComponent as unknown as () => Promise<unknown>)();
+    expect(typeof conexionesComponent).toBe('function');
+  });
+});
+
+@Component({ standalone: true, template: '' })
+class BlankComponent {}
+
+describe('homeRedirect', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([
+          { path: '', pathMatch: 'full', redirectTo: homeRedirect },
+          { path: 'despachos', component: BlankComponent },
+          { path: 'conexiones', component: BlankComponent },
+        ]),
+      ],
+    });
+  });
+
+  it('la raíz abre Para preparar', async () => {
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/');
+    expect(router.url).toBe('/despachos');
+  });
+
+  it('la vuelta del OAuth de ML/TN va a Conexiones conservando el resultado', async () => {
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/?ml_connected=1');
+    expect(router.url).toBe('/conexiones?ml_connected=1');
+    await router.navigateByUrl('/?tn_error=fallo');
+    expect(router.url).toBe('/conexiones?tn_error=fallo');
   });
 });

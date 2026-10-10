@@ -28,9 +28,9 @@
       <span>Cargando productos…</span>
     </div>
   } @else if (analysis() && (!analysis()!.mlConnected || !analysis()!.tnConnected)) {
-    <p class="alert">Conectá Mercado Libre y Tienda Nube en <a routerLink="/">Inicio</a>.</p>
+    <p class="alert">Conectá Mercado Libre y Tienda Nube en <a routerLink="/conexiones">Conexiones</a>.</p>
   } @else if (analysis()?.mlAuthError) {
-    <p class="alert">La sesión de Mercado Libre venció. Reconectá desde <a routerLink="/">Inicio</a>.</p>
+    <p class="alert">La sesión de Mercado Libre venció. Reconectá desde <a routerLink="/conexiones">Conexiones</a>.</p>
   } @else if (analysis()) {
     <div class="list-area">
       @if (pendingUpdatesCount() > 0) {

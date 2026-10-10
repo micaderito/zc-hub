@@ -45,10 +45,6 @@
     padding: 0.6rem 0;
   }
 
-  .collapse-toggle {
-    justify-content: center;
-    padding: 0.6rem;
-  }
 }
 
 // ── Brand / Logo ─────────────────────────────────────────────────────────────
@@ -94,14 +90,58 @@
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.1rem;
+  // Con el panel en pantallas bajas, el menú scrollea en vez de empujar el pie afuera.
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.nav-section-title {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 0.75rem 0.75rem 0.25rem;
+  white-space: nowrap;
+
+  &:first-child { padding-top: 0.15rem; }
+}
+
+.nav-sep {
+  height: 0.5px;
+  background: var(--border);
+  margin: 0.5rem 0.4rem;
+  flex-shrink: 0;
+}
+
+.nav-group-head {
+  color: var(--text-2);
+
+  .chev {
+    margin-left: auto;
+    font-size: 0.95rem;
+    color: var(--text-3);
+    transition: transform 0.15s ease;
+  }
+
+  &.open .chev { transform: rotate(90deg); }
+}
+
+.nav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+
+  &:not(.flat) .nav-item { padding-left: 1.5rem; }
 }
 
 .nav-item {
   display: flex;
   align-items: center;
   gap: 0.65rem;
-  padding: 0.6rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border-radius: var(--radius-md);
   color: var(--text-2);
   text-decoration: none;
@@ -133,6 +173,49 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  flex-shrink: 0;
+  padding-top: 0.5rem;
+}
+
+.foot-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0 0.25rem;
+}
+
+.sidebar-collapsed .foot-actions {
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+}
+
+.foot-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  i { font-size: 1.1rem; }
+
+  &:hover { background: var(--surface-2); color: var(--text); }
+
+  .nav-badge {
+    position: absolute;
+    top: 0.1rem;
+    right: 0.05rem;
+    margin: 0;
+    font-size: 0.6rem;
+    padding: 0.12rem 0.3rem;
+  }
 }
 
 .user-chip {
@@ -377,8 +460,24 @@
     }
   }
 
+  .nav-section-title,
+  .nav-sep {
+    display: none;
+  }
+
+  .nav-group-head .chev {
+    display: none;
+  }
+
+  .nav-group-items {
+    flex-direction: row;
+
+    &:not(.flat) .nav-item { padding-left: 0.6rem; }
+  }
+
   .nav-item {
     flex-shrink: 0;
+    width: auto;
     padding: 0.55rem 0.6rem;
     border-radius: var(--radius-sm);
 
@@ -401,13 +500,8 @@
       display: none;
     }
 
-    .theme-toggle,
-    .logout-btn {
-      padding: 0.55rem 0.6rem;
-
-      span {
-        display: none;
-      }
+    .collapse-toggle {
+      display: none;
     }
   }
 

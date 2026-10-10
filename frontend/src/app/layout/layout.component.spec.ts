@@ -1,5 +1,6 @@
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
+import { Router, Routes, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
@@ -15,7 +16,7 @@ describe('LayoutComponent', () => {
     changePassword: jasmine.Spy;
   };
 
-  function setup(user: SessionUser | null = { id: 1, username: 'mica', displayName: 'Mica' }) {
+  function setup(user: SessionUser | null = { id: 1, username: 'mica', displayName: 'Mica' }, routes: Routes = []) {
     sessionSpy = {
       user: jasmine.createSpy('user').and.returnValue(user),
       isAuthenticated: jasmine.createSpy('isAuthenticated').and.returnValue(!!user),
@@ -26,7 +27,7 @@ describe('LayoutComponent', () => {
     TestBed.configureTestingModule({
       imports: [LayoutComponent],
       providers: [
-        provideRouter([]),
+        provideRouter(routes),
         provideHttpClient(),
         provideHttpClientTesting(),
         provideTanStackQuery(new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })),
@@ -53,13 +54,56 @@ describe('LayoutComponent', () => {
     expect(component.collapsed()).toBeFalse();
   });
 
-  it('expone los items de navegación principales, incluidos Alertas y Usuarios', () => {
+  it('agrupa el menú por tarea y deja lo técnico en Configuración', () => {
     setup();
     const fixture = TestBed.createComponent(LayoutComponent);
-    const paths = fixture.componentInstance.nav.map(i => i.path);
-    expect(paths).toEqual([
-      '/', '/precio-stock', '/precios', '/deposito', '/crear', '/publicaciones', '/alertas', '/pedidos', '/ventas', '/conflictos', '/sincronizacion', '/usuarios',
+    const c = fixture.componentInstance;
+    expect(c.sections.map(s => s.title)).toEqual(['Día a día', 'Catálogo', 'Compras', 'Informes']);
+    expect(c.sections[0].items.map(i => i.label)).toEqual(['Para preparar', 'Devoluciones', 'Alertas de stock']);
+    expect(c.configSection.items.map(i => i.path)).toEqual(['/conexiones', '/conflictos', '/sincronizacion', '/usuarios']);
+    expect(c.nav.map(i => i.path)).toEqual([
+      '/despachos', '/sincronizacion', '/alertas', '/precio-stock', '/precios', '/crear', '/publicaciones',
+      '/pedidos', '/deposito', '/ventas', '/conexiones', '/conflictos', '/sincronizacion', '/usuarios',
     ]);
+  });
+
+  describe('ítem activo', () => {
+    const Blank = Component({ standalone: true, template: '' })(class {});
+
+    let c: LayoutComponent;
+    let router: Router;
+
+    beforeEach(() => {
+      localStorage.removeItem('zc-sidebar-config-open');
+      setup(undefined, [
+        { path: 'despachos', component: Blank },
+        { path: 'sincronizacion', component: Blank },
+        { path: 'pedidos/:id', component: Blank },
+        { path: 'conexiones', component: Blank },
+      ]);
+      router = TestBed.inject(Router);
+      c = TestBed.createComponent(LayoutComponent).componentInstance;
+    });
+
+    const at = async (url: string) => {
+      await router.navigateByUrl(url);
+      return c;
+    };
+
+    it('distingue Devoluciones de Historial y cola por la pestaña', async () => {
+      expect((await at('/sincronizacion?tab=devoluciones')).activeItem()?.label).toBe('Devoluciones');
+      expect((await at('/sincronizacion')).activeItem()?.label).toBe('Historial y cola');
+      expect((await at('/sincronizacion?tab=cola')).activeItem()?.label).toBe('Historial y cola');
+    });
+
+    it('marca la sección padre en una subruta (/pedidos/12 → Pedidos al proveedor)', async () => {
+      expect((await at('/pedidos/12')).activeItem()?.label).toBe('Pedidos al proveedor');
+    });
+
+    it('abre Configuración sola cuando la página activa está ahí adentro', async () => {
+      expect((await at('/despachos')).configOpen()).toBeFalse();
+      expect((await at('/conexiones')).configOpen()).toBeTrue();
+    });
   });
 
   it('el botón de tema alterna entre claro y oscuro', () => {

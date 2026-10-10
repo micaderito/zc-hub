@@ -1,0 +1,167 @@
+<div class="ds-page">
+  <header class="ds-head">
+    <div>
+      <h1>Para preparar</h1>
+      <p>
+        <span class="cap">{{ todayLabel() }}</span>
+        @if (generatedAt()) { · actualizado {{ timeAgo(generatedAt()) }} }
+      </p>
+    </div>
+    <button type="button" class="btn" (click)="refresh()" [disabled]="refreshing()">
+      <i class="ti ti-refresh" [class.spin]="refreshing()" aria-hidden="true"></i> Actualizar
+    </button>
+  </header>
+
+  <div class="ds-kpis">
+    <div class="kpi" [class.err]="counts().overdue > 0">
+      <span>Atrasados</span><b>{{ counts().overdue }}</b>
+    </div>
+    <div class="kpi"><span>Para hoy</span><b>{{ counts().today }}</b></div>
+    <div class="kpi"><span>Próximos días</span><b>{{ counts().upcoming }}</b></div>
+    <div class="kpi"><span>Productos a armar hoy</span><b>{{ counts().toPrepare }}</b></div>
+  </div>
+
+  <div class="ds-toolbar">
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" [class.on]="tab() === 'today'" [attr.aria-selected]="tab() === 'today'" (click)="tab.set('today')">
+        Hoy <span class="count">{{ counts().today }}</span>
+      </button>
+      <button type="button" role="tab" [class.on]="tab() === 'upcoming'" [attr.aria-selected]="tab() === 'upcoming'" (click)="tab.set('upcoming')">
+        Próximos días <span class="count">{{ counts().upcoming }}</span>
+      </button>
+      <button type="button" role="tab" [class.on]="tab() === 'all'" [attr.aria-selected]="tab() === 'all'" (click)="tab.set('all')">Todo</button>
+    </div>
+    <div class="filters">
+      <button type="button" class="fchip" [class.on]="channel() === 'all'" (click)="channel.set('all')">Todos</button>
+      <button type="button" class="fchip" [class.on]="channel() === 'ml'" (click)="channel.set('ml')"><span class="dot ml" aria-hidden="true"></span> ML</button>
+      <button type="button" class="fchip" [class.on]="channel() === 'tn'" (click)="channel.set('tn')"><i class="ti ti-shopping-bag tn-ico" aria-hidden="true"></i> TN</button>
+      <label class="fchip check">
+        <input type="checkbox" [checked]="hidePrepared()" (change)="hidePrepared.set(!hidePrepared())" />
+        Ocultar preparados
+        @if (counts().prepared) { <span class="count">{{ counts().prepared }}</span> }
+      </label>
+    </div>
+  </div>
+
+  @if (errors().ml) {
+    <div class="ds-alert"><i class="ti ti-alert-circle" aria-hidden="true"></i> No se pudo leer Mercado Libre: {{ errors().ml }}</div>
+  }
+  @if (errors().tn) {
+    <div class="ds-alert"><i class="ti ti-alert-circle" aria-hidden="true"></i> No se pudo leer Tienda Nube: {{ errors().tn }}</div>
+  }
+  @if (errorMsg()) {
+    <div class="ds-alert">{{ errorMsg() }}</div>
+  }
+
+  @if (query.isLoading()) {
+    <p class="ds-msg"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Buscando pedidos en Mercado Libre y Tienda Nube…</p>
+  } @else if (query.isError()) {
+    <div class="ds-alert">No se pudo cargar la lista. <button type="button" class="link" (click)="refresh()">Reintentar</button></div>
+  } @else {
+    @if (showCancelled()) {
+      <section class="ds-cancelled" aria-label="Cancelados">
+        <h2><i class="ti ti-ban" aria-hidden="true"></i> Cancelado, no despachar</h2>
+        @for (p of cancelled(); track key(p)) {
+          <div class="cx-row">
+            <div class="cx-body">
+              <div class="cx-title">
+                <span class="ch" [class.ml]="p.channel === 'ml'" [class.tn]="p.channel === 'tn'">{{ p.channel === 'ml' ? 'ML' : 'TN' }}</span>
+                <b>{{ saleLabel(p) }}</b>
+                @for (it of p.items; track $index) {
+                  <span class="cx-item">· {{ it.title }} ×{{ it.qty }}</span>
+                }
+              </div>
+              <div class="cx-sub">
+                Cancelada {{ dateTime(p.cancelledAt) }}
+                @if (p.preparedAt) { <b> · lo tenías como preparado: desarmalo</b> }
+              </div>
+            </div>
+            <button type="button" class="btn small" (click)="dismissCancelled(p)">Entendido</button>
+          </div>
+        }
+      </section>
+    }
+
+    @for (s of sections(); track s.key) {
+      <section class="ds-section">
+        <h2 [class.err]="s.tone === 'err'">
+          <i class="ti" [class]="s.icon" aria-hidden="true"></i>
+          <span class="cap">{{ s.title }}</span>
+          @if (s.hint) { <small>· {{ s.hint }}</small> }
+        </h2>
+
+        @for (p of s.packages; track key(p)) {
+          <article class="pk" [class.prepared]="p.preparedAt" [class.overdue]="p.bucket === 'overdue'">
+            <div class="pk-head">
+              <label class="pk-check" [title]="p.preparedAt ? 'Destildar' : 'Marcar como preparado'">
+                <input type="checkbox" [checked]="!!p.preparedAt" (change)="togglePrepared(p)" [attr.aria-label]="'Preparado: ' + saleLabel(p)" />
+              </label>
+              <span class="ch" [class.ml]="p.channel === 'ml'" [class.tn]="p.channel === 'tn'">
+                @if (p.channel === 'ml') { <span class="dot ml" aria-hidden="true"></span> ML } @else { <i class="ti ti-shopping-bag" aria-hidden="true"></i> TN }
+              </span>
+              @if (saleUrl(p); as url) {
+                <a class="pk-sale" [href]="url" target="_blank" rel="noopener">{{ saleLabel(p) }}</a>
+              } @else {
+                <span class="pk-sale">{{ saleLabel(p) }}</span>
+              }
+              <span class="pk-meta">
+                @if (p.buyer) { {{ p.buyer }} }
+                @if (p.city) { · {{ p.city }} }
+                @if (p.items.length > 1) { · {{ p.items.length }} productos }
+              </span>
+              <span class="pk-chips">
+                @if (deadlineLabel(p); as dl) { <span class="st err">{{ dl }}</span> }
+                @if (p.preparedAt) {
+                  <span class="st ok"><i class="ti ti-check" aria-hidden="true"></i> Preparado</span>
+                } @else if (p.state.label !== 'Atrasado') {
+                  <span class="st" [class.warn]="p.state.tone === 'warn'" [class.err]="p.state.tone === 'err'">{{ p.state.label }}</span>
+                }
+                @if (shippingLabel(p); as sl) { <span class="st"><i class="ti ti-truck" aria-hidden="true"></i> {{ sl }}</span> }
+              </span>
+            </div>
+
+            <ul class="pk-items">
+              @for (it of p.items; track $index) {
+                <li>
+                  <button type="button" class="thumb-btn" (click)="openPhoto(p, it)" [attr.aria-label]="'Ver foto de ' + it.title" [disabled]="!it.pictures.length && !it.thumb">
+                    <zc-product-thumb [src]="it.thumb" />
+                    @if (it.pictures.length || it.thumb) { <span class="zoom" aria-hidden="true"><i class="ti ti-zoom-in"></i></span> }
+                  </button>
+                  <div class="it-body">
+                    <div class="it-title">{{ it.title }}</div>
+                    <div class="it-sub">
+                      @if (it.variation) { <span class="var">{{ it.variation }}</span> }
+                      @if (it.sku) { <span class="sku">SKU {{ it.sku }}</span> }
+                    </div>
+                  </div>
+                  <div class="it-qty" [class.many]="it.qty > 1">×{{ it.qty }}</div>
+                </li>
+              }
+            </ul>
+          </article>
+        }
+      </section>
+    } @empty {
+      @if (!showCancelled()) {
+        <div class="ds-empty">
+          <i class="ti ti-circle-check" aria-hidden="true"></i>
+          <p>
+            @switch (tab()) {
+              @case ('upcoming') { No hay envíos programados para los próximos días. }
+              @default { No hay nada pendiente de despachar. }
+            }
+          </p>
+        </div>
+      }
+    }
+  }
+</div>
+
+@if (lightbox(); as lb) {
+  <zc-photo-lightbox
+    [photos]="lb.item.pictures.length ? lb.item.pictures : (lb.item.thumb ? [lb.item.thumb] : [])"
+    [title]="lb.item.title"
+    [subtitle]="(lb.item.variation ? lb.item.variation + ' · ' : '') + (lb.item.sku ? 'SKU ' + lb.item.sku : '') + ' · ×' + lb.item.qty"
+    (closed)="lightbox.set(null)"
+  />
+}
