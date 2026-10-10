@@ -19,7 +19,7 @@ export interface DispatchSection {
   title: string;
   hint: string | null;
   tone: 'err' | 'neutral' | 'ok';
-  /** Se puede plegar (Despachados hoy): arranca plegada. */
+  /** Se puede plegar (Ya despachados): arranca plegada. */
   collapsible?: boolean;
   packages: DispatchPackage[];
 }
@@ -194,7 +194,7 @@ export class DespachosComponent {
     return [...byDay].sort(([a], [b]) => a.localeCompare(b)).map(([day, pkgs]) => ({
       key: `day-${day}`,
       icon: 'ti-calendar',
-      title: `Despachar el ${dayLabel(day)}`,
+      title: day === '9999-12-31' ? 'Despachar más adelante · fecha a confirmar por ML' : `Despachar el ${dayLabel(day)}`,
       hint: pkgs.some((p) => p.bufferedUntil) ? 'La etiqueta se habilita ese día' : null,
       tone: 'neutral' as const,
       packages: pkgs,
@@ -207,7 +207,7 @@ export class DespachosComponent {
     return [{
       key: 'dispatched',
       icon: 'ti-circle-check',
-      title: `Despachados hoy (${pkgs.length})`,
+      title: `Ya despachados (${pkgs.length})`,
       hint: 'Ya los dejaste en el punto',
       tone: 'ok',
       collapsible: true,
@@ -215,7 +215,7 @@ export class DespachosComponent {
     }];
   });
 
-  /** Secciones con cosas por despachar (sin "Despachados hoy"): define si se muestra "no hay nada pendiente". */
+  /** Secciones con cosas por despachar (sin "Ya despachados"): define si se muestra "no hay nada pendiente". */
   readonly pendingSections = computed<DispatchSection[]>(() => {
     switch (this.tab()) {
       case 'today': return this.todaySections();

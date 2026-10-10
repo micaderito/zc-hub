@@ -408,14 +408,17 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   pendiente = `handling`/`ready_to_ship` y `logistic.type` ≠ `fulfillment` (Full lo despacha ML).
 - **Horario límite**: `GET /shipments/:id/sla` → `expected_date` (fecha + hora, el "antes de las X")
   y `status` (`delayed` = atrasado). Sin SLA cae al `lead_time.estimated_handling_limit` (solo día).
-- **"Despachá el X día"** = substatus `buffered`: la etiqueta recién se habilita en
+- **"Despachá el X día"** = **`pending/buffered`** (confirmado en los logs: el status es `pending`, no
+  `ready_to_ship` — hasta 2026-10-10 se descartaban y faltaban en Próximos días) = substatus `buffered`: la etiqueta recién se habilita en
   `lead_time.buffering.date`. Va a la pestaña "Próximos días", no a "Hoy".
 - **Carritos**: un paquete = `pack_id ?? order_id` (mismo criterio que ventas), con todas las líneas.
 - **Despachado ≠ atrasado**: con drop_off, al dejar el paquete en el punto el envío **sigue
-  `ready_to_ship`** (substatus `dropped_off`/`in_hub`/`picked_up`) hasta que el correo lo levanta y
-  pasa a `shipped`. `mlDispatchInfo` lo da por despachado y `isPendingShipment` lo excluye (si no, con
+  `ready_to_ship`** hasta que el correo lo levanta y pasa a `shipped`. **Confirmado con los logs de la
+  cuenta (2026-10-10): el substatus real es `in_packing_list`** (el punto lo escaneó en su lista) —
+  se toma como despachado SOLO con `logistic.type` `drop_off`/`xd_drop_off`, porque en Colecta
+  significa "entró en la lista de retiro". También `dropped_off`/`in_hub`/`picked_up`. `mlDispatchInfo` lo da por despachado y `isPendingShipment` lo excluye (si no, con
   el SLA vencido aparecía "Atrasado" algo que ya se había entregado). Lo entregado **hoy** (hora AR)
-  va a la sección plegada "Despachados hoy" (`bucket: 'dispatched'`); lo de días anteriores no se
+  va a la sección plegada "Ya despachados" (`bucket: 'dispatched'`); lo de días anteriores no se
   muestra. La hora sale de `substatus_history` y si no de `status_history.date_shipped`.
   "Atrasado" = venció **y** no se despachó. El chip de logística ("Llevar al punto") no se muestra
   para drop_off/xd_drop_off: es lo de siempre.
