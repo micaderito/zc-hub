@@ -45,7 +45,7 @@
           } @else {
             <div class="toggle-row">
               <label class="switch">
-                <input type="checkbox" [checked]="config.enabled" (change)="toggleSync($any($event.target).checked)" [disabled]="savingToggle" />
+                <input type="checkbox" [checked]="config.enabled" (change)="toggleSync($any($event.target).checked)" [disabled]="savingToggle || session.isReadOnly()" />
                 <span class="slider"></span>
               </label>
               <div>
@@ -56,7 +56,7 @@
           }
         </div>
 
-        <div class="card card-secondary">
+        <div class="card card-secondary" *zcCanWrite>
           <div class="card-row">
             <div>
               <span class="card-row-label">Webhooks de Tienda Nube</span>
@@ -128,7 +128,7 @@
                   </div>
                   <div class="return-card-right">
                     <span class="qty-badge">× {{ row.quantity }} u.</span>
-                    <button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId === row.id || dismissingId === row.id">
+                    <ng-container *zcCanWrite><button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId === row.id || dismissingId === row.id">
                       <i class="ti ti-check" aria-hidden="true"></i>
                       {{ approvingId === row.id ? 'Restaurando…' : 'Restaurar stock' }}
                     </button>
@@ -141,7 +141,7 @@
                     >
                       <i class="ti ti-x" aria-hidden="true"></i>
                       {{ dismissingId === row.id ? 'Descartando…' : 'Descartar' }}
-                    </button>
+                    </button></ng-container>
                   </div>
                 </div>
               }
@@ -155,7 +155,7 @@
             />
           }
 
-          <div class="add-return-row">
+          <div class="add-return-row" *zcCanWrite>
             <span class="add-return-label"><i class="ti ti-plus" aria-hidden="true"></i>Agregar por nro de venta:</span>
             <input type="text" [(ngModel)]="returnOrderId" placeholder="Ej. 2000011838697695" class="zc-input" />
             <button type="button" class="btn-secondary" (click)="addReturnsByOrder()" [disabled]="!returnOrderId.trim() || addingReturn">
@@ -234,7 +234,7 @@
                       <td class="cell-error">{{ task.lastError || '—' }}</td>
                       <td>{{ formatDate(task.updatedAt) }}</td>
                       <td>
-                        @if (canRetryTask(task)) {
+                        @if (canRetryTask(task) && session.isAdmin()) {
                           <button type="button" class="btn-secondary btn-sm" (click)="retryTask(task)" [disabled]="retryingTaskId === task.id">
                             {{ retryingTaskId === task.id ? '…' : 'Reintentar' }}
                           </button>
@@ -287,7 +287,7 @@
             }
           </div>
 
-          <div class="reprocess-card">
+          <div class="reprocess-card" *zcCanWrite>
             <div class="reprocess-icon"><i class="ti ti-refresh-alert" aria-hidden="true"></i></div>
             <div class="reprocess-info">
               <div class="reprocess-title">Reintentar sincronización de una venta</div>
@@ -377,7 +377,7 @@
                     </div>
                     @if (row.revertedAt) {
                       <span class="reverted-badge">Revertido</span>
-                    } @else if (canRevert(row)) {
+                    } @else if (canRevert(row) && session.isAdmin()) {
                       <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="revertTitle(row)">
                         @if (revertingAuditId === row.id) {
                           <i class="ti ti-loader-2 spin" aria-hidden="true"></i>

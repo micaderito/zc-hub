@@ -27,7 +27,7 @@ import { sessionRoutes } from './routes/session.js';
 import { usersRoutes } from './routes/users.js';
 import { salesRoutes } from './routes/sales.js';
 import { dispatchRoutes } from './routes/dispatch.js';
-import { requireAuth } from './middleware/requireAuth.js';
+import { requireAuth, requireAdmin } from './middleware/requireAuth.js';
 import { sweepRecentSales, getSyncState } from './services/salesService.js';
 import { purgeOld } from './services/imageStore.js';
 
@@ -70,7 +70,7 @@ app.use((req, res, next) => {
 // demás abajo exige sesión. auth.js y products.js aplican requireAuth por ruta (ver esos archivos):
 // tienen endpoints que un token no puede llevar (callbacks de OAuth, <img src>).
 app.use('/api/session', sessionRoutes);
-app.use('/api/users', requireAuth, usersRoutes);
+app.use('/api/users', requireAuth, requireAdmin, usersRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/mapping', requireAuth, mappingRoutes);
 app.use('/api/sync', requireAuth, syncRoutes);

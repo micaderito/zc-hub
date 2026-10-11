@@ -11,7 +11,7 @@
 
     <!-- ── Encabezado ── -->
     <div class="title-row">
-      @if (isDraft()) {
+      @if (canEdit()) {
         <input class="name-input" [ngModel]="o.name" (ngModelChange)="setName($event)" aria-label="Nombre del pedido" placeholder="Nombre del pedido" />
       } @else {
         <h1>{{ o.name }}</h1>
@@ -30,7 +30,7 @@
         @if (o.receivedAt) { · recibido {{ o.receivedAt | date: 'dd/MM/yy' }} }
         @if (o.basedOnId) { · copia del <a [routerLink]="['/pedidos', o.basedOnId]">#{{ o.basedOnId }}</a> }
       </span>
-      @if (isDraft()) {
+      @if (canEdit()) {
         <span class="save-state" [class.err]="saveState() === 'error'">
           @switch (saveState()) {
             @case ('saving') { <i class="ti ti-loader-2" aria-hidden="true"></i> Guardando… }
@@ -46,7 +46,7 @@
     @if (flash()) { <p class="flash"><i class="ti ti-check" aria-hidden="true"></i> {{ flash() }}</p> }
 
     <!-- ── Avisos según estado ── -->
-    @if (isPending() && !receiving()) {
+    @if (isPending() && !receiving() && session.isAdmin()) {
       <div class="zc-card banner">
         <i class="ti ti-truck" aria-hidden="true"></i>
         <span>Esperando la mercadería. Cuando llegue, anotá qué vino y qué no.</span>
@@ -76,7 +76,7 @@
             <i class="ti ti-arrow-right" aria-hidden="true"></i> Abrir el borrador #{{ draftId }} con lo que faltó
           </a>
         } @else {
-          <button type="button" class="zc-btn small" [disabled]="busy()" (click)="duplicate('missing')">
+          <button type="button" class="zc-btn small" *zcCanWrite [disabled]="busy()" (click)="duplicate('missing')">
             <i class="ti ti-copy" aria-hidden="true"></i> Pasar lo que faltó a un borrador
           </button>
         }
@@ -97,19 +97,19 @@
                 @if (receiving() || o.status === 'recibido') { <th class="num c-recv">Llegó</th> }
                 <th class="num c-price">Precio lista</th>
                 <th class="num c-sub">Subtotal</th>
-                @if (isDraft()) { <th class="c-del"></th> }
+                @if (canEdit()) { <th class="c-del"></th> }
               </tr>
             </thead>
             <tbody>
               @for (l of o.lines; track $index; let i = $index) {
                 <tr [class.free]="l.kind === 'free'" [class]="o.status === 'recibido' ? receivedClass(l) : ''">
                   <td class="c-code">
-                    @if (isDraft()) {
+                    @if (canEdit()) {
                       <input class="cell-input" [ngModel]="l.code" (ngModelChange)="setLineText(i, 'code', $event)" placeholder="código" aria-label="Código" />
                     } @else { <span class="cell-text mono">{{ l.code || '—' }}</span> }
                   </td>
                   <td class="c-desc">
-                    @if (isDraft()) {
+                    @if (canEdit()) {
                       <input class="cell-input" [ngModel]="l.description" (ngModelChange)="setLineText(i, 'description', $event)" placeholder="descripción" aria-label="Descripción" />
                     } @else { <span class="cell-text">{{ l.description }}</span> }
                     <div class="line-meta">
@@ -120,16 +120,16 @@
                         @default { <span class="zc-badge neutral tiny">a mano</span> }
                       }
                       @if (l.kind !== 'free') { <span>{{ lineSource(l) }}</span> }
-                      @if (isDraft() && l.kind !== 'free' && !l.code) { <span class="warn-text">sin código en Precios</span> }
+                      @if (canEdit() && l.kind !== 'free' && !l.code) { <span class="warn-text">sin código en Precios</span> }
                     </div>
                   </td>
                   <td class="c-detail">
-                    @if (isDraft()) {
+                    @if (canEdit()) {
                       <input class="cell-input" [ngModel]="l.detail" (ngModelChange)="setLineText(i, 'detail', $event)" placeholder="diseños, colores…" aria-label="Detalle" />
                     } @else { <span class="cell-text">{{ l.detail }}</span> }
                   </td>
                   <td class="num c-qty">
-                    @if (isDraft()) {
+                    @if (canEdit()) {
                       <input class="cell-input boxed num-input" type="number" min="1" [ngModel]="l.qty" (ngModelChange)="setLineQty(i, $event)" aria-label="Packs" />
                     } @else { <span class="cell-text">{{ l.qty }}</span> }
                   </td>
@@ -145,7 +145,7 @@
                     <td class="num c-recv"><span class="cell-text recv-text">{{ l.receivedQty ?? 0 }} / {{ l.qty }}</span></td>
                   }
                   <td class="num c-price">
-                    @if (isDraft()) {
+                    @if (canEdit()) {
                       <input class="cell-input boxed num-input price-input" type="number" min="0" placeholder="$ a mano"
                              [class.is-own]="l.kind !== 'free' && l.priceSource === 'manual'"
                              [ngModel]="l.unitPrice" (ngModelChange)="setLinePrice(i, $event)" aria-label="Precio de lista por pack" />
@@ -172,7 +172,7 @@
                   <td class="num c-sub">
                     <span class="cell-text">{{ l.unitPrice == null ? '—' : ((l.unitPrice * l.qty) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') }}</span>
                   </td>
-                  @if (isDraft()) {
+                  @if (canEdit()) {
                     <td class="c-del">
                       <button type="button" class="icon-btn" (click)="removeLine(i)" aria-label="Quitar línea"><i class="ti ti-x" aria-hidden="true"></i></button>
                     </td>
@@ -183,7 +183,7 @@
               }
             </tbody>
           </table>
-          @if (isDraft()) {
+          @if (canEdit()) {
             <div class="add-free">
               <button type="button" class="zc-btn small" (click)="addFreeItem()"><i class="ti ti-pencil-plus" aria-hidden="true"></i> Ítem libre</button>
               <span class="hint">Para productos nuevos del proveedor que todavía no cargaste: código, descripción, cantidad y precio si lo sabés.</span>
@@ -192,7 +192,7 @@
         </div>
 
         <!-- ── Catálogo para agregar (solo borradores) ── -->
-        @if (isDraft()) {
+        @if (canEdit()) {
           <div class="catalog">
             <div class="toolbar">
               <h2><i class="ti ti-plus" aria-hidden="true"></i> Agregar productos</h2>
@@ -342,12 +342,12 @@
         <div class="sum-row"><span>Subtotal de lista</span><span class="v">{{ t.subtotal | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
         <div class="sum-row">
           <span class="pct">Descuento
-            <input class="zc-input" type="number" min="0" max="100" [disabled]="!isDraft()" [ngModel]="o.discount1" (ngModelChange)="setDiscount('discount1', $event)" aria-label="Descuento sobre los productos" />%</span>
+            <input class="zc-input" type="number" min="0" max="100" [disabled]="!canEdit()" [ngModel]="o.discount1" (ngModelChange)="setDiscount('discount1', $event)" aria-label="Descuento sobre los productos" />%</span>
           <span class="v ok-text">−{{ t.discount1Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
         </div>
         <div class="sum-row">
           <span class="pct">Sobre el total
-            <input class="zc-input" type="number" min="0" max="100" [disabled]="!isDraft()" [ngModel]="o.discount2" (ngModelChange)="setDiscount('discount2', $event)" aria-label="Descuento sobre el total" />%</span>
+            <input class="zc-input" type="number" min="0" max="100" [disabled]="!canEdit()" [ngModel]="o.discount2" (ngModelChange)="setDiscount('discount2', $event)" aria-label="Descuento sobre el total" />%</span>
           <span class="v ok-text">−{{ t.discount2Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
         </div>
         <div class="sum-row total"><span>Total estimado</span><span class="v">{{ t.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
@@ -355,24 +355,24 @@
           <p class="warn-text small"><i class="ti ti-alert-triangle" aria-hidden="true"></i>
             {{ t.missingPrices }} línea{{ t.missingPrices === 1 ? '' : 's' }} sin precio no suma{{ t.missingPrices === 1 ? '' : 'n' }}.</p>
         }
-        <p class="hint">El precio de lista sale de <b>Precios</b>@if (isDraft()) { y se puede pisar en cada línea (solo para este pedido) }. El
+        <p class="hint">El precio de lista sale de <b>Precios</b>@if (canEdit()) { y se puede pisar en cada línea (solo para este pedido) }. El
           primer descuento va sobre los productos y el segundo sobre el total.</p>
 
-        <textarea class="zc-textarea note" rows="2" placeholder="Nota del pedido…" [disabled]="!isDraft()"
+        <textarea class="zc-textarea note" rows="2" placeholder="Nota del pedido…" [disabled]="!canEdit()"
                   [ngModel]="o.note" (ngModelChange)="setNote($event)" aria-label="Nota del pedido"></textarea>
 
         <div class="side-actions">
           <button type="button" class="zc-btn" [disabled]="!o.lines.length" (click)="openSheet()">
             <i class="ti ti-file-text" aria-hidden="true"></i> Vista para la fábrica
           </button>
-          @if (isDraft()) {
+          @if (canEdit()) {
             <button type="button" class="zc-btn primary" [disabled]="!o.lines.length || busy()" (click)="showPlaceConfirm.set(true)">
               <i class="ti ti-send" aria-hidden="true"></i> Marcar como pedido
             </button>
             <button type="button" class="link-btn danger" (click)="showDeleteConfirm.set(true)">
               <i class="ti ti-trash" aria-hidden="true"></i> Borrar borrador
             </button>
-          } @else {
+          } @else if (session.isAdmin()) {
             <button type="button" class="zc-btn" [disabled]="busy()" (click)="duplicate()">
               <i class="ti ti-copy" aria-hidden="true"></i> Duplicar como borrador
             </button>

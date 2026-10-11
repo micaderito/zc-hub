@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
 import { UsuariosService, AppUser } from '../../core/services/usuarios.service';
-import { SessionService } from '../../core/services/session.service';
+import { SessionService, UserRole } from '../../core/services/session.service';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 
 /** Estado del formulario de alta/edición de un usuario. */
@@ -13,15 +13,17 @@ interface UserForm {
   username: string;
   displayName: string;
   activo: boolean;
+  role: UserRole;
   password: string;
 }
 
 function emptyForm(): UserForm {
-  return { id: null, username: '', displayName: '', activo: true, password: '' };
+  // Alta como lectura por defecto: dar permisos de admin tiene que ser una decisión explícita.
+  return { id: null, username: '', displayName: '', activo: true, role: 'lectura', password: '' };
 }
 
 /**
- * Panel de administración de usuarios del hub (sin roles). Calcado de la página de Depósito
+ * Panel de administración de usuarios del hub (solo admins: ruta con adminGuard). Calcado de la página de Depósito
  * Marañón: mismo patrón de signals, modal de alta/edición y refetch tras guardar.
  */
 @Component({
@@ -60,7 +62,7 @@ export class UsuariosComponent {
   openEdit(item: AppUser): void {
     this.form.set({
       id: item.id, username: item.username, displayName: item.displayName ?? '',
-      activo: item.activo, password: '',
+      activo: item.activo, role: item.role, password: '',
     });
     this.errorMsg.set(null);
     this.showForm.set(true);
@@ -82,6 +84,8 @@ export class UsuariosComponent {
         username: f.username.trim(),
         displayName: f.displayName.trim() || null,
         activo: f.activo,
+        // El propio rol no se manda: el backend no deja cambiárselo a una misma.
+        ...(f.id !== this.currentUserId() ? { role: f.role } : {}),
         ...(f.password ? { password: f.password } : {}),
       };
       if (f.id != null) {

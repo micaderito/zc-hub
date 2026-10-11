@@ -2,7 +2,7 @@
   <header class="us-head">
     <div>
       <h1>Usuarios</h1>
-      <p>Quién puede entrar al hub. Sin roles: cualquier usuario ve y hace todo.</p>
+      <p>Quién puede entrar al hub. <strong>Admin</strong> hace todo; <strong>Solo lectura</strong> ve todo pero no puede modificar nada (salvo tildar paquetes en Para preparar).</p>
     </div>
     <div class="us-head-actions">
       <button type="button" class="btn pri" (click)="openCreate()">
@@ -30,6 +30,7 @@
           <tr>
             <th>Usuario</th>
             <th>Nombre</th>
+            <th>Rol</th>
             <th>Estado</th>
             <th>Último ingreso</th>
             <th class="col-actions"></th>
@@ -40,6 +41,13 @@
             <tr>
               <td><span class="user-handle">{{ item.username }}</span></td>
               <td>{{ item.displayName || '—' }}</td>
+              <td>
+                @if (item.role === 'admin') {
+                  <span class="badge admin"><i class="ti ti-shield"></i> Admin</span>
+                } @else {
+                  <span class="badge off"><i class="ti ti-eye"></i> Solo lectura</span>
+                }
+              </td>
               <td>
                 @if (item.activo) {
                   <span class="badge ok"><i class="ti ti-circle-check"></i> Activo</span>
@@ -92,6 +100,16 @@
 
         <label class="fld">{{ form().id != null ? 'Nueva contraseña (dejar vacío para no cambiarla)' : 'Contraseña' }}
           <input type="password" autocomplete="new-password" [ngModel]="form().password" (ngModelChange)="updateForm('password', $event)" />
+        </label>
+
+        <label class="fld">Rol
+          <select [ngModel]="form().role" (ngModelChange)="updateForm('role', $event)" [disabled]="form().id === currentUserId()">
+            <option value="admin">Admin — hace todo</option>
+            <option value="lectura">Solo lectura — ve todo, no modifica nada</option>
+          </select>
+          @if (form().id === currentUserId()) {
+            <span class="fld-hint">No podés cambiarte el rol a vos misma.</span>
+          }
         </label>
 
         @if (form().id != null) {

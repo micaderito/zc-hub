@@ -1,6 +1,7 @@
 import { inject } from '@angular/core';
 import { RedirectFunction, Router, Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
+import { adminGuard } from './core/guards/admin.guard';
 
 /**
  * La raíz abre "Para preparar" (lo que se hace en el día). La vuelta del OAuth de ML/TN sigue
@@ -23,9 +24,9 @@ export const routes: Routes = [
       { path: 'conexiones', loadComponent: () => import('./pages/dashboard/dashboard.component').then(m => m.DashboardComponent) },
       { path: 'conflictos', loadComponent: () => import('./pages/conflicts/conflicts.component').then(m => m.ConflictsComponent) },
       { path: 'precio-stock', loadComponent: () => import('./pages/precio-stock/precio-stock.component').then(m => m.PrecioStockComponent) },
-      { path: 'precios', loadComponent: () => import('./pages/precios/precios.component').then(m => m.PreciosComponent) },
+      { path: 'precios', canActivate: [adminGuard], loadComponent: () => import('./pages/precios/precios.component').then(m => m.PreciosComponent) },
       { path: 'deposito', loadComponent: () => import('./pages/deposito/deposito.component').then(m => m.DepositoComponent) },
-      { path: 'crear', loadComponent: () => import('./pages/crear-producto/crear-producto.component').then(m => m.CrearProductoComponent) },
+      { path: 'crear', canActivate: [adminGuard], loadComponent: () => import('./pages/crear-producto/crear-producto.component').then(m => m.CrearProductoComponent) },
       { path: 'publicaciones', loadComponent: () => import('./pages/publicaciones/publicaciones.component').then(m => m.PublicacionesComponent) },
       { path: 'alertas', loadComponent: () => import('./pages/alertas/alertas.component').then(m => m.AlertasComponent) },
       { path: 'pedidos', loadComponent: () => import('./pages/pedidos/pedidos-list.component').then(m => m.PedidosListComponent) },
@@ -33,7 +34,7 @@ export const routes: Routes = [
       { path: 'despachos', loadComponent: () => import('./pages/despachos/despachos.component').then(m => m.DespachosComponent) },
       { path: 'ventas', loadComponent: () => import('./pages/ventas/ventas.component').then(m => m.VentasComponent) },
       { path: 'sincronizacion', loadComponent: () => import('./pages/sync/sync.component').then(m => m.SyncComponent) },
-      { path: 'usuarios', loadComponent: () => import('./pages/usuarios/usuarios.component').then(m => m.UsuariosComponent) }
+      { path: 'usuarios', canActivate: [adminGuard], loadComponent: () => import('./pages/usuarios/usuarios.component').then(m => m.UsuariosComponent) }
     ]
   }
 ];

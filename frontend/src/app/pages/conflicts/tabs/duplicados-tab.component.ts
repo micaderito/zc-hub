@@ -3,13 +3,14 @@ import { CommonModule } from '@angular/common';
 import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../core/services/conflicts.service';
 import { ProductThumbComponent } from '../../../shared/components/product-thumb/product-thumb.component';
 import { PaginationComponent } from '../../../shared/components/pagination/pagination.component';
+import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
 
 const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-conflicts-duplicados-tab',
   standalone: true,
-  imports: [CommonModule, ProductThumbComponent, PaginationComponent],
+  imports: [CanWriteDirective, CommonModule, ProductThumbComponent, PaginationComponent],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
     <p class="tab-hint">El mismo SKU está usado por varios ítems. Asigná un SKU único a cada uno para que el mapeo funcione.</p>
@@ -20,15 +21,15 @@ const PAGE_SIZE = 20;
           <span class="zc-badge ml">ML</span>
           <code class="sku-code">{{ group.sku }}</code>
           <span class="dup-count">{{ group.items.length }} ítems</span>
-          <button type="button" class="btn-action" (click)="editBulkSku.emit({ channel: 'mercadolibre', sku: group.sku, items: group.items })">
+          <ng-container *zcCanWrite><button type="button" class="btn-action" (click)="editBulkSku.emit({ channel: 'mercadolibre', sku: group.sku, items: group.items })">
             <i class="ti ti-pencil" aria-hidden="true"></i> Editar en lote
-          </button>
+          </button></ng-container>
         </div>
         @for (row of group.items; track row.itemId + (row.variationId || '')) {
           <div class="dup-item">
             <zc-product-thumb [src]="row.thumbnail" style="--thumb-size: 30px" />
             <span class="dup-name">{{ mlLabel(row) }}</span>
-            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button>
+            <ng-container *zcCanWrite><button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button></ng-container>
           </div>
         }
       </div>
@@ -40,15 +41,15 @@ const PAGE_SIZE = 20;
           <span class="zc-badge tn">TN</span>
           <code class="sku-code">{{ group.sku }}</code>
           <span class="dup-count">{{ group.items.length }} variantes</span>
-          <button type="button" class="btn-action" (click)="editBulkSku.emit({ channel: 'tiendanube', sku: group.sku, items: group.items })">
+          <ng-container *zcCanWrite><button type="button" class="btn-action" (click)="editBulkSku.emit({ channel: 'tiendanube', sku: group.sku, items: group.items })">
             <i class="ti ti-pencil" aria-hidden="true"></i> Editar en lote
-          </button>
+          </button></ng-container>
         </div>
         @for (row of group.items; track row.productId + row.variantId) {
           <div class="dup-item">
             <zc-product-thumb [src]="row.thumbnail" style="--thumb-size: 30px" />
             <span class="dup-name">{{ tnLabel(row) }}</span>
-            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Editar SKU</button>
+            <ng-container *zcCanWrite><button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Editar SKU</button></ng-container>
           </div>
         }
       </div>

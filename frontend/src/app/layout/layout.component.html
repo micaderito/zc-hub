@@ -30,7 +30,7 @@
     </ng-template>
 
     <nav class="nav">
-      @for (section of sections; track section.title; let first = $first) {
+      @for (section of visibleSections(); track section.title; let first = $first) {
         @if (collapsed()) {
           @if (!first) {
             <div class="nav-sep" role="separator"></div>
@@ -60,7 +60,7 @@
       }
       @if (collapsed() || configOpen()) {
         <div class="nav-group-items" [class.flat]="collapsed()">
-          @for (item of configSection.items; track item.label) {
+          @for (item of visibleConfigItems(); track item.label) {
             <ng-container *ngTemplateOutlet="navLink; context: { $implicit: item }" />
           }
         </div>
@@ -79,6 +79,9 @@
         <span class="avatar">{{ userInitials() }}</span>
         @if (!collapsed()) {
           <span class="user-name">{{ session.user()?.displayName || session.user()?.username }}</span>
+          @if (session.isReadOnly()) {
+            <span class="role-chip" title="Tu usuario puede ver todo pero no modificar nada"><i class="ti ti-eye"></i> Solo lectura</span>
+          }
         }
       </button>
       <div class="foot-actions">
@@ -143,7 +146,7 @@
         }
       </div>
       <div class="drawer-foot">
-        <button type="button" class="zc-btn small" (click)="markAllNotificationsRead()">
+        <button type="button" class="zc-btn small" *zcCanWrite (click)="markAllNotificationsRead()">
           <i class="ti ti-checks" aria-hidden="true"></i> Marcar todas como leídas
         </button>
         <a routerLink="/alertas" class="zc-btn small primary" (click)="closeDrawer()">

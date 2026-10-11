@@ -90,7 +90,7 @@
                   }
                 </ul>
               }
-              <div class="pub-actions">
+              <div class="pub-actions" *zcCanWrite>
                 @if (job.status === 'error') {
                   <button type="button" class="zc-btn small primary" [disabled]="busyId() === job.id" (click)="retry(job, $event)">
                     <i class="ti ti-refresh"></i> Reintentar

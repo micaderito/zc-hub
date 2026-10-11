@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { DepositoService, DepositoItem, DepositoItemType } from '../../core/services/deposito.service';
 import { MappingService, CatalogOption } from '../../core/services/mapping.service';
 import { matchSearchByTokens } from '../../core/services/conflicts.service';
+import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 
 /** Estado del formulario de alta/edición de una fila de depósito. */
 interface DepositoForm {
@@ -29,7 +30,7 @@ function emptyForm(): DepositoForm {
 @Component({
   selector: 'app-deposito',
   standalone: true,
-  imports: [FormsModule],
+  imports: [CanWriteDirective, FormsModule],
   templateUrl: './deposito.component.html',
   styleUrl: './deposito.component.scss',
 })

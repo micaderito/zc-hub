@@ -17,6 +17,8 @@ import { ConflictsService, mlLabel } from '../../core/services/conflicts.service
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
+import { SessionService } from '../../core/services/session.service';
+import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 
 type Tab = 'notificaciones' | 'sin-alertas' | 'reglas';
 
@@ -33,11 +35,12 @@ const NEW_RULE_SEARCH_LIMIT = 100;
 @Component({
   selector: 'app-alertas',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent],
+  imports: [CanWriteDirective, CommonModule, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent],
   templateUrl: './alertas.component.html',
   styleUrl: './alertas.component.scss',
 })
 export class AlertasComponent {
+  readonly session = inject(SessionService);
   private readonly alertsSvc = inject(AlertsService);
   private readonly conflicts = inject(ConflictsService);
   private readonly route = inject(ActivatedRoute);

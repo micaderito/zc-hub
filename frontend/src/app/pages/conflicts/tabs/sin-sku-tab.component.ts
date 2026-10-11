@@ -3,13 +3,14 @@ import { CommonModule } from '@angular/common';
 import { MlRow, TnRow, mlLabel, tnLabel, matchSearchByTokens } from '../../../core/services/conflicts.service';
 import { ConflictRowComponent } from '../components/conflict-row/conflict-row.component';
 import { PaginationComponent } from '../../../shared/components/pagination/pagination.component';
+import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
 
 const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-conflicts-sin-sku-tab',
   standalone: true,
-  imports: [CommonModule, ConflictRowComponent, PaginationComponent],
+  imports: [CanWriteDirective, CommonModule, ConflictRowComponent, PaginationComponent],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
     <p class="tab-hint">Productos sin SKU en ML o TN. Asigná un SKU para poder emparejarlos.</p>
@@ -20,8 +21,8 @@ const PAGE_SIZE = 20;
       </p>
       @for (row of pageML; track row.itemId + (row.variationId || '')) {
         <zc-conflict-row channel="mercadolibre" [name]="mlLabel(row)" [thumbnail]="row.thumbnail" [sku]="null">
-          <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Asignar SKU</button>
-          <button type="button" class="btn-action link-btn" (click)="linkFromMl.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
+          <ng-container *zcCanWrite><button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Asignar SKU</button></ng-container>
+          <ng-container *zcCanWrite><button type="button" class="btn-action link-btn" (click)="linkFromMl.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button></ng-container>
         </zc-conflict-row>
       }
       <zc-pagination
@@ -39,8 +40,8 @@ const PAGE_SIZE = 20;
       </p>
       @for (row of pageTN; track row.productId + row.variantId) {
         <zc-conflict-row channel="tiendanube" [name]="tnLabel(row)" [thumbnail]="row.thumbnail" [sku]="null">
-          <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Asignar SKU</button>
-          <button type="button" class="btn-action link-btn" (click)="linkFromTn.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
+          <ng-container *zcCanWrite><button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Asignar SKU</button></ng-container>
+          <ng-container *zcCanWrite><button type="button" class="btn-action link-btn" (click)="linkFromTn.emit(row)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button></ng-container>
         </zc-conflict-row>
       }
       <zc-pagination

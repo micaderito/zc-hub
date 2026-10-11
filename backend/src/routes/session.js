@@ -1,5 +1,5 @@
 /**
- * Login del hub (usuario/contraseña, sin roles) y ciclo de vida del token de sesión.
+ * Login del hub (usuario/contraseña; el rol viaja en `user.role`, ver middleware/requireAuth.js) y ciclo de vida del token de sesión.
  *
  * POST /login es pública; /me, /logout y /password exigen requireAuth. Como todas comparten este
  * mismo router (montado en index.js SIN requireAuth, para que /login quede abierta), la guarda va
@@ -22,7 +22,7 @@ const RENEW_THRESHOLD_DAYS = 7;
 
 function toPublicUser(user) {
   if (!user) return null;
-  return { id: user.id, username: user.username, displayName: user.displayName };
+  return { id: user.id, username: user.username, displayName: user.displayName, role: user.role || 'admin' };
 }
 
 sessionRoutes.post('/login', async (req, res) => {
