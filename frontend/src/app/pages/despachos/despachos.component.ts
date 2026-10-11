@@ -134,9 +134,8 @@ export class DespachosComponent {
   /** Lo que todavía hay que despachar: sin cancelados ni ya despachados. */
   private readonly active = computed(() => {
     const hide = this.hidePrepared();
-    const list = this.byChannel().filter((p) => p.bucket !== 'cancelled' && p.bucket !== 'dispatched' && !(hide && p.preparedAt));
-    // Preparados al final dentro de cada grupo (el backend ya ordena por horario).
-    return [...list.filter((p) => !p.preparedAt), ...list.filter((p) => p.preparedAt)];
+    // Un preparado queda en su lugar (se pinta de verde): moverlo al final hacía perderlo de vista.
+    return this.byChannel().filter((p) => p.bucket !== 'cancelled' && p.bucket !== 'dispatched' && !(hide && p.preparedAt));
   });
 
   readonly counts = computed(() => {

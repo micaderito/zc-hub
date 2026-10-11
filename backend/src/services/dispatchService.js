@@ -387,7 +387,9 @@ export function isTnPending(order) {
 
 /**
  * Mergea las marcas del hub, calcula el estado legible y ordena: dentro de cada bucket por horario
- * (lo que vence antes, arriba), los preparados al final. Los cancelados ya vistos se descartan.
+ * (lo que vence antes, arriba). Un preparado NO se mueve: queda en su lugar (pintado de verde en la
+ * UI) para que tildarlo no lo haga "desaparecer" de donde se lo estaba mirando. Los cancelados ya
+ * vistos se descartan.
  */
 export function finalizePackages(packages, marks) {
   const out = [];
@@ -409,7 +411,6 @@ export function finalizePackages(packages, marks) {
     return d ? new Date(d).getTime() : Number.MAX_SAFE_INTEGER;
   };
   return out.sort((a, b) => {
-    if (!!a.preparedAt !== !!b.preparedAt) return a.preparedAt ? 1 : -1;
     if (a.channel !== b.channel) return a.channel === 'ml' ? -1 : 1;
     return ts(a) - ts(b);
   });

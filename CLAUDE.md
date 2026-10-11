@@ -984,7 +984,7 @@ de ML y no el de TN, reset de página al cambiar un filtro, Reintentar refetchea
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y
 Full, carrito = un paquete con un solo GET de envío, buckets atrasado/hoy/próximos con `now`
 inyectado y hora argentina, `buffered` en su día, `stateLabel`, fotos por variación, cancelados
-recientes sí / pago rechazado no / "Entendido" los oculta, preparados al final, TN sin duplicar entre
+recientes sí / pago rechazado no / "Entendido" los oculta, un preparado no cambia de lugar, TN sin duplicar entre
 filtros, un canal caído no tumba al otro, caché de 60 s y memo de envíos despachados),
 `backend/test/routesDispatch.test.js`, `getShipmentSla` en `mercadolibre.test.js` y `listOrders` en
 `tiendanube.test.js`; en el front `despachos.component.spec.ts` (secciones de Hoy / Próximos días,
