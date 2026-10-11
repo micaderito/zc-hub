@@ -27,7 +27,7 @@
         </div>
         <div class="spacer"></div>
         @if (unreadCount() > 0) {
-          <button type="button" class="zc-btn small" (click)="markAllNotificationsRead()">
+          <button type="button" class="zc-btn small" *zcCanWrite (click)="markAllNotificationsRead()">
             <i class="ti ti-checks" aria-hidden="true"></i> Marcar todas como leídas
           </button>
         }
@@ -47,7 +47,7 @@
                   · umbral {{ n.threshold }}
                   · {{ n.createdAt | date: 'dd/MM/yy HH:mm' }}
                 </div>
-                <div class="notif-actions">
+                <div class="notif-actions" *zcCanWrite>
                   @if (!n.readAt) {
                     <button type="button" (click)="markNotificationRead(n.id)">Marcar leída</button>
                   }
@@ -115,7 +115,7 @@
                   <td class="num">{{ p.stockMl ?? '—' }}</td>
                   <td class="num">{{ p.stockTn ?? '—' }}</td>
                   <td class="actions-cell">
-                    <button type="button" class="zc-btn small" (click)="configureAlert(p)">
+                    <button type="button" class="zc-btn small" *zcCanWrite (click)="configureAlert(p)">
                       <i class="ti ti-bell-plus" aria-hidden="true"></i> Configurar alerta
                     </button>
                   </td>
@@ -135,7 +135,7 @@
   <!-- ══════════════════════════ Reglas ══════════════════════════ -->
   @if (activeTab() === 'reglas') {
     <div class="tab-panel">
-      <div class="zc-card add-rule">
+      <div class="zc-card add-rule" *zcCanWrite>
         <div class="fld">
           <label class="lbl">Vigilar productos — buscar por título o SKU</label>
           <input
@@ -262,7 +262,8 @@
                     }
                   </td>
                   <td class="actions-cell">
-                    @if (editingSku() === rule.sku) {
+                    @if (session.isReadOnly()) {
+                    } @else if (editingSku() === rule.sku) {
                       <button type="button" class="zc-btn small" (click)="cancelEdit()">Cancelar</button>
                       <button type="button" class="zc-btn primary small" [disabled]="savingRule()" (click)="saveEdit(rule)">Guardar</button>
                     } @else {

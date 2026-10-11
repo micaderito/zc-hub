@@ -1,14 +1,16 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { AuthService, AuthStatus } from '../../core/services/auth.service';
 import { SyncService } from '../../core/services/sync.service';
+import { SessionService } from '../../core/services/session.service';
+import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CanWriteDirective, CommonModule],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss'
 })
@@ -21,6 +23,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   disconnectingML = false;
   disconnectingTN = false;
   private navSub: unknown;
+  readonly session = inject(SessionService);
 
   constructor(
     private auth: AuthService,

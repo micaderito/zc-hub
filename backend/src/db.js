@@ -555,7 +555,7 @@ export async function initDb() {
     await p.query(`CREATE INDEX IF NOT EXISTS idx_supplier_order_lines_order ON supplier_order_lines (order_id, position);`);
 
     // ── Usuarios del hub (login) ────────────────────────────────────────────
-    // Sin roles por ahora: cualquier usuario ve y hace todo. token_version se usa para invalidar
+    // Rol: 'admin' (todo) o 'lectura' (solo ver; ver middleware/requireAuth.js). token_version invalida
     // tokens ya emitidos (desactivar, "cerrar sesión en todos lados", cambio de contraseña) sin
     // llevar una lista de tokens — el middleware compara el `tv` del JWT contra este valor.
     await p.query(`
@@ -572,6 +572,16 @@ export async function initDb() {
       );
     `);
     await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_username ON app_users (LOWER(username));`);
+    // Default 'admin' solo para migrar a los usuarios que ya existían (antes de los roles todos hacían
+    // todo, nadie pierde acceso). Las altas nuevas eligen el rol explícitamente (routes/users.js).
+    await p.query(`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS role VARCHAR(16) NOT NULL DEFAULT 'admin'`);
+    await p.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'app_users_role_check') THEN
+          ALTER TABLE app_users ADD CONSTRAINT app_users_role_check CHECK (role IN ('admin', 'lectura'));
+        END IF;
+      END $$;
+    `);
     // Seedea el primer usuario desde el .env, y solo si la tabla está vacía — mismo motivo que
     // deposito_stock: un usuario borrado a mano no debe resucitar en cada reinicio del backend.
     const usersCount = await p.query(`SELECT COUNT(*)::int AS n FROM app_users`);
@@ -2722,7 +2732,7 @@ export async function deleteDepositoItem(id) {
 // ── Usuarios del hub ──────────────────────────────────────────────────────
 
 // password_hash a propósito fuera de este SELECT: solo getAppUserByUsername (login) lo trae.
-const APP_USER_SELECT = `SELECT id, username, display_name AS "displayName", activo,
+const APP_USER_SELECT = `SELECT id, username, display_name AS "displayName", activo, role,
   token_version AS "tokenVersion", last_login_at AS "lastLoginAt",
   created_at AS "createdAt", updated_at AS "updatedAt" FROM app_users`;
 
@@ -2733,6 +2743,7 @@ function mapAppUser(row) {
     username: row.username,
     displayName: row.displayName,
     activo: row.activo,
+    role: row.role || 'admin',
     tokenVersion: Number(row.tokenVersion),
     lastLoginAt: row.lastLoginAt ? new Date(row.lastLoginAt).toISOString() : null,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
@@ -2775,7 +2786,7 @@ export async function getAppUserByUsername(username) {
   if (!p) return null;
   try {
     const r = await p.query(
-      `SELECT id, username, password_hash AS "passwordHash", display_name AS "displayName", activo,
+      `SELECT id, username, password_hash AS "passwordHash", display_name AS "displayName", activo, role,
          token_version AS "tokenVersion", last_login_at AS "lastLoginAt",
          created_at AS "createdAt", updated_at AS "updatedAt"
        FROM app_users WHERE LOWER(username) = LOWER($1)`,
@@ -2803,14 +2814,27 @@ export async function countActiveAppUsers() {
   }
 }
 
+/** Cuántos admins activos hay — el hub nunca puede quedar sin nadie que pueda administrarlo. */
+export async function countActiveAdmins() {
+  const p = getPool();
+  if (!p) return 0;
+  try {
+    const r = await p.query(`SELECT COUNT(*)::int AS n FROM app_users WHERE activo AND role = 'admin'`);
+    return r.rows[0]?.n ?? 0;
+  } catch (e) {
+    console.error('countActiveAdmins:', e.message);
+    return 0;
+  }
+}
+
 /** Alta de un usuario. `passwordHash` ya viene hasheado (ver lib/authTokens.js). */
-export async function createAppUser({ username, passwordHash, displayName }) {
+export async function createAppUser({ username, passwordHash, displayName, role = 'lectura' }) {
   const p = getPool();
   if (!p) return null;
   try {
     const r = await p.query(
-      `INSERT INTO app_users (username, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id`,
-      [String(username).trim(), passwordHash, displayName || null]
+      `INSERT INTO app_users (username, password_hash, display_name, role) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [String(username).trim(), passwordHash, displayName || null, role]
     );
     return getAppUserById(r.rows[0].id);
   } catch (e) {
@@ -2820,20 +2844,20 @@ export async function createAppUser({ username, passwordHash, displayName }) {
 }
 
 /**
- * Edición de un usuario. `passwordHash` es opcional (null/undefined = no tocar la contraseña).
+ * Edición de un usuario. `passwordHash` y `role` son opcionales (null/undefined = no tocarlos).
  * Si viene `activo: false` o `passwordHash`, el caller debe además llamar bumpAppUserTokenVersion
  * para que los tokens ya emitidos dejen de valer — esta función no lo hace sola.
  */
-export async function updateAppUser(id, { username, displayName, activo, passwordHash }) {
+export async function updateAppUser(id, { username, displayName, activo, passwordHash, role }) {
   const p = getPool();
   if (!p) return null;
   try {
     await p.query(
       `UPDATE app_users SET
          username = $2, display_name = $3, activo = $4,
-         password_hash = COALESCE($5, password_hash), updated_at = NOW()
+         password_hash = COALESCE($5, password_hash), role = COALESCE($6, role), updated_at = NOW()
        WHERE id = $1`,
-      [id, String(username).trim(), displayName || null, !!activo, passwordHash || null]
+      [id, String(username).trim(), displayName || null, !!activo, passwordHash || null, role || null]
     );
     return getAppUserById(id);
   } catch (e) {

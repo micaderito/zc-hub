@@ -15,6 +15,8 @@ export const NETWORK_RETRY_DELAYS_MS = [1000, 2000, 4000];
 const RETRYABLE_METHODS = new Set(['GET', 'HEAD']);
 
 function getErrorMessage(err: HttpErrorResponse): string {
+  // Red de seguridad por si quedó visible algún botón de escritura para un usuario de lectura.
+  if (err?.status === 403 && err?.error?.code === 'read_only') return 'Tu usuario es de solo lectura: no puede modificar nada.';
   if (typeof err?.error === 'string') return err.error;
   const body = err?.error;
   if (body && typeof body === 'object') {

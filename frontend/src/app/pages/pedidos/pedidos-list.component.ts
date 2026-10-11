@@ -9,6 +9,7 @@ import {
 import { matchSearchByTokens } from '../../core/services/conflicts.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { FactorySheetDialogComponent } from './factory-sheet-dialog.component';
+import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 
 /**
  * Pedidos al proveedor: la lista (borradores, pendientes y recibidos). Cada fila abre el pedido en
@@ -17,7 +18,7 @@ import { FactorySheetDialogComponent } from './factory-sheet-dialog.component';
 @Component({
   selector: 'app-pedidos-list',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, FormsModule, SearchBarComponent, FactorySheetDialogComponent],
+  imports: [CanWriteDirective, CurrencyPipe, DatePipe, FormsModule, SearchBarComponent, FactorySheetDialogComponent],
   templateUrl: './pedidos-list.component.html',
   styleUrl: './pedidos-list.component.scss',
 })

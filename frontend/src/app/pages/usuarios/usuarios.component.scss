@@ -79,6 +79,7 @@
   display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
   &.ok { background: var(--ok-bg); color: var(--ok); }
   &.off { background: var(--surface-2); color: var(--text-2); }
+  &.admin { background: var(--brand-bg); color: var(--brand); }
 }
 
 /* Modal (alta/edición) */
@@ -105,10 +106,11 @@
 .fld {
   display: flex; flex-direction: column; gap: 5px;
   font-size: 11px; color: var(--text-2); font-weight: 500; margin-bottom: 11px;
-  input {
+  input, select {
     font: inherit; font-size: 12.5px; padding: 7px 10px;
     border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
   }
+  .fld-hint { font-weight: 400; font-size: 11px; }
 }
 
 .fld-check {

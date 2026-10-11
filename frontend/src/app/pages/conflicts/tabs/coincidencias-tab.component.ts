@@ -3,11 +3,12 @@ import { CommonModule } from '@angular/common';
 import { MlRow, TnRow, mlLabel, tnLabel } from '../../../core/services/conflicts.service';
 import { ProductThumbComponent } from '../../../shared/components/product-thumb/product-thumb.component';
 import { PaginationComponent } from '../../../shared/components/pagination/pagination.component';
+import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
 
 @Component({
   selector: 'app-conflicts-coincidencias-tab',
   standalone: true,
-  imports: [CommonModule, ProductThumbComponent, PaginationComponent],
+  imports: [CanWriteDirective, CommonModule, ProductThumbComponent, PaginationComponent],
   styleUrls: ['./_conflicts-tabs-styles.scss'],
   template: `
     <p class="tab-hint">{{ paging.total }} par{{ paging.total !== 1 ? 'es' : '' }} con el mismo SKU en ML y TN. Editá el SKU si necesitás corregirlo.</p>
@@ -34,9 +35,9 @@ import { PaginationComponent } from '../../../shared/components/pagination/pagin
         <div class="pair-footer">
           <code class="sku-code">{{ pair.sku || pair.ml.sku || pair.tn.sku || '—' }}</code>
           <div class="pair-actions">
-            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row: pair.ml })">SKU ML</button>
-            <button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row: pair.tn })">SKU TN</button>
-            <button type="button" class="btn-action" (click)="editBothSku.emit({ ml: pair.ml, tn: pair.tn })">Ambos SKU</button>
+            <ng-container *zcCanWrite><button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row: pair.ml })">SKU ML</button></ng-container>
+            <ng-container *zcCanWrite><button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row: pair.tn })">SKU TN</button></ng-container>
+            <ng-container *zcCanWrite><button type="button" class="btn-action" (click)="editBothSku.emit({ ml: pair.ml, tn: pair.tn })">Ambos SKU</button></ng-container>
           </div>
         </div>
       </div>

@@ -59,7 +59,7 @@
             <div class="field-group">
               <label class="field-label">Precio</label>
               <span class="input-currency">
-                <input type="text" appCurrencyInput [(ngModel)]="prices().priceML" placeholder="0,00" class="input-price" aria-label="Precio Mercado Libre" />
+                <input type="text" appCurrencyInput [(ngModel)]="prices().priceML" [readonly]="session.isReadOnly()" placeholder="0,00" class="input-price" aria-label="Precio Mercado Libre" />
               </span>
             </div>
             <div class="field-group">
@@ -93,7 +93,7 @@
             <div class="field-group">
               <label class="field-label">Precio</label>
               <span class="input-currency">
-                <input type="text" appCurrencyInput [(ngModel)]="prices().priceTN" placeholder="0,00" class="input-price" aria-label="Precio Tienda Nube" />
+                <input type="text" appCurrencyInput [(ngModel)]="prices().priceTN" [readonly]="session.isReadOnly()" placeholder="0,00" class="input-price" aria-label="Precio Tienda Nube" />
               </span>
             </div>
             <div class="field-group">
@@ -116,7 +116,7 @@
     }
 
     <!-- Acciones -->
-    <div class="pair-footer">
+    <div class="pair-footer" *zcCanWrite>
       <div class="sync-group">
         <label class="field-label">Sincronizar stock en ambos</label>
         <div class="sync-row">

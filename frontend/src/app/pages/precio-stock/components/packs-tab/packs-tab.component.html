@@ -9,7 +9,7 @@
     />
     <p class="hint">El pack es la unidad con la que le comprás al proveedor. No todos los productos tienen uno.</p>
     <div class="spacer"></div>
-    <button type="button" class="zc-btn primary small" (click)="toggleNewPackForm()">
+    <button type="button" class="zc-btn primary small" *zcCanWrite (click)="toggleNewPackForm()">
       <i class="ti ti-plus" aria-hidden="true"></i> Nuevo pack
     </button>
   </div>
@@ -126,7 +126,7 @@
                 <div class="hint">{{ pack.products.length }} modelo{{ pack.products.length === 1 ? '' : 's' }} · pack de {{ pack.unitCount }} u.</div>
               </div>
               <span class="zc-badge">{{ pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
-              <div class="pack-head-actions" (click)="$event.stopPropagation()">
+              <div class="pack-head-actions" *zcCanWrite (click)="$event.stopPropagation()">
                 <button type="button" class="icon-btn" title="Editar" (click)="startEditPack(pack)"><i class="ti ti-pencil" aria-hidden="true"></i></button>
                 <button type="button" class="icon-btn danger" title="Eliminar pack" (click)="deletingPackId.set(pack.id)"><i class="ti ti-trash" aria-hidden="true"></i></button>
               </div>
@@ -154,7 +154,7 @@
                           <span class="stock-dot tn"></span>{{ p.stockTn ?? '—' }}
                         </td>
                         <td>
-                          <button type="button" class="icon-btn" title="Sacar del pack" (click)="removeProductFromPack(p.sku)">
+                          <button type="button" class="icon-btn" *zcCanWrite title="Sacar del pack" (click)="removeProductFromPack(p.sku)">
                             <i class="ti ti-x" aria-hidden="true"></i>
                           </button>
                         </td>
@@ -230,7 +230,7 @@
                   <p class="alert error">{{ addProductError }}</p>
                 }
               } @else {
-                <button type="button" class="zc-btn small add-product-btn" (click)="openAddProduct(pack.id)">
+                <button type="button" class="zc-btn small add-product-btn" *zcCanWrite (click)="openAddProduct(pack.id)">
                   <i class="ti ti-plus" aria-hidden="true"></i> Agregar producto al pack
                 </button>
               }

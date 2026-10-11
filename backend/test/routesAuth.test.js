@@ -56,7 +56,8 @@ before(async () => {
   // Este archivo testea las conexiones OAuth ML/TN, no el login del hub: se deja pasar todo.
   mock.module('../src/middleware/requireAuth.js', {
     exports: {
-      requireAuth: (req, _res, next) => { req.user = { id: 1, username: 'test' }; next(); },
+      requireAuth: (req, _res, next) => { req.user = { id: 1, username: 'test', role: 'admin' }; next(); },
+      requireAdmin: (req, res, next) => (req.user?.role === 'admin' ? next() : res.status(403).json({ code: 'admin_only' })),
       invalidateAuthUserCache: () => {},
     },
   });

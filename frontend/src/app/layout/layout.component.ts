@@ -8,6 +8,7 @@ import { injectQuery } from '@tanstack/angular-query-experimental';
 import { SessionService } from '../core/services/session.service';
 import { ThemeService } from '../core/services/theme.service';
 import { AlertsService, ALERTS_NOTIFICATIONS_QUERY_KEY, StockNotification } from '../core/services/alerts.service';
+import { CanWriteDirective } from '../shared/directives/can-write.directive';
 
 interface NavItem {
   path: string;
@@ -15,6 +16,8 @@ interface NavItem {
   icon: string;
   /** Para accesos directos a una pestaña (ej. Devoluciones = /sincronizacion?tab=devoluciones). */
   queryParams?: Record<string, string>;
+  /** Páginas que son solo para escribir (crear, importar precios, usuarios): no se muestran a lectura. */
+  adminOnly?: boolean;
 }
 
 interface NavSection {
@@ -31,7 +34,7 @@ const CONFIG_OPEN_KEY = 'zc-sidebar-config-open';
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, FormsModule],
+  imports: [CanWriteDirective, CommonModule, RouterOutlet, RouterLink, FormsModule],
   templateUrl: './layout.component.html',
   styleUrl: './layout.component.scss'
 })
@@ -110,8 +113,8 @@ export class LayoutComponent {
       title: 'Catálogo',
       items: [
         { path: '/precio-stock', label: 'Productos', icon: 'ti-box' },
-        { path: '/precios', label: 'Actualizar precios', icon: 'ti-tag' },
-        { path: '/crear', label: 'Crear producto', icon: 'ti-plus' },
+        { path: '/precios', label: 'Actualizar precios', icon: 'ti-tag', adminOnly: true },
+        { path: '/crear', label: 'Crear producto', icon: 'ti-plus', adminOnly: true },
         { path: '/publicaciones', label: 'Publicaciones', icon: 'ti-rocket' }
       ]
     },
@@ -134,12 +137,19 @@ export class LayoutComponent {
       { path: '/conexiones', label: 'Conexiones', icon: 'ti-plug' },
       { path: '/conflictos', label: 'Vincular SKUs', icon: 'ti-arrows-exchange-2' },
       { path: '/sincronizacion', label: 'Historial y cola', icon: 'ti-history' },
-      { path: '/usuarios', label: 'Usuarios', icon: 'ti-users' }
+      { path: '/usuarios', label: 'Usuarios', icon: 'ti-users', adminOnly: true }
     ]
   };
 
   /** Todos los ítems, en orden de aparición. */
   readonly nav: NavItem[] = [...this.sections, this.configSection].flatMap(s => s.items);
+
+  private canSee = (item: NavItem) => !item.adminOnly || this.session.isAdmin();
+  /** Lo que se dibuja: sin las páginas solo-admin para un usuario de lectura. */
+  readonly visibleSections = computed(() =>
+    this.sections.map(s => ({ ...s, items: s.items.filter(this.canSee) })).filter(s => s.items.length > 0)
+  );
+  readonly visibleConfigItems = computed(() => this.configSection.items.filter(this.canSee));
 
   private readonly currentUrl = toSignal(
     this.router.events.pipe(
@@ -221,6 +231,8 @@ export class LayoutComponent {
   }
 
   async markNotificationRead(id: number): Promise<void> {
+    // El estado leído/no leído es compartido: un usuario de lectura no lo cambia (403 en el backend).
+    if (this.session.isReadOnly()) return;
     await this.alerts.markNotificationsRead({ ids: [id] });
   }
 

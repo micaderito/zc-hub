@@ -9,6 +9,7 @@ import { ConflictsService, mlLabel } from '../../../../core/services/conflicts.s
 import { SearchBarComponent } from '../../../../shared/components/search-bar/search-bar.component';
 import { ConfirmDialogComponent } from '../../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { PaginationComponent } from '../../../../shared/components/pagination/pagination.component';
+import { CanWriteDirective } from '../../../../shared/directives/can-write.directive';
 
 /** Resultado del buscador de productos (para agregar al pack). */
 interface ProductOption {
@@ -31,7 +32,7 @@ const NEW_PACK_ID = -1;
 @Component({
   selector: 'zc-packs-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent],
+  imports: [CanWriteDirective, CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent],
   templateUrl: './packs-tab.component.html',
   styleUrl: './packs-tab.component.scss',
 })

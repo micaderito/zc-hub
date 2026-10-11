@@ -1,8 +1,10 @@
-import { Component, input, output } from '@angular/core';
+import { Component, inject, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CurrencyInputDirective } from '../../../../directives/currency-input.directive';
 import { MlRow, TnRow, mlLabel, tnLabel } from '../../../../core/services/conflicts.service';
+import { SessionService } from '../../../../core/services/session.service';
+import { CanWriteDirective } from '../../../../shared/directives/can-write.directive';
 
 export interface PairPrices {
   priceML: number;
@@ -13,11 +15,12 @@ export interface PairPrices {
 @Component({
   selector: 'zc-pair-card',
   standalone: true,
-  imports: [FormsModule, RouterLink, CurrencyInputDirective],
+  imports: [CanWriteDirective, FormsModule, RouterLink, CurrencyInputDirective],
   templateUrl: './pair-card.component.html',
   styleUrl: './pair-card.component.scss',
 })
 export class PairCardComponent {
+  readonly session = inject(SessionService);
   readonly pair = input.required<{ ml: MlRow; tn: TnRow; sku?: string }>();
   /** Nombre del pack al que pertenece el SKU del par, si alguno (ver Productos → Packs). */
   readonly packName = input<string | null>(null);

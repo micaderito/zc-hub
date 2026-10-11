@@ -4,7 +4,7 @@
       <h1>Depósito Marañón</h1>
       <p>Stock físico guardado en el depósito, aparte de lo publicado en Mercado Libre y Tienda Nube.</p>
     </div>
-    <div class="dp-head-actions">
+    <div class="dp-head-actions" *zcCanWrite>
       <button type="button" class="btn pri" (click)="openCreate()">
         <i class="ti ti-plus"></i> Agregar
       </button>
@@ -37,7 +37,7 @@
       <i class="ti ti-building-warehouse"></i>
       <p>{{ items().length === 0 ? 'Todavía no cargaste stock de depósito.' : 'No hay filas que coincidan con la búsqueda.' }}</p>
       @if (items().length === 0) {
-        <button type="button" class="btn pri" (click)="openCreate()"><i class="ti ti-plus"></i> Agregar el primero</button>
+        <button type="button" class="btn pri" *zcCanWrite (click)="openCreate()"><i class="ti ti-plus"></i> Agregar el primero</button>
       }
     </div>
   } @else {
@@ -68,16 +68,16 @@
               <td><span class="sku">{{ item.sku || '—' }}</span></td>
               <td class="num">
                 <div class="qty-stepper">
-                  <button type="button" class="icon-btn" [disabled]="item.quantity === 0 || adjustingId() === item.id" (click)="adjust(item, -1)" title="Restar 1"><i class="ti ti-minus"></i></button>
+                  <button type="button" class="icon-btn" *zcCanWrite [disabled]="item.quantity === 0 || adjustingId() === item.id" (click)="adjust(item, -1)" title="Restar 1"><i class="ti ti-minus"></i></button>
                   <span class="qty-val">{{ item.quantity }}</span>
-                  <button type="button" class="icon-btn" [disabled]="adjustingId() === item.id" (click)="adjust(item, 1)" title="Sumar 1"><i class="ti ti-plus"></i></button>
+                  <button type="button" class="icon-btn" *zcCanWrite [disabled]="adjustingId() === item.id" (click)="adjust(item, 1)" title="Sumar 1"><i class="ti ti-plus"></i></button>
                 </div>
               </td>
               <td>{{ item.unit }}</td>
               <td class="notes">{{ item.notes || '—' }}</td>
               <td class="col-actions">
-                <button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar"><i class="ti ti-pencil"></i></button>
-                <button type="button" class="icon-btn danger" (click)="remove(item)" title="Borrar"><i class="ti ti-trash"></i></button>
+                <ng-container *zcCanWrite><button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar"><i class="ti ti-pencil"></i></button>
+                <button type="button" class="icon-btn danger" (click)="remove(item)" title="Borrar"><i class="ti ti-trash"></i></button></ng-container>
               </td>
             </tr>
           }
