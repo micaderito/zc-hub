@@ -24,7 +24,7 @@
               <span class="zc-badge err" style="margin-left:auto">Desconectado</span>
             }
           </div>
-          <div class="btn-row">
+          <div class="btn-row" *zcCanWrite>
             @if (status.mercadolibre) {
               <button type="button" class="zc-btn small" (click)="disconnectML()" [disabled]="disconnectingML">
                 {{ disconnectingML ? 'Desconectando…' : 'Desconectar' }}
@@ -53,7 +53,7 @@
               <span class="zc-badge err" style="margin-left:auto">Desconectado</span>
             }
           </div>
-          <div class="btn-row">
+          <div class="btn-row" *zcCanWrite>
             @if (status.tiendanube) {
               <button type="button" class="zc-btn small" (click)="disconnectTN()" [disabled]="disconnectingTN">
                 {{ disconnectingTN ? 'Desconectando…' : 'Desconectar' }}
@@ -72,7 +72,7 @@
       </div>
     </section>
 
-    @if (status.mercadolibre && status.tiendanube) {
+    @if (status.mercadolibre && status.tiendanube && session.isAdmin()) {
       <section class="sync-section">
         <h2>Sincronizar precios</h2>
         <p class="help-msg">Envía los precios configurados en Precio y stock a cada canal (ML y TN).</p>

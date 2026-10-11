@@ -4,6 +4,7 @@ import { injectQuery } from '@tanstack/angular-query-experimental';
 import { CatalogService, PublishJobRow, PublishUnit } from '../../core/services/catalog.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
+import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 
 const PER_PAGE = 20;
 
@@ -25,7 +26,7 @@ type StatusKey = '' | 'done' | 'error' | 'cancelled' | 'running';
 @Component({
   selector: 'app-publicaciones',
   standalone: true,
-  imports: [DatePipe, SearchBarComponent, PaginationComponent],
+  imports: [CanWriteDirective, DatePipe, SearchBarComponent, PaginationComponent],
   templateUrl: './publicaciones.component.html',
   styleUrl: './publicaciones.component.scss',
 })

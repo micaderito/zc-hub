@@ -12,14 +12,18 @@ describe('LayoutComponent', () => {
   let sessionSpy: {
     user: jasmine.Spy<() => SessionUser | null>;
     isAuthenticated: jasmine.Spy<() => boolean>;
+    isAdmin: () => boolean;
+    isReadOnly: () => boolean;
     logout: jasmine.Spy;
     changePassword: jasmine.Spy;
   };
 
-  function setup(user: SessionUser | null = { id: 1, username: 'mica', displayName: 'Mica' }, routes: Routes = []) {
+  function setup(user: SessionUser | null = { id: 1, username: 'mica', displayName: 'Mica', role: 'admin' }, routes: Routes = []) {
     sessionSpy = {
       user: jasmine.createSpy('user').and.returnValue(user),
       isAuthenticated: jasmine.createSpy('isAuthenticated').and.returnValue(!!user),
+      isAdmin: () => (user?.role ?? 'admin') === 'admin',
+      isReadOnly: () => (user?.role ?? 'admin') !== 'admin',
       logout: jasmine.createSpy('logout'),
       changePassword: jasmine.createSpy('changePassword').and.resolveTo(undefined),
     };
@@ -65,6 +69,42 @@ describe('LayoutComponent', () => {
       '/despachos', '/sincronizacion', '/alertas', '/precio-stock', '/precios', '/crear', '/publicaciones',
       '/pedidos', '/deposito', '/ventas', '/conexiones', '/conflictos', '/sincronizacion', '/usuarios',
     ]);
+  });
+
+  describe('rol de lectura', () => {
+    const lectura: SessionUser = { id: 2, username: 'vista', displayName: 'Vista', role: 'lectura' };
+
+    it('admin ve todo el menú', () => {
+      setup();
+      const c = TestBed.createComponent(LayoutComponent).componentInstance;
+      const paths = [...c.visibleSections().flatMap(s => s.items), ...c.visibleConfigItems()].map(i => i.path);
+      expect(paths).toEqual(c.nav.map(i => i.path));
+    });
+
+    it('lectura no ve Crear producto, Actualizar precios ni Usuarios', () => {
+      setup(lectura);
+      const c = TestBed.createComponent(LayoutComponent).componentInstance;
+      const paths = [...c.visibleSections().flatMap(s => s.items), ...c.visibleConfigItems()].map(i => i.path);
+      expect(paths).not.toContain('/crear');
+      expect(paths).not.toContain('/precios');
+      expect(paths).not.toContain('/usuarios');
+      expect(paths).toContain('/precio-stock');
+      expect(paths).toContain('/despachos');
+    });
+
+    it('muestra el chip "Solo lectura" solo para lectura', () => {
+      setup(lectura);
+      const fixture = TestBed.createComponent(LayoutComponent);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.role-chip')?.textContent).toContain('Solo lectura');
+    });
+
+    it('admin no ve el chip', () => {
+      setup();
+      const fixture = TestBed.createComponent(LayoutComponent);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.role-chip')).toBeNull();
+    });
   });
 
   describe('ítem activo', () => {
@@ -119,13 +159,13 @@ describe('LayoutComponent', () => {
 
   describe('userInitials', () => {
     it('usa las iniciales de nombre y apellido cuando hay displayName con dos palabras', () => {
-      setup({ id: 1, username: 'mica', displayName: 'Mica Derito' });
+      setup({ id: 1, username: 'mica', displayName: 'Mica Derito', role: 'admin' });
       const fixture = TestBed.createComponent(LayoutComponent);
       expect(fixture.componentInstance.userInitials()).toBe('MD');
     });
 
     it('usa las dos primeras letras cuando el nombre es una sola palabra', () => {
-      setup({ id: 1, username: 'mica', displayName: null });
+      setup({ id: 1, username: 'mica', displayName: null, role: 'admin' });
       const fixture = TestBed.createComponent(LayoutComponent);
       expect(fixture.componentInstance.userInitials()).toBe('MI');
     });

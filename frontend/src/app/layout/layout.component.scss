@@ -258,6 +258,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  .role-chip {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    color: var(--text-2);
+    background: var(--surface-2);
+    border: 0.5px solid var(--border);
+    white-space: nowrap;
+  }
 }
 
 .logout-btn {

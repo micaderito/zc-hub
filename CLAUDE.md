@@ -893,6 +893,31 @@ con la cola quieta.
 Ojo al levantar backends locales contra la base de Supabase: cada uno suma su propio polling al
 mismo cupo (es por organización, no por proyecto).
 
+### Roles de usuario: `admin` y `lectura`
+
+`app_users.role` (`'admin' | 'lectura'`). La migración agrega la columna con default `admin`, así
+que los usuarios que ya existían quedaron admin; las altas nuevas desde el panel son `lectura` salvo
+que se elija otra cosa.
+
+- **La guarda vive en `requireAuth`** (`middleware/requireAuth.js`), no en cada router: un usuario
+  de lectura no puede mandar nada que no sea `GET/HEAD/OPTIONS` (403 `code: 'read_only'`), salvo
+  `READ_ONLY_ALLOWED_WRITES` — su propia sesión (logout, cambiar contraseña), los "Actualizar" que
+  refrescan datos de ML/TN (`/sales/sync`, `/sync/returns/fetch`, `/products/publish-jobs/reconcile`)
+  y los tildes de Para preparar (`prepared`, `cancel-seen`). Una ruta de escritura nueva queda
+  bloqueada para lectura sin hacer nada; una nueva excepción hay que sumarla a esa lista.
+- **`requireAdmin`** para lo que es solo admin aunque sea GET: `/api/users` entero y las URLs de
+  OAuth de ML/TN (`/auth/*/url`).
+- El rol se lee de la base con la misma caché de 60 s que `activo`/`token_version`, no del JWT:
+  cambiar el rol aplica al toque (`invalidateAuthUserCache`), sin re-login.
+- Panel de usuarios: nadie se cambia el rol a sí misma y nunca puede quedar el hub sin un **admin
+  activo** (`countActiveAdmins`, reemplaza al viejo chequeo de "al menos un usuario activo").
+- **Front:** `SessionService.isAdmin()/isReadOnly()`. La directiva `*zcCanWrite`
+  (`shared/directives/can-write.directive.ts`) es el patrón para esconder botones de escritura;
+  `adminGuard` saca a lectura de Crear producto, Actualizar precios y Usuarios (y el menú no las
+  muestra). Inputs editables inline (precios en Productos, editor de pedidos) pasan a solo lectura.
+  `SessionService` resuelve `HttpClient` de forma perezosa a propósito: la directiva lo inyecta en
+  casi todas las pantallas y así sus specs no necesitan proveer `HttpClient`.
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
@@ -984,7 +1009,7 @@ de ML y no el de TN, reset de página al cambiar un filtro, Reintentar refetchea
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y
 Full, carrito = un paquete con un solo GET de envío, buckets atrasado/hoy/próximos con `now`
 inyectado y hora argentina, `buffered` en su día, `stateLabel`, fotos por variación, cancelados
-recientes sí / pago rechazado no / "Entendido" los oculta, preparados al final, TN sin duplicar entre
+recientes sí / pago rechazado no / "Entendido" los oculta, un preparado no cambia de lugar, TN sin duplicar entre
 filtros, un canal caído no tumba al otro, caché de 60 s y memo de envíos despachados),
 `backend/test/routesDispatch.test.js`, `getShipmentSla` en `mercadolibre.test.js` y `listOrders` en
 `tiendanube.test.js`; en el front `despachos.component.spec.ts` (secciones de Hoy / Próximos días,

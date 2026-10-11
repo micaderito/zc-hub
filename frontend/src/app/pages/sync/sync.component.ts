@@ -11,6 +11,8 @@ import { SearchBarComponent } from '../../shared/components/search-bar/search-ba
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
+import { SessionService } from '../../core/services/session.service';
+import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 
 const SYNC_RETURNS_QUERY_KEY = ['sync', 'returns'] as const;
 const SYNC_PENDING_TASKS_QUERY_KEY = ['sync', 'pendingTasks'] as const;
@@ -22,11 +24,12 @@ const TAB_KEYS = ['historial', 'devoluciones', 'cola', 'estado'];
 @Component({
   selector: 'app-sync',
   standalone: true,
-  imports: [CommonModule, FormsModule, SearchBarComponent, PaginationComponent, TabsComponent, ConfirmDialogComponent],
+  imports: [CanWriteDirective, CommonModule, FormsModule, SearchBarComponent, PaginationComponent, TabsComponent, ConfirmDialogComponent],
   templateUrl: './sync.component.html',
   styleUrl: './sync.component.scss'
 })
 export class SyncComponent implements OnInit {
+  readonly session = inject(SessionService);
   private readonly sync = inject(SyncService);
   private readonly queryClient = inject(QueryClient);
   private readonly route = inject(ActivatedRoute);

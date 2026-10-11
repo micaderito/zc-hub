@@ -11,6 +11,8 @@ import { matchSearchByTokens } from '../../core/services/conflicts.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 import { FactorySheetDialogComponent } from './factory-sheet-dialog.component';
+import { SessionService } from '../../core/services/session.service';
+import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 
 /** Cuánto esperar sin cambios antes de autoguardar un borrador. */
 const AUTOSAVE_MS = 700;
@@ -23,11 +25,12 @@ const AUTOSAVE_MS = 700;
 @Component({
   selector: 'app-pedido-editor',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, FormsModule, RouterLink, SearchBarComponent, ConfirmDialogComponent, FactorySheetDialogComponent],
+  imports: [CanWriteDirective, CurrencyPipe, DatePipe, FormsModule, RouterLink, SearchBarComponent, ConfirmDialogComponent, FactorySheetDialogComponent],
   templateUrl: './pedido-editor.component.html',
   styleUrl: './pedido-editor.component.scss',
 })
 export class PedidoEditorComponent implements OnDestroy {
+  readonly session = inject(SessionService);
   private readonly orders = inject(OrdersService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -41,6 +44,8 @@ export class PedidoEditorComponent implements OnDestroy {
   readonly busy = signal(false);
 
   readonly isDraft = computed(() => this.order()?.status === 'borrador');
+  /** Solo un borrador se edita, y solo un admin: para lectura el borrador se ve como un pedido cerrado. */
+  readonly canEdit = computed(() => this.isDraft() && this.session.isAdmin());
   readonly isPending = computed(() => this.order()?.status === 'pendiente');
   readonly totals = computed(() => {
     const o = this.order();

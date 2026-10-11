@@ -1,25 +1,32 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, Injector, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 
 /**
- * Sesión de usuario del hub (login con usuario/contraseña, sin roles). NO confundir con
+ * Sesión de usuario del hub (login con usuario/contraseña + rol). NO confundir con
  * AuthService (core/services/auth.service.ts), que es la conexión OAuth de la cuenta comercial a
  * Mercado Libre/Tienda Nube — algo completamente distinto que ya existía con ese nombre.
  */
+/** 'admin' hace todo; 'lectura' solo ve (el backend rechaza sus escrituras con 403 `read_only`). */
+export type UserRole = 'admin' | 'lectura';
+
 export interface SessionUser {
   id: number;
   username: string;
   displayName: string | null;
+  role: UserRole;
 }
 
 const TOKEN_KEY = 'zc-token';
 
 @Injectable({ providedIn: 'root' })
 export class SessionService {
-  private readonly http = inject(HttpClient);
-  private readonly api = inject(ApiService);
+  // HttpClient se resuelve recién al usarlo: `*zcCanWrite` inyecta este servicio en casi todas las
+  // pantallas solo para leer el rol, y así no arrastra HttpClient a cada componente (ni a sus specs).
+  private readonly injector = inject(Injector);
+  private get http() { return this.injector.get(HttpClient); }
+  private get api() { return this.injector.get(ApiService); }
 
   private readonly _token = signal<string | null>(localStorage.getItem(TOKEN_KEY));
   private readonly _user = signal<SessionUser | null>(null);
@@ -27,6 +34,9 @@ export class SessionService {
   readonly token = this._token.asReadonly();
   readonly user = this._user.asReadonly();
   readonly isAuthenticated = computed(() => !!this._token());
+  /** Sin dato de rol (sesión vieja todavía sin restaurar) se asume admin: el backend es la guarda real. */
+  readonly isAdmin = computed(() => (this._user()?.role ?? 'admin') === 'admin');
+  readonly isReadOnly = computed(() => !this.isAdmin());
 
   private setSession(token: string, user: SessionUser) {
     localStorage.setItem(TOKEN_KEY, token);

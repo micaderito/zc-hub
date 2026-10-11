@@ -3,7 +3,7 @@ import { tokens, persistTokens, persistTokensAsync, clearMlTokens, clearTnTokens
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 import { invalidateSnapshot } from '../services/conflictsService.js';
-import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAuth, requireAdmin } from '../middleware/requireAuth.js';
 
 export const authRoutes = Router();
 
@@ -16,7 +16,7 @@ authRoutes.post('/mercadolibre/disconnect', requireAuth, (_, res) => {
   res.json({ ok: true });
 });
 
-authRoutes.get('/mercadolibre/url', requireAuth, (_, res) => {
+authRoutes.get('/mercadolibre/url', requireAuth, requireAdmin, (_, res) => {
   const redirectUri = process.env.ML_REDIRECT_URI || 'http://localhost:4000/api/auth/mercadolibre/callback';
   ml.getAuthUrl(redirectUri).then(url => res.json({ url })).catch(e => res.status(500).json({ error: e.message }));
 });
@@ -49,7 +49,7 @@ authRoutes.post('/tiendanube/disconnect', requireAuth, (_, res) => {
   res.json({ ok: true });
 });
 
-authRoutes.get('/tiendanube/url', requireAuth, (_, res) => {
+authRoutes.get('/tiendanube/url', requireAuth, requireAdmin, (_, res) => {
   const redirectUri = process.env.TN_REDIRECT_URI || 'http://localhost:4000/api/auth/tiendanube/callback';
   tn.getAuthUrl(redirectUri).then(url => res.json({ url })).catch(e => res.status(500).json({ error: e.message }));
 });

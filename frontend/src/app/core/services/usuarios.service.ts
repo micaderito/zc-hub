@@ -1,13 +1,15 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { ApiService } from './api.service';
+import { UserRole } from './session.service';
 
-/** Un usuario del hub (sin roles). No incluye la contraseña — nunca sale del backend. */
+/** Un usuario del hub. No incluye la contraseña — nunca sale del backend. */
 export interface AppUser {
   id: number;
   username: string;
   displayName: string | null;
   activo: boolean;
+  role: UserRole;
   tokenVersion: number;
   lastLoginAt: string | null;
   createdAt: string | null;
@@ -18,6 +20,8 @@ export interface AppUserInput {
   username: string;
   displayName?: string | null;
   activo?: boolean;
+  /** Alta: si no viene, el backend lo crea como 'lectura'. Edición: undefined = no tocarlo. */
+  role?: UserRole;
   /** Alta: requerida. Edición: opcional (vacío/undefined = no cambiarla). */
   password?: string;
 }
