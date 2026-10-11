@@ -161,6 +161,14 @@ describe('DespachosComponent', () => {
     expect(component.sections().length).toBe(0);
   });
 
+  it('un preparado queda en su lugar y la card se marca como preparada', async () => {
+    await load([pkg({ saleId: 'a', preparedAt: '2026-10-09T13:00:00Z' }), pkg({ saleId: 'b' })]);
+    expect(component.sections()[0].packages.map((p) => p.saleId)).toEqual(['a', 'b']);
+    const cards = fixture.nativeElement.querySelectorAll('article.pk');
+    expect(cards[0].classList).toContain('prepared');
+    expect(cards[1].classList).not.toContain('prepared');
+  });
+
   it('click en la foto abre el lightbox con todas las fotos del producto', async () => {
     await load([pkg()]);
     (fixture.nativeElement.querySelector('.thumb-btn') as HTMLButtonElement).click();

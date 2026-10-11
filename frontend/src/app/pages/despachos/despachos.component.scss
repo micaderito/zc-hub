@@ -116,7 +116,12 @@
   background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg);
   padding: 10px 14px; margin-bottom: 8px;
   &.overdue { border-color: var(--err); }
-  &.prepared { opacity: 0.6; }
+  &.prepared {
+    background: var(--ok-bg); border-color: var(--ok);
+    box-shadow: inset 3px 0 0 var(--ok);
+    .pk-items li + li { border-top-color: color-mix(in srgb, var(--ok) 25%, transparent); }
+    .st.ok { background: var(--ok); color: var(--surface); }
+  }
   &.dispatched { opacity: 0.75; border-color: var(--ok); }
 }
 .pk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

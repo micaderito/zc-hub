@@ -312,7 +312,7 @@ test('cancelada recién y nunca despachada → aviso "no despachar"; un pago rec
   assert.equal(r.packages[0].state.label, 'Cancelado');
 });
 
-test('un cancelado con "Entendido" ya no se muestra; preparados van al final', async () => {
+test('un cancelado con "Entendido" ya no se muestra; un preparado no cambia de lugar', async () => {
   state.orders = [
     mlOrder(1, { status: 'cancelled', shipId: null, date_last_updated: '2026-10-09T12:00:00.000Z' }),
     mlOrder(2, { shipId: 520 }),
@@ -328,8 +328,8 @@ test('un cancelado con "Entendido" ya no se muestra; preparados van al final', a
     ['ml:2', { preparedAt: '2026-10-09T12:40:00.000Z', preparedBy: 'mica' }],
   ]);
   const r = await svc.getDispatchList({ now: NOW });
-  assert.deepEqual(r.packages.map((p) => p.saleId), ['3', '2']);
-  assert.equal(r.packages[1].preparedBy, 'mica');
+  assert.deepEqual(r.packages.map((p) => p.saleId), ['2', '3']);
+  assert.equal(r.packages[0].preparedBy, 'mica');
 });
 
 test('TN: pagadas sin enviar (sin duplicar entre filtros) y canceladas recientes', async () => {
