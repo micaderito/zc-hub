@@ -19,6 +19,12 @@ export interface DispatchItem {
   pictures: string[];
 }
 
+/** Nota de la venta tal como está en ML/TN. `buyer`: la que deja el comprador al pagar (solo TN). */
+export interface DispatchNote {
+  text: string;
+  author: 'seller' | 'buyer';
+}
+
 export interface DispatchPackage {
   channel: DispatchChannel;
   /** ML: pack_id ?? order_id (el nro de venta que se ve en ML). TN: id interno de la orden. */
@@ -48,6 +54,7 @@ export interface DispatchPackage {
   state: { label: string; tone: DispatchTone };
   preparedAt: string | null;
   preparedBy: string | null;
+  notes?: DispatchNote[];
   items: DispatchItem[];
 }
 
