@@ -1,11 +1,9 @@
 :host {
   display: block;
-  padding: 18px 20px 90px;
 }
 
 .pub-page {
   max-width: 1080px;
-  margin: 0 auto;
 }
 
 .pub-head {
@@ -14,9 +12,9 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
-  h1 {
+  h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 500;
   }
   p {

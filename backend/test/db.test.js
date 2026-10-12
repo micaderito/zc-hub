@@ -816,6 +816,26 @@ test('createPublishJob: inserta y devuelve el id dado', async () => {
   assert.equal(await db.createPublishJob({ id: 'j1', draftId: 'd1', channels: 'ml,tn', payloadJson: '{}' }), 'j1');
 });
 
+test('createPublishJob copia nombre y SKU del borrador al job (para que el historial sobreviva al borrado)', async () => {
+  let insertSql = null;
+  state.responder = (sql) => { if (sql.includes('INSERT INTO product_publish_jobs')) insertSql = sql; return { rows: [], rowCount: 1 }; };
+  await db.createPublishJob({ id: 'j1', draftId: 'd1', channels: 'ml', payloadJson: '{}' });
+  assert.match(insertSql, /product_name, product_sku/);
+  assert.match(insertSql, /LEFT JOIN product_drafts d ON d\.id = \$5/);
+});
+
+test('listPublishJobs muestra el nombre guardado en el job si el borrador ya no existe', async () => {
+  let selectSql = null;
+  state.responder = (sql) => {
+    if (sql.startsWith('SELECT COUNT(*)::int AS total')) return { rows: [{ total: 0 }] };
+    selectSql = sql;
+    return { rows: [] };
+  };
+  await db.listPublishJobs(10, 0, { search: 'x' });
+  assert.match(selectSql, /COALESCE\(d\.name, j\.product_name\) AS "draftName"/);
+  assert.match(selectSql, /COALESCE\(d\.name, j\.product_name\) ILIKE/);
+});
+
 test('claimNextPublishJob: sin job disponible devuelve null', async () => {
   state.responder = (sql) => (sql.includes('FOR UPDATE SKIP LOCKED') ? { rows: [] } : { rows: [], rowCount: 0 });
   assert.equal(await db.claimNextPublishJob(), null);

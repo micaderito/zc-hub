@@ -1,0 +1,1077 @@
+<title>Publicaciones ML ↔ TN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: lista de productos del hub a la izquierda, detalle (publicaciones + matriz de variantes) a la derecha. Tokens = frontend/src/styles.scss */
+:root{
+  --bg:#f5f6f8;--surface:#ffffff;--surface-2:#eef0f3;--border:rgba(20,22,40,.12);--border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e;--text-2:#5d6373;--text-3:#9aa0ad;--brand:#5b54e6;--brand-bg:#ecebfd;--brand-contrast:#fff;
+  --ml:#ffe600;--ml-bg:#fff7bf;--ml-text:#5c5400;--tn:#2b8aef;--tn-bg:#e3eefc;--tn-text:#114e8e;
+  --ok:#1d9e75;--ok-bg:#e1f5ee;--warn:#ba7517;--warn-bg:#faeeda;--err:#d04444;--err-bg:#fcebeb;
+  --radius-sm:8px;--radius-md:10px;--radius-lg:12px;--shadow-pop:0 8px 28px rgba(20,22,40,.12);
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1017;--surface:#171a22;--surface-2:#1f232d;--border:rgba(255,255,255,.11);--border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0;--text-2:#a2a8b5;--text-3:#6a7180;--brand:#8b85ff;--brand-bg:#26233f;
+  --ml:#ffe600;--ml-bg:#3a3600;--ml-text:#ffe600;--tn:#67abf5;--tn-bg:#13314f;--tn-text:#9cc7f7;
+  --ok:#5dcaa5;--ok-bg:#0f3a30;--warn:#efa83a;--warn-bg:#3a2a0e;--err:#e07a7a;--err-bg:#3a1414;--shadow-pop:0 8px 28px rgba(0,0,0,.5);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1017;--surface:#171a22;--surface-2:#1f232d;--border:rgba(255,255,255,.11);--border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0;--text-2:#a2a8b5;--text-3:#6a7180;--brand:#8b85ff;--brand-bg:#26233f;
+  --ml:#ffe600;--ml-bg:#3a3600;--ml-text:#ffe600;--tn:#67abf5;--tn-bg:#13314f;--tn-text:#9cc7f7;
+  --ok:#5dcaa5;--ok-bg:#0f3a30;--warn:#efa83a;--warn-bg:#3a2a0e;--err:#e07a7a;--err-bg:#3a1414;--shadow-pop:0 8px 28px rgba(0,0,0,.5);color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.45}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:var(--mono);font-size:12px}
+.num{font-variant-numeric:tabular-nums}
+
+.page{max-width:1320px;margin:0 auto;padding-inline:16px;padding-block:20px 96px;display:flex;flex-direction:column;gap:16px}
+.proto-note{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--text-2);background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-md);padding:10px 14px}
+.proto-note b{color:var(--text)}
+.proto-note .theme{margin-left:auto;white-space:nowrap;border:.5px solid var(--border-strong);background:var(--surface-2);border-radius:var(--radius-sm);padding:5px 10px;display:inline-flex;gap:6px;align-items:center;font-size:12px}
+
+header.top{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between}
+header.top h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.01em}
+header.top p{margin:2px 0 0;color:var(--text-2);font-size:13px}
+.tabs{display:flex;gap:4px;background:var(--surface-2);padding:3px;border-radius:var(--radius-md)}
+.tabs button{border:0;background:transparent;padding:7px 14px;border-radius:var(--radius-sm);color:var(--text-2);display:inline-flex;gap:6px;align-items:center;font-size:13px}
+.tabs button.on{background:var(--surface);color:var(--text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+
+.split{display:grid;grid-template-columns:minmax(300px,380px) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:960px){.split{grid-template-columns:minmax(0,1fr)}}
+
+.panel{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);min-width:0}
+.list-head{padding:12px;display:flex;flex-direction:column;gap:10px;border-bottom:.5px solid var(--border)}
+.search{display:flex;gap:8px;align-items:center;background:var(--surface-2);border-radius:var(--radius-sm);padding:7px 10px;color:var(--text-3)}
+.search input{border:0;background:transparent;outline:none;flex:1;min-width:0;color:var(--text)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:.5px solid var(--border);background:var(--surface);border-radius:999px;padding:4px 10px;font-size:12px;color:var(--text-2);display:inline-flex;gap:6px;align-items:center}
+.chip.on{background:var(--brand-bg);color:var(--brand);border-color:transparent;font-weight:500}
+.chip .n{color:var(--text-3);font-variant-numeric:tabular-nums}
+.chip.on .n{color:var(--brand)}
+
+.plist{list-style:none;margin:0;padding:6px;display:flex;flex-direction:column;gap:2px;max-height:640px;overflow:auto}
+.pitem{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 10px;border-radius:var(--radius-md);border:0;background:transparent;text-align:left;width:100%}
+.pitem:hover{background:var(--surface-2)}
+.pitem.on{background:var(--brand-bg)}
+.thumb{width:40px;height:40px;border-radius:var(--radius-sm);display:grid;place-items:center;font-size:11px;font-weight:600;color:#fff;letter-spacing:.02em}
+.pname{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmeta{display:flex;gap:6px;align-items:center;margin-top:3px;font-size:12px;color:var(--text-2);flex-wrap:wrap}
+.ch{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px}
+.ch.ml{background:var(--ml-bg);color:var(--ml-text)}
+.ch.tn{background:var(--tn-bg);color:var(--tn-text)}
+.ch.off{background:var(--surface-2);color:var(--text-3);font-weight:500}
+
+.st{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;border-radius:999px;padding:3px 9px;white-space:nowrap}
+.st::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.st.ok{background:var(--ok-bg);color:var(--ok)}
+.st.warn{background:var(--warn-bg);color:var(--warn)}
+.st.err{background:var(--err-bg);color:var(--err)}
+.st.mute{background:var(--surface-2);color:var(--text-2)}
+
+/* Detalle */
+.detail{display:flex;flex-direction:column;gap:16px;min-width:0}
+.dhead{padding:16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.dhead .thumb{width:56px;height:56px;font-size:14px;border-radius:var(--radius-md)}
+.dhead h2{margin:0;font-size:18px;font-weight:600;text-wrap:balance}
+.dhead .sub{color:var(--text-2);font-size:13px;margin-top:2px}
+.dhead .actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:.5px solid var(--border-strong);background:var(--surface);border-radius:var(--radius-sm);padding:7px 12px;display:inline-flex;gap:6px;align-items:center;font-size:13px}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--brand);color:var(--brand-contrast);border-color:transparent;font-weight:500}
+.btn.primary:hover{filter:brightness(1.07);background:var(--brand)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--text-2)}
+.btn[aria-disabled="true"]{opacity:.55;cursor:not-allowed}
+.soon{font-size:10.5px;background:var(--surface-2);color:var(--text-2);border-radius:4px;padding:1px 5px;font-weight:500}
+
+.section-title{display:flex;align-items:baseline;gap:8px;padding:14px 16px 0;margin:0;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2)}
+.section-title span{font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-3);font-size:12px}
+
+.pubs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:12px 16px 16px}
+@media (max-width:640px){.pubs{grid-template-columns:minmax(0,1fr)}}
+.pubcol{display:flex;flex-direction:column;gap:8px;min-width:0}
+.pubcol h3{margin:0;font-size:13px;font-weight:600;display:flex;gap:6px;align-items:center}
+.pubcol h3 .dot{width:10px;height:10px;border-radius:3px}
+.pub{border:.5px solid var(--border);border-radius:var(--radius-md);padding:9px 11px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;transition:background .15s,border-color .15s}
+.pub.hl{border-color:var(--brand);background:var(--brand-bg)}
+.pkey{font-family:var(--mono);font-size:11px;font-weight:500;border-radius:5px;padding:2px 6px;white-space:nowrap}
+.pkey.ml{background:var(--ml-bg);color:var(--ml-text)}
+.pkey.tn{background:var(--tn-bg);color:var(--tn-text)}
+.pub .t{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pub .m{font-size:11.5px;color:var(--text-3);display:flex;gap:8px;flex-wrap:wrap}
+.pub a{color:var(--text-3);display:inline-flex}
+.pub a:hover{color:var(--brand)}
+.empty-col{border:1px dashed var(--border-strong);border-radius:var(--radius-md);padding:14px;color:var(--text-2);font-size:13px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+
+.matrix-wrap{overflow-x:auto;padding:4px 0 8px}
+table.matrix{width:100%;border-collapse:separate;border-spacing:0;min-width:760px}
+.matrix th{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);text-align:left;padding:8px 10px;border-bottom:.5px solid var(--border)}
+.matrix th.grp{font-size:12px;letter-spacing:.04em;padding-bottom:4px;border-bottom:0}
+.matrix th.grp.ml{color:var(--ml-text)} .matrix th.grp.tn{color:var(--tn-text)}
+.matrix td{padding:8px 10px;border-bottom:.5px solid var(--border);vertical-align:middle}
+.matrix tr:last-child td{border-bottom:0}
+.matrix tbody tr:hover td{background:color-mix(in srgb,var(--surface-2) 60%,transparent)}
+.matrix td.ml-side{border-left:3px solid var(--ml)}
+.matrix td.tn-side{border-left:.5px solid var(--border)}
+.matrix td.bridge{text-align:center;width:44px;color:var(--text-3)}
+.vcell{display:flex;gap:8px;align-items:center;min-width:0}
+.swatch{width:14px;height:14px;border-radius:4px;border:.5px solid var(--border-strong);flex:none}
+.vname{font-weight:500}
+.vsub{font-size:11.5px;color:var(--text-3);display:flex;gap:6px;align-items:center;margin-top:1px;flex-wrap:wrap}
+.nosku{color:var(--err);font-weight:500}
+.orphan{display:flex;gap:8px;align-items:center;color:var(--text-2);font-size:12.5px}
+.linkbtn{border:1px dashed var(--brand);color:var(--brand);background:transparent;border-radius:var(--radius-sm);padding:5px 10px;font-size:12.5px;display:inline-flex;gap:6px;align-items:center}
+.linkbtn:hover{background:var(--brand-bg)}
+
+.field{display:flex;align-items:center;gap:4px;border:.5px solid var(--border-strong);border-radius:6px;padding:0 6px;background:var(--surface);width:88px}
+.field span{color:var(--text-3);font-size:12px}
+.field input{border:0;background:transparent;outline:none;width:100%;padding:5px 0;font-variant-numeric:tabular-nums;text-align:right}
+.field.changed{border-color:var(--brand);background:var(--brand-bg)}
+.field.propagated{border-style:dashed;border-color:var(--warn);background:var(--warn-bg)}
+.stock-cell{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.diff{font-size:11px;color:var(--warn);display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.diff button{border:0;background:var(--warn-bg);color:var(--warn);border-radius:4px;padding:1px 6px;font-size:11px}
+
+.bridge-ic{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--ok-bg);color:var(--ok)}
+.bridge-ic.off{background:var(--surface-2);color:var(--text-3)}
+.bridge-ic.pend{background:var(--brand-bg);color:var(--brand)}
+
+.notice{margin:0 16px 14px;display:flex;gap:10px;align-items:flex-start;border-radius:var(--radius-md);padding:10px 12px;font-size:13px}
+.notice.warn{background:var(--warn-bg);color:var(--warn)}
+.notice.info{background:var(--surface-2);color:var(--text-2)}
+.notice b{color:inherit}
+.notice p{margin:0}
+
+/* Barra de cambios */
+.savebar{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center;pointer-events:none}
+.savebar .in{pointer-events:auto;max-width:860px;width:100%;background:var(--text);color:var(--bg);border-radius:var(--radius-lg);padding:10px 12px 10px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;box-shadow:var(--shadow-pop)}
+.savebar .in .txt{flex:1;min-width:180px;font-size:13px}
+.savebar .in .txt small{display:block;opacity:.7;font-size:12px}
+.savebar .btn{background:transparent;color:var(--bg);border-color:color-mix(in srgb,var(--bg) 35%,transparent)}
+.savebar .btn.primary{background:var(--brand);color:var(--brand-contrast);border-color:transparent}
+
+/* Modal vincular */
+.scrim{position:fixed;inset:0;background:rgba(10,12,20,.45);display:grid;place-items:center;padding:16px;z-index:20}
+.modal{background:var(--surface);border-radius:var(--radius-lg);width:min(520px,100%);box-shadow:var(--shadow-pop);display:flex;flex-direction:column;max-height:86vh}
+.modal header{padding:16px 16px 8px}
+.modal header h3{margin:0;font-size:16px;font-weight:600}
+.modal header p{margin:4px 0 0;font-size:13px;color:var(--text-2)}
+.modal .body{padding:8px 16px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.opt{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 10px;border:.5px solid var(--border);border-radius:var(--radius-md);background:var(--surface);text-align:left;width:100%}
+.opt:hover{background:var(--surface-2)}
+.opt.on{border-color:var(--brand);background:var(--brand-bg)}
+.opt .radio{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--border-strong)}
+.opt.on .radio{border:5px solid var(--brand)}
+.modal footer{padding:12px 16px 16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;border-top:.5px solid var(--border)}
+.modal .result{font-size:12.5px;color:var(--text-2);background:var(--surface-2);border-radius:var(--radius-sm);padding:8px 10px}
+
+/* Historial */
+.hist{width:100%;border-collapse:collapse;min-width:640px}
+.hist th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);text-align:left;padding:10px 14px;border-bottom:.5px solid var(--border);font-weight:600}
+.hist td{padding:10px 14px;border-bottom:.5px solid var(--border);font-size:13px}
+.toast{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:var(--ok);color:#fff;padding:9px 14px;border-radius:var(--radius-md);font-size:13px;box-shadow:var(--shadow-pop);display:flex;gap:8px;align-items:center;z-index:30}
+/* ── Editor de publicación ── */
+.ed{display:flex;flex-direction:column;gap:16px}
+.ed-top{padding:14px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.ed-top h2{margin:0;font-size:18px;font-weight:600}
+.ed-top .sub{font-size:13px;color:var(--text-2);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ed-top .actions{margin-left:auto;display:flex;gap:8px}
+.proj{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 14px}
+.proj .pj{display:flex;gap:8px;align-items:center;border:.5px solid var(--border);border-radius:var(--radius-md);padding:7px 10px;font-size:12.5px;color:var(--text-2)}
+.proj .pj b{color:var(--text);font-weight:500}
+.ed-body{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+@media (max-width:1060px){.ed-body{grid-template-columns:minmax(0,1fr)}}
+.ed-main{display:flex;flex-direction:column;gap:16px;min-width:0}
+.sec{padding:0 0 16px}
+.sec h3{margin:0;padding:14px 16px 4px;font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.sec h3 .ch{font-size:11px}
+.sec .hint{padding:0 16px;margin:0 0 12px;font-size:12.5px;color:var(--text-2)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0 16px}
+@media (max-width:640px){.grid2{grid-template-columns:minmax(0,1fr)}}
+.full{grid-column:1/-1}
+.ef{display:flex;flex-direction:column;gap:5px;min-width:0}
+.ef > span.lbl{font-size:12px;font-weight:500;color:var(--text-2);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ef input,.ef textarea,.ef select{border:.5px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);padding:8px 10px;width:100%;min-width:0}
+.ef textarea{min-height:96px;resize:vertical;line-height:1.5}
+.ef.changed input,.ef.changed textarea,.ef.changed select{border-color:var(--brand);background:var(--brand-bg)}
+.ef .was{font-size:11.5px;color:var(--text-3)}
+.locked{display:flex;gap:8px;align-items:flex-start;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:8px 10px;color:var(--text-2);background:var(--surface-2);font-size:13px}
+.locked .v{color:var(--text);font-weight:500}
+.locked small{display:block;color:var(--text-3);font-size:11.5px;margin-top:2px}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:7px;padding:2px;gap:2px}
+.seg button{border:0;background:transparent;border-radius:5px;padding:3px 9px;font-size:11.5px;color:var(--text-2)}
+.seg button.on{background:var(--surface);color:var(--text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.chg-dot{width:7px;height:7px;border-radius:50%;background:var(--brand);display:inline-block}
+
+.gallery{display:flex;flex-wrap:wrap;gap:10px;padding:0 16px}
+.ph{position:relative;width:92px;height:92px;border-radius:var(--radius-md);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:600;border:2px solid transparent}
+.ph.new{border-color:var(--brand)}
+.ph .badge{position:absolute;left:5px;top:5px;font-size:10px;background:rgba(0,0,0,.45);border-radius:4px;padding:1px 5px;font-weight:500}
+.ph .tools{position:absolute;right:4px;bottom:4px;display:flex;gap:3px}
+.ph .tools button{border:0;background:rgba(0,0,0,.5);color:#fff;border-radius:5px;width:24px;height:24px;display:grid;place-items:center;padding:0}
+.ph .tools svg.i{width:14px;height:14px}
+.ph-add{width:92px;height:92px;border-radius:var(--radius-md);border:1.5px dashed var(--border-strong);background:transparent;color:var(--text-2);display:flex;flex-direction:column;gap:4px;align-items:center;justify-content:center;font-size:12px}
+.ph-add:hover{border-color:var(--brand);color:var(--brand)}
+
+.vt-wrap{overflow-x:auto;padding:0 0 4px}
+table.vt{width:100%;border-collapse:collapse;min-width:820px}
+.vt th{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);text-align:left;padding:8px 10px;border-bottom:.5px solid var(--border)}
+.vt td{padding:7px 10px;border-bottom:.5px solid var(--border);vertical-align:middle}
+.vt tr.new td{background:color-mix(in srgb,var(--brand-bg) 55%,transparent)}
+.vt tr.gone td{opacity:.5}
+.vt tr.gone td .vval{text-decoration:line-through}
+.vt input{border:.5px solid var(--border-strong);border-radius:6px;background:var(--surface);padding:5px 7px;width:100%;min-width:0;font-variant-numeric:tabular-nums}
+.vt input.changed{border-color:var(--brand);background:var(--brand-bg)}
+.vt .w-num{width:96px}
+.vt .where{display:flex;gap:4px;flex-wrap:wrap}
+.vt .mini{display:flex;gap:3px}
+.vt .mini i{width:18px;height:18px;border-radius:4px;display:block}
+.vt .tag-new{font-size:10.5px;font-weight:600;color:var(--brand);background:var(--brand-bg);border-radius:4px;padding:1px 5px}
+.add-row{padding:10px 16px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+.attrs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;padding:0 16px}
+@media (max-width:640px){.attrs{grid-template-columns:minmax(0,1fr)}}
+.catchips{display:flex;gap:6px;flex-wrap:wrap}
+.catchips .chip button{border:0;background:transparent;padding:0;color:inherit;display:inline-flex}
+
+/* Panel lateral: cambios a aplicar */
+.review{position:sticky;top:calc(16px + env(safe-area-inset-top,0px));display:flex;flex-direction:column;max-height:calc(100vh - 32px)}
+.review h3{margin:0;padding:14px 16px 4px;font-size:15px;font-weight:600}
+.review .hint{padding:0 16px;margin:0 0 8px;font-size:12.5px;color:var(--text-2)}
+.ops{list-style:none;margin:0;padding:0 10px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.ops li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:start;padding:7px 6px;border-radius:var(--radius-sm);font-size:13px}
+.ops li .w{font-size:11.5px;color:var(--warn);display:block;margin-top:2px}
+.ops .grp{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);padding:10px 6px 2px;display:block}
+.ops .s{width:18px;height:18px;display:grid;place-items:center;color:var(--text-3)}
+.ops .s.ok{color:var(--ok)}
+.ops .s.run{color:var(--brand)}
+.ops-empty{padding:18px 16px;color:var(--text-3);font-size:13px}
+.review footer{padding:12px 16px 16px;display:flex;flex-direction:column;gap:8px;border-top:.5px solid var(--border);margin-top:8px}
+.review footer .btn{justify-content:center}
+.progress{height:6px;border-radius:999px;background:var(--surface-2);overflow:hidden}
+.progress i{display:block;height:100%;background:var(--brand);transition:width .3s}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{animation:spin 1s linear infinite}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+@media (prefers-reduced-motion:no-preference){.pub,.field{transition:background .15s,border-color .15s}}
+</style>
+
+<div class="page">
+  <div class="proto-note">
+    <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+    <div><b>Prototipo de Publicaciones.</b> Cada producto del hub junta sus publicaciones de ML y de TN, unidas por SKU. Los datos son de ejemplo. Tocá <b>Editar publicación</b> para cambiar todo (fotos, variantes, descripción, características) como en Crear producto. Probalo con el Rivadavia (1 publi de ML ↔ 4 productos de TN) y con la Agenda (3 publis de ML ↔ 1 producto de TN).</div>
+    <button class="theme" id="theme" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg><span>Modo oscuro</span></button>
+  </div>
+
+  <header class="top">
+    <div>
+      <h1>Publicaciones</h1>
+      <p>Tus productos con sus publicaciones de Mercado Libre y Tienda Nube, variante por variante.</p>
+    </div>
+    <div class="tabs" role="tablist">
+      <button id="tab-prod" class="on" role="tab" type="button">Productos</button>
+      <button id="tab-hist" role="tab" type="button">Historial de publicación</button>
+    </div>
+  </header>
+
+  <div id="view-prod" class="split">
+    <aside class="panel">
+      <div class="list-head">
+        <label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Buscar por nombre o SKU"></label>
+        <div class="chips" id="filters"></div>
+      </div>
+      <ul class="plist" id="plist"></ul>
+    </aside>
+    <section class="detail" id="detail"></section>
+  </div>
+
+  <div id="view-hist" class="panel" hidden>
+    <div class="section-title">Intentos de publicar desde Crear producto <span>se conservan aunque borres el borrador</span></div>
+    <div class="matrix-wrap" style="padding:8px 0 0">
+      <table class="hist">
+        <thead><tr><th>Producto</th><th>Canales</th><th>Resultado</th><th>Unidades</th><th>Fecha</th></tr></thead>
+        <tbody>
+          <tr><td>Agenda 2027 semanal Mooving</td><td><span class="ch ml">ML</span> <span class="ch tn">TN</span></td><td><span class="st ok">Publicada</span></td><td class="num">6 de 6</td><td class="num">08/10/2026 17:42</td></tr>
+          <tr><td>Agenda 2027 semanal Mooving</td><td><span class="ch ml">ML</span></td><td><span class="st err">Con errores</span></td><td class="num">1 de 3</td><td class="num">08/10/2026 17:20</td></tr>
+          <tr><td>Set Stabilo Boss Pastel x6</td><td><span class="ch tn">TN</span></td><td><span class="st ok">Publicada</span></td><td class="num">1 de 1</td><td class="num">27/09/2026 11:05</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div id="view-edit" hidden></div>
+</div>
+
+<div id="savebar" class="savebar" hidden></div>
+<div id="modal-root"></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+const ICONS = {
+  link:'<path d="M9 15l6-6"/><path d="M11 6l.5-.5a4 4 0 0 1 5.7 5.7l-.5.5"/><path d="M13 18l-.5.5a4 4 0 0 1-5.7-5.7l.5-.5"/>',
+  unlink:'<path d="M9 15l3-3m2-2l1-1"/><path d="M11 6l.5-.5a4 4 0 0 1 5.7 5.7l-.5.5"/><path d="M13 18l-.5.5a4 4 0 0 1-5.7-5.7l.5-.5"/><path d="M3 3l18 18"/>',
+  ext:'<path d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/><path d="M11 13l9-9M15 4h5v5"/>',
+  edit:'<path d="M4 20h4L18.5 9.5a2.8 2.8 0 0 0-4-4L4 16v4"/><path d="M13.5 6.5l4 4"/>',
+  alert:'<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+  check:'<path d="M5 12l5 5L20 7"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  history:'<path d="M12 8v4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4M3 20v-5h5"/>',
+};
+const ic = (n) => `<svg class="i" viewBox="0 0 24 24">${ICONS[n]}</svg>`;
+
+/* ── Datos de ejemplo ── pubs: publicaciones reales de cada canal. rows: una por variante, unidas por SKU. */
+const PRODUCTS = [
+  { id:'riv', name:'Cuaderno Rivadavia ABC A4 tapa dura', color:'#c0392b',
+    pubs:[
+      {key:'ML-1', ch:'ml', id:'MLA1456789012', title:'Cuaderno Rivadavia Abc A4 Tapa Dura 98 Hojas Rayado', format:'legacy', sales:37},
+      {key:'TN-1', ch:'tn', id:'218843001', title:'Cuaderno Rivadavia ABC A4 — Rojo'},
+      {key:'TN-2', ch:'tn', id:'218843002', title:'Cuaderno Rivadavia ABC A4 — Azul'},
+      {key:'TN-3', ch:'tn', id:'218843003', title:'Cuaderno Rivadavia ABC A4 — Verde'},
+      {key:'TN-4', ch:'tn', id:'218843004', title:'Cuaderno Rivadavia ABC A4 — Negro'},
+    ],
+    rows:[
+      {sku:'RIV-A4-ROJ', swatch:'#c0392b', ml:{pub:'ML-1', var:'Rojo', varId:'180233411', stock:12, price:8990}, tn:{pub:'TN-1', var:'Única', stock:12, price:7990}},
+      {sku:'RIV-A4-AZU', swatch:'#2e5aa8', ml:{pub:'ML-1', var:'Azul', varId:'180233412', stock:8, price:8990}, tn:{pub:'TN-2', var:'Única', stock:8, price:7990}},
+      {sku:'RIV-A4-VER', swatch:'#2f8f5b', ml:{pub:'ML-1', var:'Verde', varId:'180233413', stock:3, price:8990}, tn:{pub:'TN-3', var:'Única', stock:5, price:7990}},
+      {sku:'RIV-A4-NEG', swatch:'#22252c', ml:{pub:'ML-1', var:'Negro', varId:'180233414', stock:15, price:8990}, tn:{pub:'TN-4', var:'Única', stock:15, price:7990}},
+    ]},
+  { id:'agenda', name:'Agenda 2027 semanal Mooving', color:'#8e6bd8',
+    pubs:[
+      {key:'ML-1', ch:'ml', id:'MLA2011453301', title:'Agenda 2027 Semanal Mooving — Lila', format:'up', sales:4},
+      {key:'ML-2', ch:'ml', id:'MLA2011453302', title:'Agenda 2027 Semanal Mooving — Celeste', format:'up', sales:2},
+      {key:'ML-3', ch:'ml', id:'MLA2011453303', title:'Agenda 2027 Semanal Mooving — Coral', format:'up', sales:0},
+      {key:'TN-1', ch:'tn', id:'230119877', title:'Agenda 2027 semanal Mooving'},
+    ],
+    family:'Agenda 2027 Semanal Mooving',
+    rows:[
+      {sku:'MOOV-27-LIL', swatch:'#b9a3e8', ml:{pub:'ML-1', var:'Lila', stock:6, price:15490}, tn:{pub:'TN-1', var:'Lila', stock:6, price:13990}},
+      {sku:'MOOV-27-CEL', swatch:'#8cc8ea', ml:{pub:'ML-2', var:'Celeste', stock:4, price:15490}, tn:{pub:'TN-1', var:'Celeste', stock:4, price:13990}},
+      {sku:'MOOV-27-COR', swatch:'#f08a74', ml:{pub:'ML-3', var:'Coral', stock:7, price:15490}, tn:{pub:'TN-1', var:'Coral', stock:7, price:13990}},
+    ]},
+  { id:'ledesma', name:'Cuaderno Monoblock Ledesma A4 80h', color:'#d98a1f',
+    pubs:[
+      {key:'ML-1', ch:'ml', id:'MLA1399001245', title:'Cuaderno Monoblock Ledesma A4 80 Hojas', format:'legacy', sales:12},
+      {key:'TN-1', ch:'tn', id:'219770410', title:'Monoblock Ledesma A4 80 hojas'},
+    ],
+    rows:[
+      {sku:null, swatch:null, ml:{pub:'ML-1', var:'Cuadriculado', varId:'177002910', stock:9, price:4290}, tn:null},
+      {sku:'LED-A4-RAY', swatch:null, ml:{pub:'ML-1', var:'Rayado', varId:'177002911', stock:14, price:4290}, tn:{pub:'TN-1', var:'Rayado', stock:14, price:3790}},
+      {sku:'LED-A4-LIS', swatch:null, ml:{pub:'ML-1', var:'Liso', varId:'177002912', stock:5, price:4290}, tn:{pub:'TN-1', var:'Liso', stock:5, price:3790}},
+      {sku:'LED-A4-CUA', swatch:null, ml:null, tn:{pub:'TN-1', var:'Cuadriculado', stock:9, price:3790}},
+    ]},
+  { id:'exito', name:'Repuesto Éxito N°3 x 96 hojas rayado', color:'#2a7f8f',
+    pubs:[
+      {key:'ML-1', ch:'ml', id:'MLA1288774410', title:'Repuesto Exito N3 96 Hojas Rayado', format:'legacy', sales:58},
+      {key:'TN-1', ch:'tn', id:'201554620', title:'Repuesto Éxito N°3 96 hojas'},
+    ],
+    rows:[
+      {sku:'EXI-N3-96R', swatch:null, ml:{pub:'ML-1', var:null, stock:22, price:3150}, tn:{pub:'TN-1', var:null, stock:22, price:2790}},
+    ]},
+  { id:'bic', name:'Lapicera Bic Cristal x 10 azul', color:'#3b62c4',
+    pubs:[{key:'ML-1', ch:'ml', id:'MLA1502238870', title:'Lapicera Bic Cristal Azul Caja X10', format:'legacy', sales:21}],
+    rows:[{sku:'BIC-CRI-AZ10', swatch:null, ml:{pub:'ML-1', var:null, stock:18, price:5600}, tn:null}]},
+  { id:'stabilo', name:'Set Stabilo Boss Pastel x6', color:'#e58fb5',
+    pubs:[{key:'TN-1', ch:'tn', id:'231004118', title:'Resaltadores Stabilo Boss Pastel x6'}],
+    rows:[{sku:'STB-PAS-6', swatch:null, ml:null, tn:{pub:'TN-1', var:null, stock:10, price:11990}}]},
+];
+
+/* Variantes sueltas del otro canal que se pueden ofrecer para vincular (en el real: GET /api/mapping/sources/*). */
+const ORPHANS = {
+  tn: [
+    {pid:'ledesma', row:3, label:'Monoblock Ledesma A4 80 hojas · Cuadriculado', sku:'LED-A4-CUA', stock:9, suggested:true},
+    {label:'Monoblock Ledesma A5 80 hojas · Cuadriculado', sku:'LED-A5-CUA', stock:4},
+    {label:'Repuesto Rivadavia N°3 · Cuadriculado', sku:'RIVR-N3-CUA', stock:11},
+  ],
+};
+
+const STATUS = {
+  linked:{label:'Vinculado', cls:'ok'},
+  desync:{label:'Stock distinto', cls:'warn'},
+  orphan:{label:'Variantes sin par', cls:'err'},
+  onlyml:{label:'Solo en ML', cls:'mute'},
+  onlytn:{label:'Solo en TN', cls:'mute'},
+};
+const FILTERS = [['all','Todos'],['linked','Vinculados'],['desync','Stock distinto'],['orphan','Sin par'],['onlyml','Solo ML'],['onlytn','Solo TN']];
+
+const state = { sel:'riv', filter:'all', q:'', edits:{}, links:{}, modal:null };
+
+const money = (n) => '$ ' + Number(n).toLocaleString('es-AR');
+const pubOf = (p, key) => p.pubs.find(x => x.key === key);
+const initials = (s) => s.split(/\s+/).filter(w => /^[A-ZÁÉÍÓÚÑ]/i.test(w)).slice(0,2).map(w => w[0].toUpperCase()).join('');
+
+function rowsOf(p){
+  // aplica vínculos pendientes: la fila suelta de ML absorbe la de TN elegida
+  const linked = state.links[p.id] || {};
+  const rows = [];
+  const absorbed = new Set(Object.values(linked).map(l => l.tnRow).filter(v => v != null));
+  p.rows.forEach((r, i) => {
+    if (absorbed.has(i)) return;
+    if (linked[i]) { const t = linked[i]; rows.push({...r, i, sku:t.sku, tn:t.tnRow != null ? p.rows[t.tnRow].tn : {pub:'—', var:t.label, stock:t.stock, price:0}, pendingLink:true}); }
+    else rows.push({...r, i});
+  });
+  return rows;
+}
+function statusOf(p){
+  const hasMl = p.pubs.some(x => x.ch==='ml'), hasTn = p.pubs.some(x => x.ch==='tn');
+  if (!hasTn) return 'onlyml';
+  if (!hasMl) return 'onlytn';
+  const rows = rowsOf(p);
+  if (rows.some(r => !r.ml || !r.tn)) return 'orphan';
+  if (rows.some(r => effStock(p, r, 'ml') !== effStock(p, r, 'tn'))) return 'desync';
+  return 'linked';
+}
+const ek = (p, i, f) => `${p.id}:${i}:${f}`;
+function effStock(p, r, ch){
+  const e = state.edits[ek(p, r.i, 'stock')];
+  if (e != null) return e;
+  return r[ch]?.stock;
+}
+
+/* ── Lista ── */
+function renderList(){
+  const counts = {all:PRODUCTS.length};
+  PRODUCTS.forEach(p => { const s = statusOf(p); counts[s] = (counts[s]||0) + 1; });
+  document.getElementById('filters').innerHTML = FILTERS.map(([k, l]) =>
+    `<button type="button" class="chip ${state.filter===k?'on':''}" data-f="${k}">${l} <span class="n">${counts[k]||0}</span></button>`).join('');
+  const q = state.q.toLowerCase();
+  const items = PRODUCTS.filter(p => (state.filter==='all' || statusOf(p)===state.filter) &&
+    (!q || p.name.toLowerCase().includes(q) || p.rows.some(r => (r.sku||'').toLowerCase().includes(q))));
+  document.getElementById('plist').innerHTML = items.map(p => {
+    const nMl = p.pubs.filter(x => x.ch==='ml').length, nTn = p.pubs.filter(x => x.ch==='tn').length;
+    const st = STATUS[statusOf(p)];
+    const nv = p.rows.length;
+    return `<li><button type="button" class="pitem ${state.sel===p.id?'on':''}" data-p="${p.id}">
+      <span class="thumb" style="background:${p.color}">${initials(p.name)}</span>
+      <span style="min-width:0"><div class="pname">${p.name}</div>
+        <div class="pmeta">${nMl?`<span class="ch ml">ML × ${nMl}</span>`:'<span class="ch off">sin ML</span>'}${nTn?`<span class="ch tn">TN × ${nTn}</span>`:'<span class="ch off">sin TN</span>'}<span>${nv} ${nv===1?'variante':'variantes'}</span></div></span>
+      <span class="st ${st.cls}">${st.label}</span></button></li>`;
+  }).join('') || `<li style="padding:24px;color:var(--text-2);text-align:center">No hay productos con ese filtro.</li>`;
+}
+
+/* ── Detalle ── */
+function pubCard(p, x){
+  const sub = x.ch==='ml'
+    ? `<span class="mono">${x.id}</span><span>${x.format==='legacy'?'Clásica, con variaciones':'User Products'}</span><span>${x.sales} ventas</span>`
+    : `<span class="mono">#${x.id}</span>`;
+  const href = x.ch==='ml' ? `https://articulo.mercadolibre.com.ar/MLA-${x.id.slice(3)}` : '#';
+  return `<div class="pub" data-pub="${x.key}">
+    <span class="pkey ${x.ch}">${x.key}</span>
+    <div style="min-width:0"><div class="t" title="${x.title}">${x.title}</div><div class="m">${sub}</div></div>
+    ${x.ch==='ml'?`<a href="${href}" target="_blank" rel="noopener" aria-label="Ver en Mercado Libre">${ic('ext')}</a>`:'<span></span>'}
+  </div>`;
+}
+function priceField(p, r, ch){
+  const key = ek(p, r.i, 'price_'+ch);
+  const base = r[ch].price;
+  let val = state.edits[key], cls = '';
+  // Precio ML en publicación clásica: un cambio en una variación se propaga a todas
+  if (ch==='ml' && val == null) {
+    const pub = pubOf(p, r.ml.pub);
+    if (pub?.format==='legacy') {
+      const src = rowsOf(p).find(o => o.ml?.pub===r.ml.pub && state.edits[ek(p, o.i, 'price_ml')] != null);
+      if (src) { val = state.edits[ek(p, src.i, 'price_ml')]; cls = 'propagated'; }
+    }
+  } else if (val != null) cls = 'changed';
+  return `<label class="field ${cls}"><span>$</span><input inputmode="numeric" id="f-${key}" data-k="${key}" value="${val ?? base}" aria-label="Precio ${ch.toUpperCase()}"></label>`;
+}
+function stockField(p, r){
+  const key = ek(p, r.i, 'stock');
+  const e = state.edits[key];
+  const both = r.ml && r.tn;
+  const diff = both && e == null && r.ml.stock !== r.tn.stock;
+  const val = e ?? (r.ml ? r.ml.stock : r.tn.stock);
+  return `<div class="stock-cell"><label class="field ${e!=null?'changed':''}"><input inputmode="numeric" id="f-${key}" data-k="${key}" value="${val}" aria-label="Stock"><span>u.</span></label>
+    ${diff?`<div class="diff">${ic('alert')} ML ${r.ml.stock} · TN ${r.tn.stock} <button type="button" data-use="${key}|${r.ml.stock}">Usar ML</button><button type="button" data-use="${key}|${r.tn.stock}">Usar TN</button></div>`:''}</div>`;
+}
+function vcell(p, r, ch){
+  const s = r[ch];
+  const pub = pubOf(p, s.pub);
+  const label = s.var || 'Sin variantes';
+  return `<div class="vcell">${r.swatch?`<span class="swatch" style="background:${r.swatch}"></span>`:''}
+    <div style="min-width:0"><div class="vname">${label}</div>
+    <div class="vsub">${pub?`<span class="pkey ${ch}">${pub.key}</span>`:''}${ch==='ml' && s.varId?`<span class="mono">var ${s.varId}</span>`:''}</div></div></div>`;
+}
+
+function renderDetail(){
+  const p = PRODUCTS.find(x => x.id === state.sel);
+  const el = document.getElementById('detail');
+  if (!p) { el.innerHTML = ''; return; }
+  const rows = rowsOf(p);
+  const mlPubs = p.pubs.filter(x => x.ch==='ml'), tnPubs = p.pubs.filter(x => x.ch==='tn');
+  const st = STATUS[statusOf(p)];
+  const relation = `${mlPubs.length} ${mlPubs.length===1?'publicación':'publicaciones'} en ML · ${tnPubs.length} ${tnPubs.length===1?'producto':'productos'} en TN`;
+  const legacyPub = mlPubs.find(x => x.format==='legacy' && rowsOf(p).filter(r => r.ml?.pub===x.key).length > 1);
+  const legacyEdited = legacyPub && rows.some(r => r.ml?.pub===legacyPub.key && state.edits[ek(p, r.i, 'price_ml')] != null);
+
+  el.innerHTML = `
+  <div class="panel">
+    <div class="dhead">
+      <span class="thumb" style="background:${p.color}">${initials(p.name)}</span>
+      <div style="min-width:0"><h2>${p.name}</h2><div class="sub">${relation} <span class="st ${st.cls}" style="margin-left:6px">${st.label}</span></div></div>
+      <div class="actions">
+        <button type="button" class="btn primary" data-edit="${p.id}">${ic('edit')} Editar publicación</button>
+        ${!tnPubs.length?`<button type="button" class="btn primary">${ic('plus')} Publicar en TN</button>`:''}
+        ${!mlPubs.length?`<button type="button" class="btn primary">${ic('plus')} Publicar en ML</button>`:''}
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3 class="section-title">Publicaciones <span>pasá el mouse por una variante para ver a cuál pertenece</span></h3>
+    <div class="pubs">
+      <div class="pubcol"><h3><span class="dot" style="background:var(--ml)"></span>Mercado Libre</h3>
+        ${mlPubs.map(x => pubCard(p, x)).join('') || `<div class="empty-col">Este producto no está publicado en ML.<button type="button" class="linkbtn">${ic('link')} Vincular a una publicación existente</button></div>`}
+        ${p.family?`<div class="m" style="font-size:12px;color:var(--text-3)">ML las agrupa en una ficha: familia "${p.family}"</div>`:''}
+      </div>
+      <div class="pubcol"><h3><span class="dot" style="background:var(--tn)"></span>Tienda Nube</h3>
+        ${tnPubs.map(x => pubCard(p, x)).join('') || `<div class="empty-col">Este producto no está publicado en TN.<button type="button" class="linkbtn">${ic('link')} Vincular a un producto existente</button></div>`}
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3 class="section-title">Variantes <span>una fila por SKU · el stock se guarda igual en los dos canales</span></h3>
+    ${legacyEdited?`<div class="notice warn">${ic('alert')}<p><b>${legacyPub.key} es una publicación clásica de ML.</b> ML no permite precios distintos por variación, así que el nuevo precio se aplica a las ${rows.filter(r => r.ml?.pub===legacyPub.key).length} variaciones (marcadas con borde punteado).</p></div>`:''}
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr><th></th><th class="grp ml" colspan="2">Mercado Libre</th><th></th><th class="grp tn" colspan="2">Tienda Nube</th><th></th></tr>
+          <tr><th>SKU</th><th>Variante</th><th>Precio</th><th></th><th>Variante</th><th>Precio</th><th>Stock</th></tr>
+        </thead>
+        <tbody>
+        ${rows.map(r => {
+          const both = r.ml && r.tn;
+          const pubs = [r.ml?.pub ? 'ml:'+r.ml.pub : '', r.tn?.pub ? 'tn:'+r.tn.pub : ''].join(' ');
+          return `<tr data-hl="${pubs}">
+            <td>${r.sku?`<span class="mono">${r.sku}</span>`:`<span class="nosku">Sin SKU</span>`}${r.pendingLink?`<div class="vsub" style="color:var(--brand)">se iguala al guardar</div>`:''}</td>
+            <td class="ml-side">${r.ml?vcell(p, r, 'ml'):`<span class="orphan">No está en ML</span>`}</td>
+            <td>${r.ml?priceField(p, r, 'ml'):''}</td>
+            <td class="bridge">${both?`<span class="bridge-ic ${r.pendingLink?'pend':''}" title="${r.pendingLink?'Vínculo pendiente de guardar':'Vinculadas por SKU'}">${ic('link')}</span>`:`<span class="bridge-ic off" title="Sin par">${ic('unlink')}</span>`}</td>
+            <td class="tn-side">${r.tn?vcell(p, r, 'tn'):`<button type="button" class="linkbtn" data-link="${r.i}">${ic('link')} Vincular con TN…</button>`}</td>
+            <td>${r.tn?(r.tn.price?priceField(p, r, 'tn'):'<span class="orphan">—</span>'):''}</td>
+            <td>${stockField(p, r)}</td>
+          </tr>`; }).join('')}
+        </tbody>
+      </table>
+    </div>
+    ${statusOf(p)==='orphan'?`<div class="notice info">${ic('alert')}<p>Las variantes sin par no se sincronizan: una venta en un canal no descuenta el stock del otro. Vincularlas les pone el mismo SKU en los dos canales.</p></div>`:''}
+  </div>`;
+}
+
+/* ── Barra de cambios ── */
+function renderSavebar(){
+  const keys = Object.keys(state.edits);
+  const links = Object.values(state.links).reduce((a, o) => a + Object.keys(o).length, 0);
+  const bar = document.getElementById('savebar');
+  const n = keys.length + links;
+  bar.hidden = n === 0;
+  if (!n) return;
+  const parts = [];
+  const st = keys.filter(k => k.endsWith(':stock')).length; if (st) parts.push(`${st} de stock`);
+  const pr = keys.filter(k => k.includes(':price_')).length; if (pr) parts.push(`${pr} de precio`);
+  if (links) parts.push(`${links} ${links===1?'vínculo':'vínculos'}`);
+  bar.innerHTML = `<div class="in"><div class="txt"><b>${n} ${n===1?'cambio':'cambios'} sin guardar</b><small>${parts.join(' · ')} · se encolan y se aplican en ML y TN</small></div>
+    <button type="button" class="btn" id="discard">Descartar</button><button type="button" class="btn primary" id="save">${ic('check')} Guardar cambios</button></div>`;
+}
+
+/* ── Modal vincular ── */
+function renderModal(){
+  const root = document.getElementById('modal-root');
+  if (!state.modal) { root.innerHTML = ''; return; }
+  const p = PRODUCTS.find(x => x.id === state.modal.pid);
+  const r = p.rows[state.modal.row];
+  const opts = ORPHANS.tn;
+  const choice = state.modal.choice;
+  const chosen = choice != null ? opts[choice] : null;
+  root.innerHTML = `<div class="scrim" id="scrim"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt">
+    <header><h3 id="mt">Vincular "${r.ml.var}" con Tienda Nube</h3><p>Elegí la variante de TN que corresponde. Te mostramos las que todavía no tienen par en ML.</p></header>
+    <div class="body">
+      ${opts.map((o, i) => `<button type="button" class="opt ${choice===i?'on':''}" data-opt="${i}"><span class="radio"></span>
+        <span style="min-width:0"><div class="vname">${o.label}</div><div class="vsub"><span class="mono">${o.sku}</span><span>${o.stock} u.</span>${o.suggested?'<span class="st ok" style="padding:1px 7px">mismo producto</span>':''}</div></span><span></span></button>`).join('')}
+      ${chosen?`<div class="result">Al guardar, la variación de ML <b>${r.ml.var}</b> (var ${r.ml.varId}) pasa a tener el SKU <span class="mono">${chosen.sku}</span>. Desde ahí se sincronizan las ventas de los dos canales.</div>`:''}
+    </div>
+    <footer><button type="button" class="btn" id="mcancel">Cancelar</button><button type="button" class="btn primary" id="mok" ${chosen?'':'aria-disabled="true"'}>${ic('link')} Vincular</button></footer>
+  </div></div>`;
+}
+
+function render(){ renderList(); renderDetail(); renderSavebar(); renderModal(); }
+function toast(msg){ const t = document.getElementById('toast'); t.innerHTML = ic('check') + msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2600); }
+
+/* ── Eventos ── */
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.f) { state.filter = b.dataset.f; renderList(); }
+  else if (b.dataset.p) { state.sel = b.dataset.p; renderList(); renderDetail(); }
+  else if (b.dataset.use) { const [k, v] = b.dataset.use.split('|'); state.edits[k] = Number(v); renderList(); renderDetail(); renderSavebar(); }
+  else if (b.dataset.link) { state.modal = {pid:state.sel, row:Number(b.dataset.link), choice:null}; renderModal(); }
+  else if (b.dataset.opt) { state.modal.choice = Number(b.dataset.opt); renderModal(); }
+  else if (b.id === 'mcancel') { state.modal = null; renderModal(); }
+  else if (b.id === 'mok' && state.modal.choice != null) {
+    const o = ORPHANS.tn[state.modal.choice];
+    const pid = state.modal.pid;
+    state.links[pid] = state.links[pid] || {};
+    state.links[pid][state.modal.row] = { sku:o.sku, tnRow: o.pid===pid ? o.row : null, label:o.label, stock:o.stock };
+    state.modal = null; render();
+  }
+  else if (b.dataset.edit) openEditor(b.dataset.edit);
+  else if (b.id === 'discard') { state.edits = {}; state.links = {}; render(); }
+  else if (b.id === 'save') {
+    const n = Object.keys(state.edits).length + Object.values(state.links).reduce((a, o) => a + Object.keys(o).length, 0);
+    // simulación: aplicamos los cambios a los datos
+    PRODUCTS.forEach(p => {
+      const L = state.links[p.id] || {};
+      Object.entries(L).forEach(([i, l]) => { const r = p.rows[i]; r.sku = l.sku; if (l.tnRow != null) { r.tn = p.rows[l.tnRow].tn; p.rows[l.tnRow]._drop = true; } });
+      p.rows.forEach((r, i) => {
+        const s = state.edits[`${p.id}:${i}:stock`]; if (s != null) { if (r.ml) r.ml.stock = s; if (r.tn) r.tn.stock = s; }
+        const pt = state.edits[`${p.id}:${i}:price_tn`]; if (pt != null && r.tn) r.tn.price = pt;
+      });
+      // precio ML: propaga dentro de publicaciones clásicas
+      p.rows.forEach((r, i) => {
+        const pm = state.edits[`${p.id}:${i}:price_ml`]; if (pm == null || !r.ml) return;
+        const pub = pubOf(p, r.ml.pub);
+        p.rows.forEach(o => { if (o.ml && (o === r || (pub.format==='legacy' && o.ml.pub === r.ml.pub))) o.ml.price = pm; });
+      });
+      p.rows = p.rows.filter(r => !r._drop);
+    });
+    state.edits = {}; state.links = {}; render();
+    toast(` ${n} ${n===1?'cambio encolado':'cambios encolados'} para ML y TN`);
+  }
+  else if (b.id === 'theme') {
+    const root = document.documentElement;
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    b.querySelector('span').textContent = dark ? 'Modo oscuro' : 'Modo claro';
+  }
+  else if (b.id === 'tab-prod' || b.id === 'tab-hist') {
+    const prod = b.id === 'tab-prod';
+    document.getElementById('tab-prod').classList.toggle('on', prod);
+    document.getElementById('tab-hist').classList.toggle('on', !prod);
+    document.getElementById('view-prod').hidden = !prod;
+    document.getElementById('view-hist').hidden = prod;
+    document.getElementById('savebar').hidden = !prod || document.getElementById('savebar').innerHTML === '';
+  }
+});
+document.addEventListener('click', (e) => { if (e.target.id === 'scrim') { state.modal = null; renderModal(); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.modal) { state.modal = null; renderModal(); } });
+
+document.addEventListener('change', (e) => {
+  const k = e.target.dataset?.k; if (!k) return;
+  const v = Number(String(e.target.value).replace(/\D/g, ''));
+  const [pid, i, f] = k.split(':');
+  const p = PRODUCTS.find(x => x.id === pid), r = p.rows[i];
+  const base = f === 'stock' ? (r.ml ? r.ml.stock : r.tn?.stock) : f === 'price_ml' ? r.ml?.price : r.tn?.price;
+  const diffBase = f === 'stock' && r.ml && r.tn && r.ml.stock !== r.tn.stock;
+  if (v === base && !diffBase) delete state.edits[k]; else state.edits[k] = v;
+  renderList(); renderDetail(); renderSavebar();
+});
+document.getElementById('q').addEventListener('input', (e) => { state.q = e.target.value; renderList(); });
+
+/* resaltar la publicación de la variante bajo el mouse */
+document.addEventListener('mouseover', (e) => {
+  const tr = e.target.closest('tr[data-hl]');
+  document.querySelectorAll('.pub.hl').forEach(x => x.classList.remove('hl'));
+  if (!tr) return;
+  tr.dataset.hl.split(' ').filter(Boolean).forEach(t => {
+    const key = t.split(':')[1];
+    const col = t.startsWith('ml') ? 0 : 1;
+    document.querySelectorAll('.pubcol')[col]?.querySelector(`[data-pub="${key}"]`)?.classList.add('hl');
+  });
+});
+
+/* ══ Editor de publicación ══
+   Al abrirlo se importan las publicaciones reales de ML y TN a un borrador (mismo modelo que Crear
+   producto). Al guardar se comparan contra lo importado y se manda solo lo que cambió, a cada canal. */
+Object.assign(ICONS, {
+  lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  trash:'<path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
+  star:'<path d="M12 17.8 5.8 21l1.2-6.9-5-4.9 6.9-1L12 2l3.1 6.2 6.9 1-5 4.9 1.2 6.9z"/>',
+  undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/>',
+  back:'<path d="M15 6l-6 6 6 6"/>',
+  dot:'<circle cx="12" cy="12" r="3"/>',
+  photo:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 8"/>',
+});
+
+const EDIT_SEED = {
+  riv:{ brand:'Rivadavia', category:'Librería y Mercería › Cuadernos', tnCats:['Cuadernos','Tapa dura'],
+    descMl:'Cuaderno Rivadavia ABC A4 tapa dura.\n98 hojas rayadas, papel de 56 g.\nIdeal para secundaria y facultad.',
+    descTn:'Cuaderno Rivadavia ABC A4 de tapa dura, 98 hojas rayadas.\n\nPapel de 56 g, no traspasa.',
+    photos:['#c0392b','#2e5aa8','#2f8f5b','#22252c','#9a8f80'], axis:'Color', mlAxis:'Color (COLOR)',
+    sales:[14,9,8,6], photoMap:[[0,4],[1,4],[2,4],[3,4]],
+    attrs:[['Marca','Rivadavia',true],['Tipo de hoja','Rayada'],['Cantidad de hojas','98'],['Tamaño de la hoja','A4'],['Tipo de tapa','Dura'],['Gramaje','56 g']],
+    dims:['29,7','21','1,5','620'] },
+  agenda:{ brand:'Mooving', category:'Librería y Mercería › Agendas', tnCats:['Agendas 2027'],
+    descMl:'Agenda 2027 semanal Mooving.\nTapa flexible, 160 páginas, cinta separadora.',
+    descTn:'Agenda 2027 semanal Mooving.\nTapa flexible, 160 páginas, cinta separadora.',
+    photos:['#b9a3e8','#8cc8ea','#f08a74','#c7b9a6'], axis:'Color', mlAxis:'Color (COLOR)',
+    sales:[4,2,0], photoMap:[[0,3],[1,3],[2,3]],
+    attrs:[['Marca','Mooving',true],['Año','2027'],['Formato','Semanal'],['Cantidad de páginas','160']],
+    dims:['21','15','1,2','380'] },
+};
+function seedFor(p){
+  return EDIT_SEED[p.id] || { brand:p.name.split(' ')[1] || '', category:'Librería y Mercería › Escolares', tnCats:['Escolar'],
+    descMl:p.name + '.\nProducto original, envío en el día.', descTn:p.name + '.\nProducto original, envío en el día.',
+    photos:[p.color,'#8a8f9c','#b0a48e'], axis:p.rows.length > 1 ? 'Tipo de hoja' : null, mlAxis:'Personalizado',
+    sales:p.rows.map((_, i) => i % 2 ? 0 : 3), photoMap:p.rows.map(() => [0]),
+    attrs:[['Marca',p.name.split(' ')[1] || '',true],['Modelo',p.name.split(' ').slice(2,4).join(' ')],['Unidades por pack','1']],
+    dims:['20','15','1','300'] };
+}
+
+/* cómo se proyecta este producto en cada canal (lo mismo que elige Crear producto) */
+function projection(p, ch){
+  const pubs = p.pubs.filter(x => x.ch === ch);
+  if (!pubs.length) return null;
+  if (p.rows.length <= 1) return { mode:'simple', text:'1 publicación sin variantes' };
+  if (pubs.length === 1) return { mode:'single', text:`1 ${ch==='ml'?'publicación':'producto'} con ${p.rows.filter(r => r[ch]).length} variantes adentro` };
+  return { mode:'per', text:`1 ${ch==='ml'?'publicación':'producto'} por variante (${pubs.length})` + (ch==='ml' && pubs[0].format==='up' ? ', agrupadas en una ficha' : '') };
+}
+
+let E = null;
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const salesOf = (p) => p.pubs.filter(x => x.ch==='ml').reduce((a, x) => a + (x.sales||0), 0);
+
+function importDraft(p){
+  const s = seedFor(p);
+  const mlPub = p.pubs.find(x => x.ch==='ml');
+  const tnPubs = p.pubs.filter(x => x.ch==='tn');
+  const photos = s.photos.map((c, i) => ({ id:'p'+i, color:c }));
+  const tnProj = projection(p, 'tn');
+  return {
+    name:p.name, brand:s.brand,
+    descMode: s.descMl.trim() === s.descTn.trim() ? 'same' : 'split',
+    desc:s.descMl, descMl:s.descMl, descTn:s.descTn,
+    photos,
+    axis:s.axis, mlAxis:s.mlAxis,
+    variants:p.rows.map((r, i) => ({
+      i, value:r.ml?.var || (r.tn?.var && r.tn.var !== 'Única' ? r.tn.var : null) || 'Única',
+      swatch:r.swatch, sku:r.sku || '', stock:(r.ml || r.tn).stock,
+      price_ml:r.ml?.price ?? null, price_tn:r.tn?.price ?? null,
+      mlPub:r.ml?.pub || null, tnPub:r.tn?.pub || null, sales:s.sales[i] || 0,
+      photos:(s.photoMap[i] || [0]).map(k => 'p'+k), gone:false, isNew:false,
+    })),
+    ml: mlPub ? { title:mlPub.title, listing:'gold_special', attrs:s.attrs.map(a => ({ name:a[0], value:a[1], locked:!!a[2] })),
+      category:s.category, condition:'Nuevo' } : null,
+    tn: tnPubs.length ? { cats:[...s.tnCats], names:Object.fromEntries(tnPubs.map(x => [x.key, x.title])), proj:tnProj?.mode } : null,
+    dims:[...s.dims],
+  };
+}
+
+function openEditor(pid){
+  const p = PRODUCTS.find(x => x.id === pid);
+  const d = importDraft(p);
+  E = { p, orig:clone(d), cur:d, saving:null, nextPhoto:100 };
+  setView('edit');
+}
+function setView(v){
+  state.view = v;
+  document.getElementById('view-prod').hidden = v !== 'prod';
+  document.getElementById('view-hist').hidden = v !== 'hist';
+  document.getElementById('view-edit').hidden = v !== 'edit';
+  document.querySelector('header.top').hidden = v === 'edit';
+  if (v === 'edit') { document.getElementById('savebar').hidden = true; renderEditor(); window.scrollTo({ top:0 }); }
+  else renderSavebar();
+}
+
+const getPath = (o, path) => path.split('.').reduce((a, k) => a == null ? a : a[k], o);
+function setPath(o, path, v){ const ks = path.split('.'); const last = ks.pop(); const t = ks.reduce((a, k) => a[k], o); t[last] = v; }
+
+/* ── Lo que se va a mandar a cada canal ── */
+function buildOps(){
+  const { p, orig:o, cur:c } = E;
+  const ml = p.pubs.filter(x => x.ch==='ml'), tn = p.pubs.filter(x => x.ch==='tn');
+  const mlProj = projection(p, 'ml'), tnProj = projection(p, 'tn');
+  const ops = [];
+  const add = (ch, target, text, warn) => ops.push({ ch, target, text, warn });
+
+  const dM = c.descMode==='same' ? c.desc : c.descMl, dT = c.descMode==='same' ? c.desc : c.descTn;
+  const oM = o.descMode==='same' ? o.desc : o.descMl, oT = o.descMode==='same' ? o.desc : o.descTn;
+  if (dM !== oM) ml.forEach(x => add('ml', x.key, 'Cambiar descripción'));
+  if (dT !== oT) tn.forEach(x => add('tn', x.key, 'Cambiar descripción'));
+
+  const ids = (a) => a.map(x => x.id).join();
+  const added = c.photos.filter(x => !o.photos.some(y => y.id === x.id)).length;
+  const removed = o.photos.filter(x => !c.photos.some(y => y.id === x.id)).length;
+  if (added || removed || ids(c.photos) !== ids(o.photos)) {
+    const parts = [added && `+${added}`, removed && `−${removed}`].filter(Boolean).join(' ');
+    const txt = 'Actualizar fotos' + (parts ? ` (${parts})` : ' (nuevo orden)');
+    ml.forEach(x => add('ml', x.key, txt)); tn.forEach(x => add('tn', x.key, txt));
+  }
+  if (c.brand !== o.brand) tn.forEach(x => add('tn', x.key, `Cambiar marca a "${c.brand}"`));
+  if (c.dims.join() !== o.dims.join()) { ml.forEach(x => add('ml', x.key, 'Cambiar medidas y peso del paquete')); tn.forEach(x => add('tn', x.key, 'Cambiar medidas y peso')); }
+
+  if (c.ml && o.ml) {
+    if (c.ml.title !== o.ml.title) ml.forEach(x => add('ml', x.key, 'Cambiar título'));
+    if (c.ml.listing !== o.ml.listing) ml.forEach(x => add('ml', x.key, c.ml.listing==='gold_pro' ? 'Pasar a Premium (cuotas sin interés)' : 'Pasar a Clásica', c.ml.listing==='gold_special' ? 'ML no deja bajar de Premium a Clásica en todas las categorías' : null));
+    const ch = c.ml.attrs.filter((a, i) => a.value !== o.ml.attrs[i].value).map(a => a.name);
+    if (ch.length) ml.forEach(x => add('ml', x.key, `Cambiar características: ${ch.join(', ')}`));
+  }
+  if (c.tn && o.tn) {
+    Object.keys(c.tn.names).forEach(k => { if (c.tn.names[k] !== o.tn.names[k]) add('tn', k, 'Cambiar nombre'); });
+    if (c.tn.cats.join() !== o.tn.cats.join()) tn.forEach(x => add('tn', x.key, 'Cambiar categorías'));
+  }
+
+  c.variants.forEach((v, idx) => {
+    const ov = o.variants[idx];
+    const label = `"${v.value}"`;
+    if (v.isNew) {
+      if (v.gone) return;
+      if (mlProj) {
+        if (mlProj.mode === 'single') add('ml', ml[0].key, `Agregar variación ${label}`);
+        else add('ml', 'nuevo', `Crear publicación ${label}` + (ml[0].format==='up' ? ' en la misma ficha' : ''));
+      }
+      if (tnProj) {
+        if (tnProj.mode === 'per') add('tn', 'nuevo', `Crear producto "${c.name} — ${v.value}"`);
+        else add('tn', tn[0].key, `Agregar variante ${label}`);
+      }
+      return;
+    }
+    if (v.gone) {
+      if (v.mlPub) add('ml', v.mlPub, mlProj.mode==='single' ? `Eliminar variación ${label}` : `Finalizar publicación ${label}`, v.sales ? `Tiene ${v.sales} ventas: queda en el historial de ML` : null);
+      if (v.tnPub) add('tn', v.tnPub, tnProj.mode==='per' ? `Eliminar producto ${label}` : `Eliminar variante ${label}`);
+      return;
+    }
+    if (v.value !== ov.value) { if (v.mlPub) add('ml', v.mlPub, `Renombrar variante ${'"'+ov.value+'"'} → ${label}`); if (v.tnPub) add('tn', v.tnPub, `Renombrar variante ${'"'+ov.value+'"'} → ${label}`); }
+    if (v.sku !== ov.sku) { if (v.mlPub) add('ml', v.mlPub, `SKU de ${label} → ${v.sku}`); if (v.tnPub) add('tn', v.tnPub, `SKU de ${label} → ${v.sku}`); }
+    if (v.stock !== ov.stock) { if (v.mlPub) add('ml', v.mlPub, `Stock de ${label}: ${ov.stock} → ${v.stock}`); if (v.tnPub) add('tn', v.tnPub, `Stock de ${label}: ${ov.stock} → ${v.stock}`); }
+    if (v.price_tn !== ov.price_tn && v.tnPub) add('tn', v.tnPub, `Precio de ${label}: ${money(ov.price_tn)} → ${money(v.price_tn)}`);
+    if (v.price_ml !== ov.price_ml && v.mlPub) {
+      const legacy = ml.find(x => x.key === v.mlPub)?.format === 'legacy' && mlProj.mode === 'single';
+      add('ml', v.mlPub, `Precio de ${label}: ${money(ov.price_ml)} → ${money(v.price_ml)}`, legacy ? 'Publicación clásica: se aplica a todas las variaciones' : null);
+    }
+    if (v.photos.join() !== ov.photos.join()) { if (v.mlPub) add('ml', v.mlPub, `Fotos de ${label}`); if (v.tnPub) add('tn', v.tnPub, `Fotos de ${label}`); }
+  });
+  return ops;
+}
+
+/* ── Render ── */
+const changed = (path) => JSON.stringify(getPath(E.cur, path)) !== JSON.stringify(getPath(E.orig, path));
+function field(label, path, { type='input', placeholder='', extra='' } = {}){
+  const v = getPath(E.cur, path) ?? '';
+  const ctl = type === 'textarea'
+    ? `<textarea id="e-${path}" data-eb="${path}" placeholder="${placeholder}">${v}</textarea>`
+    : `<input id="e-${path}" data-eb="${path}" value="${String(v).replace(/"/g,'&quot;')}" placeholder="${placeholder}">`;
+  return `<label class="ef ${changed(path)?'changed':''}"><span class="lbl">${label}${extra}</span>${ctl}</label>`;
+}
+function lockedField(label, value, reason){
+  return `<div class="ef"><span class="lbl">${label}</span><div class="locked">${ic('lock')}<div><div class="v">${value}</div><small>${reason}</small></div></div></div>`;
+}
+const photoColor = (id) => (E.cur.photos.find(x => x.id === id) || E.orig.photos.find(x => x.id === id))?.color;
+
+function renderEditor(){
+  const { p, cur:c } = E;
+  const el = document.getElementById('view-edit');
+  const mlProj = projection(p, 'ml'), tnProj = projection(p, 'tn');
+  const mlPubs = p.pubs.filter(x => x.ch==='ml'), tnPubs = p.pubs.filter(x => x.ch==='tn');
+  const sales = salesOf(p);
+  const up = mlPubs[0]?.format === 'up';
+
+  el.innerHTML = `<div class="ed">
+  <div class="panel">
+    <div class="ed-top">
+      <button type="button" class="btn ghost" data-ea="back">${ic('back')} Volver</button>
+      <div style="min-width:0"><h2>Editar: ${c.name}</h2>
+        <div class="sub">Cargado desde Mercado Libre y Tienda Nube recién. Lo que no toques se queda como está en cada canal.</div></div>
+    </div>
+    <div class="proj">
+      ${mlProj?`<div class="pj"><span class="ch ml">ML</span><b>${mlProj.text}</b></div>`:'<div class="pj"><span class="ch off">ML</span>No está publicado</div>'}
+      ${tnProj?`<div class="pj"><span class="ch tn">TN</span><b>${tnProj.text}</b></div>`:'<div class="pj"><span class="ch off">TN</span>No está publicado</div>'}
+    </div>
+  </div>
+
+  <div class="ed-body">
+  <div class="ed-main">
+
+    <div class="panel sec">
+      <h3>Datos comunes</h3>
+      <p class="hint">Valen para los dos canales salvo que elijas uno propio.</p>
+      <div class="grid2">
+        ${field('Nombre del producto', 'name')}
+        ${field('Marca', 'brand')}
+        <div class="ef full ${c.descMode==='split' ? '' : (changed('desc')?'changed':'')}">
+          <span class="lbl">Descripción
+            <span class="seg"><button type="button" class="${c.descMode==='same'?'on':''}" data-ea="desc:same">Igual en los dos</button><button type="button" class="${c.descMode==='split'?'on':''}" data-ea="desc:split">Una para cada canal</button></span>
+            ${E.orig.descMode==='split'?'<span class="st warn" style="padding:1px 8px">hoy son distintas</span>':''}
+          </span>
+          ${c.descMode==='same'
+            ? `<textarea id="e-desc" data-eb="desc">${c.desc}</textarea>`
+            : `<div class="grid2" style="padding:0">${field('<span class="ch ml">ML</span> texto plano', 'descMl', { type:'textarea' })}${field('<span class="ch tn">TN</span> admite formato', 'descTn', { type:'textarea' })}</div>`}
+        </div>
+        ${field('Largo (cm)', 'dims.0')}${field('Ancho (cm)', 'dims.1')}${field('Grosor (cm)', 'dims.2')}${field('Peso (g)', 'dims.3')}
+      </div>
+    </div>
+
+    <div class="panel sec">
+      <h3>Fotos</h3>
+      <p class="hint">La primera es la portada. Cada variante elige las suyas en la tabla de abajo.</p>
+      <div class="gallery">
+        ${c.photos.map((ph, i) => `<div class="ph ${E.orig.photos.some(o => o.id===ph.id)?'':'new'}" style="background:${ph.color}">
+          ${i===0?'<span class="badge">Portada</span>':E.orig.photos.some(o => o.id===ph.id)?'':'<span class="badge">Nueva</span>'}
+          ${ic('photo')}
+          <span class="tools">${i?`<button type="button" title="Hacer portada" aria-label="Hacer portada" data-ea="cover:${i}">${ic('star')}</button>`:''}<button type="button" title="Quitar" aria-label="Quitar foto" data-ea="rmphoto:${i}">${ic('trash')}</button></span>
+        </div>`).join('')}
+        <button type="button" class="ph-add" data-ea="addphoto">${ic('plus')}Agregar foto</button>
+      </div>
+    </div>
+
+    <div class="panel sec">
+      <h3>Variantes ${c.axis?`<span class="chip" style="font-weight:400">Eje: ${c.axis} · en ML: ${c.mlAxis}</span>`:''}</h3>
+      <p class="hint">El SKU une cada variante entre los dos canales. El stock es uno solo; el precio va por canal.</p>
+      <div class="vt-wrap"><table class="vt">
+        <thead><tr><th>${c.axis || 'Variante'}</th><th>SKU</th><th>Dónde está</th><th>Fotos</th><th>Precio ML</th><th>Precio TN</th><th>Stock</th><th></th></tr></thead>
+        <tbody>${c.variants.map((v, i) => {
+          const o = E.orig.variants[i];
+          const cl = (k) => !v.isNew && o && JSON.stringify(v[k]) !== JSON.stringify(o[k]) ? 'changed' : '';
+          return `<tr class="${v.isNew?'new':''} ${v.gone?'gone':''}">
+          <td><div class="vcell">${v.swatch?`<span class="swatch" style="background:${v.swatch}"></span>`:''}<input class="${cl('value')} vval" style="width:120px" id="e-v${i}-value" data-eb="variants.${i}.value" value="${v.value}" ${v.gone?'disabled':''}>${v.isNew?'<span class="tag-new">nueva</span>':''}</div></td>
+          <td><input class="${cl('sku')} mono" style="width:140px" id="e-v${i}-sku" data-eb="variants.${i}.sku" value="${v.sku}" placeholder="Falta SKU" ${v.gone?'disabled':''}></td>
+          <td><div class="where">${v.mlPub?`<span class="pkey ml">${v.mlPub}</span>`:v.isNew&&mlProj?'<span class="pkey ml">ML nuevo</span>':''}${v.tnPub?`<span class="pkey tn">${v.tnPub}</span>`:v.isNew&&tnProj?'<span class="pkey tn">TN nuevo</span>':''}</div>${v.sales?`<div class="vsub">${v.sales} ventas</div>`:''}</td>
+          <td><button type="button" class="btn" style="padding:4px 7px" data-ea="vphotos:${i}" title="Cambiar las fotos de esta variante" ${v.gone?'disabled':''}><span class="mini">${v.photos.slice(0,3).map(id => `<i style="background:${photoColor(id)}"></i>`).join('') || '<span style="color:var(--err);font-size:12px">sin fotos</span>'}</span>${v.photos.length>3?`+${v.photos.length-3}`:''}</button></td>
+          <td>${mlProj?`<input class="w-num ${cl('price_ml')}" id="e-v${i}-pml" data-eb="variants.${i}.price_ml" data-num="1" value="${v.price_ml ?? ''}" ${v.gone?'disabled':''}>`:'<span class="orphan">—</span>'}</td>
+          <td>${tnProj?`<input class="w-num ${cl('price_tn')}" id="e-v${i}-ptn" data-eb="variants.${i}.price_tn" data-num="1" value="${v.price_tn ?? ''}" ${v.gone?'disabled':''}>`:'<span class="orphan">—</span>'}</td>
+          <td><input class="w-num ${cl('stock')}" style="width:72px" id="e-v${i}-st" data-eb="variants.${i}.stock" data-num="1" value="${v.stock}" ${v.gone?'disabled':''}></td>
+          <td>${v.gone?`<button type="button" class="btn ghost" data-ea="undo:${i}" title="Deshacer">${ic('undo')}</button>`:`<button type="button" class="btn ghost" data-ea="rmvar:${i}" title="Quitar variante" aria-label="Quitar variante">${ic('trash')}</button>`}</td>
+        </tr>`; }).join('')}</tbody>
+      </table></div>
+      <div class="add-row"><button type="button" class="linkbtn" data-ea="addvar">${ic('plus')} Agregar variante</button>
+        <span class="vsub">${mlProj?.mode==='single'?'En ML se suma como variación a '+mlPubs[0].key+'. ':mlProj?'En ML se crea una publicación nueva'+(up?' en la misma ficha. ':'. '):''}${tnProj?.mode==='per'?'En TN se crea un producto nuevo.':tnProj?'En TN se suma como variante a '+tnPubs[0].key+'.':''}</span></div>
+    </div>
+
+    ${c.ml?`<div class="panel sec">
+      <h3><span class="ch ml">ML</span> Mercado Libre</h3>
+      <p class="hint">${mlPubs.map(x => x.key + ' · ' + x.id).join(' · ')}</p>
+      <div class="grid2">
+        ${sales>0 && !up ? lockedField('Título', c.ml.title, `ML no deja cambiar el título de una publicación con ventas (${sales}). El nombre en TN sí se puede cambiar.`)
+          : up && sales>0 ? lockedField('Nombre de la ficha (family_name)', c.ml.title, `Con ventas, ML no deja cambiarlo. El título lo arma ML con el nombre y los atributos.`)
+          : field('Título', 'ml.title')}
+        ${lockedField('Categoría', c.ml.category, sales>0 ? 'Con ventas no se puede cambiar de categoría.' : 'Para cambiarla hay que volver a publicar.')}
+        <div class="ef ${changed('ml.listing')?'changed':''}"><span class="lbl">Tipo de publicación</span>
+          <span class="seg" style="align-self:flex-start"><button type="button" class="${c.ml.listing==='gold_special'?'on':''}" data-ea="listing:gold_special">Clásica</button><button type="button" class="${c.ml.listing==='gold_pro'?'on':''}" data-ea="listing:gold_pro">Premium</button></span></div>
+        ${lockedField('Condición', c.ml.condition, 'ML no deja cambiarla después de publicar.')}
+      </div>
+      <h3 style="font-size:13px;padding-top:16px">Características</h3>
+      <div class="attrs">${c.ml.attrs.map((a, i) => a.locked
+        ? lockedField(a.name, a.value, 'Se toma de la marca de Datos comunes')
+        : field(a.name, `ml.attrs.${i}.value`)).join('')}</div>
+    </div>`:''}
+
+    ${c.tn?`<div class="panel sec">
+      <h3><span class="ch tn">TN</span> Tienda Nube</h3>
+      <p class="hint">${tnProj.mode==='per' ? 'Un producto por variante: cada uno tiene su nombre.' : 'Un producto con todas las variantes adentro.'}</p>
+      <div class="grid2">
+        ${Object.keys(c.tn.names).map(k => field(`Nombre en TN <span class="pkey tn">${k}</span>`, `tn.names.${k}`)).join('')}
+        <div class="ef full"><span class="lbl">Categorías</span>
+          <div class="catchips">${c.tn.cats.map((t, i) => `<span class="chip on">${t}<button type="button" aria-label="Quitar categoría" data-ea="rmcat:${i}">×</button></span>`).join('')}
+          <button type="button" class="chip" data-ea="addcat">${ic('plus')} Agregar</button></div></div>
+      </div>
+    </div>`:''}
+  </div>
+
+  <aside class="panel review" id="review"></aside>
+  </div></div>`;
+  renderReview();
+}
+
+function renderReview(){
+  const el = document.getElementById('review'); if (!el) return;
+  if (E.saving) return renderSaving(el);
+  const ops = buildOps();
+  const byCh = (ch) => ops.filter(o => o.ch === ch);
+  const group = (ch, title) => byCh(ch).length ? `<span class="grp">${title} · ${byCh(ch).length}</span>` + byCh(ch).map(o => `<li><span class="s">${ic('dot')}</span><span>${o.text}${o.warn?`<span class="w">${o.warn}</span>`:''}</span><span class="pkey ${o.ch}">${o.target === 'nuevo' ? 'nuevo' : o.target}</span></li>`).join('') : '';
+  el.innerHTML = `<h3>Cambios a aplicar</h3>
+    <p class="hint">Se manda solo lo que cambiaste, a cada publicación.</p>
+    ${ops.length ? `<ul class="ops">${group('ml','Mercado Libre')}${group('tn','Tienda Nube')}</ul>` : `<div class="ops-empty">Todavía no cambiaste nada.</div>`}
+    <footer>
+      <button type="button" class="btn primary" data-ea="save" ${ops.length?'':'aria-disabled="true"'}>${ic('check')} Guardar en ${[byCh('ml').length&&'ML', byCh('tn').length&&'TN'].filter(Boolean).join(' y ') || 'los canales'}</button>
+      <button type="button" class="btn ghost" data-ea="reset" ${ops.length?'':'aria-disabled="true"'}>Descartar cambios</button>
+    </footer>`;
+}
+
+function renderSaving(el){
+  const s = E.saving, n = s.ops.length, d = Math.min(s.done, n);
+  const list = s.ops.map((o, i) => `<li><span class="s ${i<d?'ok':i===d?'run':''}">${i<d?ic('check'):i===d?`<span class="spin" style="display:inline-flex">${ic('undo')}</span>`:ic('dot')}</span><span>${o.text}</span><span class="pkey ${o.ch}">${o.target === 'nuevo' ? 'nuevo' : o.target}</span></li>`).join('');
+  el.innerHTML = `<h3>${d<n?`Guardando… (${d} de ${n})`:'Cambios guardados'}</h3>
+    <p class="hint">${d<n?'Podés cerrar esta pantalla: sigue en segundo plano.':'Todo quedó aplicado en los dos canales.'}</p>
+    <div style="padding:0 16px 8px"><div class="progress"><i style="width:${n?d/n*100:0}%"></i></div></div>
+    <ul class="ops">${list}</ul>
+    <footer>${d<n?`<button type="button" class="btn" data-ea="cancelsave">Cancelar lo que falta</button>`:`<button type="button" class="btn primary" data-ea="done">${ic('back')} Volver al producto</button>`}</footer>`;
+}
+
+/* aplica lo guardado a los datos de ejemplo, para que la lista refleje el resultado */
+function applyEdit(){
+  const { p, cur:c } = E;
+  const mlProj = projection(p, 'ml'), tnProj = projection(p, 'tn');
+  p.name = c.name;
+  if (c.ml) { const m = p.pubs.find(x => x.ch==='ml'); if (m) m.title = c.ml.title; }
+  if (c.tn) Object.entries(c.tn.names).forEach(([k, t]) => { const x = p.pubs.find(y => y.key === k); if (x) x.title = t; });
+  const rows = [];
+  c.variants.forEach(v => {
+    if (v.gone) {
+      if (v.tnPub && tnProj?.mode==='per') p.pubs = p.pubs.filter(x => x.key !== v.tnPub);
+      if (v.mlPub && mlProj?.mode==='per') p.pubs = p.pubs.filter(x => x.key !== v.mlPub);
+      return;
+    }
+    let mlPub = v.mlPub, tnPub = v.tnPub;
+    if (v.isNew) {
+      const mls = p.pubs.filter(x => x.ch==='ml'), tns = p.pubs.filter(x => x.ch==='tn');
+      if (mlProj) { if (mlProj.mode==='single') mlPub = mls[0].key; else { mlPub = 'ML-' + (mls.length + 1); p.pubs.push({ key:mlPub, ch:'ml', id:'MLA20' + Math.floor(Math.random()*1e9), title:`${c.name} — ${v.value}`, format:mls[0].format, sales:0 }); } }
+      if (tnProj) { if (tnProj.mode==='per') { tnPub = 'TN-' + (tns.length + 1); p.pubs.push({ key:tnPub, ch:'tn', id:String(232000000 + Math.floor(Math.random()*9e5)), title:`${c.name} — ${v.value}` }); } else tnPub = tns[0].key; }
+    }
+    rows.push({ sku:v.sku || null, swatch:v.swatch,
+      ml:mlPub ? { pub:mlPub, var:p.rows.length>1 || v.isNew ? v.value : null, varId:v.isNew ? 'nueva' : p.rows[v.i]?.ml?.varId, stock:v.stock, price:v.price_ml } : null,
+      tn:tnPub ? { pub:tnPub, var:tnProj?.mode==='per' ? 'Única' : v.value, stock:v.stock, price:v.price_tn } : null });
+  });
+  p.rows = rows;
+  p.pubs.sort((a, b) => a.ch === b.ch ? 0 : a.ch === 'ml' ? -1 : 1);
+}
+
+const PALETTE = ['#7b5ea7','#d1495b','#00798c','#edae49','#30638e','#8f2d56'];
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ea]'); if (!b || !E) return;
+  if (b.getAttribute('aria-disabled') === 'true') return;
+  const [a, arg] = b.dataset.ea.split(':');
+  const c = E.cur;
+  if (a === 'back') { E = null; setView('prod'); return; }
+  if (a === 'done') { E = null; setView('prod'); render(); toast(' Producto actualizado en ML y TN'); return; }
+  if (a === 'desc') { if (arg === 'split' && c.descMode === 'same') { c.descMl = c.desc; c.descTn = c.desc; } if (arg === 'same' && c.descMode === 'split') c.desc = c.descMl; c.descMode = arg; }
+  if (a === 'addphoto') c.photos.push({ id:'n' + (E.nextPhoto++), color:PALETTE[E.nextPhoto % PALETTE.length] });
+  if (a === 'rmphoto') { const [ph] = c.photos.splice(Number(arg), 1); c.variants.forEach(v => v.photos = v.photos.filter(id => id !== ph.id)); }
+  if (a === 'cover') { const [ph] = c.photos.splice(Number(arg), 1); c.photos.unshift(ph); }
+  if (a === 'vphotos') { const v = c.variants[Number(arg)]; const next = c.photos.find(ph => !v.photos.includes(ph.id)); if (next) v.photos.push(next.id); else v.photos = v.photos.slice(0, 1); }
+  if (a === 'addvar') c.variants.push({ i:-1, value:'Violeta', swatch:c.axis==='Color' ? '#7b5ea7' : null, sku:(c.variants.find(v => v.sku)?.sku || 'SKU').replace(/-[^-]+$/, '-VIO'), stock:0,
+    price_ml:c.variants[0]?.price_ml ?? null, price_tn:c.variants[0]?.price_tn ?? null, mlPub:null, tnPub:null, sales:0, photos:[], gone:false, isNew:true });
+  if (a === 'rmvar') { const v = c.variants[Number(arg)]; if (v.isNew) c.variants.splice(Number(arg), 1); else v.gone = true; }
+  if (a === 'undo') c.variants[Number(arg)].gone = false;
+  if (a === 'listing') c.ml.listing = arg;
+  if (a === 'rmcat') c.tn.cats.splice(Number(arg), 1);
+  if (a === 'addcat') c.tn.cats.push(['Escolar','Ofertas','Novedades'].find(t => !c.tn.cats.includes(t)) || 'Destacados');
+  if (a === 'reset') { E.cur = clone(E.orig); }
+  if (a === 'save') {
+    E.saving = { ops:buildOps(), done:0 };
+    const tick = () => { if (!E?.saving) return; E.saving.done++; renderReview(); if (E.saving.done < E.saving.ops.length) E.saving.t = setTimeout(tick, 420); else applyEdit(); };
+    E.saving.t = setTimeout(tick, 420); renderReview(); return;
+  }
+  if (a === 'cancelsave') { clearTimeout(E.saving.t); E.saving.ops = E.saving.ops.slice(0, E.saving.done); applyEdit(); renderReview(); return; }
+  renderEditor();
+});
+document.addEventListener('input', (e) => {
+  const path = e.target.dataset?.eb; if (!path || !E) return;
+  let v = e.target.value;
+  if (e.target.dataset.num) v = v === '' ? null : Number(String(v).replace(/\D/g, ''));
+  setPath(E.cur, path, v);
+  const wrap = e.target.closest('.ef') || e.target;
+  const isChanged = changed(path);
+  if (wrap.classList) wrap.classList.toggle('changed', isChanged);
+  if (path === 'name' && E.cur.tn?.proj === 'per') {} // el nombre de cada producto de TN se edita aparte
+  renderReview();
+});
+
+render();
+</script>

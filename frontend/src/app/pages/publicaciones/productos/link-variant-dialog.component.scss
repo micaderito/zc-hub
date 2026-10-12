@@ -1,0 +1,124 @@
+.lk-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.lk-card {
+  width: 100%;
+  max-width: 32rem;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: var(--surface);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 1.1rem 1.1rem 1rem;
+
+  header {
+    h2 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+    p { margin: 0.25rem 0 0; font-size: 0.78rem; color: var(--text-2); }
+  }
+
+  footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: 0.25rem;
+  }
+}
+
+.lk-list {
+  overflow-y: auto;
+  min-height: 6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.lk-msg {
+  margin: 0;
+  padding: 1rem 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-3);
+}
+
+.lk-opt {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-md);
+  --thumb-size: 32px;
+
+  &.on {
+    border-color: var(--brand);
+    background: var(--brand-bg);
+  }
+}
+
+.lk-radio {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  flex-shrink: 0;
+  .on & { border: 5px solid var(--brand); }
+}
+
+.lk-opt-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.lk-opt-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lk-opt-sub {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-3);
+  code { font-size: 0.7rem; }
+}
+.lk-nosku { color: var(--err); }
+
+.lk-sku {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  span { font-size: 0.75rem; font-weight: 500; color: var(--text-2); }
+  input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+}
+
+.lk-result {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+  line-height: 1.45;
+}
+
+.lk-error {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--err);
+  background: var(--err-bg);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.65rem;
+}

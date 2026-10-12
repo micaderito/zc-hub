@@ -197,6 +197,18 @@ test('DELETE /drafts/:id borra el borrador Y las imágenes que tenía referencia
   assert.equal(missing.status, 404);
 });
 
+test('DELETE /drafts/:id con una publicación en curso → 409 y no borra nada', async () => {
+  const imgId = 'b'.repeat(32);
+  const created = await fetch(`${baseUrl}/drafts`, { method: 'POST', headers: AUTH, body: JSON.stringify({ draft: { ml: { images: [{ id: imgId }] }, tn: {} } }) });
+  const { id } = await created.json();
+  db.jobs.set('jrun', { id: 'jrun', draftId: id, status: 'processing' });
+  const res = await fetch(`${baseUrl}/drafts/${id}`, { method: 'DELETE', headers: AUTH });
+  assert.equal(res.status, 409);
+  assert.ok(!removedImages.includes(imgId));
+  assert.equal((await fetch(`${baseUrl}/drafts/${id}`, { headers: AUTH })).status, 200);
+  db.jobs.delete('jrun');
+});
+
 test('DELETE /drafts/:id de un id inexistente → 404, no borra imágenes de nadie', async () => {
   const res = await fetch(`${baseUrl}/drafts/no-existe`, { method: 'DELETE', headers: AUTH });
   assert.equal(res.status, 404);
