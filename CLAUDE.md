@@ -410,7 +410,10 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   y `status` (`delayed` = atrasado). Sin SLA cae al `lead_time.estimated_handling_limit` (solo día).
 - **"Despachá el X día"** = **`pending/buffered`** (confirmado en los logs: el status es `pending`, no
   `ready_to_ship` — hasta 2026-10-10 se descartaban y faltaban en Próximos días) = substatus `buffered`: la etiqueta recién se habilita en
-  `lead_time.buffering.date`. Va a la pestaña "Próximos días", no a "Hoy".
+  `lead_time.buffering.date`. Va a la pestaña "Próximos días", no a "Hoy". **Ojo, feriados**:
+  `buffering.date` no los salta (lun 12/10/2026 feriado: buffering = lunes, SLA = martes, ML dice
+  "despachar mañana"), así que el día que se muestra es el más tardío entre buffering y el SLA
+  (`mlDeadlineInfo`).
 - **Carritos**: un paquete = `pack_id ?? order_id` (mismo criterio que ventas), con todas las líneas.
 - **Despachado ≠ atrasado**: con drop_off, al dejar el paquete en el punto el envío **sigue
   `ready_to_ship`** hasta que el correo lo levanta y pasa a `shipped`. **Confirmado con los logs de la
