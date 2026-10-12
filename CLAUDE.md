@@ -866,18 +866,56 @@ su propio `try` después de cerrar el job: un fallo acá nunca cambia el resulta
 Con la alerta activada, `alertBlockers` (umbral, pack elegido, nombre/unidades del pack nuevo) se
 suma a `publishBlockers`.
 
-### Página "Publicaciones" (`/publicaciones`): historial de lo publicado
+### Página "Publicaciones" (`/publicaciones`): productos del hub + historial
 
-`product_publish_jobs` + `product_publish_units` ya guardaban todo (incl. `external_id` = id de ML/TN
-por unidad), faltaba la pantalla. `db.listPublishJobs(limit, offset, {search, status, channel})`
-(molde de `getAuditLog`: `where[]`/`params[]` + `COUNT(*)` + `{ rows, total }`) hace JOIN a
-`product_drafts` para nombre/SKU y subqueries de conteo de unidades (sin `payload_json`); `channels`
-es CSV, se filtra con `LIKE`. Ruta `GET /api/products/publish-jobs`. Front:
-`pages/publicaciones/publicaciones.component.*` (standalone + `injectQuery`, patrón de `pages/deposito`
-+ chips de filtro tipo `pages/sync`), reusa `zc-search-bar`/`zc-pagination`. Cada fila es un job; al
+Diseño completo (incluye las fases siguientes: editor y aplicar cambios):
+`docs/plans/2026-10-12-publicaciones-mapeo-edicion-design.md`. Prototipo:
+`docs/prototype/publicaciones-mapeo.html`.
+
+Dos pestañas (`publicaciones-page.component.ts`, `?tab=historial`):
+
+**Productos** (`pages/publicaciones/productos/`, `GET /api/hub-products`, `routes/hubProducts.js`,
+`services/hubProductsService.js`): cada producto del hub junta sus publicaciones de ML y de TN. Una
+publi de ML con 4 colores puede ser 4 productos de TN, o 3 ítems de una ficha de ML ser 1 producto
+de TN — no es 1:1.
+- **El mapeo no se guarda: se calcula** en cada lectura desde la foto del catálogo
+  (`getCatalogRows`, todas las filas crudas, también sin SKU o repetidas). Es un grafo:
+  nodos = publicaciones (`ml:<itemId>`, `tn:<productId>`), aristas = SKU presente en las dos puntas
+  + ítems de ML de la misma ficha de User Products (`family_name` + `domain_id`). Cada componente
+  conexa es un producto. El id del grupo es el menor nodo (`ml:MLA…` gana), así no depende del orden
+  de las filas y sirve de link (`?p=`).
+- Estado por grupo: `orphan` (variante en un solo canal o sin SKU) · `duplicate` (SKU repetido en un
+  canal) · `desync` (stock distinto) · `only_ml` · `only_tn` · `linked`. La lista ordena lo que
+  necesita atención primero; los chips cuentan sobre la búsqueda, sin el filtro de estado.
+- **Vincular** (`POST /api/hub-products/link`): a una variante sin par le busca otra sin par del otro
+  canal (`/link-candidates`) y les pone el mismo SKU. Solo escribe el canal cuyo SKU cambia; 409 si
+  el SKU ya lo usa otra variante. ML va por la cola (`sku_ml`, parchea la foto al terminar); TN se
+  escribe directo y se parchea la foto (`patchTnSku`) en el momento.
+- La foto del catálogo suma por fila de ML `format` (`legacy` = `variations[]`, `up` = User Products,
+  `simple`), `soldQuantity`, `status` y, solo en `up`, `familyName`/`domainId`. Se guarda lo mínimo
+  a propósito: el snapshot entero se lee de Postgres en cada consulta y cuenta para el egress (ver
+  abajo). El permalink se arma desde el id. Un snapshot viejo sin `format` se lee como `legacy` si la
+  fila tiene variación.
+- Navegar no le pega a ML/TN; "Actualizar" (`?refresh=1`) fuerza el crawl completo, igual que
+  Conflictos.
+
+**Historial de publicación** (lo que era toda la página): `product_publish_jobs` +
+`product_publish_units` (incl. `external_id` = id de ML/TN por unidad).
+**Borrar un borrador ya no borra su historial.** Hasta 2026-10-12 `draft_id` era `ON DELETE CASCADE`
+y la página quedó vacía al limpiar borradores. Ahora es `ON DELETE SET NULL` (migración
+`2026-10-12_publish_jobs_keep_on_draft_delete`) y el job guarda `product_name`/`product_sku`
+(copiados del borrador en `createPublishJob`; `listPublishJobs` usa `COALESCE`). Con un job
+`pending`/`processing`, `DELETE /drafts/:id` responde 409: el job necesita las imágenes del borrador
+para terminar. En `createPublishJob` el draftId va repetido como `$5` a propósito (mismo bug de
+tipos que `finishPublishJob`; lo cubre `publishJobsRealDb.test.js`).
+
+`db.listPublishJobs(limit, offset, {search, status, channel})` (molde de `getAuditLog`:
+`where[]`/`params[]` + `COUNT(*)` + `{ rows, total }`) hace JOIN a `product_drafts` para nombre/SKU
+y subqueries de conteo de unidades (sin `payload_json`); `channels` es CSV, se filtra con `LIKE`.
+Ruta `GET /api/products/publish-jobs`. Front: `pages/publicaciones/publicaciones.component.*`
+(standalone + `injectQuery`) reusa `zc-search-bar`/`zc-pagination`. Cada fila es un job; al
 expandirla (`getPublishJob`) muestra las unidades con su id externo (link a ML; TN sin URL pública
-deducible, solo el id) y `detail`. Reintentar/cancelar/borrar reusan `/jobs/:id/*`. Ítem de nav en
-`layout.component.ts` (debajo de "Crear producto"), ruta en `app.routes.ts`.
+deducible, solo el id) y `detail`. Reintentar/cancelar/borrar reusan `/jobs/:id/*`.
 
 ### Egress de Supabase: el polling de las colas era el piso de consumo
 
@@ -1009,9 +1047,18 @@ opcional si no, y los atributos `allowVariations`: entran a `ml.attributes` + so
 se ven como opcionales si NO son eje y se esconden si lo son, y `refreshMlVariationAttrs` mergea
 atributos nuevos de la categoría sin pisar valores) y `catalog.service.spec.ts` (los endpoints
 nuevos, incl. `listPublishJobs` con y sin filtros y `cancelPublishJob`). `product-draft.model.spec.ts`
-fija el default `gold_special`. `publicaciones.component.spec.ts` cubre la página nueva (carga y
+fija el default `gold_special`. `publicaciones.component.spec.ts` cubre el historial (carga y
 pinta el historial, expandir una fila trae el detalle con el id externo, `externalUrl` arma el link
 de ML y no el de TN, reset de página al cambiar un filtro, Reintentar refetchea).
+Productos del hub: `backend/test/hubProductsService.test.js` (1 ML → 4 TN, ficha UP → 1 TN, misma
+`family_name` en otro dominio no se mezcla, cada estado, id estable, snapshot viejo sin `format`,
+búsqueda sin acentos y conteos, candidatos a vincular), `backend/test/routesHubProducts.test.js`
+(lista/detalle/404, `refresh=1`, vincular solo el canal que cambia, 409 por SKU usado, 502 si el
+canal falla), los campos nuevos de la foto en `conflictsService.test.js`, el 409 al borrar un
+borrador que se está publicando en `routesProductsDrafts.test.js` y el historial que sobrevive al
+borrado contra Postgres real en `publishJobsRealDb.test.js`; en el front
+`hub-products.component.spec.ts`, `link-variant-dialog.component.spec.ts` y
+`hub-products.service.spec.ts`.
 `backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
 
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y

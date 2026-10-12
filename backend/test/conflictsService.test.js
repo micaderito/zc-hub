@@ -312,6 +312,43 @@ test('ítems sin SKU van a noSkuML / noSkuTN', async () => {
   assert.equal(result.noSkuML.length, 1);
 });
 
+test('las filas de ML traen el formato de la publicación (legacy / User Products / simple) para Publicaciones', async () => {
+  storeState.mlToken = 'tok';
+  storeState.tokens.mercadolibre.user_id = 999;
+  mlState.responder = (url) => {
+    if (url.includes('/items/search')) return makeRes({ json: { results: ['MLA1', 'MLA2', 'MLA3'], paging: { total: 3 } } });
+    return makeRes({
+      json: [
+        { code: 200, body: { id: 'MLA1', title: 'Cuaderno', sold_quantity: 37, status: 'active', variations: [{ id: 10, seller_sku: 'A', price: 1, available_quantity: 1 }] } },
+        { code: 200, body: { id: 'MLA2', title: 'Agenda Lila', user_product_id: 'MLAU1', family_name: 'Agenda', domain_id: 'MLA-AGENDAS', seller_sku: 'B', price: 1, available_quantity: 1 } },
+        { code: 200, body: { id: 'MLA3', title: 'Lapicera', seller_sku: 'C', price: 1, available_quantity: 1 } },
+      ],
+    });
+  };
+  const { mlRows } = await conflictsService.getCatalogRows();
+  const byId = Object.fromEntries(mlRows.map((r) => [r.itemId, r]));
+  assert.equal(byId.MLA1.format, 'legacy');
+  assert.equal(byId.MLA1.soldQuantity, 37);
+  assert.equal(byId.MLA1.familyName, undefined, 'los campos de ficha solo van en User Products (egress)');
+  assert.equal(byId.MLA2.format, 'up');
+  assert.equal(byId.MLA2.familyName, 'Agenda');
+  assert.equal(byId.MLA2.domainId, 'MLA-AGENDAS');
+  assert.equal(byId.MLA3.format, 'simple');
+});
+
+test('getCatalogRows con snapshot devuelve todas las filas crudas (también sin SKU) sin llamar a ML', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = {
+    at: Date.now(),
+    data: { mlRows: [{ itemId: 'MLA1', sku: null }, { itemId: 'MLA2', sku: 'X' }], tnRows: [], mlConnected: true, tnConnected: false },
+  };
+  let called = false;
+  mlState.responder = () => { called = true; return makeRes({ json: {} }); };
+  const r = await conflictsService.getCatalogRows();
+  assert.equal(r.mlRows.length, 2);
+  assert.equal(called, false);
+});
+
 test('getAnalysis con snapshot: computa desde las filas del snapshot sin llamar a ML/TN', async () => {
   dbState.hasDb = true;
   dbState.snapshot = {

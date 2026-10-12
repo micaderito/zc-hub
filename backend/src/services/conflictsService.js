@@ -63,11 +63,33 @@ function variationLabel(v) {
   return parts.length ? parts.join(' · ') : null;
 }
 
+/**
+ * Datos de la PUBLICACIÓN (no de la variante) que se repiten en cada fila del ítem. Los usa
+ * "Publicaciones" (hubProductsService) para agrupar y mostrar cada publicación sin pedirle nada
+ * extra a ML: todo viene en el mismo GET del crawl.
+ * - `format`: 'legacy' = ítem con `variations[]`; 'up' = User Products (un ítem por variante, ML
+ *   los agrupa en una ficha por `family_name`); 'simple' = ítem sin variaciones de la cuenta vieja.
+ * Solo se guarda lo que hace falta y los campos de familia solo en 'up': el snapshot entero se lee
+ * de Postgres en cada consulta del análisis, y cada byte por fila cuenta para el egress de Supabase
+ * (ver CLAUDE.md). El permalink no se guarda: se arma desde el id.
+ */
+function mlPublicationFields(it) {
+  const hasVariations = Array.isArray(it.variations) && it.variations.length > 0;
+  const format = hasVariations ? 'legacy' : it.user_product_id ? 'up' : 'simple';
+  const out = { format, soldQuantity: Number(it.sold_quantity) || 0, status: it.status || null };
+  if (format === 'up') {
+    out.familyName = it.family_name || null;
+    out.domainId = it.domain_id || null;
+  }
+  return out;
+}
+
 /** Una "fila" ML: puede ser ítem simple o una variante. */
 function flattenMlItems(items) {
   const rows = [];
   for (const it of items) {
     const itemThumbnail = getMlThumbnail(it);
+    const pub = mlPublicationFields(it);
     if (it.variations && it.variations.length > 0) {
       for (const v of it.variations) {
         const sku = getMlSku(v) || getMlSku(it);
@@ -86,7 +108,8 @@ function flattenMlItems(items) {
           hasSku: !!skuTrim,
           price: Number(price) || 0,
           stock: Number(stock) || 0,
-          thumbnail: thumbnail || itemThumbnail
+          thumbnail: thumbnail || itemThumbnail,
+          ...pub
         });
       }
     } else {
@@ -102,7 +125,8 @@ function flattenMlItems(items) {
         hasSku: !!skuTrim,
         price: Number(it.price) || 0,
         stock: Number(it.available_quantity) || 0,
-        thumbnail: itemThumbnail
+        thumbnail: itemThumbnail,
+        ...pub
       });
     }
   }
@@ -247,6 +271,24 @@ export async function getAnalysis(opts = {}) {
   }
   const rows = await crawlAndStore();
   return computeAnalysis(rows);
+}
+
+/**
+ * Filas crudas del catálogo (todas: también sin SKU y con SKU repetido), con la misma política de
+ * caché que `getAnalysis`. Para "Publicaciones", que agrupa por publicación y necesita ver todo,
+ * no solo los pares que arma el análisis.
+ * @returns {Promise<{ mlRows: object[], tnRows: object[], mlConnected: boolean, tnConnected: boolean, at: number | null }>}
+ */
+export async function getCatalogRows() {
+  const snap = await loadSnapshot();
+  if (snap?.data?.mlRows) {
+    if (Date.now() - (snap.at ?? 0) > SNAPSHOT_STALE_MS && !crawlInFlight) {
+      crawlAndStore().catch((e) => console.error('[Analysis] reconcile en background falló:', e.message));
+    }
+    return { ...snap.data, at: snap.at ?? null };
+  }
+  const rows = await crawlAndStore();
+  return { ...rows, at: Date.now() };
 }
 
 /** Fuerza un crawl completo y actualiza el snapshot (refresh manual desde la UI). */

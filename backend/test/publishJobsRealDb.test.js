@@ -153,3 +153,38 @@ test(
     }
   }
 );
+
+test(
+  'borrar un borrador conserva su historial de publicación, con el nombre y SKU guardados en el job',
+  { skip: hasDb ? false : 'requiere DATABASE_URL (correr con el .env symlinkeado del worktree, o el de backend/)' },
+  async () => {
+    const { initDb, createPublishJob, deleteProductDraft, listPublishJobs } = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined
+    });
+    assert.equal(await initDb(), true);
+    const suffix = Date.now();
+    const draftId = `t-keep-draft-${suffix}`;
+    const jobId = `t-keep-job-${suffix}`;
+    try {
+      await pool.query(`INSERT INTO product_drafts (id, name, sku, draft_json) VALUES ($1, $2, $3, '{}')`, [draftId, `Cuaderno t-keep ${suffix}`, `TKEEP-${suffix}`]);
+      assert.equal(await createPublishJob({ id: jobId, draftId, channels: 'ml', payloadJson: '{}' }), jobId);
+      assert.equal(await deleteProductDraft(draftId), true);
+
+      const row = await pool.query('SELECT draft_id, product_name, product_sku FROM product_publish_jobs WHERE id = $1', [jobId]);
+      assert.equal(row.rows.length, 1, 'el job sigue existiendo');
+      assert.equal(row.rows[0].draft_id, null);
+      assert.equal(row.rows[0].product_sku, `TKEEP-${suffix}`);
+
+      const { rows } = await listPublishJobs(5, 0, { search: `t-keep ${suffix}` });
+      assert.equal(rows[0]?.id, jobId);
+      assert.equal(rows[0]?.draftName, `Cuaderno t-keep ${suffix}`);
+    } finally {
+      await pool.query('DELETE FROM product_publish_jobs WHERE id = $1', [jobId]);
+      await pool.query('DELETE FROM product_drafts WHERE id = $1', [draftId]);
+      await pool.end();
+    }
+  }
+);

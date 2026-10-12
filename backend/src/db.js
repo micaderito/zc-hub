@@ -669,7 +669,7 @@ export async function initDb() {
     await p.query(`
       CREATE TABLE IF NOT EXISTS product_publish_jobs (
         id VARCHAR(64) PRIMARY KEY,
-        draft_id VARCHAR(64) NOT NULL REFERENCES product_drafts(id) ON DELETE CASCADE,
+        draft_id VARCHAR(64) REFERENCES product_drafts(id) ON DELETE SET NULL,
         channels VARCHAR(16) NOT NULL,
         payload_json TEXT NOT NULL,
         status VARCHAR(16) NOT NULL DEFAULT 'pending',
@@ -692,6 +692,23 @@ export async function initDb() {
       WHERE status = 'processing';
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_publish_jobs_draft ON product_publish_jobs (draft_id, created_at DESC);`);
+    // Borrar un borrador NO borra su historial de publicación (antes era ON DELETE CASCADE y
+    // "Publicaciones" quedaba vacía al limpiar borradores). El job guarda su propio nombre/SKU
+    // para seguir mostrándose cuando el borrador ya no existe.
+    await p.query(`ALTER TABLE product_publish_jobs ADD COLUMN IF NOT EXISTS product_name VARCHAR(512);`);
+    await p.query(`ALTER TABLE product_publish_jobs ADD COLUMN IF NOT EXISTS product_sku VARCHAR(128);`);
+    await runOnceMigration(p, '2026-10-12_publish_jobs_keep_on_draft_delete', async (client) => {
+      await client.query(`ALTER TABLE product_publish_jobs ALTER COLUMN draft_id DROP NOT NULL;`);
+      await client.query(`ALTER TABLE product_publish_jobs DROP CONSTRAINT IF EXISTS product_publish_jobs_draft_id_fkey;`);
+      await client.query(`
+        ALTER TABLE product_publish_jobs ADD CONSTRAINT product_publish_jobs_draft_id_fkey
+        FOREIGN KEY (draft_id) REFERENCES product_drafts(id) ON DELETE SET NULL;
+      `);
+      await client.query(`
+        UPDATE product_publish_jobs j SET product_name = d.name, product_sku = d.sku
+        FROM product_drafts d WHERE d.id = j.draft_id AND j.product_name IS NULL;
+      `);
+    });
 
     // Una fila por unidad publicada (un ítem de ML, un producto de TN) dentro de un job. Es a la
     // vez el PROGRESO ("3 de 8 variantes") y la IDEMPOTENCIA del reintento: reintentar re-encola el
@@ -3198,8 +3215,12 @@ export async function createPublishJob({ id, draftId, channels, payloadJson }) {
   if (!p) return null;
   try {
     await p.query(
-      `INSERT INTO product_publish_jobs (id, draft_id, channels, payload_json) VALUES ($1, $2, $3, $4)`,
-      [id, draftId, channels, payloadJson]
+      // `$5` repite el draftId a propósito: reusar `$2` como valor de columna y en la subconsulta
+      // hace que Postgres deduzca dos tipos distintos (mismo bug que tuvo finishPublishJob).
+      `INSERT INTO product_publish_jobs (id, draft_id, channels, payload_json, product_name, product_sku)
+       SELECT $1, $2, $3, $4, d.name, d.sku
+       FROM (SELECT 1) one LEFT JOIN product_drafts d ON d.id = $5`,
+      [id, draftId, channels, payloadJson, draftId]
     );
     wakeQueue('publish');
     return id;
@@ -3534,7 +3555,7 @@ export async function listPublishJobs(limit = 25, offset = 0, { search = '', sta
     if (s) {
       params.push('%' + s + '%');
       const i = params.length;
-      where.push(`(d.name ILIKE $${i} OR d.sku ILIKE $${i} OR j.id ILIKE $${i})`);
+      where.push(`(COALESCE(d.name, j.product_name) ILIKE $${i} OR COALESCE(d.sku, j.product_sku) ILIKE $${i} OR j.id ILIKE $${i})`);
     }
     const st = status && String(status).trim();
     if (st && ['pending', 'processing', 'done', 'error', 'cancelled'].includes(st)) {
@@ -3555,7 +3576,8 @@ export async function listPublishJobs(limit = 25, offset = 0, { search = '', sta
     const total = count.rows[0]?.total ?? 0;
 
     const r = await p.query(
-      `SELECT j.id, j.draft_id AS "draftId", d.name AS "draftName", d.sku AS "draftSku",
+      `SELECT j.id, j.draft_id AS "draftId", COALESCE(d.name, j.product_name) AS "draftName",
+              COALESCE(d.sku, j.product_sku) AS "draftSku",
               j.channels, j.status, j.attempts, j.last_error AS "lastError",
               j.created_at AS "createdAt", j.updated_at AS "updatedAt", j.finished_at AS "finishedAt",
               (SELECT COUNT(*)::int FROM product_publish_units u WHERE u.job_id = j.id) AS "unitsTotal",
