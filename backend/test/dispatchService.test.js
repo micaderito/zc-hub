@@ -298,6 +298,18 @@ test('"Despachá el X día" (buffered) va a próximos días', async () => {
   assert.match(r.packages[0].state.label, /En espera hasta el 12\/10/);
 });
 
+test('buffered en feriado: si el SLA cae después de buffering.date, manda el SLA', async () => {
+  // Lunes 12/10 feriado: ML habilita la etiqueta "el lunes" pero el límite real es el martes.
+  const holidayNow = new Date('2026-10-12T10:00:00.000-03:00');
+  state.orders = [mlOrder(1)];
+  state.shipments = { 500: shipment(500, { status: 'pending', substatus: 'buffered', leadTime: { buffering: { date: '2026-10-12T00:00:00.000-03:00' } } }) };
+  state.slas = { 500: { status: 'on_time', expected_date: '2026-10-13T16:00:00.000-03:00' } };
+  const r = await svc.getDispatchList({ now: holidayNow });
+  assert.equal(r.packages[0].bucket, 'upcoming');
+  assert.equal(r.packages[0].bufferedDay, '2026-10-13');
+  assert.match(r.packages[0].state.label, /En espera hasta el 13\/10/);
+});
+
 test('cancelada recién y nunca despachada → aviso "no despachar"; un pago rechazado no', async () => {
   state.orders = [
     mlOrder(1, { status: 'cancelled', shipId: 510, date_last_updated: '2026-10-09T12:00:00.000Z' }),

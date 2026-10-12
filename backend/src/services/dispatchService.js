@@ -126,6 +126,10 @@ function dateOrNull(v) {
  * `estimated_handling_limit` del lead_time (solo fecha: ML da todo ese día). `bufferedUntil` es la
  * fecha desde la que se habilita la etiqueta cuando el envío está en espera (`buffered`) — el
  * "Despachá el X" del panel de ML.
+ *
+ * `buffering.date` no salta feriados: un lunes feriado ML lo da igual como "se habilita el lunes",
+ * pero el SLA ya corre el límite al martes (y el panel dice "despachar mañana"). Por eso el día de
+ * espera es el más tardío entre los dos: si el límite cae después, manda el límite.
  */
 export function mlDeadlineInfo(shipment, sla) {
   const leadTime = shipment?.lead_time ?? shipment?.shipping_option ?? {};
@@ -133,11 +137,15 @@ export function mlDeadlineInfo(shipment, sla) {
   const handlingLimit = dateOrNull(leadTime?.estimated_handling_limit?.date);
   const bufferingDate = dateOrNull(leadTime?.buffering?.date);
   const substatus = String(shipment?.substatus ?? '').toLowerCase();
+  const deadline = slaDate ?? handlingLimit ?? null;
+  const bufferedUntil = bufferingDate && deadline && arDayKey(deadline) > arDayKey(bufferingDate)
+    ? deadline
+    : (bufferingDate ?? deadline);
   return {
-    deadline: slaDate ?? handlingLimit ?? null,
+    deadline,
     deadlineHasTime: !!slaDate,
     slaStatus: sla?.status ?? null,
-    bufferedUntil: substatus === 'buffered' ? (bufferingDate ?? slaDate ?? handlingLimit) : null,
+    bufferedUntil: substatus === 'buffered' ? bufferedUntil : null,
     buffered: substatus === 'buffered',
   };
 }
