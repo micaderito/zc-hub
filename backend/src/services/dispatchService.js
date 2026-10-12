@@ -233,7 +233,7 @@ function mlVariationLabel(orderItem) {
  * Arma los paquetes de ML a partir de las órdenes y lo ya resuelto por envío. Puro: recibe
  * `shipments`/`slas` (Map por shipment id) e `items` (Map por item id) ya traídos.
  */
-export function buildMlPackages(orders, { shipments, slas, items, now }) {
+export function buildMlPackages(orders, { shipments, slas, items, notes = new Map(), now }) {
   const groups = new Map();
   for (const order of orders) {
     const key = packKey(order);
@@ -273,6 +273,8 @@ export function buildMlPackages(orders, { shipments, slas, items, now }) {
       shipStatus: shipment?.status ?? null,
       substatus: shipment?.substatus ?? null,
       shippingMethod: null,
+      // En un carrito cada orden puede tener su nota (o la misma repetida): se juntan sin duplicar.
+      notes: [...new Set(group.flatMap((o) => notes.get(String(o.id)) ?? []))].map((text) => ({ text, author: 'seller' })),
       items: lines,
     };
 
@@ -335,6 +337,16 @@ function latestDate(values) {
   return new Date(Math.max(...ds.map((d) => d.getTime()))).toISOString();
 }
 
+/** Notas de la orden de TN: `owner_note` la escribe la vendedora, `note` la deja el comprador al pagar. */
+function tnNotes(order) {
+  const out = [];
+  const own = String(order?.owner_note ?? '').trim();
+  const buyer = String(order?.note ?? '').trim();
+  if (own) out.push({ text: own, author: 'seller' });
+  if (buyer) out.push({ text: buyer, author: 'buyer' });
+  return out;
+}
+
 /** Un paquete de TN a partir de su orden (ya filtrada: pendiente o cancelada). */
 export function buildTnPackage(order, { cancelled = false } = {}) {
   const addr = order?.shipping_address || {};
@@ -365,6 +377,7 @@ export function buildTnPackage(order, { cancelled = false } = {}) {
     substatus: null,
     logisticType: order?.shipping_pickup_type === 'pickup' ? 'pickup' : 'ship',
     shippingMethod: shippingOption,
+    notes: tnNotes(order),
     deadline: null,
     deadlineHasTime: false,
     slaStatus: null,
@@ -494,7 +507,20 @@ async function loadMl(now) {
   const itemList = itemIds.length ? await ml.getItems(token, itemIds, 'id,pictures,variations,secure_thumbnail') : [];
   const items = new Map(itemList.map((it) => [String(it.id), it]));
 
-  const { pending, cancelled } = buildMlPackages(relevant, { shipments, slas, items, now });
+  // Notas de la vendedora: solo de lo que se va a armar (no de los cancelados). Una nota que no se
+  // pudo leer no tumba la lista: el paquete se muestra igual, sin nota.
+  const notes = new Map();
+  const noteOrderIds = [...new Set(shown.filter((o) => String(o.status).toLowerCase() === 'paid').map((o) => String(o.id)))];
+  await mapLimit(noteOrderIds, 4, async (id) => {
+    try {
+      const list = await ml.getOrderNotes(token, id);
+      if (list.length) notes.set(id, list);
+    } catch (e) {
+      console.warn(`[Despachos] notas de la orden ${id}:`, e?.message);
+    }
+  });
+
+  const { pending, cancelled } = buildMlPackages(relevant, { shipments, slas, items, notes, now });
   return [...pending, ...cancelled];
 }
 

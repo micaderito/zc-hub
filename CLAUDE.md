@@ -438,6 +438,11 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   El front refresca solo cada 5 min y al volver a la pestaña.
 - Si un canal falla (429, token), el otro se devuelve igual con `errors.{ml,tn}` y la UI lo avisa:
   una lista vacía nunca debe significar "no hay pedidos" cuando en realidad ML no contestó.
+- **Notas de la venta**: las mismas que se cargan en el panel de cada canal, en un recuadro arriba
+  de los productos. ML: `GET /orders/:id/notes` (`ml.getOrderNotes`) por cada orden pagada que se
+  muestra — en un carrito se juntan sin repetir; si falla (429), el paquete sale igual sin nota.
+  TN: `owner_note` (la de la vendedora) y `note` (la del comprador, rotulada "Comprador:"), que ya
+  vienen en la orden. Entran en la misma caché de 60 s.
 - `zc-photo-lightbox` (`shared/components/photo-lightbox/`) es reusable: foto grande, flechas/teclado, Esc.
   Ojo: las flechas se centran con `top: calc(50% - 18px)`, NO con `transform` — el `button:active`
   global (`transform: scale(.98)`) pisaba el `translateY(-50%)`, el botón saltaba al apretarlo y el

@@ -209,6 +209,18 @@ describe('DespachosComponent', () => {
     expect(lb.querySelector('.lb-count').textContent.trim()).toBe('2 / 2');
   });
 
+  it('muestra las notas de la venta (de la vendedora y del comprador)', async () => {
+    await load([
+      pkg({ saleId: '1', notes: [{ text: 'Va con moño', author: 'seller' }, { text: 'Tocar timbre 2B', author: 'buyer' }] }),
+      pkg({ saleId: '2' }),
+    ]);
+    const notes = fixture.nativeElement.querySelectorAll('.pk-notes li');
+    expect(notes.length).toBe(2);
+    expect(notes[0].textContent).toContain('Nota: Va con moño');
+    expect(notes[1].textContent).toContain('Comprador: Tocar timbre 2B');
+    expect(fixture.nativeElement.querySelectorAll('.pk-notes').length).toBe(1);
+  });
+
   it('avisa si un canal no se pudo leer', async () => {
     svc.data = { ...list([]), errors: { ml: 'La API no contestó' } };
     fixture.detectChanges();

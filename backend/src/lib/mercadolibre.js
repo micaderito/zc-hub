@@ -664,6 +664,34 @@ export async function getShipmentSla(accessToken, shipmentId) {
   return res.json();
 }
 
+/**
+ * Notas que la vendedora le agregó a una orden desde el panel de ML (`GET /orders/:id/notes`).
+ * Devuelve los textos no vacíos, del más viejo al más nuevo. La respuesta es
+ * `[{ order_id, results: [{ note, date_created, … }] }]`.
+ */
+export async function getOrderNotes(accessToken, orderId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/orders/${orderId}/notes`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getOrderNotes'
+  );
+  if (!res.ok) {
+    if (res.status === 429) {
+      const e = new Error(`ML rate limited (429) notes ${orderId}`);
+      e.statusCode = 429;
+      throw e;
+    }
+    return [];
+  }
+  const body = await res.json();
+  const groups = Array.isArray(body) ? body : [body];
+  return groups
+    .flatMap((g) => (Array.isArray(g?.results) ? g.results : []))
+    .sort((a, b) => String(a?.date_created ?? '').localeCompare(String(b?.date_created ?? '')))
+    .map((n) => String(n?.note ?? '').trim())
+    .filter(Boolean);
+}
+
 export async function updateItemStock(accessToken, itemId, quantity) {
   const res = await fetchWith429Retry(
     `${BASE}/items/${itemId}`,

@@ -15,7 +15,9 @@ const state = {
   tnCancelled: [],
   marks: new Map(),
   mlThrows: null,
-  calls: { getShipment: [], getShipmentSla: [], getItems: [] },
+  notes: {},
+  notesThrow: null,
+  calls: { getShipment: [], getShipmentSla: [], getItems: [], getOrderNotes: [] },
 };
 
 let svc;
@@ -37,6 +39,11 @@ before(async () => {
       getItems: async (_t, ids) => {
         state.calls.getItems.push(ids);
         return state.items;
+      },
+      getOrderNotes: async (_t, id) => {
+        state.calls.getOrderNotes.push(id);
+        if (state.notesThrow) throw state.notesThrow;
+        return state.notes[id] ?? [];
       },
     },
   });
@@ -69,7 +76,9 @@ beforeEach(() => {
   state.tnCancelled = [];
   state.marks = new Map();
   state.mlThrows = null;
-  state.calls = { getShipment: [], getShipmentSla: [], getItems: [] };
+  state.notes = {};
+  state.notesThrow = null;
+  state.calls = { getShipment: [], getShipmentSla: [], getItems: [], getOrderNotes: [] };
   svc._resetDispatchCache();
 });
 
@@ -373,4 +382,39 @@ test('caché de 60 s: la segunda visita no le pega a ML, refresh sí', async () 
   assert.equal(state.calls.getShipment.length, 1);
   await svc.getDispatchList({ now: new Date(NOW.getTime() + 30_000), refresh: true });
   assert.equal(state.calls.getShipment.length, 2);
+});
+
+test('notas de ML: las del carrito juntas y sin repetir; no se piden para cancelados', async () => {
+  state.orders = [
+    mlOrder(1, { packId: 900 }),
+    mlOrder(2, { packId: 900 }),
+    mlOrder(3, { shipId: null, status: 'cancelled', date_last_updated: '2026-10-09T12:00:00.000Z' }),
+  ];
+  state.shipments = { 500: shipment(500) };
+  state.notes = { 1: ['Va con moño'], 2: ['Va con moño', 'Cambiar a azul'] };
+
+  const r = await svc.getDispatchList({ now: NOW });
+  const pkg = r.packages.find((p) => p.saleId === '900');
+  assert.deepEqual(pkg.notes, [{ text: 'Va con moño', author: 'seller' }, { text: 'Cambiar a azul', author: 'seller' }]);
+  assert.deepEqual(state.calls.getOrderNotes.sort(), ['1', '2']);
+});
+
+test('notas de ML: si fallan, el paquete se muestra igual sin notas', async () => {
+  state.orders = [mlOrder(1)];
+  state.shipments = { 500: shipment(500) };
+  state.notesThrow = Object.assign(new Error('429'), { statusCode: 429 });
+
+  const r = await svc.getDispatchList({ now: NOW });
+  assert.equal(r.packages.length, 1);
+  assert.deepEqual(r.packages[0].notes, []);
+  assert.equal(r.errors.ml, undefined);
+});
+
+test('notas de TN: la de la vendedora y la del comprador', () => {
+  const pkg = svc.buildTnPackage({ id: 5, owner_note: ' Regalo, sin factura ', note: 'Tocar timbre 2B', products: [] });
+  assert.deepEqual(pkg.notes, [
+    { text: 'Regalo, sin factura', author: 'seller' },
+    { text: 'Tocar timbre 2B', author: 'buyer' },
+  ]);
+  assert.deepEqual(svc.buildTnPackage({ id: 6, note: '', products: [] }).notes, []);
 });
