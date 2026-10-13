@@ -22,6 +22,8 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      flex: 1;
+      min-width: 0;
 
       .label-sm {
         font-size: 0.62rem;
@@ -38,6 +40,7 @@
         border-radius: 4px;
         border: 0.5px solid var(--border-strong);
         color: var(--text);
+        flex-shrink: 0;
       }
 
       .pack-chip {
@@ -50,17 +53,17 @@
         border-radius: 20px;
         background: var(--brand-bg);
         color: var(--brand);
-        max-width: 12rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        min-width: 0;
         white-space: nowrap;
 
         .ti { font-size: 0.72rem; flex-shrink: 0; }
+        .pack-chip-name { overflow: hidden; text-overflow: ellipsis; }
       }
     }
 
     .pair-header-right {
       display: flex;
+      flex-shrink: 0;
       align-items: center;
       gap: 0.6rem;
     }

@@ -83,7 +83,7 @@ Usar **siempre** la variable, nunca el hex.
 - **Acento de canal:** las tarjetas de ML/TN llevan `border-top: 3px solid var(--ml | --tn)`.
 - **Espaciado vertical:** rem (0.8rem, 1rem, 1.5rem). Gaps internos en px (8–12px).
 - **Sidebar:** 220px fija, `position: sticky`. Colapsa a fila en ≤760px.
-- **Ancho de contenido:** máx ~1180px; formularios máx ~880px.
+- **Ancho de contenido:** las páginas ocupan todo el ancho disponible (sin tope); solo los formularios se limitan a ~880px.
 
 ---
 
