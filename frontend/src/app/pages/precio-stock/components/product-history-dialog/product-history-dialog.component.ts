@@ -428,7 +428,8 @@ export class ProductHistoryDialogComponent {
 
   private priceLabel(row: PriceAuditRow): string {
     switch (row.source) {
-      case 'manual': return 'Cambio manual';
+      // El editor de publicaciones manda su propio rótulo ("Edición de publicación").
+      case 'manual': return row.productLabel || 'Cambio manual';
       case 'sync': return 'Sincronizar precios';
       case 'externo': return row.channel === 'mercadolibre' ? 'Cambio en ML' : 'Cambio en TN';
       default: return 'Precios';

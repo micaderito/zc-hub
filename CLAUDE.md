@@ -309,8 +309,9 @@ webhooks de venta/devolución).
 #### Historial de PRECIOS (`price_audit`): todos los caminos que cambian un precio
 
 Hasta 2026-10-12 solo lo escribía "Precios" (aplicar lista). Ahora cada camino deja su fila, con
-`source`: `bulk` (Precios), `manual` (Precio y stock → `/conflicts/update-prices`; el `price_ml`
-viaja con `contextJson: {source:'manual'}`), `sync` ("Sincronizar precios" del Dashboard,
+`source`: `bulk` (Precios), `manual` (Precio y stock → `/conflicts/update-prices` y el editor de
+publicaciones, que rotula "Edición de publicación"; el `price_ml` viaja con
+`contextJson: {source:'manual'}` y TN pasa por `setTnPriceManual` en `services/tnManualWrites.js`), `sync` ("Sincronizar precios" del Dashboard,
 `syncPricesForSku`, ML → TN) y `externo` (cambiado desde el panel de ML/TN o una promoción de ML,
 detectado por `diffPriceRows` en `refreshMlItemInSnapshot`/`refreshTnProductInSnapshot`, solo por
 webhook — igual que el stock, el crawl completo no diffea). Mismas reglas que el stock: previo leído
@@ -919,6 +920,43 @@ de TN — no es 1:1.
 - Navegar no le pega a ML/TN; "Actualizar" (`?refresh=1`) fuerza el crawl completo, igual que
   Conflictos.
 
+**Editar publicación** (`/publicaciones/:key/editar`, solo admin; Fase 2 del diseño). Es el mismo
+`CrearProductoComponent` con `data.mode = 'edit'`: `ProductDraftStore.mode` decide adónde se
+autoguarda y qué se muestra (sin "Mis borradores", sin Alerta de stock, sin Publicar; en su lugar
+el panel `zc-edit-review` "Cambios a aplicar").
+- **No se duplican publicaciones.** Al abrir, `publicationImport.js` lee EN VIVO los ítems de ML
+  (`getItemOrStatus` + `getItemDescription` + nombre de la categoría) y los productos de TN
+  (`getProduct`) del grupo, y los convierte en un `ProductDraft`: `mappingMode` por canal sale de la
+  forma real (1 ítem con `variations[]` → `single_with_variants`; N ítems/productos →
+  `one_per_variant`), los ejes de `attribute_combinations` (legacy), de los atributos que cambian
+  entre ítems de una ficha (User Products) o de `attributes` de TN, y las variantes se unen por SKU.
+  Si un canal no contesta (429/5xx), no se arma la edición (502): nunca se edita con datos a medias.
+- **Lo que se guarda** es la edición a medio terminar (`publication_edits`: `draft_json`,
+  `baseline_json` = cómo estaba al importarla, `refs_json` = ids externos + `last_updated`/`updated_at`
+  + `locks` + `notes`). Una sola abierta por producto (índice único parcial; abrir de nuevo la
+  retoma). `done`/`discarded` se purgan a los 30 días. La lista de Publicaciones marca "Edición sin
+  guardar". Al retomar una, `remote-check` avisa si alguien cambió la publicación en ML/TN mientras.
+- **Fotos ya publicadas**: `DraftImage.remote = { channel, id, url }`, id `ml-<picture_id>` /
+  `tn-<image_id>`, preview = URL del canal. `persistable()` del store las guarda con `remote` (antes
+  el autoguardado descartaba todo menos `{id,name}`). Las nuevas se suben como en Crear producto.
+- **Qué cambió** (`publicationDiff.js`, `POST /:id/plan` con el borrador en pantalla, debounce de
+  600 ms en el store): una operación por cosa a cambiar en una publicación concreta, con `key`
+  estable (será el `unit_key` del job). Lo que no se tocó no genera nada, así guardar no pisa cambios
+  hechos desde el panel de ML/TN en otros campos. Compara valores EFECTIVOS (mismas reglas que el
+  front: `effective`, `variantTitle`). Un atributo que la categoría suma vacío al refrescarla, o un
+  `value_id` que se cae, no cuenta como cambio (se compara el texto).
+- **Bloqueos** (`locks`, candado en el form): cómo está armado cada canal (siempre — cambiarlo es
+  volver a publicar), categoría (siempre), título y condición con ventas, y título en una ficha de
+  User Products (lo arma ML). Agregar/quitar variantes sí se puede (la usuaria confirmó que ML lo
+  permite); quitar una variación con ventas avisa en la operación.
+- **Guardar** (`POST /:id/apply`, Fase 3): encola un job `kind: 'update'` en el publish worker
+  (`publicationUpdate.js`), una unidad por operación (reintentar saltea las ok; un error no frena
+  las demás). Stock/precio/SKU van por los caminos de siempre (Cola ML, `tnManualWrites.js`) para
+  conservar el historial. Ítems legacy: todo PUT con `variations` lleva TODOS los ids
+  (`mlVariationsBody`). Si la publicación cambió afuera, 409 `remote_changed` y la UI pide "Guardar
+  igual". Al terminar sin errores la edición queda `done`; con errores sigue `saving` (Reintentar o
+  `POST /:id/close`). **Sin probar todavía contra ML/TN reales**: solo con tests.
+
 **Historial de publicación** (lo que era toda la página): `product_publish_jobs` +
 `product_publish_units` (incl. `external_id` = id de ML/TN por unidad).
 **Borrar un borrador ya no borra su historial.** Hasta 2026-10-12 `draft_id` era `ON DELETE CASCADE`
@@ -1079,6 +1117,15 @@ borrador que se está publicando en `routesProductsDrafts.test.js` y el historia
 borrado contra Postgres real en `publishJobsRealDb.test.js`; en el front
 `hub-products.component.spec.ts`, `link-variant-dialog.component.spec.ts` y
 `hub-products.service.spec.ts`.
+Editar publicación: `backend/test/publicationImport.test.js` (clásica con variaciones ↔ TN uno por
+color, ficha de User Products ↔ TN con variantes, ítems sueltos de ML ↔ TN con variantes, producto
+simple, avisos, 404/502 sin edición a medias, `checkRemoteChanges`), `publicationDiff.test.js` (sin
+cambios → nada; descripción, stock/precio por variante, agregar/quitar variantes, fotos,
+características, medidas, títulos por variante, producto simple, canal no publicado),
+`routesPublicationEdits.test.js` (abrir/retomar, autoguardar, descartar, plan, remote-check) y
+`publishJobsRealDb.test.js` (una sola edición abierta por producto contra Postgres real); en el front
+`crear-producto.edit.spec.ts` (abre la edición de la ruta, candados, fotos remotas en el
+autoguardado, panel de cambios, aviso al retomar, descartar, error de importación).
 `backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
 
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y

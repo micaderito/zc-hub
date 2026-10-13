@@ -27,6 +27,8 @@ export const routes: Routes = [
       { path: 'precios', canActivate: [adminGuard], loadComponent: () => import('./pages/precios/precios.component').then(m => m.PreciosComponent) },
       { path: 'deposito', loadComponent: () => import('./pages/deposito/deposito.component').then(m => m.DepositoComponent) },
       { path: 'crear', canActivate: [adminGuard], loadComponent: () => import('./pages/crear-producto/crear-producto.component').then(m => m.CrearProductoComponent) },
+      // Editar una publicación existente: el mismo form de Crear producto en modo edición.
+      { path: 'publicaciones/:key/editar', canActivate: [adminGuard], data: { mode: 'edit' }, loadComponent: () => import('./pages/crear-producto/crear-producto.component').then(m => m.CrearProductoComponent) },
       { path: 'publicaciones', loadComponent: () => import('./pages/publicaciones/publicaciones-page.component').then(m => m.PublicacionesPageComponent) },
       { path: 'alertas', loadComponent: () => import('./pages/alertas/alertas.component').then(m => m.AlertasComponent) },
       { path: 'pedidos', loadComponent: () => import('./pages/pedidos/pedidos-list.component').then(m => m.PedidosListComponent) },

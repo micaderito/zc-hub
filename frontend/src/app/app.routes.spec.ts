@@ -16,7 +16,7 @@ describe('routes', () => {
     const shell = routes.find(r => r.path === '')!;
     const childPaths = (shell.children ?? []).map(r => r.path);
     expect(childPaths).toEqual([
-      '', 'conexiones', 'conflictos', 'precio-stock', 'precios', 'deposito', 'crear', 'publicaciones', 'alertas', 'pedidos', 'pedidos/:id', 'despachos', 'ventas', 'sincronizacion', 'usuarios',
+      '', 'conexiones', 'conflictos', 'precio-stock', 'precios', 'deposito', 'crear', 'publicaciones/:key/editar', 'publicaciones', 'alertas', 'pedidos', 'pedidos/:id', 'despachos', 'ventas', 'sincronizacion', 'usuarios',
     ]);
   });
 

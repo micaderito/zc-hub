@@ -1,8 +1,9 @@
 import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
-import { CatalogService, DraftDetail, DraftSummary, PublishJobSummary, StorageUsage } from '../../core/services/catalog.service';
+import { CatalogService, DraftDetail, DraftSummary, PublishJobSummary, PublishUnit, StorageUsage } from '../../core/services/catalog.service';
 import { PricingService } from '../../core/services/pricing.service';
+import { EditLockKey, EditOp, PublicationEdit, PublicationEditsService, RemoteChange } from '../../core/services/publication-edits.service';
 import {
   DEFAULT_SETTINGS,
   PricingSettings,
@@ -42,6 +43,10 @@ export const ML_MAX_PICTURES_PER_VAR_FALLBACK = 10;
 
 /** Cuánto se espera desde la última tecla antes de autoguardar. */
 const AUTOSAVE_DELAY_MS = 1500;
+/** Cuánto se espera desde la última tecla antes de recalcular "Cambios a aplicar" (modo edición). */
+const PLAN_DELAY_MS = 600;
+/** Cada cuánto se mira el progreso del guardado en ML/TN (modo edición). */
+const SAVE_POLL_MS = 1500;
 
 /** Imagen tal como se guarda en localStorage: sin `previewUrl` (se reconstruye al restaurar). */
 interface StoredImageRef {
@@ -98,6 +103,7 @@ export class ProductDraftStore {
   private readonly catalog = inject(CatalogService);
   private readonly api = inject(ApiService);
   private readonly pricingSvc = inject(PricingService);
+  private readonly editsSvc = inject(PublicationEditsService);
   private readonly zone = inject(NgZone);
 
   readonly draft = signal<ProductDraft>(emptyDraft());
@@ -110,6 +116,258 @@ export class ProductDraftStore {
   touch(): void {
     this.draft.set({ ...this.draft() });
     this.scheduleAutosave();
+    if (this.isEdit() && !this.editLocked()) this.schedulePlan();
+  }
+
+  /* ---------- modo edición (Publicaciones → Editar publicación) ---------- */
+
+  /**
+   * 'create' = Crear producto de siempre. 'edit' = el mismo form cargado con publicaciones que ya
+   * existen en ML/TN (ver backend/src/services/publicationImport.js): el borrador se autoguarda en
+   * `publication_edits` (no en "Mis borradores") y en vez de publicar se calcula qué cambió.
+   */
+  readonly mode = signal<'create' | 'edit'>('create');
+  readonly isEdit = computed(() => this.mode() === 'edit');
+  readonly edit = signal<PublicationEdit | null>(null);
+  /** Lo que ML no deja cambiar, con el motivo. Ver `lock()`. */
+  readonly editLocks = computed(() => this.edit()?.locks ?? {});
+  readonly editNotes = computed(() => this.edit()?.notes ?? []);
+  /** Canales donde el producto está publicado (en el otro, lo que se cargue no se guarda). */
+  readonly editChannels = computed(() => this.edit()?.refs?.channels ?? { ml: true, tn: true });
+  /** Publicaciones que alguien cambió en ML/TN desde que se abrió la edición. */
+  readonly editRemoteChanges = signal<RemoteChange[]>([]);
+  readonly editOps = signal<EditOp[]>([]);
+  readonly editPlanLoading = signal(false);
+  readonly editPlanError = signal<string | null>(null);
+  readonly editLoadError = signal<string | null>(null);
+  private planTimer: ReturnType<typeof setTimeout> | null = null;
+  private planSeq = 0;
+
+  /* --- guardar en ML/TN (job de edición en el publish worker) --- */
+  /** Fase del guardado: idle (editando) · running · done · error · cancelled · unknown (no sabemos). */
+  readonly editSavePhase = signal<'idle' | 'running' | 'done' | 'error' | 'cancelled' | 'unknown'>('idle');
+  /** Operaciones que se están guardando (las del job, no las que se recalculan al editar). */
+  readonly editSaveOps = signal<EditOp[]>([]);
+  readonly editSaveUnits = signal<PublishUnit[]>([]);
+  readonly editSaveJobId = signal<string | null>(null);
+  /** Publicaciones que cambiaron en el canal: se pide confirmación antes de guardar igual. */
+  readonly editConfirmRemote = signal<RemoteChange[] | null>(null);
+  /** El form no se puede tocar mientras se guarda o después de guardar (la edición se cierra). */
+  readonly editLocked = computed(() => this.isEdit() && this.editSavePhase() !== 'idle');
+  private savePollTimer: ReturnType<typeof setTimeout> | null = null;
+  private savePollFailures = 0;
+
+  /** Motivo por el que un campo no se puede cambiar en esta edición, o null. */
+  lock(key: EditLockKey): string | null {
+    return this.isEdit() ? this.editLocks()[key] ?? null : null;
+  }
+
+  /** Abre (importa en vivo o retoma) la edición de un producto del hub. */
+  async openEdit(groupKey: string): Promise<void> {
+    this.mode.set('edit');
+    this.editLoadError.set(null);
+    try {
+      const edit = await this.editsSvc.open(groupKey);
+      this.applyEdit(edit);
+      if (edit.resumed) void this.checkRemoteChanges();
+    } catch (e) {
+      this.editLoadError.set(this.errMsg(e) || 'No pudimos abrir la publicación para editarla.');
+    }
+  }
+
+  private applyEdit(edit: PublicationEdit): void {
+    this.cancelAutosave();
+    this.revokeDraftBlobs(this.draft());
+    const raw = edit.draft as ProductDraft;
+    const d = normalizeDraft(raw);
+    d.ml.images = this.restoreImages(raw.ml?.images);
+    d.tn.images = this.restoreImages(raw.tn?.images);
+    this.draft.set(d);
+    this.edit.set(edit);
+    this.currentDraftId.set(null);
+    this.draftSavedAt.set(edit.resumed ? new Date(edit.updatedAt) : null);
+    this.lastSavedSnapshot = JSON.stringify(this.persistable(d));
+    this.mlMaxPictures.set(ML_MAX_PICTURES_FALLBACK);
+    this.mlMaxPicturesPerVar.set(ML_MAX_PICTURES_PER_VAR_FALLBACK);
+    // Se estaba guardando (o se guardó con errores) cuando se cerró la pantalla: se retoma el progreso.
+    if (edit.status === 'saving' && edit.job) {
+      this.editSaveOps.set(edit.jobOps ?? []);
+      this.startSavePolling(edit.job.id);
+      return;
+    }
+    void this.refreshPlan();
+  }
+
+  /** Avisa si alguien cambió las publicaciones en ML/TN mientras esta edición estaba abierta. */
+  async checkRemoteChanges(): Promise<void> {
+    const id = this.edit()?.id;
+    if (!id) return;
+    try {
+      this.editRemoteChanges.set((await this.editsSvc.remoteCheck(id)).changed);
+    } catch {
+      /* no saber no bloquea: el aviso es una ayuda, no una guarda */
+    }
+  }
+
+  /** Recalcula "Cambios a aplicar" un rato después de la última tecla (no por cada una). */
+  schedulePlan(): void {
+    if (this.planTimer) clearTimeout(this.planTimer);
+    this.zone.runOutsideAngular(() => {
+      this.planTimer = setTimeout(() => this.zone.run(() => void this.refreshPlan()), PLAN_DELAY_MS);
+    });
+  }
+
+  async refreshPlan(): Promise<void> {
+    const id = this.edit()?.id;
+    if (!id) return;
+    const seq = ++this.planSeq;
+    this.editPlanLoading.set(true);
+    try {
+      const { ops } = await this.editsSvc.plan(id, this.persistable(this.draft()));
+      if (seq !== this.planSeq) return; // llegó tarde: ya hay un cálculo más nuevo en camino
+      this.editOps.set(ops);
+      this.editPlanError.set(null);
+    } catch (e) {
+      if (seq === this.planSeq) this.editPlanError.set(this.errMsg(e) || 'No se pudo calcular qué cambió.');
+    } finally {
+      if (seq === this.planSeq) this.editPlanLoading.set(false);
+    }
+  }
+
+  /**
+   * Guarda los cambios en ML y TN. El job corre en el servidor (se puede cerrar la pestaña); acá se
+   * sigue su progreso. Si la publicación cambió afuera, primero pide confirmación (`force`).
+   */
+  async applyEditChanges(force = false): Promise<void> {
+    const edit = this.edit();
+    if (!edit) return;
+    if (this.hasPendingUploads()) {
+      this.setImageError('draft', 'Esperá a que terminen de subirse las fotos antes de guardar.');
+      return;
+    }
+    this.cancelAutosave();
+    this.editConfirmRemote.set(null);
+    this.setImageError(null, null);
+    try {
+      const { jobId, ops } = await this.editsSvc.apply(edit.id, this.persistable(this.draft()), force);
+      this.editSaveOps.set(ops);
+      this.editSaveUnits.set([]);
+      this.startSavePolling(jobId);
+    } catch (e) {
+      const err = e as { status?: number; error?: { code?: string; changed?: RemoteChange[] } };
+      if (err?.status === 409 && err.error?.code === 'remote_changed') {
+        this.editConfirmRemote.set(err.error.changed ?? []);
+        return;
+      }
+      this.setImageError('draft', this.errMsg(e) || 'No se pudo guardar.');
+    }
+  }
+
+  private startSavePolling(jobId: string): void {
+    if (this.savePollTimer) clearTimeout(this.savePollTimer);
+    this.editSaveJobId.set(jobId);
+    this.editSavePhase.set('running');
+    this.savePollFailures = 0;
+    void this.pollSave();
+  }
+
+  private async pollSave(): Promise<void> {
+    const jobId = this.editSaveJobId();
+    if (!jobId) return;
+    try {
+      const { job, units } = await this.catalog.getPublishJob(jobId);
+      this.savePollFailures = 0;
+      this.editSaveUnits.set(units);
+      if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
+        this.editSavePhase.set(job.status);
+        return;
+      }
+      this.editSavePhase.set('running');
+    } catch {
+      if (++this.savePollFailures >= 5) {
+        this.editSavePhase.set('unknown');
+        return;
+      }
+    }
+    this.savePollTimer = setTimeout(() => void this.pollSave(), SAVE_POLL_MS);
+  }
+
+  /** Vuelve a mirar el guardado después de perder la conexión ("No pudimos confirmar…"). */
+  retrySavePoll(): void {
+    this.savePollFailures = 0;
+    this.editSavePhase.set('running');
+    void this.pollSave();
+  }
+
+  /** Reintenta lo que falló (el mismo job: lo que ya quedó bien no se repite). */
+  async retrySave(): Promise<void> {
+    const jobId = this.editSaveJobId();
+    if (!jobId) return;
+    try {
+      await this.catalog.retryPublishJob(jobId);
+      this.startSavePolling(jobId);
+    } catch (e) {
+      this.setImageError('draft', this.errMsg(e) || 'No se pudo reintentar.');
+    }
+  }
+
+  async cancelSave(): Promise<void> {
+    const jobId = this.editSaveJobId();
+    if (!jobId) return;
+    if (this.savePollTimer) clearTimeout(this.savePollTimer);
+    try {
+      await this.catalog.cancelPublishJob(jobId);
+    } catch {
+      /* si ya terminó, el próximo vistazo lo muestra */
+    }
+    void this.pollSave();
+  }
+
+  /** Cierra la edición (ya guardada o con errores aceptados): la próxima vez se importa de nuevo. */
+  async closeEdit(): Promise<boolean> {
+    const id = this.edit()?.id;
+    if (!id) return false;
+    try {
+      await this.editsSvc.close(id);
+      return true;
+    } catch (e) {
+      this.setImageError('draft', this.errMsg(e) || 'No se pudo cerrar la edición.');
+      return false;
+    }
+  }
+
+  /** Descarta la edición (no toca nada en ML ni TN). */
+  async discardEdit(): Promise<boolean> {
+    const id = this.edit()?.id;
+    if (!id) return false;
+    try {
+      this.cancelAutosave();
+      await this.editsSvc.discard(id);
+      return true;
+    } catch (e) {
+      this.setImageError('draft', this.errMsg(e) || 'No se pudo descartar la edición.');
+      return false;
+    }
+  }
+
+  /**
+   * Imágenes como se guardan: sin `previewUrl` (se reconstruye al abrir), pero con `remote` si la
+   * foto ya está publicada en un canal — así no se pierde a qué foto de ML/TN corresponde.
+   */
+  private persistable(d: ProductDraft): ProductDraft {
+    const strip = (images: DraftImage[]) =>
+      images.map(({ id, name, remote }) => (remote ? { id, name, remote } : { id, name })) as unknown as DraftImage[];
+    return { ...d, ml: { ...d.ml, images: strip(d.ml.images) }, tn: { ...d.tn, images: strip(d.tn.images) } };
+  }
+
+  /** Preview de cada foto: la URL del canal si ya está publicada, si no la miniatura del backend. */
+  private restoreImages(images: unknown): DraftImage[] {
+    const list = (Array.isArray(images) ? images : []) as { id: string; name: string; remote?: DraftImage['remote'] }[];
+    return list.map((img) => ({
+      ...img,
+      uid: img.id,
+      previewUrl: img.remote?.url || `${this.api.baseUrl}/products/images/${img.id}/thumb`
+    }));
   }
 
   /* ---------- borradores locales (localStorage, varios a la vez) ---------- */
@@ -338,6 +596,7 @@ export class ProductDraftStore {
   /* ---------- mapping mode (Opción B) ---------- */
 
   setMode(channel: Channel, mode: MappingMode): void {
+    if (this.lock('mappingMode')) return;
     const d = this.draft();
     if (channel === 'ml') d.ml.mappingMode = mode;
     else d.tn.mappingMode = mode;
@@ -1072,18 +1331,27 @@ export class ProductDraftStore {
     }
     const d = this.draft();
     // Entrar a la página y no tocar nada no tiene que crear un borrador vacío en la lista.
-    if (opts.auto && this.isDraftEmpty(d)) return;
+    if (opts.auto && !this.isEdit() && this.isDraftEmpty(d)) return;
 
-    const stripPreview = (images: DraftImage[]) => images.map(({ id, name }) => ({ id, name }));
-    const draftPayload = {
-      ...d,
-      ml: { ...d.ml, images: stripPreview(d.ml.images) },
-      tn: { ...d.tn, images: stripPreview(d.tn.images) }
-    };
+    const draftPayload = this.persistable(d);
     // Si nada cambió desde el último guardado, el autoguardado no le pega al backend.
     const snapshot = JSON.stringify(draftPayload);
     if (opts.auto && snapshot === this.lastSavedSnapshot) return;
     this.lastSavedSnapshot = snapshot;
+
+    // Edición de una publicación existente: se guarda en su edición, no en "Mis borradores".
+    const edit = this.edit();
+    if (this.isEdit()) {
+      if (!edit) return;
+      try {
+        await this.editsSvc.save(edit.id, draftPayload);
+        this.draftSavedAt.set(new Date());
+      } catch (e) {
+        this.lastSavedSnapshot = null;
+        if (!opts.auto) this.setImageError('draft', this.errMsg(e) || 'No se pudo guardar la edición.');
+      }
+      return;
+    }
 
     const name = d.common.baseName.trim() || undefined;
     const sku = d.common.sku.trim() || undefined;
@@ -1131,7 +1399,9 @@ export class ProductDraftStore {
     this.cancelAutosave();
     // Entrar a la página, o tocar solo la categoría, no tiene por qué agendar nada: sin esto
     // quedaría un timer vivo desde el primer render para un borrador que no vale la pena guardar.
-    if (this.isDraftEmpty(this.draft())) return;
+    // En modo edición sí: hasta que termina de cargar no hay edición a la que guardarle nada, y
+    // mientras se guarda en los canales el borrador ya no cambia.
+    if (this.isEdit() ? !this.edit() || this.editLocked() : this.isDraftEmpty(this.draft())) return;
     this.zone.runOutsideAngular(() => {
       this.autosaveTimer = setTimeout(() => this.zone.run(() => this.saveDraft({ auto: true })), AUTOSAVE_DELAY_MS);
     });
@@ -1149,12 +1419,7 @@ export class ProductDraftStore {
   private applyDraftEntry(entry: DraftDetail): void {
     // El preview apunta a la MINIATURA, no al original: restaurar un borrador con 45 fotos servía
     // ~225 MB de archivos de resolución completa para pintarlos en cajas de 40-84 px.
-    const restorePreview = (images: { id: string; name: string }[] = []): DraftImage[] =>
-      images.map((img) => ({
-        ...img,
-        uid: img.id,
-        previewUrl: `${this.api.baseUrl}/products/images/${img.id}/thumb`
-      }));
+    const restorePreview = (images: { id: string; name: string }[] = []): DraftImage[] => this.restoreImages(images);
     this.cancelAutosave();
     // Los blobs del borrador que estaba abierto ya no se usan más.
     this.revokeDraftBlobs(this.draft());
@@ -1261,6 +1526,8 @@ export class ProductDraftStore {
   /** Corta los workers y libera los blobs. Lo llama el `ngOnDestroy` de la página. */
   destroy(): void {
     this.cancelAutosave();
+    if (this.planTimer) clearTimeout(this.planTimer);
+    if (this.savePollTimer) clearTimeout(this.savePollTimer);
     for (const worker of this.thumbPool) worker.terminate();
     this.revokeDraftBlobs(this.draft());
   }

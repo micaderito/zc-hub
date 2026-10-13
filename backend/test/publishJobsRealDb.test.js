@@ -188,3 +188,40 @@ test(
     }
   }
 );
+
+test(
+  'ediciones de publicaciones: una sola abierta por producto, autoguardado y descartar contra Postgres real',
+  { skip: hasDb ? false : 'requiere DATABASE_URL (correr con el .env symlinkeado del worktree, o el de backend/)' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined
+    });
+    assert.equal(await db.initDb(), true);
+    const suffix = Date.now();
+    const groupKey = `ml:TEST-${suffix}`;
+    const ids = [`t-edit-a-${suffix}`, `t-edit-b-${suffix}`, `t-edit-c-${suffix}`];
+    const base = { draft: { common: { baseName: 'X' } }, baseline: { common: { baseName: 'X' } }, refs: { channels: { ml: true } } };
+    try {
+      const a = await db.createPublicationEdit({ id: ids[0], groupKey, name: 'X', ...base, createdBy: 'test' });
+      assert.equal(a.id, ids[0]);
+      assert.equal(a.draft.common.baseName, 'X');
+      // Una segunda edición del mismo producto choca con el índice único y devuelve la abierta.
+      const b = await db.createPublicationEdit({ id: ids[1], groupKey, name: 'X', ...base });
+      assert.equal(b.id, ids[0]);
+      assert.equal(await db.updatePublicationEditDraft(ids[0], { common: { baseName: 'Y' } }), true);
+      assert.equal((await db.getActivePublicationEdit(groupKey)).draft.common.baseName, 'Y');
+      assert.equal((await db.listActivePublicationEdits())[groupKey].id, ids[0]);
+      assert.equal(await db.setPublicationEditStatus(ids[0], 'discarded'), true);
+      assert.equal(await db.updatePublicationEditDraft(ids[0], { common: {} }), false, 'descartada ya no se autoguarda');
+      assert.equal(await db.getActivePublicationEdit(groupKey), null);
+      const c = await db.createPublicationEdit({ id: ids[2], groupKey, name: 'X', ...base });
+      assert.equal(c.id, ids[2], 'descartada la anterior, se puede abrir otra');
+    } finally {
+      await pool.query('DELETE FROM publication_edits WHERE id = ANY($1)', [ids]);
+      await pool.end();
+    }
+  }
+);

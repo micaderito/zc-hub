@@ -52,7 +52,10 @@
                   <span>{{ p.variantCount }} {{ p.variantCount === 1 ? 'variante' : 'variantes' }}</span>
                 </span>
               </span>
-              <span class="hp-status" [class]="statusMeta[p.status].cls">{{ statusMeta[p.status].label }}</span>
+              <span class="hp-item-side">
+                <span class="hp-status" [class]="statusMeta[p.status].cls">{{ statusMeta[p.status].label }}</span>
+                @if (p.edit) { <span class="hp-editing" title="Hay una edición sin guardar"><i class="ti ti-pencil"></i> Edición sin guardar</span> }
+              </span>
             </button>
           </li>
         }
@@ -85,6 +88,11 @@
             <span><span class="zc-badge ml">ML</span> {{ shape(d, 'ml') }}</span>
             <span><span class="zc-badge tn">TN</span> {{ shape(d, 'tn') }}</span>
           </div>
+        </div>
+        <div class="hp-dhead-actions" *zcCanWrite>
+          <a class="zc-btn primary small" [routerLink]="['/publicaciones', d.key, 'editar']">
+            <i class="ti ti-pencil"></i> {{ d.edit ? 'Seguir editando' : 'Editar publicación' }}
+          </a>
         </div>
       </div>
 

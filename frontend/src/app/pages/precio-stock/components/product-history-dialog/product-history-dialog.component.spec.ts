@@ -133,8 +133,8 @@ describe('ProductHistoryDialogComponent', () => {
     pricingSpy.getPriceHistoryBySku.and.returnValue(
       of({
         rows: [
-          priceRow({ id: 1, channel: 'mercadolibre', source: 'manual', createdAt: '2026-07-11T10:00:00.000Z' }),
-          priceRow({ id: 2, channel: 'tiendanube', source: 'manual', createdAt: '2026-07-11T10:00:20.000Z' }),
+          priceRow({ id: 1, channel: 'mercadolibre', source: 'manual', productLabel: null, createdAt: '2026-07-11T10:00:00.000Z' }),
+          priceRow({ id: 2, channel: 'tiendanube', source: 'manual', productLabel: null, createdAt: '2026-07-11T10:00:20.000Z' }),
         ],
         total: 2,
       }) as never,
@@ -146,6 +146,17 @@ describe('ProductHistoryDialogComponent', () => {
     expect(rows.length).toBe(1);
     expect(rows[0].querySelectorAll('.hist-side').length).toBe(2);
     expect(rows[0].querySelector('.hist-source.manual')?.textContent?.trim()).toBe('Cambio manual');
+  });
+
+  it('un cambio manual hecho desde el editor de publicaciones muestra su propio rótulo', async () => {
+    syncSpy.getStockHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+    pricingSpy.getPriceHistoryBySku.and.returnValue(
+      of({ rows: [priceRow({ source: 'manual', productLabel: 'Edición de publicación' })], total: 1 }) as never,
+    );
+
+    await createAndLoad('price');
+
+    expect(fixture.nativeElement.querySelector('.hist-source')?.textContent?.trim()).toBe('Edición de publicación');
   });
 
   it('muestra el historial de stock aunque el de precios falle (y el error queda en su pestaña)', async () => {

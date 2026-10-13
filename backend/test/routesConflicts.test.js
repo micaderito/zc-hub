@@ -387,7 +387,7 @@ test('POST /update-prices: el precio TN queda en el historial de precios como ca
     body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 1200 }),
   });
   assert.deepEqual(dbState.priceAuditRows, [
-    { sku: 'SKU-1', channel: 'tiendanube', priceBefore: 1000, priceAfter: 1200, source: 'manual' },
+    { sku: 'SKU-1', channel: 'tiendanube', priceBefore: 1000, priceAfter: 1200, source: 'manual', productLabel: null },
   ]);
   const names = patchState.calls.map((c) => c[0]);
   assert.ok(names.indexOf('readTnSnapshotRows') < names.indexOf('patchTnPrice'), 'el previo se lee antes de escribir');

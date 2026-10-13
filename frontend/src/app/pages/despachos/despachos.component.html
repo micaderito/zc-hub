@@ -133,7 +133,7 @@
               <span class="pk-meta">
                 @if (p.buyer) { {{ p.buyer }} }
                 @if (p.city) { · {{ p.city }} }
-                @if (p.items.length > 1) { · {{ p.items.length }} productos }
+                @if (units(p) > 1) { · {{ units(p) }} productos }
               </span>
               <span class="pk-chips">
                 @if (deadlineLabel(p); as dl) { <span class="st err">{{ dl }}</span> }
