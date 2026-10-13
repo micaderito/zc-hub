@@ -6,7 +6,7 @@
       <code>{{ pair().sku || pair().ml.sku || pair().tn.sku || '—' }}</code>
       @if (packName()) {
         <span class="pack-chip" title="Pertenece al pack {{ packName() }}">
-          <i class="ti ti-box" aria-hidden="true"></i>{{ packName() }}
+          <i class="ti ti-box" aria-hidden="true"></i><span class="pack-chip-name">{{ packName() }}</span>
         </span>
       }
     </div>
