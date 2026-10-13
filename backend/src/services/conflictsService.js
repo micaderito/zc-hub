@@ -18,9 +18,9 @@
 
 import { tokens, getMlToken, tryRefreshMlToken, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import { setResolutionFromAnalysis } from '../store.js';
-import { hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot, invalidateAnalysisCache, insertAuditLog } from '../db.js';
+import { hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot, invalidateAnalysisCache, insertAuditLog, insertPriceAudit } from '../db.js';
 import { evaluateStockAlerts } from './alertsService.js';
-import { rememberStockWrite, consumeStockEcho, mlStockEchoKey, tnStockEchoKey, __resetStockEchoesForTests } from '../lib/stockEcho.js';
+import { rememberStockWrite, consumeStockEcho, mlStockEchoKey, tnStockEchoKey, matchPriceEcho, mlPriceEchoKey, tnPriceEchoKey, __resetStockEchoesForTests } from '../lib/stockEcho.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -619,6 +619,36 @@ export async function readTnSnapshotRow(productId, variantId) {
   return found;
 }
 
+/**
+ * Todas las filas de un ítem de ML en la foto (`{ variationId, price, sku }`). Para el historial de
+ * PRECIO: en ML el precio es del ítem entero — un ítem legacy aplica el mismo precio a todas sus
+ * variaciones —, así que un cambio de precio mueve el de cada SKU del ítem, no solo el pedido.
+ */
+export async function readMlSnapshotRows(itemId) {
+  let rows = [];
+  await withSnapshotLock(async () => {
+    const snap = await loadSnapshot();
+    if (!snap?.data?.mlRows) return;
+    rows = snap.data.mlRows
+      .filter((r) => r.itemId === itemId)
+      .map((r) => ({ variationId: r.variationId ?? null, price: r.price ?? null, sku: r.sku ?? null }));
+  });
+  return rows;
+}
+
+/** Todas las variantes de un producto de TN en la foto (`{ variantId, price, sku }`). */
+export async function readTnSnapshotRows(productId) {
+  let rows = [];
+  await withSnapshotLock(async () => {
+    const snap = await loadSnapshot();
+    if (!snap?.data?.tnRows) return;
+    rows = snap.data.tnRows
+      .filter((r) => String(r.productId) === String(productId))
+      .map((r) => ({ variantId: r.variantId ?? null, price: r.price ?? null, sku: r.sku ?? null }));
+  });
+  return rows;
+}
+
 
 /**
  * Precio ML: en ítems legacy con variaciones ML aplica el mismo precio a TODAS las variaciones del ítem.
@@ -776,13 +806,60 @@ function diffStockRows(oldRows, newRows, keyOf, echoKeyOf, displayOf) {
 }
 
 /**
+ * Cambios de PRECIO entre las filas viejas del snapshot y las que acaba de traer el canal. Un precio
+ * 0 en la foto significa "no lo sabemos" (así lo deja flatten cuando el canal no lo trae), no un
+ * precio real: no cuenta como cambio.
+ */
+function diffPriceRows(oldRows, newRows, keyOf, echoKeyOf) {
+  const byKey = new Map(oldRows.map((r) => [keyOf(r), r]));
+  const changes = [];
+  for (const r of newRows) {
+    const old = byKey.get(keyOf(r));
+    if (!old || !(old.price > 0) || !(r.price > 0) || old.price === r.price) continue;
+    changes.push({
+      sku: r.sku || old.sku || null,
+      echoKey: echoKeyOf(r),
+      priceBefore: old.price,
+      priceAfter: r.price,
+    });
+  }
+  return changes;
+}
+
+/**
+ * Guarda en el historial de precios los cambios que trajo un refresh, salvo los que escribió el hub
+ * (eco de precio). Es lo que deja ver una edición hecha desde el panel de ML/TN, y en ML también
+ * los movimientos que hace la plataforma sola (ej. el precio de una promoción que arranca/termina).
+ * Un mismo SKU puede venir repetido (variaciones con el mismo SKU): se registra una vez.
+ */
+async function recordPriceChanges(channel, changes) {
+  const seen = new Set();
+  for (const c of changes) {
+    if (!c.sku) continue;
+    if (matchPriceEcho(c.echoKey, c.priceAfter)) continue;
+    const key = `${c.sku}:${c.priceAfter}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    await insertPriceAudit({
+      sku: c.sku,
+      channel,
+      priceBefore: c.priceBefore,
+      priceAfter: c.priceAfter,
+      source: 'externo',
+      productLabel: channel === 'mercadolibre' ? 'Cambio en ML' : 'Cambio en TN',
+    }).catch((e) => console.error('[Analysis] recordPriceChanges insertPriceAudit:', e.message));
+  }
+}
+
+/**
  * Webhook `items` de ML: re-baja UN ítem (1 request) y reemplaza sus filas en el snapshot.
  * Si el ítem ya no existe/está inactivo, quita sus filas. Recomendación oficial de ML: mantener
  * el catálogo con notificaciones de `items` en vez de re-bajarlo entero.
  *
  * De paso registra en el historial los cambios de stock que traiga: así queda anotado el descuento
  * que hace ML por su cuenta al vender (y cualquier edición hecha desde el panel de ML), que es el
- * lado que faltaba para poder comparar los dos canales.
+ * lado que faltaba para poder comparar los dos canales. Igual con el precio: un cambio hecho desde
+ * el panel de ML (o una promoción de ML) queda en el historial de precios como "Cambio en ML".
  *
  * @returns {Promise<{ ok: boolean }>} ok=false si no se pudo leer el ítem (429 agotado, 5xx, red).
  *   Quien necesite que el dato quede sí o sí —el registro del historial de una venta— lo reencola
@@ -812,9 +889,16 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
   const isCatalogListing = item && item.catalog_listing === true;
   const newRows = item && item.id && !isCatalogListing ? flattenMlItems([item]) : [];
   let changes = [];
+  let priceChanges = [];
   await patchSnapshot((data) => {
     const before = data.mlRows.length;
     const oldRows = data.mlRows.filter((r) => r.itemId === itemId);
+    priceChanges = diffPriceRows(
+      oldRows,
+      newRows,
+      (r) => String(r.variationId ?? ''),
+      (r) => mlPriceEchoKey(r.itemId),
+    );
     changes = diffStockRows(
       oldRows,
       newRows,
@@ -827,6 +911,7 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
     return data.mlRows.length !== before || newRows.length > 0;
   });
   await recordStockChanges('mercadolibre', changes);
+  await recordPriceChanges('mercadolibre', priceChanges);
   return { ok: true };
 }
 
@@ -834,7 +919,7 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
  * Webhook `product/*` de TN: re-baja UN producto (1 request) y reemplaza sus filas en el snapshot.
  * Si el producto ya no existe (deleted / 404), quita sus filas. Análogo a `refreshMlItemInSnapshot`
  * (topic `items` de ML): mantiene el catálogo fresco cuando editan un producto por fuera de la app,
- * sin re-bajarlo entero, y registra en el historial los cambios de stock que traiga.
+ * sin re-bajarlo entero, y registra en el historial los cambios de stock y de precio que traiga.
  *
  * @returns {Promise<{ ok: boolean }>} ok=false si no se pudo leer el producto (429 agotado, 5xx,
  *   red). getProduct ya distingue el 404 real (devuelve null → el producto se borró) de una falla
@@ -855,9 +940,16 @@ export async function refreshTnProductInSnapshot(accessToken, storeId, productId
     : [];
   const newRows = flattenTnVariants(withVariants);
   let changes = [];
+  let priceChanges = [];
   await patchSnapshot((data) => {
     const before = data.tnRows.length;
     const oldRows = data.tnRows.filter((r) => String(r.productId) === String(productId));
+    priceChanges = diffPriceRows(
+      oldRows,
+      newRows,
+      (r) => String(r.variantId ?? ''),
+      (r) => tnPriceEchoKey(r.productId, r.variantId),
+    );
     changes = diffStockRows(
       oldRows,
       newRows,
@@ -870,5 +962,6 @@ export async function refreshTnProductInSnapshot(accessToken, storeId, productId
     return data.tnRows.length !== before || newRows.length > 0;
   });
   await recordStockChanges('tiendanube', changes);
+  await recordPriceChanges('tiendanube', priceChanges);
   return { ok: true };
 }

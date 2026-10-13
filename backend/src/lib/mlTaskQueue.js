@@ -20,8 +20,8 @@
 
 import { claimNextMlTask, updateMlTaskStatus, hasDatabase, touchMlTaskLock, MLTASK_HEARTBEAT_MS } from '../db.js';
 import { insertAuditLog, insertPriceAudit, attributeStockChangeToSale } from '../db.js';
-import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku, refreshMlItemInSnapshot, refreshTnProductInSnapshot, readMlSnapshotRow } from '../services/conflictsService.js';
-import { rememberStockWrite, forgetStockWrite, mlStockEchoKey } from './stockEcho.js';
+import { patchMlPrice, patchMlStock, patchMlSku, patchTnSku, refreshMlItemInSnapshot, refreshTnProductInSnapshot, readMlSnapshotRow, readMlSnapshotRows } from '../services/conflictsService.js';
+import { rememberStockWrite, forgetStockWrite, mlStockEchoKey, rememberPriceWrite, forgetPriceWrite, mlPriceEchoKey } from './stockEcho.js';
 import { getMlToken, tokens } from '../store.js';
 import * as ml from './mercadolibre.js';
 import * as tn from './tiendanube.js';
@@ -157,36 +157,61 @@ export async function processTask(task) {
 
       // El precio previo se lee de la foto ANTES del PUT — mismo motivo que en stock_ml_set: el
       // webhook `items` de ML puede refrescar la foto por nuestra propia escritura antes de que
-      // lleguemos a mirarla, y leído después "el previo" sería el valor NUEVO.
-      const before = await readMlSnapshotRow(itemId, variationId || null).catch(e => {
-        console.error('[MLQueue] readMlSnapshotRow:', e.message);
-        return null;
+      // lleguemos a mirarla, y leído después "el previo" sería el valor NUEVO. Se leen TODAS las
+      // filas del ítem: en ML el precio es del ítem entero (un ítem legacy aplica el mismo precio
+      // a todas sus variaciones), así que el cambio mueve el precio de cada SKU del ítem.
+      const beforeRows = await readMlSnapshotRows(itemId).catch(e => {
+        console.error('[MLQueue] readMlSnapshotRows:', e.message);
+        return [];
       });
 
+      // Eco antes del PUT (ver stock_ml_set): el refresh por webhook no tiene que registrar esta
+      // escritura como "Cambio en ML". Si ML rechaza, se olvida.
+      const echoKey = mlPriceEchoKey(itemId);
+      rememberPriceWrite(echoKey, price);
       // updateItemOrVariationPrice lanza si ML rechaza (propaga el mensaje real de la API)
-      await ml.updateItemOrVariationPrice(accessToken, itemId, variationId || null, price);
+      try {
+        await ml.updateItemOrVariationPrice(accessToken, itemId, variationId || null, price);
+      } catch (e) {
+        forgetPriceWrite(echoKey);
+        throw e;
+      }
       await updateMlTaskStatus(id, 'done');
       // Precio aplicado en ML: parchamos el snapshot in-place (en ítems legacy ML aplica el mismo
       // precio a TODAS las variaciones del ítem, y patchMlPrice hace exactamente eso). La foto ya
       // puede estar al día por el webhook; esto la deja consistente igual.
       await patchMlPrice(itemId, price).catch(e => console.error('[MLQueue] patchMlPrice:', e.message));
-      console.log(`[MLQueue] Tarea ${id} price_ml: ${itemId}${variationId ? '/' + variationId : ''} → $${price}`);
+      const target = `${itemId}${variationId ? '/' + variationId : ''}`;
+      console.log(`[MLQueue] Tarea ${id} price_ml: ${target} → $${price}`);
 
-      // Historial: solo se registra si el precio efectivamente se movió — reaplicar el mismo
-      // precio no es un cambio y solo ensuciaría el historial (mismo criterio que stock_ml_set).
-      if (before && before.price !== price) {
-        await insertPriceAudit({
-          sku: ctx?.sku || before.sku || '',
-          channel: 'mercadolibre',
-          priceBefore: before.price,
-          priceAfter: price,
-          source: ctx?.source || 'bulk',
-          productLabel: ctx?.productLabel ?? null,
-        }).catch(e => console.error('[MLQueue] insertPriceAudit:', e.message));
-      } else if (!before) {
-        console.warn(`[MLQueue] Tarea ${id} price_ml: sin fila en el snapshot para ${itemId}${variationId ? '/' + variationId : ''}, no se registra en el historial.`);
-      } else {
-        console.log(`[MLQueue] Tarea ${id} price_ml: ${itemId}${variationId ? '/' + variationId : ''} ya estaba en $${price}, no se registra (no es un cambio).`);
+      // Historial: una fila por SKU del ítem cuyo precio efectivamente se movió — reaplicar el
+      // mismo precio no es un cambio y solo ensuciaría el historial (mismo criterio que
+      // stock_ml_set). Variaciones con el mismo SKU cuentan una vez.
+      const audit = {
+        channel: 'mercadolibre',
+        priceAfter: price,
+        source: ctx?.source || 'bulk',
+        productLabel: ctx?.productLabel ?? null,
+      };
+      const seen = new Set();
+      for (const row of beforeRows) {
+        if (!row.sku || seen.has(row.sku)) continue;
+        seen.add(row.sku);
+        if (row.price === price) continue;
+        await insertPriceAudit({ ...audit, sku: row.sku, priceBefore: row.price })
+          .catch(e => console.error('[MLQueue] insertPriceAudit:', e.message));
+      }
+      if (beforeRows.length === 0) {
+        // Sin fila en la foto no sabemos el precio previo, pero si quien encoló dio el SKU el
+        // "a cuánto quedó" ya es información útil (insertPriceAudit admite priceBefore null).
+        if (ctx?.sku) {
+          await insertPriceAudit({ ...audit, sku: ctx.sku, priceBefore: null })
+            .catch(e => console.error('[MLQueue] insertPriceAudit:', e.message));
+        } else {
+          console.warn(`[MLQueue] Tarea ${id} price_ml: sin fila en el snapshot para ${target}, no se registra en el historial.`);
+        }
+      } else if (seen.size === 0) {
+        console.warn(`[MLQueue] Tarea ${id} price_ml: ${target} sin SKU en el snapshot, no se registra en el historial.`);
       }
 
     } else if (kind === 'stock_probe') {

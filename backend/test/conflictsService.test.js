@@ -14,6 +14,7 @@
  */
 import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import * as stockEcho from '../src/lib/stockEcho.js';
 
 const storeState = {
   tokens: {
@@ -27,7 +28,7 @@ const storeState = {
   resolutionCalls: [],
 };
 
-const dbState = { hasDb: false, snapshot: null, setSnapshotCalls: [], auditLogs: [] };
+const dbState = { hasDb: false, snapshot: null, setSnapshotCalls: [], auditLogs: [], priceAudits: [] };
 
 const mlState = { responder: null, getItemImpl: null, getItemStatusOverride: null };
 const tnState = { getProductsImpl: null, getProductImpl: null };
@@ -61,6 +62,7 @@ before(async () => {
       setAnalysisSnapshot: async (d) => { dbState.setSnapshotCalls.push(d); dbState.snapshot = { at: Date.now(), data: d }; },
       invalidateAnalysisCache: async () => { dbState.snapshot = null; },
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
+      insertPriceAudit: async (row) => { dbState.priceAudits.push(row); },
     },
   });
   mock.module('../src/lib/mercadolibre.js', {
@@ -100,6 +102,7 @@ beforeEach(() => {
   dbState.snapshot = null;
   dbState.setSnapshotCalls = [];
   dbState.auditLogs = [];
+  dbState.priceAudits = [];
   mlState.responder = null;
   conflictsService.__resetStockEchoesForTests();
   mlState.getItemImpl = null;
@@ -688,6 +691,123 @@ test('refreshTnProductInSnapshot: el cambio que hizo TN entra al historial del l
       ({ sku, source, actor, updatedChannel, stockBefore, stockAfter }))(dbState.auditLogs[0]),
     { sku: 'A', source: 'externo', actor: 'plataforma', updatedChannel: 'tiendanube', stockBefore: 5, stockAfter: 4 },
   );
+});
+
+// ─── Historial de precios: el diff del refresh registra lo que se cambió desde el panel ────────
+
+/** Ítem MLA1 con sus dos variaciones (stock 5 y 3, como el snapshot) y el precio que se le pase. */
+function mlItemWithPrice(price) {
+  return {
+    id: 'MLA1',
+    title: 'X',
+    catalog_listing: false,
+    variations: [
+      { id: 10, seller_sku: 'A', price, available_quantity: 5 },
+      { id: 11, seller_sku: 'B', price, available_quantity: 3 },
+    ],
+  };
+}
+
+test('refreshMlItemInSnapshot: un cambio de precio hecho desde ML entra al historial de precios como externo', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations(); // las dos variaciones en $100
+  mlState.getItemImpl = () => mlItemWithPrice(130);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  assert.deepEqual(dbState.auditLogs, [], 'el stock no se movió');
+  assert.deepEqual(
+    dbState.priceAudits.map(({ sku, channel, priceBefore, priceAfter, source }) => ({ sku, channel, priceBefore, priceAfter, source })),
+    [
+      { sku: 'A', channel: 'mercadolibre', priceBefore: 100, priceAfter: 130, source: 'externo' },
+      { sku: 'B', channel: 'mercadolibre', priceBefore: 100, priceAfter: 130, source: 'externo' },
+    ],
+  );
+  assert.equal(dbState.priceAudits[0].productLabel, 'Cambio en ML');
+});
+
+test('refreshMlItemInSnapshot: un precio que escribió el hub no se registra como externo (eco, todas las variaciones)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  stockEcho.rememberPriceWrite(stockEcho.mlPriceEchoKey('MLA1'), 130);
+  mlState.getItemImpl = () => mlItemWithPrice(130);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  assert.deepEqual(dbState.priceAudits, [], 'el eco tapa las DOS variaciones, no solo la primera');
+});
+
+test('refreshMlItemInSnapshot: el eco de precio solo tapa el valor que escribió el hub', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  stockEcho.rememberPriceWrite(stockEcho.mlPriceEchoKey('MLA1'), 130);
+  mlState.getItemImpl = () => mlItemWithPrice(140);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  assert.equal(dbState.priceAudits.length, 2);
+  assert.ok(dbState.priceAudits.every((r) => r.priceAfter === 140));
+});
+
+test('refreshMlItemInSnapshot: un precio 0 (desconocido) no cuenta como cambio de precio', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotWithMlVariations();
+  mlState.getItemImpl = () => mlItemWithPrice(0);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  assert.deepEqual(dbState.priceAudits, []);
+});
+
+test('refreshTnProductInSnapshot: un cambio de precio hecho desde TN entra al historial de precios', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = {
+    at: Date.now(),
+    data: {
+      mlRows: [],
+      tnRows: [
+        { type: 'tn', productId: 5, variantId: 50, productName: 'X', variantName: 'Rojo', sku: 'A', hasSku: true, price: 1000, stock: 5 },
+        { type: 'tn', productId: 5, variantId: 51, productName: 'X', variantName: 'Azul', sku: 'B', hasSku: true, price: 1000, stock: 5 },
+      ],
+      tnConnected: true,
+    },
+  };
+  // El hub había cambiado la variante 51 a 1200 (eco); la 50 la cambiaron desde el panel de TN.
+  stockEcho.rememberPriceWrite(stockEcho.tnPriceEchoKey(5, 51), 1200);
+  tnState.getProductImpl = () => ({
+    id: 5,
+    name: { es: 'X' },
+    images: [],
+    variants: [
+      { id: 50, sku: 'A', price: '1100.00', stock: 5, values: [{ es: 'Rojo' }] },
+      { id: 51, sku: 'B', price: '1200.00', stock: 5, values: [{ es: 'Azul' }] },
+    ],
+  });
+  await conflictsService.refreshTnProductInSnapshot('tok', 1, 5);
+  assert.deepEqual(
+    dbState.priceAudits.map(({ sku, channel, priceBefore, priceAfter, source, productLabel }) =>
+      ({ sku, channel, priceBefore, priceAfter, source, productLabel })),
+    [{ sku: 'A', channel: 'tiendanube', priceBefore: 1000, priceAfter: 1100, source: 'externo', productLabel: 'Cambio en TN' }],
+  );
+});
+
+test('refreshTnProductInSnapshot: "aplicar a todas las variantes" del hub tapa todas (eco del producto)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = {
+    at: Date.now(),
+    data: {
+      mlRows: [],
+      tnRows: [
+        { type: 'tn', productId: 5, variantId: 50, productName: 'X', variantName: 'Rojo', sku: 'A', hasSku: true, price: 1000, stock: 5 },
+        { type: 'tn', productId: 5, variantId: 51, productName: 'X', variantName: 'Azul', sku: 'B', hasSku: true, price: 1000, stock: 5 },
+      ],
+      tnConnected: true,
+    },
+  };
+  stockEcho.rememberPriceWrite(stockEcho.tnPriceEchoKey(5, null), 1300);
+  tnState.getProductImpl = () => ({
+    id: 5,
+    name: { es: 'X' },
+    images: [],
+    variants: [
+      { id: 50, sku: 'A', price: '1300.00', stock: 5, values: [{ es: 'Rojo' }] },
+      { id: 51, sku: 'B', price: '1300.00', stock: 5, values: [{ es: 'Azul' }] },
+    ],
+  });
+  await conflictsService.refreshTnProductInSnapshot('tok', 1, 5);
+  assert.deepEqual(dbState.priceAudits, []);
 });
 
 // ─── refreshMlItemInSnapshot: no confundir "el ítem se borró" con "ML no contestó" ────────────

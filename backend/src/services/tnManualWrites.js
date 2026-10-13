@@ -13,7 +13,10 @@ import * as tn from '../lib/tiendanube.js';
 // conflictsService.js solo con lo que cada ruta necesita.
 import * as db from '../db.js';
 import * as snapshot from './conflictsService.js';
-import { rememberStockWrite, forgetStockWrite, tnStockEchoKey } from '../lib/stockEcho.js';
+import {
+  rememberStockWrite, forgetStockWrite, tnStockEchoKey,
+  rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey,
+} from '../lib/stockEcho.js';
 
 /** Pone el stock de una variante de TN. Devuelve true si TN lo aceptó. */
 export async function setTnStockManual(productId, variantId, stock, { logPrefix = '[TN]' } = {}) {
@@ -53,18 +56,49 @@ export async function setTnStockManual(productId, variantId, stock, { logPrefix 
   return true;
 }
 
-/** Pone el precio de una variante de TN (o de todas, `applyAll`). Devuelve true si TN lo aceptó. */
-export async function setTnPriceManual(productId, variantId, price, { applyAll = false, source = 'manual', productLabel = null } = {}) {
+/**
+ * Pone el precio de una variante de TN (o de todas, `applyAll`). Devuelve true si TN lo aceptó.
+ *
+ * Mismas reglas que el stock: previo leído de la foto antes de escribir y eco de precio anotado
+ * antes (se olvida si TN rechaza), así el refresh por `product/updated` no lo registra como
+ * "Cambio en TN". Con `applyAll` cambia el precio de cada SKU del producto: se registra una fila
+ * por SKU que efectivamente se movió (variantes con el mismo SKU cuentan una vez).
+ */
+export async function setTnPriceManual(productId, variantId, price, { applyAll = false, source = 'manual', productLabel = null, logPrefix = '[TN]' } = {}) {
   const pid = Number(productId);
   const vid = Number(variantId);
-  const before = await snapshot.readTnSnapshotRow(pid, vid).catch(() => null);
-  const ok = applyAll
-    ? await tn.updateVariantPriceAllVariants(tokens.tiendanube.access_token, tokens.tiendanube.store_id, pid, price)
-    : await tn.updateVariantPrice(tokens.tiendanube.access_token, tokens.tiendanube.store_id, pid, vid, price);
-  if (!ok) return false;
-  await snapshot.patchTnPrice(pid, vid, price, !!applyAll).catch(() => {});
-  if (before && before.price !== Number(price) && before.sku) {
-    await db.insertPriceAudit?.({ sku: before.sku, channel: 'tiendanube', priceBefore: before.price, priceAfter: Number(price), source, productLabel }).catch(() => {});
+  const value = Number(price);
+  const beforeRows = await snapshot.readTnSnapshotRows(pid).catch((e) => {
+    console.error(`${logPrefix} readTnSnapshotRows:`, e.message);
+    return [];
+  });
+  const touched = applyAll ? beforeRows : beforeRows.filter((r) => String(r.variantId) === String(vid));
+  const echoKey = tnPriceEchoKey(pid, applyAll ? null : vid);
+  rememberPriceWrite(echoKey, value);
+  let ok;
+  try {
+    ok = applyAll
+      ? await tn.updateVariantPriceAllVariants(tokens.tiendanube.access_token, tokens.tiendanube.store_id, pid, value)
+      : await tn.updateVariantPrice(tokens.tiendanube.access_token, tokens.tiendanube.store_id, pid, vid, value);
+  } catch (e) {
+    forgetPriceWrite(echoKey);
+    throw e;
+  }
+  if (!ok) {
+    forgetPriceWrite(echoKey);
+    return false;
+  }
+  await snapshot.patchTnPrice(pid, vid, value, !!applyAll).catch((e) => console.error(`${logPrefix} patchTnPrice:`, e.message));
+  const seen = new Set();
+  for (const row of touched) {
+    if (!row.sku || seen.has(row.sku)) continue;
+    seen.add(row.sku);
+    if (row.price === value) continue;
+    await db.insertPriceAudit({ sku: row.sku, channel: 'tiendanube', priceBefore: row.price, priceAfter: value, source, productLabel })
+      .catch((e) => console.error(`${logPrefix} insertPriceAudit:`, e.message));
+  }
+  if (touched.length === 0) {
+    console.warn(`${logPrefix} precio TN manual: sin fila en el snapshot para ${pid}/${vid}, no se registra en el historial de precios.`);
   }
   return true;
 }

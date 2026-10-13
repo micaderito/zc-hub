@@ -4,10 +4,9 @@ import {
   getAnalysis,
   patchMlSku,
   patchTnSku,
-  patchTnPrice,
 } from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { setTnStockManual } from '../services/tnManualWrites.js';
+import { setTnStockManual, setTnPriceManual } from '../services/tnManualWrites.js';
 import { enqueueMlTask, getMlTaskStatus, listStockAlerts } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
@@ -270,6 +269,9 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
         itemId,
         variationId: vid,
         targetPrice: priceMLNum,
+        // El worker registra el cambio en el historial de precios; sin esto quedaba rotulado
+        // como "Precios" (masivo) aunque lo hubiera editado la usuaria a mano.
+        contextJson: JSON.stringify({ source: 'manual' }),
         idempotencyKey: `price_ml:${itemId}:${vid || 'item'}`, // coalescing: el último precio gana
       });
       if (!mlPriceTaskId) {
@@ -279,21 +281,12 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       }
     }
     if (priceTNNum > 0) {
-      tnPriceOk = applyTnToAllVariants
-        ? await tn.updateVariantPriceAllVariants(
-            tokens.tiendanube.access_token,
-            tokens.tiendanube.store_id,
-            Number(productId),
-            priceTNNum
-          )
-        : await tn.updateVariantPrice(
-            tokens.tiendanube.access_token,
-            tokens.tiendanube.store_id,
-            Number(productId),
-            Number(variantId),
-            priceTNNum
-          );
-      if (tnPriceOk) await patchTnPrice(Number(productId), Number(variantId), priceTNNum, !!applyTnToAllVariants);
+      // Valor previo leído antes de escribir, eco, foto e historial de precios: ver
+      // services/tnManualWrites.js (lo comparte con el editor de publicaciones).
+      tnPriceOk = await setTnPriceManual(Number(productId), Number(variantId), priceTNNum, {
+        applyAll: !!applyTnToAllVariants,
+        logPrefix: '[Conflicts]',
+      });
     }
     // El stock en ML se encola (igual que el precio y el SKU): antes se aplicaba inline con
     // fetchWith429Retry y, si los reintentos ante 429 se agotaban, la función devolvía `false`

@@ -18,6 +18,7 @@ import {
   getPriceOverrides, upsertPriceOverride, deletePriceOverride,
 } from '../db.js';
 import { patchTnPrice, readTnSnapshotRow } from './conflictsService.js';
+import { rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey } from '../lib/stockEcho.js';
 import { getMlItemBySku, getTnVariantBySku, getResolvedSkus, getMlToken } from '../store.js';
 import { parseSupplierList, parseSupplierCsv } from '../lib/supplierListParser.js';
 import { buildMappingSuggestions } from '../lib/skuMatcher.js';
@@ -256,6 +257,9 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
           return null;
         });
         beforeByKey.set(`${b.productId}:${b.variantId}`, before);
+        // Eco antes del bulk: el refresh por `product/updated` no tiene que registrar esta
+        // escritura como "Cambio en TN" (ver stockEcho.js).
+        rememberPriceWrite(tnPriceEchoKey(b.productId, b.variantId), b.price);
       }
       try {
         await tn.updateVariantsStockPrice(access_token, store_id, tnBatch.map((b) => ({
@@ -277,10 +281,20 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
               productLabel: b.label ?? null,
             }).catch((e) => console.error('[Pricing] insertPriceAudit:', e.message));
           } else if (!before) {
-            console.warn(`[Pricing] bulk TN: sin fila en el snapshot para ${b.productId}/${b.variantId}, no se registra en el historial.`);
+            // Sin fila en la foto no hay "antes", pero el SKU lo conocemos: el "a cuánto quedó"
+            // ya es información útil (insertPriceAudit admite priceBefore null).
+            await insertPriceAudit({
+              sku: b.sku,
+              channel: 'tiendanube',
+              priceBefore: null,
+              priceAfter: b.price,
+              source: 'bulk',
+              productLabel: b.label ?? null,
+            }).catch((e) => console.error('[Pricing] insertPriceAudit:', e.message));
           }
         }
       } catch (e) {
+        for (const b of tnBatch) forgetPriceWrite(tnPriceEchoKey(b.productId, b.variantId));
         for (const r of results) if (r.channel === 'tn' && r.ok) { r.ok = false; r.reason = `bulk TN falló: ${e.message}`; }
       }
     }

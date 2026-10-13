@@ -70,6 +70,7 @@ before(async () => {
     exports: {
       getSyncEnabled: async () => dbState.syncEnabled,
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
+      insertPriceAudit: async () => true,
       attributeStockChangeToSale: async (args) => {
         dbState.attributions.push(args);
         return dbState.attributionMatches;
@@ -101,6 +102,7 @@ before(async () => {
       getAnalysis: async () => ({ mappings: analysisState.mappings }),
       patchTnStock: async () => {},
       patchTnPrice: async () => {},
+      readTnSnapshotRow: async () => null,
       refreshMlItemInSnapshot: async (...a) => { snapshotState.mlRefreshes.push(a); return { ok: snapshotState.mlRefreshOk }; },
       refreshTnProductInSnapshot: async (...a) => { snapshotState.tnRefreshes.push(a); return { ok: snapshotState.tnRefreshOk }; },
     },
