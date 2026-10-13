@@ -306,6 +306,26 @@ No se hizo backfill de los eventos ya perdidos (no hay dato real que reconstruir
 en el crawl completo (nadie edita stock a mano en los paneles de ML/TN; todo pasa por la app o por
 webhooks de venta/devolución).
 
+#### Historial de PRECIOS (`price_audit`): todos los caminos que cambian un precio
+
+Hasta 2026-10-12 solo lo escribía "Precios" (aplicar lista). Ahora cada camino deja su fila, con
+`source`: `bulk` (Precios), `manual` (Precio y stock → `/conflicts/update-prices`; el `price_ml`
+viaja con `contextJson: {source:'manual'}`), `sync` ("Sincronizar precios" del Dashboard,
+`syncPricesForSku`, ML → TN) y `externo` (cambiado desde el panel de ML/TN o una promoción de ML,
+detectado por `diffPriceRows` en `refreshMlItemInSnapshot`/`refreshTnProductInSnapshot`, solo por
+webhook — igual que el stock, el crawl completo no diffea). Mismas reglas que el stock: previo leído
+de la foto ANTES de escribir, no se registra si el precio no se movió, y un **eco de precio**
+(`rememberPriceWrite`/`matchPriceEcho` en `stockEcho.js`) para que el webhook no registre como
+externo lo que escribió el hub. A diferencia del de stock, el eco de precio **no se consume** al
+primer match (vence por TTL): en ML el precio es del ítem entero, así que un write produce N filas en
+el diff. Por lo mismo, un cambio de precio en un ítem legacy registra **una fila por cada SKU del
+ítem** (`readMlSnapshotRows`), y "aplicar a todas las variantes" en TN una por cada SKU del producto
+(`readTnSnapshotRows`). Precio 0 en la foto = desconocido, no cuenta como cambio.
+
+El modal de historial del producto tiene dos pestañas, **Stock** y **Precio** (`initialTab`; desde
+Precios abre en Precio). Las filas de ML y TN de un mismo "aplicar" (mismo `source`, < 60 s) se
+muestran como un solo evento; las externas van sueltas.
+
 ### Alertas de stock: sugerencia de reposición por pack, no por modelo
 
 En "Para reponer" (`backend/src/services/alertsService.js`, `frontend/.../pages/alertas/`), cuando

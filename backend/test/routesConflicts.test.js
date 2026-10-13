@@ -24,11 +24,12 @@ const analysisState = {
 };
 
 const syncServiceState = { persistResult: { ml: true, tn: true } };
-const dbState = { enqueueResult: 5, taskStatus: null, auditRows: [], stockAlerts: [] };
+const dbState = { enqueueResult: 5, taskStatus: null, auditRows: [], priceAuditRows: [], enqueued: [], stockAlerts: [] };
 // tnSnapshotRow: lo que readTnSnapshotRow devuelve como fila previa (null = no está en el snapshot).
 // Se lee ANTES de escribir en TN — ver conflictsService.js — así que ya no depende de lo que
 // devuelva patchTnStock (que ahora solo mantiene la foto al día, ignorado por el historial).
-const patchState = { calls: [], tnSnapshotRow: null };
+// tnSnapshotRows: todas las variantes del producto (readTnSnapshotRows), para el historial de precios.
+const patchState = { calls: [], tnSnapshotRow: null, tnSnapshotRows: [] };
 const mlState = {
   updateVariationSkuError: null,
   updateItemSkuError: null,
@@ -70,6 +71,7 @@ before(async () => {
       patchTnPrice: async (...a) => { patchState.calls.push(['patchTnPrice', ...a]); },
       patchTnStock: async (...a) => { patchState.calls.push(['patchTnStock', ...a]); },
       readTnSnapshotRow: async (...a) => { patchState.calls.push(['readTnSnapshotRow', ...a]); return patchState.tnSnapshotRow; },
+      readTnSnapshotRows: async (...a) => { patchState.calls.push(['readTnSnapshotRows', ...a]); return patchState.tnSnapshotRows; },
     },
   });
   mock.module('../src/services/syncService.js', {
@@ -77,9 +79,10 @@ before(async () => {
   });
   mock.module('../src/db.js', {
     exports: {
-      enqueueMlTask: async () => dbState.enqueueResult,
+      enqueueMlTask: async (task) => { dbState.enqueued.push(task); return dbState.enqueueResult; },
       getMlTaskStatus: async () => dbState.taskStatus,
       insertAuditLog: async (row) => { dbState.auditRows.push(row); },
+      insertPriceAudit: async (row) => { dbState.priceAuditRows.push(row); },
       listStockAlerts: async () => dbState.stockAlerts,
     },
   });
@@ -94,6 +97,7 @@ before(async () => {
     exports: {
       updateVariantSku: async () => { if (tnState.updateVariantSkuError) throw tnState.updateVariantSkuError; return true; },
       updateVariantPrice: async () => tnState.updateVariantPriceResult,
+      updateVariantPriceAllVariants: async () => tnState.updateVariantPriceResult,
       updateVariantStock: async () => tnState.updateVariantStockResult,
     },
   });
@@ -124,7 +128,10 @@ beforeEach(() => {
   syncServiceState.persistResult = { ml: true, tn: true };
   patchState.calls = [];
   patchState.tnSnapshotRow = null;
+  patchState.tnSnapshotRows = [];
   dbState.enqueueResult = 5;
+  dbState.priceAuditRows = [];
+  dbState.enqueued = [];
   dbState.taskStatus = null;
   dbState.auditRows = [];
   dbState.stockAlerts = [];
@@ -357,6 +364,58 @@ test('POST /update-prices: encola precio ML y actualiza TN → ok', async () => 
   assert.equal(res.status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.mlTaskId, 5);
+});
+
+test('POST /update-prices: el precio ML se encola marcado como cambio manual (para el historial)', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 100, priceTN: 0 }),
+  });
+  const task = dbState.enqueued.find((t) => t.kind === 'price_ml');
+  assert.deepEqual(JSON.parse(task.contextJson), { source: 'manual' });
+});
+
+test('POST /update-prices: el precio TN queda en el historial de precios como cambio manual', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  patchState.tnSnapshotRows = [
+    { variantId: 2, price: 1000, sku: 'SKU-1' },
+    { variantId: 3, price: 1000, sku: 'SKU-2' },
+  ];
+  await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 1200 }),
+  });
+  assert.deepEqual(dbState.priceAuditRows, [
+    { sku: 'SKU-1', channel: 'tiendanube', priceBefore: 1000, priceAfter: 1200, source: 'manual' },
+  ]);
+  const names = patchState.calls.map((c) => c[0]);
+  assert.ok(names.indexOf('readTnSnapshotRows') < names.indexOf('patchTnPrice'), 'el previo se lee antes de escribir');
+});
+
+test('POST /update-prices: precio TN a todas las variantes registra cada SKU que cambió', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  patchState.tnSnapshotRows = [
+    { variantId: 2, price: 1000, sku: 'SKU-1' },
+    { variantId: 3, price: 1200, sku: 'SKU-2' }, // ya estaba en 1200: no es un cambio
+    { variantId: 4, price: 900, sku: 'SKU-3' },
+  ];
+  await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 1200, applyTnToAllVariants: true }),
+  });
+  assert.deepEqual(dbState.priceAuditRows.map((r) => r.sku), ['SKU-1', 'SKU-3']);
+});
+
+test('POST /update-prices: si TN rechaza el precio no registra historial de precios', async () => {
+  storeState.tokens.tiendanube = { access_token: 'tn-tok', store_id: '5' };
+  tnState.updateVariantPriceResult = false;
+  patchState.tnSnapshotRows = [{ variantId: 2, price: 1000, sku: 'SKU-1' }];
+  await fetch(`${baseUrl}/update-prices`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: 'MLA1', productId: 1, variantId: 2, priceML: 0, priceTN: 1200 }),
+  });
+  assert.deepEqual(dbState.priceAuditRows, []);
 });
 
 test('POST /update-prices: stock ML se encola (no se aplica inline) → ok con mlStockTaskId', async () => {

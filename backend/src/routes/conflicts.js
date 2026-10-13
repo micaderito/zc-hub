@@ -7,10 +7,14 @@ import {
   patchTnPrice,
   patchTnStock,
   readTnSnapshotRow,
+  readTnSnapshotRows,
 } from '../services/conflictsService.js';
-import { rememberStockWrite, forgetStockWrite, tnStockEchoKey } from '../lib/stockEcho.js';
+import {
+  rememberStockWrite, forgetStockWrite, tnStockEchoKey,
+  rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey,
+} from '../lib/stockEcho.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { enqueueMlTask, getMlTaskStatus, insertAuditLog, listStockAlerts } from '../db.js';
+import { enqueueMlTask, getMlTaskStatus, insertAuditLog, insertPriceAudit, listStockAlerts } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -272,6 +276,9 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
         itemId,
         variationId: vid,
         targetPrice: priceMLNum,
+        // El worker registra el cambio en el historial de precios; sin esto quedaba rotulado
+        // como "Precios" (masivo) aunque lo hubiera editado la usuaria a mano.
+        contextJson: JSON.stringify({ source: 'manual' }),
         idempotencyKey: `price_ml:${itemId}:${vid || 'item'}`, // coalescing: el último precio gana
       });
       if (!mlPriceTaskId) {
@@ -281,21 +288,63 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       }
     }
     if (priceTNNum > 0) {
-      tnPriceOk = applyTnToAllVariants
-        ? await tn.updateVariantPriceAllVariants(
-            tokens.tiendanube.access_token,
-            tokens.tiendanube.store_id,
-            Number(productId),
-            priceTNNum
-          )
-        : await tn.updateVariantPrice(
-            tokens.tiendanube.access_token,
-            tokens.tiendanube.store_id,
-            Number(productId),
-            Number(variantId),
-            priceTNNum
-          );
-      if (tnPriceOk) await patchTnPrice(Number(productId), Number(variantId), priceTNNum, !!applyTnToAllVariants);
+      const pid = Number(productId);
+      const applyAll = !!applyTnToAllVariants;
+      // El precio previo se lee de la foto ANTES de escribir, y el eco también se anota antes
+      // (mismo motivo que el stock de TN más abajo: el webhook `product/updated` puede refrescar
+      // la foto con nuestro propio cambio antes de que lleguemos a mirarla). Con "aplicar a todas
+      // las variantes" cambia el precio de cada SKU del producto, así que se leen todas.
+      const beforeRows = await readTnSnapshotRows(pid).catch((e) => {
+        console.error('[conflicts] readTnSnapshotRows:', e.message);
+        return [];
+      });
+      const touched = applyAll
+        ? beforeRows
+        : beforeRows.filter((r) => String(r.variantId) === String(variantId));
+      const priceEchoKey = tnPriceEchoKey(pid, applyAll ? null : Number(variantId));
+      rememberPriceWrite(priceEchoKey, priceTNNum);
+      try {
+        tnPriceOk = applyAll
+          ? await tn.updateVariantPriceAllVariants(
+              tokens.tiendanube.access_token,
+              tokens.tiendanube.store_id,
+              pid,
+              priceTNNum
+            )
+          : await tn.updateVariantPrice(
+              tokens.tiendanube.access_token,
+              tokens.tiendanube.store_id,
+              pid,
+              Number(variantId),
+              priceTNNum
+            );
+      } catch (e) {
+        forgetPriceWrite(priceEchoKey);
+        throw e;
+      }
+      if (!tnPriceOk) {
+        forgetPriceWrite(priceEchoKey);
+      } else {
+        await patchTnPrice(pid, Number(variantId), priceTNNum, applyAll);
+        // Historial: una fila por SKU cuyo precio efectivamente se movió (reaplicar el mismo
+        // precio no es un cambio). Variantes con el mismo SKU cuentan una vez.
+        const seen = new Set();
+        for (const row of touched) {
+          if (!row.sku || seen.has(row.sku)) continue;
+          seen.add(row.sku);
+          if (row.price === priceTNNum) continue;
+          await insertPriceAudit({
+            sku: row.sku,
+            channel: 'tiendanube',
+            priceBefore: row.price,
+            priceAfter: priceTNNum,
+            source: 'manual',
+          }).catch((e) => console.error('[conflicts] insertPriceAudit:', e.message));
+        }
+        if (touched.length === 0) {
+          console.warn(`[conflicts] update-prices TN: sin fila en el snapshot para ${pid}/${variantId}, no se registra en el historial de precios.`);
+        }
+      }
     }
     // El stock en ML se encola (igual que el precio y el SKU): antes se aplicaba inline con
     // fetchWith429Retry y, si los reintentos ante 429 se agotaban, la función devolvía `false`

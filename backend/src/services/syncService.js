@@ -7,8 +7,9 @@ import { tokens, getMlToken, addResolution } from '../store.js';
 import { getSkuByMlItem, getSkuByTnVariant, getMlItemBySku, getTnVariantBySku } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { getSyncEnabled, insertAuditLog, attributeStockChangeToSale, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask, tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
-import { patchTnStock, patchTnPrice, refreshMlItemInSnapshot, refreshTnProductInSnapshot } from './conflictsService.js';
+import { getSyncEnabled, insertAuditLog, insertPriceAudit, attributeStockChangeToSale, getPendingReturnById, setReturnApproved, enqueueMlTask, waitForMlTask, tryClaimOrderProcessing, hasOrderProcessingClaimed } from '../db.js';
+import { patchTnStock, patchTnPrice, refreshMlItemInSnapshot, refreshTnProductInSnapshot, readTnSnapshotRow } from './conflictsService.js';
+import { rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey } from '../lib/stockEcho.js';
 import { markSaleReturned } from './salesService.js';
 
 /**
@@ -673,15 +674,46 @@ export async function syncPricesForSku(sku) {
   const item = await ml.getItem(mlToken, mlIds.itemId);
   const priceML = item?.price ?? 0;
   if (priceML <= 0) return { ml: false, tn: false };
-  const tnOk = await tn.updateVariantPrice(
-    tokens.tiendanube.access_token,
-    tokens.tiendanube.store_id,
-    tnIds.productId,
-    tnIds.variantId,
-    priceML
-  );
-  if (tnOk) await patchTnPrice(tnIds.productId, tnIds.variantId, priceML, false).catch(e => console.error('[Sync] patchTnPrice:', e.message));
-  return { ml: true, tn: tnOk };
+  // Valor previo y eco ANTES de escribir (ver readTnSnapshotRow / stockEcho.js): el webhook
+  // `product/updated` puede mover la foto antes de que la miremos, y no tiene que registrar
+  // este cambio como "Cambio en TN".
+  const before = await readTnSnapshotRow(tnIds.productId, tnIds.variantId).catch(e => {
+    console.error('[Sync] readTnSnapshotRow:', e.message);
+    return null;
+  });
+  const echoKey = tnPriceEchoKey(tnIds.productId, tnIds.variantId);
+  rememberPriceWrite(echoKey, priceML);
+  let tnOk;
+  try {
+    tnOk = await tn.updateVariantPrice(
+      tokens.tiendanube.access_token,
+      tokens.tiendanube.store_id,
+      tnIds.productId,
+      tnIds.variantId,
+      priceML
+    );
+  } catch (e) {
+    forgetPriceWrite(echoKey);
+    throw e;
+  }
+  if (!tnOk) {
+    forgetPriceWrite(echoKey);
+    return { ml: true, tn: false };
+  }
+  await patchTnPrice(tnIds.productId, tnIds.variantId, priceML, false).catch(e => console.error('[Sync] patchTnPrice:', e.message));
+  // Historial: solo si TN efectivamente cambió (el botón recorre TODOS los SKUs; la mayoría ya
+  // estará igual y no es un cambio).
+  if (before?.price !== priceML) {
+    await insertPriceAudit({
+      sku,
+      channel: 'tiendanube',
+      priceBefore: before?.price ?? null,
+      priceAfter: priceML,
+      source: 'sync',
+      productLabel: 'Sincronizar precios',
+    }).catch(e => console.error('[Sync] insertPriceAudit:', e.message));
+  }
+  return { ml: true, tn: true };
 }
 
 /**
