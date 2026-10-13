@@ -5,6 +5,17 @@
   overflow: hidden;
 }
 
+// En mobile el scroll es del documento (ver layout.component.scss): con el alto fijo y
+// overflow hidden de arriba, todo lo que pasaba del alto de la pantalla quedaba cortado.
+@media (max-width: 760px) {
+  :host {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+}
+
 .global-error {
   display: flex;
   align-items: center;
