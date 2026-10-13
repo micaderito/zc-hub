@@ -13,6 +13,7 @@
         class="mode-opt"
         [class.on]="store.draft().ml.mappingMode === 'single_with_variants'"
         (click)="store.setMode('ml', 'single_with_variants')"
+        [disabled]="!!store.lock('mappingMode')"
       >
         <i class="ti ti-layers-subtract"></i> Agrupadas en una ficha
       </button>
@@ -21,10 +22,12 @@
         class="mode-opt"
         [class.on]="store.draft().ml.mappingMode === 'one_per_variant'"
         (click)="store.setMode('ml', 'one_per_variant')"
+        [disabled]="!!store.lock('mappingMode')"
       >
         <i class="ti ti-layout-grid"></i> Publicaciones independientes
       </button>
     </div>
+    @if (store.lock('mappingMode'); as reason) { <span class="hint locked-hint"><i class="ti ti-lock"></i> {{ reason }}</span> }
   </div>
 
   <!-- override: título / nombre de familia -->
@@ -33,7 +36,9 @@
       Nombre de familia <span class="req">*</span>
       <zc-override-tag [field]="store.draft().ml.title" />
     </span>
-    @if (store.draft().ml.title.inherited) {
+    @if (store.lock('mlTitle'); as reason) {
+      <div class="locked-box"><i class="ti ti-lock"></i><span><span class="locked-value">{{ store.effective(store.draft().ml.title, store.draft().common.baseName) }}</span><small>{{ reason }}</small></span></div>
+    } @else if (store.draft().ml.title.inherited) {
       <div class="inherited" (click)="store.makeOwn(store.draft().ml.title, store.draft().common.baseName)">
         <span [class.muted]="!store.draft().common.baseName">{{ store.draft().common.baseName || 'Se toma del nombre base — clic para escribir uno propio' }}</span>
         <i class="ti ti-pencil"></i>
@@ -54,12 +59,17 @@
           <i class="ti ti-category"></i>
           <span class="cat-selected-name">{{ store.draft().ml.categoryName || store.draft().ml.categoryId }}</span>
           <code>{{ store.draft().ml.categoryId }}</code>
-          <button type="button" class="icon-btn" (click)="clearCategory.emit()" aria-label="Quitar categoría"><i class="ti ti-x"></i></button>
+          @if (!store.lock('mlCategory')) {
+            <button type="button" class="icon-btn" (click)="clearCategory.emit()" aria-label="Quitar categoría"><i class="ti ti-x"></i></button>
+          }
         </div>
       } @else {
         <span class="hint muted">Todavía no elegiste una categoría.</span>
       }
 
+      @if (store.lock('mlCategory'); as reason) {
+        <span class="hint locked-hint"><i class="ti ti-lock"></i> {{ reason }}</span>
+      } @else {
       <div class="with-btn">
         <button type="button" class="zc-btn small" (click)="predict.emit()" [disabled]="predicting()">
           <i class="ti ti-wand"></i> Sugerir por título
@@ -68,6 +78,7 @@
           <i class="ti ti-list-tree"></i> Explorar categorías
         </button>
       </div>
+      }
 
       @if (predicting()) { <span class="hint"><i class="ti ti-loader"></i> buscando categorías…</span> }
       @if (predictError()) { <span class="hint error">{{ predictError() }}</span> }

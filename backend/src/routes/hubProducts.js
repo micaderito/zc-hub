@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { getCatalogRows, refreshAnalysis, patchTnSku } from '../services/conflictsService.js';
 import { persistSkuToChannels } from '../services/syncService.js';
 import { buildHubProducts, queryHubProducts, linkCandidates } from '../services/hubProductsService.js';
+import { listActivePublicationEdits } from '../db.js';
 
 export const hubProductsRoutes = Router();
 
@@ -24,7 +25,10 @@ hubProductsRoutes.get('/', async (req, res) => {
       limit: req.query.limit,
       offset: req.query.offset,
     });
-    res.json({ ...result, mlConnected: !!catalog.mlConnected, tnConnected: !!catalog.tnConnected, at: catalog.at ?? null });
+    // Chip "Edición sin guardar": los productos con una edición abierta (Publicaciones → Editar).
+    const edits = await listActivePublicationEdits();
+    const rows = result.rows.map((r) => (edits[r.key] ? { ...r, edit: edits[r.key] } : r));
+    res.json({ ...result, rows, mlConnected: !!catalog.mlConnected, tnConnected: !!catalog.tnConnected, at: catalog.at ?? null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -48,7 +52,8 @@ hubProductsRoutes.get('/:key', async (req, res) => {
     const catalog = await getCatalogRows();
     const group = buildHubProducts(catalog).find((g) => g.key === req.params.key);
     if (!group) return res.status(404).json({ error: 'No encontramos ese producto. Puede que haya cambiado al vincular una variante: volvé a la lista.' });
-    res.json(group);
+    const edit = (await listActivePublicationEdits())[group.key] || null;
+    res.json({ ...group, edit });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

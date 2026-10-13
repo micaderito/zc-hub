@@ -6,7 +6,7 @@ import { test, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 
-const state = { catalog: null, refreshed: 0, persisted: [], persistResult: { ml: true, tn: true }, tnPatches: [] };
+const state = { edits: {}, catalog: null, refreshed: 0, persisted: [], persistResult: { ml: true, tn: true }, tnPatches: [] };
 
 let server, baseUrl;
 
@@ -22,6 +22,9 @@ before(async () => {
     exports: {
       persistSkuToChannels: async (entry) => { state.persisted.push(entry); return state.persistResult; },
     },
+  });
+  mock.module('../src/db.js', {
+    exports: { listActivePublicationEdits: async () => state.edits },
   });
   const { hubProductsRoutes } = await import('../src/routes/hubProducts.js');
   const app = express();
@@ -50,6 +53,7 @@ beforeEach(() => {
   state.persisted = [];
   state.persistResult = { ml: true, tn: true };
   state.tnPatches = [];
+  state.edits = {};
 });
 
 const post = (path, body) => fetch(baseUrl + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -104,4 +108,12 @@ test('POST /link rechaza un SKU que ya usa otra variante, datos faltantes y fall
   assert.equal((await post('/link', { sku: 'X', ml: { itemId: 'MLA9' }, tn: { productId: 7, variantId: 71 } })).status, 404);
   state.persistResult = { ml: true, tn: false };
   assert.equal((await post('/link', { sku: 'NUEVO', ml: { itemId: 'MLA1', variationId: '2' }, tn: { productId: 7, variantId: 71 } })).status, 502);
+});
+
+test('la lista y el detalle marcan el producto que tiene una edición sin guardar', async () => {
+  state.edits = { 'ml:MLA1': { id: 'e1', status: 'editing', updatedAt: '2026-10-12T10:00:00Z' } };
+  const r = await (await fetch(baseUrl)).json();
+  assert.equal(r.rows[0].edit.id, 'e1');
+  const g = await (await fetch(baseUrl + '/' + encodeURIComponent('ml:MLA1'))).json();
+  assert.equal(g.edit.id, 'e1');
 });

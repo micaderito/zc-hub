@@ -13,6 +13,7 @@
         class="mode-opt"
         [class.on]="store.draft().tn.mappingMode === 'single_with_variants'"
         (click)="store.setMode('tn', 'single_with_variants')"
+        [disabled]="!!store.lock('mappingMode')"
       >
         <i class="ti ti-layers-subtract"></i> 1 producto con variantes
       </button>
@@ -21,10 +22,12 @@
         class="mode-opt"
         [class.on]="store.draft().tn.mappingMode === 'one_per_variant'"
         (click)="store.setMode('tn', 'one_per_variant')"
+        [disabled]="!!store.lock('mappingMode')"
       >
         <i class="ti ti-layout-grid"></i> 1 producto por variante
       </button>
     </div>
+    @if (store.lock('mappingMode'); as reason) { <span class="hint locked-hint"><i class="ti ti-lock"></i> {{ reason }}</span> }
   </div>
 
   <div class="grid-2 field">

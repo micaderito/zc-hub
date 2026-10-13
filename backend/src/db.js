@@ -697,6 +697,10 @@ export async function initDb() {
     // para seguir mostrándose cuando el borrador ya no existe.
     await p.query(`ALTER TABLE product_publish_jobs ADD COLUMN IF NOT EXISTS product_name VARCHAR(512);`);
     await p.query(`ALTER TABLE product_publish_jobs ADD COLUMN IF NOT EXISTS product_sku VARCHAR(128);`);
+    // 'create' = publicar un borrador de Crear producto; 'update' = guardar una edición de una
+    // publicación existente (Publicaciones → Editar), con `edit_id` → publication_edits.
+    await p.query(`ALTER TABLE product_publish_jobs ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'create';`);
+    await p.query(`ALTER TABLE product_publish_jobs ADD COLUMN IF NOT EXISTS edit_id VARCHAR(64);`);
     await runOnceMigration(p, '2026-10-12_publish_jobs_keep_on_draft_delete', async (client) => {
       await client.query(`ALTER TABLE product_publish_jobs ALTER COLUMN draft_id DROP NOT NULL;`);
       await client.query(`ALTER TABLE product_publish_jobs DROP CONSTRAINT IF EXISTS product_publish_jobs_draft_id_fkey;`);
@@ -749,6 +753,33 @@ export async function initDb() {
       );
     `);
     await p.query(`DELETE FROM dispatch_marks WHERE updated_at < NOW() - INTERVAL '30 days'`);
+
+    // ── Edición de publicaciones existentes (Publicaciones → Editar) ─────────
+    // Una edición a medio terminar de un producto del hub: el borrador (mismo shape que
+    // ProductDraft del front), la foto de cómo estaba cada publicación al abrirla (`baseline_json`,
+    // contra la que se calcula qué cambió) y los ids externos (`refs_json`). NO es una copia de las
+    // publicaciones: vive solo mientras se edita y se borra al terminar (done/discarded se purgan a
+    // los 30 días). Una sola edición abierta por producto (`group_key` = id del grupo del hub).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS publication_edits (
+        id VARCHAR(64) PRIMARY KEY,
+        group_key VARCHAR(160) NOT NULL,
+        name VARCHAR(512),
+        draft_json TEXT NOT NULL,
+        baseline_json TEXT NOT NULL,
+        refs_json TEXT NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'editing',
+        job_id VARCHAR(64),
+        created_by VARCHAR(128),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_publication_edits_active
+      ON publication_edits (group_key) WHERE status IN ('editing', 'saving');
+    `);
+    await p.query(`DELETE FROM publication_edits WHERE status IN ('done', 'discarded') AND updated_at < NOW() - INTERVAL '30 days'`);
 
     return true;
   } catch (e) {
@@ -3210,17 +3241,17 @@ export async function deleteProductDraft(id) {
 }
 
 /** Encola un job de publicación (`id` lo genera el caller). `channels`: 'ml', 'tn' o 'ml,tn'. */
-export async function createPublishJob({ id, draftId, channels, payloadJson }) {
+export async function createPublishJob({ id, draftId = null, channels, payloadJson, kind = 'create', editId = null, productName = null, productSku = null }) {
   const p = getPool();
   if (!p) return null;
   try {
     await p.query(
       // `$5` repite el draftId a propósito: reusar `$2` como valor de columna y en la subconsulta
       // hace que Postgres deduzca dos tipos distintos (mismo bug que tuvo finishPublishJob).
-      `INSERT INTO product_publish_jobs (id, draft_id, channels, payload_json, product_name, product_sku)
-       SELECT $1, $2, $3, $4, d.name, d.sku
+      `INSERT INTO product_publish_jobs (id, draft_id, channels, payload_json, product_name, product_sku, kind, edit_id)
+       SELECT $1, $2, $3, $4, COALESCE(d.name, $6), COALESCE(d.sku, $7), $8, $9
        FROM (SELECT 1) one LEFT JOIN product_drafts d ON d.id = $5`,
-      [id, draftId, channels, payloadJson, draftId]
+      [id, draftId, channels, payloadJson, draftId, productName, productSku, kind, editId]
     );
     wakeQueue('publish');
     return id;
@@ -3576,7 +3607,7 @@ export async function listPublishJobs(limit = 25, offset = 0, { search = '', sta
     const total = count.rows[0]?.total ?? 0;
 
     const r = await p.query(
-      `SELECT j.id, j.draft_id AS "draftId", COALESCE(d.name, j.product_name) AS "draftName",
+      `SELECT j.id, j.draft_id AS "draftId", j.kind, j.edit_id AS "editId", COALESCE(d.name, j.product_name) AS "draftName",
               COALESCE(d.sku, j.product_sku) AS "draftSku",
               j.channels, j.status, j.attempts, j.last_error AS "lastError",
               j.created_at AS "createdAt", j.updated_at AS "updatedAt", j.finished_at AS "finishedAt",
@@ -4072,5 +4103,115 @@ export async function setDispatchCancelSeen(channel, saleId) {
   } catch (e) {
     console.error('setDispatchCancelSeen:', e.message);
     return false;
+  }
+}
+
+// ── Ediciones de publicaciones existentes ────────────────────────────────────
+
+const EDIT_COLUMNS = `id, group_key AS "groupKey", name, draft_json AS "draftJson", baseline_json AS "baselineJson",
+  refs_json AS "refsJson", status, job_id AS "jobId", created_by AS "createdBy",
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
+
+function parseEditRow(row) {
+  if (!row) return null;
+  const { draftJson, baselineJson, refsJson, ...rest } = row;
+  return { ...rest, draft: JSON.parse(draftJson), baseline: JSON.parse(baselineJson), refs: JSON.parse(refsJson) };
+}
+
+/** La edición abierta (editing/saving) de un producto del hub, o null. */
+export async function getActivePublicationEdit(groupKey) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(
+      `SELECT ${EDIT_COLUMNS} FROM publication_edits WHERE group_key = $1 AND status IN ('editing', 'saving') LIMIT 1`,
+      [groupKey]
+    );
+    return parseEditRow(r.rows[0]);
+  } catch (e) {
+    console.error('getActivePublicationEdit:', e.message);
+    return null;
+  }
+}
+
+/** Una edición por id (cualquier estado), con draft/baseline/refs parseados. */
+export async function getPublicationEdit(id) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const r = await p.query(`SELECT ${EDIT_COLUMNS} FROM publication_edits WHERE id = $1`, [id]);
+    return parseEditRow(r.rows[0]);
+  } catch (e) {
+    console.error('getPublicationEdit:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Crea una edición. Si ya hay una abierta para ese producto (dos pestañas abriendo a la vez), el
+ * índice único la rechaza y se devuelve la existente: nunca hay dos ediciones del mismo producto.
+ */
+export async function createPublicationEdit({ id, groupKey, name, draft, baseline, refs, createdBy }) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    await p.query(
+      `INSERT INTO publication_edits (id, group_key, name, draft_json, baseline_json, refs_json, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, groupKey, name || null, JSON.stringify(draft), JSON.stringify(baseline), JSON.stringify(refs), createdBy || null]
+    );
+    return getPublicationEdit(id);
+  } catch (e) {
+    if (e.code === '23505') return getActivePublicationEdit(groupKey);
+    console.error('createPublicationEdit:', e.message);
+    return null;
+  }
+}
+
+/** Autoguardado del borrador de una edición abierta. false si no existe o ya no está en 'editing'. */
+export async function updatePublicationEditDraft(id, draft) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE publication_edits SET draft_json = $2, name = $3, updated_at = NOW() WHERE id = $1 AND status = 'editing'`,
+      [id, JSON.stringify(draft), draft?.common?.baseName || null]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('updatePublicationEditDraft:', e.message);
+    return false;
+  }
+}
+
+/** Cambia el estado de una edición (editing → saving → done, o → discarded). */
+export async function setPublicationEditStatus(id, status, { jobId } = {}) {
+  const p = getPool();
+  if (!p) return false;
+  if (!['editing', 'saving', 'done', 'discarded'].includes(status)) return false;
+  try {
+    const r = await p.query(
+      `UPDATE publication_edits SET status = $2, job_id = COALESCE($3, job_id), updated_at = NOW() WHERE id = $1`,
+      [id, status, jobId || null]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('setPublicationEditStatus:', e.message);
+    return false;
+  }
+}
+
+/** Productos del hub con una edición abierta → { groupKey: { id, updatedAt } } (para el chip de la lista). */
+export async function listActivePublicationEdits() {
+  const p = getPool();
+  if (!p) return {};
+  try {
+    const r = await p.query(
+      `SELECT id, group_key AS "groupKey", status, updated_at AS "updatedAt" FROM publication_edits WHERE status IN ('editing', 'saving')`
+    );
+    return Object.fromEntries(r.rows.map((row) => [row.groupKey, { id: row.id, status: row.status, updatedAt: row.updatedAt }]));
+  } catch (e) {
+    console.error('listActivePublicationEdits:', e.message);
+    return {};
   }
 }

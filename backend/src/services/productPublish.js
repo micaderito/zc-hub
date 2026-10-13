@@ -68,7 +68,7 @@ function categoryAttrs(attributes, axes) {
  * Antes había un mínimo (dimensiones ≥ 3 cm, peso ≥ 50 g) que no sale de la API de ML, y el
  * paquete era todo-o-nada: un cuaderno de 2 cm de alto se publicaba sin NINGUNA medida, en silencio.
  */
-function packageAttributes(common) {
+export function packageAttributes(common) {
   if (!common) return [];
   const int = (v) => (v != null && v !== '' && Number(v) > 0 ? Math.ceil(Number(v)) : null);
   return [

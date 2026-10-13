@@ -25,10 +25,11 @@
     </label>
     <label>
       <span class="lbl">Condición <span class="req">*</span></span>
-      <select class="zc-select" [(ngModel)]="store.draft().common.condition">
+      <select class="zc-select" [(ngModel)]="store.draft().common.condition" [disabled]="!!store.lock('condition')">
         <option value="new">Nuevo</option>
         <option value="used">Usado</option>
       </select>
+      @if (store.lock('condition'); as reason) { <span class="hint locked-hint"><i class="ti ti-lock"></i> {{ reason }}</span> }
     </label>
   </div>
 
