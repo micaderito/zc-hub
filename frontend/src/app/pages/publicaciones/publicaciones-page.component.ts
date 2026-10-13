@@ -33,7 +33,6 @@ type TabKey = 'productos' | 'historial';
   `,
   styles: [`
     :host { display: block; padding: 18px 20px 90px; }
-    .pp { max-width: 1320px; margin: 0 auto; }
     .pp-head {
       display: flex;
       flex-wrap: wrap;
