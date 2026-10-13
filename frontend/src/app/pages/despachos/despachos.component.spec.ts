@@ -69,6 +69,34 @@ describe('DespachosComponent', () => {
     component = fixture.componentInstance;
   });
 
+  it('Actualizar: barra de progreso, botón "Actualizando…" y aviso hasta que llega la lista', async () => {
+    await load([pkg()]);
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('.ds-progress')).toBeNull();
+    let resolve!: (v: DispatchList) => void;
+    svc.getList.and.returnValue(new Promise<DispatchList>((r) => (resolve = r)));
+    const done = component.refresh();
+    fixture.detectChanges();
+    const btn = el.querySelector('.ds-head button') as HTMLButtonElement;
+    expect(el.querySelector('.ds-progress')).not.toBeNull();
+    expect(btn.textContent).toContain('Actualizando…');
+    expect(btn.disabled).toBeTrue();
+    expect(el.querySelector('.ds-updating')).not.toBeNull();
+    expect(el.textContent).toContain('Venta #2000012345'); // la lista anterior sigue a la vista
+    resolve(list([pkg()]));
+    await done;
+    fixture.detectChanges();
+    expect(el.querySelector('.ds-progress')).toBeNull();
+    expect(btn.textContent).toContain('Actualizar');
+    expect(el.querySelector('.ds-updating')).toBeNull();
+  });
+
+  it('primera carga: tarjetas fantasma mientras no hay datos', () => {
+    svc.getList.and.returnValue(new Promise<DispatchList>(() => {}));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.sk-card').length).toBe(3);
+  });
+
   it('Hoy: atrasados primero, después ML por horario de corte y TN al final', async () => {
     await load([
       pkg({ saleId: 'a' }),

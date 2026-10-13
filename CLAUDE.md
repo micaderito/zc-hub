@@ -460,6 +460,12 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
 - **Costo para ML**: caché en memoria de 60 s (`?refresh=1` la saltea — botón "Actualizar") y los
   envíos en estado final (`shipped`, `delivered`, …) se memorizan por proceso: no se reconsultan.
   El front refresca solo cada 5 min y al volver a la pestaña.
+- **Velocidad**: todo pasa por `mlLimiter`, así que el piso es la cantidad de requests; lo que se
+  evitó son las barreras entre etapas. `loadMl` es un pipeline **por envío** (llega el envío →
+  arrancan su SLA y las notas de sus órdenes) en vez de envíos (todos) → SLA (todos) → notas
+  (todas); `getOrdersWindow` pide las páginas 2..N en paralelo; y una carga en vuelo se comparte
+  (`inFlight`): abrir la página + "Actualizar" no dispara dos tandas. Cada carga loguea
+  `[Despachos] ML en X ms — órdenes … · envíos+SLA+notas … · fotos …` para ver en prod dónde va el tiempo.
 - Si un canal falla (429, token), el otro se devuelve igual con `errors.{ml,tn}` y la UI lo avisa:
   una lista vacía nunca debe significar "no hay pedidos" cuando en realidad ML no contestó.
 - **Notas de la venta**: las mismas que se cargan en el panel de cada canal, en un recuadro arriba

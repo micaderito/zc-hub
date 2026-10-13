@@ -106,6 +106,12 @@ export class DespachosComponent {
     }, { allowSignalWrites: true });
   }
 
+  /**
+   * Se está trayendo la lista de nuevo con datos ya en pantalla: el botón "Actualizar" o el
+   * refresco solo (cada 5 min, al volver a la pestaña). La primera carga tiene su propio estado.
+   */
+  readonly busy = computed(() => this.refreshing() || (this.query.isFetching() && !this.query.isLoading()));
+
   private readonly data = computed<DispatchList | undefined>(() => this.query.data());
   readonly errors = computed(() => this.data()?.errors ?? {});
   readonly generatedAt = computed(() => this.data()?.generatedAt ?? null);
