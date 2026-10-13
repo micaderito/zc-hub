@@ -306,6 +306,27 @@ No se hizo backfill de los eventos ya perdidos (no hay dato real que reconstruir
 en el crawl completo (nadie edita stock a mano en los paneles de ML/TN; todo pasa por la app o por
 webhooks de venta/devolución).
 
+#### Historial de PRECIOS (`price_audit`): todos los caminos que cambian un precio
+
+Hasta 2026-10-12 solo lo escribía "Precios" (aplicar lista). Ahora cada camino deja su fila, con
+`source`: `bulk` (Precios), `manual` (Precio y stock → `/conflicts/update-prices` y el editor de
+publicaciones, que rotula "Edición de publicación"; el `price_ml` viaja con
+`contextJson: {source:'manual'}` y TN pasa por `setTnPriceManual` en `services/tnManualWrites.js`), `sync` ("Sincronizar precios" del Dashboard,
+`syncPricesForSku`, ML → TN) y `externo` (cambiado desde el panel de ML/TN o una promoción de ML,
+detectado por `diffPriceRows` en `refreshMlItemInSnapshot`/`refreshTnProductInSnapshot`, solo por
+webhook — igual que el stock, el crawl completo no diffea). Mismas reglas que el stock: previo leído
+de la foto ANTES de escribir, no se registra si el precio no se movió, y un **eco de precio**
+(`rememberPriceWrite`/`matchPriceEcho` en `stockEcho.js`) para que el webhook no registre como
+externo lo que escribió el hub. A diferencia del de stock, el eco de precio **no se consume** al
+primer match (vence por TTL): en ML el precio es del ítem entero, así que un write produce N filas en
+el diff. Por lo mismo, un cambio de precio en un ítem legacy registra **una fila por cada SKU del
+ítem** (`readMlSnapshotRows`), y "aplicar a todas las variantes" en TN una por cada SKU del producto
+(`readTnSnapshotRows`). Precio 0 en la foto = desconocido, no cuenta como cambio.
+
+El modal de historial del producto tiene dos pestañas, **Stock** y **Precio** (`initialTab`; desde
+Precios abre en Precio). Las filas de ML y TN de un mismo "aplicar" (mismo `source`, < 60 s) se
+muestran como un solo evento; las externas van sueltas.
+
 ### Alertas de stock: sugerencia de reposición por pack, no por modelo
 
 En "Para reponer" (`backend/src/services/alertsService.js`, `frontend/.../pages/alertas/`), cuando
@@ -410,7 +431,10 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   y `status` (`delayed` = atrasado). Sin SLA cae al `lead_time.estimated_handling_limit` (solo día).
 - **"Despachá el X día"** = **`pending/buffered`** (confirmado en los logs: el status es `pending`, no
   `ready_to_ship` — hasta 2026-10-10 se descartaban y faltaban en Próximos días) = substatus `buffered`: la etiqueta recién se habilita en
-  `lead_time.buffering.date`. Va a la pestaña "Próximos días", no a "Hoy".
+  `lead_time.buffering.date`. Va a la pestaña "Próximos días", no a "Hoy". **Ojo, feriados**:
+  `buffering.date` no los salta (lun 12/10/2026 feriado: buffering = lunes, SLA = martes, ML dice
+  "despachar mañana"), así que el día que se muestra es el más tardío entre buffering y el SLA
+  (`mlDeadlineInfo`).
 - **Carritos**: un paquete = `pack_id ?? order_id` (mismo criterio que ventas), con todas las líneas.
 - **Despachado ≠ atrasado**: con drop_off, al dejar el paquete en el punto el envío **sigue
   `ready_to_ship`** hasta que el correo lo levanta y pasa a `shipped`. **Confirmado con los logs de la
@@ -438,6 +462,11 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   El front refresca solo cada 5 min y al volver a la pestaña.
 - Si un canal falla (429, token), el otro se devuelve igual con `errors.{ml,tn}` y la UI lo avisa:
   una lista vacía nunca debe significar "no hay pedidos" cuando en realidad ML no contestó.
+- **Notas de la venta**: las mismas que se cargan en el panel de cada canal, en un recuadro arriba
+  de los productos. ML: `GET /orders/:id/notes` (`ml.getOrderNotes`) por cada orden pagada que se
+  muestra — en un carrito se juntan sin repetir; si falla (429), el paquete sale igual sin nota.
+  TN: `owner_note` (la de la vendedora) y `note` (la del comprador, rotulada "Comprador:"), que ya
+  vienen en la orden. Entran en la misma caché de 60 s.
 - `zc-photo-lightbox` (`shared/components/photo-lightbox/`) es reusable: foto grande, flechas/teclado, Esc.
   Ojo: las flechas se centran con `top: calc(50% - 18px)`, NO con `transform` — el `button:active`
   global (`transform: scale(.98)`) pisaba el `translateY(-50%)`, el botón saltaba al apretarlo y el
@@ -858,18 +887,93 @@ su propio `try` después de cerrar el job: un fallo acá nunca cambia el resulta
 Con la alerta activada, `alertBlockers` (umbral, pack elegido, nombre/unidades del pack nuevo) se
 suma a `publishBlockers`.
 
-### Página "Publicaciones" (`/publicaciones`): historial de lo publicado
+### Página "Publicaciones" (`/publicaciones`): productos del hub + historial
 
-`product_publish_jobs` + `product_publish_units` ya guardaban todo (incl. `external_id` = id de ML/TN
-por unidad), faltaba la pantalla. `db.listPublishJobs(limit, offset, {search, status, channel})`
-(molde de `getAuditLog`: `where[]`/`params[]` + `COUNT(*)` + `{ rows, total }`) hace JOIN a
-`product_drafts` para nombre/SKU y subqueries de conteo de unidades (sin `payload_json`); `channels`
-es CSV, se filtra con `LIKE`. Ruta `GET /api/products/publish-jobs`. Front:
-`pages/publicaciones/publicaciones.component.*` (standalone + `injectQuery`, patrón de `pages/deposito`
-+ chips de filtro tipo `pages/sync`), reusa `zc-search-bar`/`zc-pagination`. Cada fila es un job; al
+Diseño completo (incluye las fases siguientes: editor y aplicar cambios):
+`docs/plans/2026-10-12-publicaciones-mapeo-edicion-design.md`. Prototipo:
+`docs/prototype/publicaciones-mapeo.html`.
+
+Dos pestañas (`publicaciones-page.component.ts`, `?tab=historial`):
+
+**Productos** (`pages/publicaciones/productos/`, `GET /api/hub-products`, `routes/hubProducts.js`,
+`services/hubProductsService.js`): cada producto del hub junta sus publicaciones de ML y de TN. Una
+publi de ML con 4 colores puede ser 4 productos de TN, o 3 ítems de una ficha de ML ser 1 producto
+de TN — no es 1:1.
+- **El mapeo no se guarda: se calcula** en cada lectura desde la foto del catálogo
+  (`getCatalogRows`, todas las filas crudas, también sin SKU o repetidas). Es un grafo:
+  nodos = publicaciones (`ml:<itemId>`, `tn:<productId>`), aristas = SKU presente en las dos puntas
+  + ítems de ML de la misma ficha de User Products (`family_name` + `domain_id`). Cada componente
+  conexa es un producto. El id del grupo es el menor nodo (`ml:MLA…` gana), así no depende del orden
+  de las filas y sirve de link (`?p=`).
+- Estado por grupo: `orphan` (variante en un solo canal o sin SKU) · `duplicate` (SKU repetido en un
+  canal) · `desync` (stock distinto) · `only_ml` · `only_tn` · `linked`. La lista ordena lo que
+  necesita atención primero; los chips cuentan sobre la búsqueda, sin el filtro de estado.
+- **Vincular** (`POST /api/hub-products/link`): a una variante sin par le busca otra sin par del otro
+  canal (`/link-candidates`) y les pone el mismo SKU. Solo escribe el canal cuyo SKU cambia; 409 si
+  el SKU ya lo usa otra variante. ML va por la cola (`sku_ml`, parchea la foto al terminar); TN se
+  escribe directo y se parchea la foto (`patchTnSku`) en el momento.
+- La foto del catálogo suma por fila de ML `format` (`legacy` = `variations[]`, `up` = User Products,
+  `simple`), `soldQuantity`, `status` y, solo en `up`, `familyName`/`domainId`. Se guarda lo mínimo
+  a propósito: el snapshot entero se lee de Postgres en cada consulta y cuenta para el egress (ver
+  abajo). El permalink se arma desde el id. Un snapshot viejo sin `format` se lee como `legacy` si la
+  fila tiene variación.
+- Navegar no le pega a ML/TN; "Actualizar" (`?refresh=1`) fuerza el crawl completo, igual que
+  Conflictos.
+
+**Editar publicación** (`/publicaciones/:key/editar`, solo admin; Fase 2 del diseño). Es el mismo
+`CrearProductoComponent` con `data.mode = 'edit'`: `ProductDraftStore.mode` decide adónde se
+autoguarda y qué se muestra (sin "Mis borradores", sin Alerta de stock, sin Publicar; en su lugar
+el panel `zc-edit-review` "Cambios a aplicar").
+- **No se duplican publicaciones.** Al abrir, `publicationImport.js` lee EN VIVO los ítems de ML
+  (`getItemOrStatus` + `getItemDescription` + nombre de la categoría) y los productos de TN
+  (`getProduct`) del grupo, y los convierte en un `ProductDraft`: `mappingMode` por canal sale de la
+  forma real (1 ítem con `variations[]` → `single_with_variants`; N ítems/productos →
+  `one_per_variant`), los ejes de `attribute_combinations` (legacy), de los atributos que cambian
+  entre ítems de una ficha (User Products) o de `attributes` de TN, y las variantes se unen por SKU.
+  Si un canal no contesta (429/5xx), no se arma la edición (502): nunca se edita con datos a medias.
+- **Lo que se guarda** es la edición a medio terminar (`publication_edits`: `draft_json`,
+  `baseline_json` = cómo estaba al importarla, `refs_json` = ids externos + `last_updated`/`updated_at`
+  + `locks` + `notes`). Una sola abierta por producto (índice único parcial; abrir de nuevo la
+  retoma). `done`/`discarded` se purgan a los 30 días. La lista de Publicaciones marca "Edición sin
+  guardar". Al retomar una, `remote-check` avisa si alguien cambió la publicación en ML/TN mientras.
+- **Fotos ya publicadas**: `DraftImage.remote = { channel, id, url }`, id `ml-<picture_id>` /
+  `tn-<image_id>`, preview = URL del canal. `persistable()` del store las guarda con `remote` (antes
+  el autoguardado descartaba todo menos `{id,name}`). Las nuevas se suben como en Crear producto.
+- **Qué cambió** (`publicationDiff.js`, `POST /:id/plan` con el borrador en pantalla, debounce de
+  600 ms en el store): una operación por cosa a cambiar en una publicación concreta, con `key`
+  estable (será el `unit_key` del job). Lo que no se tocó no genera nada, así guardar no pisa cambios
+  hechos desde el panel de ML/TN en otros campos. Compara valores EFECTIVOS (mismas reglas que el
+  front: `effective`, `variantTitle`). Un atributo que la categoría suma vacío al refrescarla, o un
+  `value_id` que se cae, no cuenta como cambio (se compara el texto).
+- **Bloqueos** (`locks`, candado en el form): cómo está armado cada canal (siempre — cambiarlo es
+  volver a publicar), categoría (siempre), título y condición con ventas, y título en una ficha de
+  User Products (lo arma ML). Agregar/quitar variantes sí se puede (la usuaria confirmó que ML lo
+  permite); quitar una variación con ventas avisa en la operación.
+- **Guardar** (`POST /:id/apply`, Fase 3): encola un job `kind: 'update'` en el publish worker
+  (`publicationUpdate.js`), una unidad por operación (reintentar saltea las ok; un error no frena
+  las demás). Stock/precio/SKU van por los caminos de siempre (Cola ML, `tnManualWrites.js`) para
+  conservar el historial. Ítems legacy: todo PUT con `variations` lleva TODOS los ids
+  (`mlVariationsBody`). Si la publicación cambió afuera, 409 `remote_changed` y la UI pide "Guardar
+  igual". Al terminar sin errores la edición queda `done`; con errores sigue `saving` (Reintentar o
+  `POST /:id/close`). **Sin probar todavía contra ML/TN reales**: solo con tests.
+
+**Historial de publicación** (lo que era toda la página): `product_publish_jobs` +
+`product_publish_units` (incl. `external_id` = id de ML/TN por unidad).
+**Borrar un borrador ya no borra su historial.** Hasta 2026-10-12 `draft_id` era `ON DELETE CASCADE`
+y la página quedó vacía al limpiar borradores. Ahora es `ON DELETE SET NULL` (migración
+`2026-10-12_publish_jobs_keep_on_draft_delete`) y el job guarda `product_name`/`product_sku`
+(copiados del borrador en `createPublishJob`; `listPublishJobs` usa `COALESCE`). Con un job
+`pending`/`processing`, `DELETE /drafts/:id` responde 409: el job necesita las imágenes del borrador
+para terminar. En `createPublishJob` el draftId va repetido como `$5` a propósito (mismo bug de
+tipos que `finishPublishJob`; lo cubre `publishJobsRealDb.test.js`).
+
+`db.listPublishJobs(limit, offset, {search, status, channel})` (molde de `getAuditLog`:
+`where[]`/`params[]` + `COUNT(*)` + `{ rows, total }`) hace JOIN a `product_drafts` para nombre/SKU
+y subqueries de conteo de unidades (sin `payload_json`); `channels` es CSV, se filtra con `LIKE`.
+Ruta `GET /api/products/publish-jobs`. Front: `pages/publicaciones/publicaciones.component.*`
+(standalone + `injectQuery`) reusa `zc-search-bar`/`zc-pagination`. Cada fila es un job; al
 expandirla (`getPublishJob`) muestra las unidades con su id externo (link a ML; TN sin URL pública
-deducible, solo el id) y `detail`. Reintentar/cancelar/borrar reusan `/jobs/:id/*`. Ítem de nav en
-`layout.component.ts` (debajo de "Crear producto"), ruta en `app.routes.ts`.
+deducible, solo el id) y `detail`. Reintentar/cancelar/borrar reusan `/jobs/:id/*`.
 
 ### Egress de Supabase: el polling de las colas era el piso de consumo
 
@@ -1001,9 +1105,27 @@ opcional si no, y los atributos `allowVariations`: entran a `ml.attributes` + so
 se ven como opcionales si NO son eje y se esconden si lo son, y `refreshMlVariationAttrs` mergea
 atributos nuevos de la categoría sin pisar valores) y `catalog.service.spec.ts` (los endpoints
 nuevos, incl. `listPublishJobs` con y sin filtros y `cancelPublishJob`). `product-draft.model.spec.ts`
-fija el default `gold_special`. `publicaciones.component.spec.ts` cubre la página nueva (carga y
+fija el default `gold_special`. `publicaciones.component.spec.ts` cubre el historial (carga y
 pinta el historial, expandir una fila trae el detalle con el id externo, `externalUrl` arma el link
 de ML y no el de TN, reset de página al cambiar un filtro, Reintentar refetchea).
+Productos del hub: `backend/test/hubProductsService.test.js` (1 ML → 4 TN, ficha UP → 1 TN, misma
+`family_name` en otro dominio no se mezcla, cada estado, id estable, snapshot viejo sin `format`,
+búsqueda sin acentos y conteos, candidatos a vincular), `backend/test/routesHubProducts.test.js`
+(lista/detalle/404, `refresh=1`, vincular solo el canal que cambia, 409 por SKU usado, 502 si el
+canal falla), los campos nuevos de la foto en `conflictsService.test.js`, el 409 al borrar un
+borrador que se está publicando en `routesProductsDrafts.test.js` y el historial que sobrevive al
+borrado contra Postgres real en `publishJobsRealDb.test.js`; en el front
+`hub-products.component.spec.ts`, `link-variant-dialog.component.spec.ts` y
+`hub-products.service.spec.ts`.
+Editar publicación: `backend/test/publicationImport.test.js` (clásica con variaciones ↔ TN uno por
+color, ficha de User Products ↔ TN con variantes, ítems sueltos de ML ↔ TN con variantes, producto
+simple, avisos, 404/502 sin edición a medias, `checkRemoteChanges`), `publicationDiff.test.js` (sin
+cambios → nada; descripción, stock/precio por variante, agregar/quitar variantes, fotos,
+características, medidas, títulos por variante, producto simple, canal no publicado),
+`routesPublicationEdits.test.js` (abrir/retomar, autoguardar, descartar, plan, remote-check) y
+`publishJobsRealDb.test.js` (una sola edición abierta por producto contra Postgres real); en el front
+`crear-producto.edit.spec.ts` (abre la edición de la ruta, candados, fotos remotas en el
+autoguardado, panel de cambios, aviso al retomar, descartar, error de importación).
 `backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
 
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y

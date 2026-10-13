@@ -27,6 +27,8 @@ import { sessionRoutes } from './routes/session.js';
 import { usersRoutes } from './routes/users.js';
 import { salesRoutes } from './routes/sales.js';
 import { dispatchRoutes } from './routes/dispatch.js';
+import { hubProductsRoutes } from './routes/hubProducts.js';
+import { publicationEditsRoutes } from './routes/publicationEdits.js';
 import { requireAuth, requireAdmin } from './middleware/requireAuth.js';
 import { sweepRecentSales, getSyncState } from './services/salesService.js';
 import { purgeOld } from './services/imageStore.js';
@@ -87,6 +89,8 @@ app.use('/api/deposito', requireAuth, depositoRoutes);
 app.use('/api/orders', requireAuth, ordersRoutes);
 app.use('/api/sales', requireAuth, salesRoutes);
 app.use('/api/dispatch', requireAuth, dispatchRoutes);
+app.use('/api/hub-products', requireAuth, hubProductsRoutes);
+app.use('/api/publication-edits', requireAuth, requireAdmin, publicationEditsRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 // Por si Railway (u otro) hace health check en la raíz

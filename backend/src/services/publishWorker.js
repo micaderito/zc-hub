@@ -21,12 +21,14 @@ import {
   getPublishUnits,
   isPublishJobCancelled,
   recomputeDraftStatus,
+  setPublicationEditStatus,
   hasDatabase,
   PUBLISH_JOB_HEARTBEAT_MS
 } from '../db.js';
 import { planMlUnits, planTnUnits, publishMlUnit, publishTnUnit } from './productPublish.js';
 import { reconcileStalePublishJobs } from '../db.js';
 import { applyPublishAlert } from './publishAlert.js';
+import { runChannelOps, orderOps, refreshTouched } from './publicationUpdate.js';
 import { getMlToken, tokens } from '../store.js';
 
 import { startQueuePolling, stopQueuePolling, QUEUE_POLL_MS, QUEUE_IDLE_MAX_MS } from '../lib/queuePolling.js';
@@ -142,6 +144,39 @@ async function finishWithRetry(jobId, status, errorMsg) {
   return false;
 }
 
+/**
+ * Job de EDICIÓN (Publicaciones → Editar → Guardar): aplica las operaciones de publicationDiff
+ * en ML y TN (publicationUpdate.js). Cada operación es una unidad (`unit_key` = `op.key`): el
+ * reintento saltea las 'ok'. A diferencia de publicar, un error no frena las demás operaciones.
+ * Si todo salió bien la edición queda cerrada ('done'); si no, sigue 'saving' para reintentar.
+ */
+async function processEditJob(job, payload) {
+  const ops = orderOps(payload.ops || []);
+  const existingUnits = await getPublishUnits(job.id);
+  const doneKeys = (channel) => new Set(existingUnits.filter((u) => u.channel === channel && u.status === 'ok').map((u) => u.unitKey));
+  const seqOf = new Map();
+  for (const ch of ['ml', 'tn']) {
+    const keys = ops.filter((o) => o.channel === ch).map((o) => o.key);
+    keys.forEach((k, i) => seqOf.set(`${ch}:${k}`, i));
+    if (keys.length) await seedPublishUnits(job.id, ch, keys);
+  }
+  const report = (op, res) =>
+    upsertPublishUnit({ jobId: job.id, channel: op.channel, unitKey: op.key, seq: seqOf.get(`${op.channel}:${op.key}`) ?? 0, status: res.status, externalId: res.externalId ?? null, detail: res.detail ?? null });
+  const isCancelled = () => isPublishJobCancelled(job.id);
+  const [mlRes, tnRes] = await Promise.all([
+    runChannelOps('ml', payload, doneKeys('ml'), { report, isCancelled }),
+    runChannelOps('tn', payload, doneKeys('tn'), { report, isCancelled }),
+  ]);
+  const total = ops.length;
+  const ok = mlRes.ok + tnRes.ok;
+  const allOk = ok === total;
+  const errorMsg = allOk ? null : `${total - ok} de ${total} cambios no se pudieron aplicar`;
+  await finishWithRetry(job.id, allOk ? 'done' : 'error', errorMsg);
+  console.log(`[PublishQueue] Edición ${job.id} → ${allOk ? 'done' : 'error'} (${ok}/${total} ok).`);
+  await refreshTouched(mlRes.touched, tnRes.touched).catch((e) => console.error('[PublishQueue] refreshTouched:', e.message));
+  if (allOk && payload.editId) await setPublicationEditStatus(payload.editId, 'done');
+}
+
 /** Procesa un job completo: ambos canales en paralelo (igual que publishProduct), con latido. */
 export async function processJob(job) {
   const startedAt = Date.now();
@@ -159,6 +194,10 @@ export async function processJob(job) {
   console.log(`[PublishQueue] Job ${job.id} arrancó (draft ${job.draftId}, canales ${job.channels}).`);
   try {
     const payload = JSON.parse(job.payloadJson);
+    if (payload.kind === 'update') {
+      await processEditJob(job, payload);
+      return;
+    }
     const channels = String(job.channels).split(',').map((s) => s.trim());
     const existingUnits = await getPublishUnits(job.id);
     const doneKeysFor = (channel) => new Set(existingUnits.filter((u) => u.channel === channel && u.status === 'ok').map((u) => u.unitKey));

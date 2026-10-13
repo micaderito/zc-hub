@@ -79,6 +79,62 @@ export function consumeStockEcho(key, stock) {
   return false;
 }
 
+// ── Eco de PRECIO ────────────────────────────────────────────────────────────
+//
+// Mismo problema que el stock: el refresh por webhook ahora también registra los cambios de precio
+// hechos desde el panel de ML/TN, y sin eco vería como "externos" los que escribió el hub (que ya
+// quedaron en price_audit como Precios/Manual/Sincronizar).
+//
+// Diferencia con el stock: el eco de precio NO se consume al primer match. En ML el precio es del
+// ítem entero (un ítem legacy aplica el mismo precio a TODAS sus variaciones), así que un solo
+// write produce N filas en el diff y todas tienen que reconocerse como propias. Vence igual por TTL.
+
+/** key → { price, at }. */
+const priceEchoes = new Map();
+
+/** Clave de precio de ML: siempre el ítem entero (ML no admite precio por variación en legacy). */
+export function mlPriceEchoKey(itemId) {
+  return `price:ml:${itemId}`;
+}
+
+/** Clave de precio de TN. `variantId` null = todas las variantes del producto. */
+export function tnPriceEchoKey(productId, variantId) {
+  const vid = variantId == null || variantId === '' ? '*' : String(variantId);
+  return `price:tn:${productId}:${vid}`;
+}
+
+function purgeExpiredPrices(now) {
+  for (const [k, v] of priceEchoes) {
+    if (now - v.at > STOCK_ECHO_TTL_MS) priceEchoes.delete(k);
+  }
+}
+
+/** Anota que el hub acaba de escribir `price` (antes del PUT, por la misma carrera que el stock). */
+export function rememberPriceWrite(key, price) {
+  const now = Date.now();
+  purgeExpiredPrices(now);
+  priceEchoes.set(key, { price: Number(price), at: now });
+}
+
+/** Borra un eco de precio cuya escritura el canal rechazó. */
+export function forgetPriceWrite(key) {
+  priceEchoes.delete(key);
+}
+
+/**
+ * ¿Este cambio de precio lo escribió el hub? Prueba la clave exacta y, en TN, la del producto
+ * entero ("aplicar a todas las variantes"). No consume el eco (ver arriba).
+ */
+export function matchPriceEcho(key, price) {
+  const now = Date.now();
+  purgeExpiredPrices(now);
+  const candidates = [key];
+  const m = /^price:tn:([^:]+):/.exec(key);
+  if (m) candidates.push(`price:tn:${m[1]}:*`);
+  return candidates.some((k) => priceEchoes.get(k)?.price === Number(price));
+}
+
 export function __resetStockEchoesForTests() {
   echoes.clear();
+  priceEchoes.clear();
 }

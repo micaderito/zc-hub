@@ -499,5 +499,5 @@
 
 <!-- ══════════════ Historial de un producto (stock + precio) ══════════════ -->
 @if (historySku(); as sku) {
-  <zc-product-history-dialog [sku]="sku" (closed)="historySku.set(null)" />
+  <zc-product-history-dialog [sku]="sku" initialTab="price" (closed)="historySku.set(null)" />
 }

@@ -287,6 +287,58 @@ export async function createItem(accessToken, itemBody) {
   return res.json();
 }
 
+/** Request de escritura a ML que tira con el mensaje real de la API (y `mlStatus`) si no anda. */
+async function mlWrite(accessToken, method, path, body, context) {
+  const res = await fetchWith429Retry(
+    `${BASE}${path}`,
+    {
+      method,
+      headers: { Authorization: `Bearer ${accessToken}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {})
+    },
+    context
+  );
+  if (!res.ok) {
+    const errBody = await errorMessage(res);
+    console.error('[ML] %s %s → HTTP %s: %s', method, path, res.status, errBody);
+    throw Object.assign(new Error(errBody || `HTTP ${res.status}`), { mlStatus: res.status });
+  }
+  const text = await res.text();
+  try { return text ? JSON.parse(text) : {}; } catch { return {}; }
+}
+
+/** PUT /items/{id} con un body parcial (título, atributos, fotos, envío, garantía, estado…). */
+export async function updateItem(accessToken, itemId, body) {
+  return mlWrite(accessToken, 'PUT', `/items/${itemId}`, body, 'updateItem');
+}
+
+/**
+ * Array `variations` para un PUT /items de un ítem legacy. **Siempre lleva el `id` de TODAS las
+ * variaciones que se quedan**: una variación que no viaja (o viaja sin id) ML la BORRA y la recrea,
+ * y se pierde su historial de ventas (doc "Variaciones"). `overrides` = { [variationId]: campos }.
+ */
+export function mlVariationsBody(item, overrides = {}) {
+  return (item?.variations || []).map((v) => {
+    const extra = overrides[String(v.id)];
+    return extra ? { id: v.id, ...extra } : { id: v.id };
+  });
+}
+
+/** Agrega una variación a un ítem legacy: POST /items/{id}/variations. Devuelve la variación creada. */
+export async function addItemVariation(accessToken, itemId, variation) {
+  return mlWrite(accessToken, 'POST', `/items/${itemId}/variations`, variation, 'addItemVariation');
+}
+
+/** Borra una variación de un ítem legacy: DELETE /items/{id}/variations/{variationId}. */
+export async function deleteItemVariation(accessToken, itemId, variationId) {
+  return mlWrite(accessToken, 'DELETE', `/items/${itemId}/variations/${variationId}`, undefined, 'deleteItemVariation');
+}
+
+/** Cambia el tipo de publicación: POST /items/{id}/listing_type { id } (gold_special ↔ gold_pro se puede siempre). */
+export async function setItemListingType(accessToken, itemId, listingTypeId) {
+  return mlWrite(accessToken, 'POST', `/items/${itemId}/listing_type`, { id: listingTypeId }, 'setItemListingType');
+}
+
 /**
  * Setea la descripción (texto plano) de un ítem: ML la maneja como recurso APARTE, no en POST /items.
  * POST /items/{id}/description; si el ítem ya tiene descripción, cae a PUT ?api_version=2.
@@ -662,6 +714,34 @@ export async function getShipmentSla(accessToken, shipmentId) {
     return null;
   }
   return res.json();
+}
+
+/**
+ * Notas que la vendedora le agregó a una orden desde el panel de ML (`GET /orders/:id/notes`).
+ * Devuelve los textos no vacíos, del más viejo al más nuevo. La respuesta es
+ * `[{ order_id, results: [{ note, date_created, … }] }]`.
+ */
+export async function getOrderNotes(accessToken, orderId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/orders/${orderId}/notes`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getOrderNotes'
+  );
+  if (!res.ok) {
+    if (res.status === 429) {
+      const e = new Error(`ML rate limited (429) notes ${orderId}`);
+      e.statusCode = 429;
+      throw e;
+    }
+    return [];
+  }
+  const body = await res.json();
+  const groups = Array.isArray(body) ? body : [body];
+  return groups
+    .flatMap((g) => (Array.isArray(g?.results) ? g.results : []))
+    .sort((a, b) => String(a?.date_created ?? '').localeCompare(String(b?.date_created ?? '')))
+    .map((n) => String(n?.note ?? '').trim())
+    .filter(Boolean);
 }
 
 export async function updateItemStock(accessToken, itemId, quantity) {

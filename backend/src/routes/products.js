@@ -250,9 +250,17 @@ productRoutes.put('/drafts/:id', async (req, res) => {
   }
 });
 
-/** Borra un borrador (en cascada, sus jobs/unidades) y las imágenes que tenía en el store. */
+/**
+ * Borra un borrador y las imágenes que tenía en el store. Su historial de publicación se conserva
+ * (`draft_id` pasa a NULL). Con una publicación todavía corriendo no se puede: el job necesita esas
+ * imágenes para terminar.
+ */
 productRoutes.delete('/drafts/:id', async (req, res) => {
   try {
+    const jobs = await listPublishJobsForDraft(req.params.id);
+    if (jobs.some((j) => j.status === 'pending' || j.status === 'processing')) {
+      return res.status(409).json({ error: 'Este borrador se está publicando. Esperá a que termine o cancelá la publicación antes de borrarlo.' });
+    }
     const draft = await getProductDraft(req.params.id);
     const ok = await deleteProductDraft(req.params.id);
     if (!ok) return res.status(404).json({ error: 'Borrador no encontrado' });

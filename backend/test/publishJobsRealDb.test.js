@@ -153,3 +153,75 @@ test(
     }
   }
 );
+
+test(
+  'borrar un borrador conserva su historial de publicación, con el nombre y SKU guardados en el job',
+  { skip: hasDb ? false : 'requiere DATABASE_URL (correr con el .env symlinkeado del worktree, o el de backend/)' },
+  async () => {
+    const { initDb, createPublishJob, deleteProductDraft, listPublishJobs } = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined
+    });
+    assert.equal(await initDb(), true);
+    const suffix = Date.now();
+    const draftId = `t-keep-draft-${suffix}`;
+    const jobId = `t-keep-job-${suffix}`;
+    try {
+      await pool.query(`INSERT INTO product_drafts (id, name, sku, draft_json) VALUES ($1, $2, $3, '{}')`, [draftId, `Cuaderno t-keep ${suffix}`, `TKEEP-${suffix}`]);
+      assert.equal(await createPublishJob({ id: jobId, draftId, channels: 'ml', payloadJson: '{}' }), jobId);
+      assert.equal(await deleteProductDraft(draftId), true);
+
+      const row = await pool.query('SELECT draft_id, product_name, product_sku FROM product_publish_jobs WHERE id = $1', [jobId]);
+      assert.equal(row.rows.length, 1, 'el job sigue existiendo');
+      assert.equal(row.rows[0].draft_id, null);
+      assert.equal(row.rows[0].product_sku, `TKEEP-${suffix}`);
+
+      const { rows } = await listPublishJobs(5, 0, { search: `t-keep ${suffix}` });
+      assert.equal(rows[0]?.id, jobId);
+      assert.equal(rows[0]?.draftName, `Cuaderno t-keep ${suffix}`);
+    } finally {
+      await pool.query('DELETE FROM product_publish_jobs WHERE id = $1', [jobId]);
+      await pool.query('DELETE FROM product_drafts WHERE id = $1', [draftId]);
+      await pool.end();
+    }
+  }
+);
+
+test(
+  'ediciones de publicaciones: una sola abierta por producto, autoguardado y descartar contra Postgres real',
+  { skip: hasDb ? false : 'requiere DATABASE_URL (correr con el .env symlinkeado del worktree, o el de backend/)' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined
+    });
+    assert.equal(await db.initDb(), true);
+    const suffix = Date.now();
+    const groupKey = `ml:TEST-${suffix}`;
+    const ids = [`t-edit-a-${suffix}`, `t-edit-b-${suffix}`, `t-edit-c-${suffix}`];
+    const base = { draft: { common: { baseName: 'X' } }, baseline: { common: { baseName: 'X' } }, refs: { channels: { ml: true } } };
+    try {
+      const a = await db.createPublicationEdit({ id: ids[0], groupKey, name: 'X', ...base, createdBy: 'test' });
+      assert.equal(a.id, ids[0]);
+      assert.equal(a.draft.common.baseName, 'X');
+      // Una segunda edición del mismo producto choca con el índice único y devuelve la abierta.
+      const b = await db.createPublicationEdit({ id: ids[1], groupKey, name: 'X', ...base });
+      assert.equal(b.id, ids[0]);
+      assert.equal(await db.updatePublicationEditDraft(ids[0], { common: { baseName: 'Y' } }), true);
+      assert.equal((await db.getActivePublicationEdit(groupKey)).draft.common.baseName, 'Y');
+      assert.equal((await db.listActivePublicationEdits())[groupKey].id, ids[0]);
+      assert.equal(await db.setPublicationEditStatus(ids[0], 'discarded'), true);
+      assert.equal(await db.updatePublicationEditDraft(ids[0], { common: {} }), false, 'descartada ya no se autoguarda');
+      assert.equal(await db.getActivePublicationEdit(groupKey), null);
+      const c = await db.createPublicationEdit({ id: ids[2], groupKey, name: 'X', ...base });
+      assert.equal(c.id, ids[2], 'descartada la anterior, se puede abrir otra');
+    } finally {
+      await pool.query('DELETE FROM publication_edits WHERE id = ANY($1)', [ids]);
+      await pool.end();
+    }
+  }
+);

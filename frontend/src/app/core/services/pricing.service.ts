@@ -91,7 +91,12 @@ export interface PriceAuditRow {
   /** Puede ser null si el snapshot no tenía la fila cuando se aplicó el cambio. */
   priceBefore: number | null;
   priceAfter: number;
-  source: 'bulk' | 'manual';
+  /**
+   * bulk = Precios (aplicar lista) · manual = edición en Precio y stock · sync = "Sincronizar
+   * precios" del Dashboard (ML → TN) · externo = cambiado desde el panel de ML/TN (o una promoción
+   * de ML), detectado por webhook.
+   */
+  source: 'bulk' | 'manual' | 'sync' | 'externo';
   productLabel: string | null;
   createdAt: string;
 }

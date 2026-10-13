@@ -1,0 +1,210 @@
+<div class="hp-toolbar">
+  <zc-search-bar [value]="search()" (valueChange)="search.set($event)" placeholder="Buscar por nombre, SKU o id de publicación…" />
+  <button type="button" class="hp-refresh" [class.busy]="refreshing()" [disabled]="refreshing()" (click)="refresh()"
+          title="Vuelve a leer todo el catálogo de ML y TN">
+    <i class="ti ti-refresh" [class.spinning]="refreshing()" aria-hidden="true"></i>
+    {{ refreshing() ? 'Actualizando…' : 'Actualizar' }}
+  </button>
+</div>
+
+<div class="hp-chips" role="group" aria-label="Filtrar por estado">
+  @for (f of filters; track f.key) {
+    <button type="button" class="hp-chip" [class.active]="status() === f.key" (click)="setStatus(f.key)">
+      {{ f.label }}
+      @if (counts(); as c) { <span class="hp-chip-n">{{ f.key ? c[f.key] : c.all }}</span> }
+    </button>
+  }
+</div>
+
+@if (listQuery.data(); as data) {
+  @if (!data.mlConnected || !data.tnConnected) {
+    <p class="hp-banner warn">
+      <i class="ti ti-plug-connected-x" aria-hidden="true"></i>
+      {{ !data.mlConnected && !data.tnConnected ? 'Mercado Libre y Tienda Nube no están conectados' : !data.mlConnected ? 'Mercado Libre no está conectado' : 'Tienda Nube no está conectada' }}:
+      los productos de ese canal no aparecen. Conectalo desde Conexiones.
+    </p>
+  }
+}
+
+<div class="hp-split" [class.has-detail]="!!selectedKey()">
+  <section class="hp-list zc-card" aria-label="Productos">
+    @if (listQuery.isPending()) {
+      <p class="hp-msg">Cargando productos…</p>
+    } @else if (listQuery.isError()) {
+      <p class="hp-msg error">No se pudo cargar la lista. <button type="button" class="zc-btn small" (click)="listQuery.refetch()">Reintentar</button></p>
+    } @else if (rows().length === 0) {
+      <div class="hp-empty">
+        <i class="ti ti-package-off" aria-hidden="true"></i>
+        <p>{{ appliedSearch() || status() ? 'No hay productos que coincidan con el filtro.' : 'Todavía no hay publicaciones en ML ni en TN.' }}</p>
+      </div>
+    } @else {
+      @if (listQuery.isFetching()) { <div class="hp-progress"></div> }
+      <ul>
+        @for (p of rows(); track p.key) {
+          <li>
+            <button type="button" class="hp-item" [class.on]="selectedKey() === p.key" (click)="open(p.key)">
+              <zc-product-thumb [src]="p.thumbnail" />
+              <span class="hp-item-main">
+                <span class="hp-item-name">{{ p.name }}</span>
+                <span class="hp-item-meta">
+                  @if (p.mlCount) { <span class="zc-badge ml">ML × {{ p.mlCount }}</span> } @else { <span class="zc-badge off">sin ML</span> }
+                  @if (p.tnCount) { <span class="zc-badge tn">TN × {{ p.tnCount }}</span> } @else { <span class="zc-badge off">sin TN</span> }
+                  <span>{{ p.variantCount }} {{ p.variantCount === 1 ? 'variante' : 'variantes' }}</span>
+                </span>
+              </span>
+              <span class="hp-item-side">
+                <span class="hp-status" [class]="statusMeta[p.status].cls">{{ statusMeta[p.status].label }}</span>
+                @if (p.edit) { <span class="hp-editing" title="Hay una edición sin guardar"><i class="ti ti-pencil"></i> Edición sin guardar</span> }
+              </span>
+            </button>
+          </li>
+        }
+      </ul>
+      <zc-pagination [currentPage]="page()" [totalPages]="totalPages()" [total]="total()" (prev)="prevPage()" (next)="nextPage()" />
+    }
+  </section>
+
+  <section class="hp-detail" aria-live="polite">
+    @if (!selectedKey()) {
+      <div class="hp-placeholder zc-card">
+        <i class="ti ti-arrows-exchange" aria-hidden="true"></i>
+        <p>Elegí un producto para ver sus publicaciones de Mercado Libre y Tienda Nube, variante por variante.</p>
+      </div>
+    } @else if (detailQuery.isPending()) {
+      <div class="hp-placeholder zc-card"><p>Cargando…</p></div>
+    } @else if (detailQuery.isError()) {
+      <div class="hp-placeholder zc-card">
+        <p>No encontramos ese producto. Puede que haya cambiado al vincular una variante.</p>
+        <button type="button" class="zc-btn small" (click)="close()">Volver a la lista</button>
+      </div>
+    } @else if (detail()) {
+      @let d = detail()!;
+      <div class="hp-dhead zc-card">
+        <button type="button" class="hp-back zc-btn small" (click)="close()" aria-label="Volver a la lista"><i class="ti ti-arrow-left"></i></button>
+        <zc-product-thumb [src]="d.thumbnail" />
+        <div class="hp-dhead-main">
+          <h2>{{ d.name }} <span class="hp-status" [class]="statusMeta[d.status].cls">{{ statusMeta[d.status].label }}</span></h2>
+          <div class="hp-shape">
+            <span><span class="zc-badge ml">ML</span> {{ shape(d, 'ml') }}</span>
+            <span><span class="zc-badge tn">TN</span> {{ shape(d, 'tn') }}</span>
+          </div>
+        </div>
+        <div class="hp-dhead-actions" *zcCanWrite>
+          <a class="zc-btn primary small" [routerLink]="['/publicaciones', d.key, 'editar']">
+            <i class="ti ti-pencil"></i> {{ d.edit ? 'Seguir editando' : 'Editar publicación' }}
+          </a>
+        </div>
+      </div>
+
+      @if (notice()) {
+        <p class="hp-banner ok" role="status"><i class="ti ti-check" aria-hidden="true"></i> {{ notice() }}</p>
+      }
+
+      <div class="hp-pubs zc-card">
+        <h3>Publicaciones</h3>
+        <div class="hp-pubs-grid">
+          <div class="hp-pubcol">
+            <h4><span class="dot ml"></span> Mercado Libre</h4>
+            @for (p of d.ml; track p.itemId; let i = $index) {
+              <div class="hp-pub" [class.hl]="isHovered('ml', p.itemId)">
+                <span class="hp-key ml">ML-{{ i + 1 }}</span>
+                <div class="hp-pub-main">
+                  <span class="hp-pub-title" [title]="p.title">{{ p.title }}</span>
+                  <span class="hp-pub-sub">
+                    <code>{{ p.itemId }}</code>
+                    <span>{{ formatLabel(p) }}</span>
+                    @if (p.soldQuantity) { <span>{{ p.soldQuantity }} vendidos</span> }
+                    @if (p.status && p.status !== 'active') { <span class="hp-paused">{{ mlStatusLabel(p.status) }}</span> }
+                  </span>
+                </div>
+                <a [href]="mlUrl(p.itemId)" target="_blank" rel="noopener" aria-label="Ver en Mercado Libre"><i class="ti ti-external-link"></i></a>
+              </div>
+            } @empty {
+              <p class="hp-none">No está publicado en Mercado Libre.</p>
+            }
+          </div>
+          <div class="hp-pubcol">
+            <h4><span class="dot tn"></span> Tienda Nube</h4>
+            @for (p of d.tn; track p.productId; let i = $index) {
+              <div class="hp-pub" [class.hl]="isHovered('tn', p.productId)">
+                <span class="hp-key tn">TN-{{ i + 1 }}</span>
+                <div class="hp-pub-main">
+                  <span class="hp-pub-title" [title]="p.name">{{ p.name }}</span>
+                  <span class="hp-pub-sub"><code>#{{ p.productId }}</code><span>{{ p.variantCount }} {{ p.variantCount === 1 ? 'variante' : 'variantes' }}</span></span>
+                </div>
+                <span></span>
+              </div>
+            } @empty {
+              <p class="hp-none">No está publicado en Tienda Nube.</p>
+            }
+          </div>
+        </div>
+      </div>
+
+      <div class="hp-variants zc-card">
+        <h3>Variantes <span>una fila por SKU · pasá el mouse para ver a qué publicación pertenece</span></h3>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th></th><th class="grp ml" colspan="3">Mercado Libre</th><th></th><th class="grp tn" colspan="3">Tienda Nube</th></tr>
+              <tr><th>SKU</th><th>Variante</th><th class="num">Precio</th><th class="num">Stock</th><th></th><th>Variante</th><th class="num">Precio</th><th class="num">Stock</th></tr>
+            </thead>
+            <tbody>
+              @for (r of d.rows; track $index) {
+                <tr (mouseenter)="hover(r)" (mouseleave)="hover(null)">
+                  <td>
+                    @if (r.sku) { <code>{{ r.sku }}</code> } @else { <span class="hp-nosku">Sin SKU</span> }
+                    @if (r.duplicate) { <span class="hp-dup" title="Este SKU se repite en un mismo canal">repetido</span> }
+                  </td>
+                  @if (r.ml; as m) {
+                    <td class="side-ml">
+                      <span class="hp-vname">{{ m.variationName || 'Sin variantes' }}</span>
+                      <span class="hp-key ml small">{{ pubKey(d, 'ml', m.itemId) }}</span>
+                    </td>
+                    <td class="num">{{ money(m.price) }}</td>
+                    <td class="num" [class.diff]="stockDiffers(r)">{{ m.stock }}</td>
+                  } @else {
+                    <td class="side-ml" colspan="3">
+                      <span class="muted">No está en ML</span>
+                      <button *zcCanWrite type="button" class="hp-link" (click)="linking.set(r)"><i class="ti ti-link"></i> Vincular…</button>
+                    </td>
+                  }
+                  <td class="bridge">
+                    @if (r.ml && r.tn) {
+                      <span class="hp-bridge ok" title="Vinculadas por SKU"><i class="ti ti-link"></i></span>
+                    } @else {
+                      <span class="hp-bridge off" title="Sin par"><i class="ti ti-unlink"></i></span>
+                    }
+                  </td>
+                  @if (r.tn; as t) {
+                    <td>
+                      <span class="hp-vname">{{ tnVariantLabel(d, t) }}</span>
+                      <span class="hp-key tn small">{{ pubKey(d, 'tn', t.productId) }}</span>
+                    </td>
+                    <td class="num">{{ money(t.price) }}</td>
+                    <td class="num" [class.diff]="stockDiffers(r)">{{ t.stock }}</td>
+                  } @else {
+                    <td colspan="3">
+                      <span class="muted">No está en TN</span>
+                      <button *zcCanWrite type="button" class="hp-link" (click)="linking.set(r)"><i class="ti ti-link"></i> Vincular…</button>
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (d.status === 'orphan' || d.status === 'duplicate') {
+          <p class="hp-banner info">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            Las variantes sin par no se sincronizan: una venta en un canal no descuenta el stock del otro. Vincularlas les pone el mismo SKU en los dos canales.
+          </p>
+        }
+      </div>
+    }
+  </section>
+</div>
+
+@if (linking(); as r) {
+  <zc-link-variant-dialog [row]="r" (linked)="onLinked($event)" (closed)="linking.set(null)" />
+}

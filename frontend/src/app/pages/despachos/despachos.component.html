@@ -133,7 +133,7 @@
               <span class="pk-meta">
                 @if (p.buyer) { {{ p.buyer }} }
                 @if (p.city) { · {{ p.city }} }
-                @if (p.items.length > 1) { · {{ p.items.length }} productos }
+                @if (units(p) > 1) { · {{ units(p) }} productos }
               </span>
               <span class="pk-chips">
                 @if (deadlineLabel(p); as dl) { <span class="st err">{{ dl }}</span> }
@@ -147,6 +147,17 @@
                 @if (shippingLabel(p); as sl) { <span class="st"><i class="ti ti-truck" aria-hidden="true"></i> {{ sl }}</span> }
               </span>
             </div>
+
+            @if (p.notes?.length) {
+              <ul class="pk-notes" aria-label="Notas de la venta">
+                @for (n of p.notes; track $index) {
+                  <li>
+                    <i class="ti" [class.ti-note]="n.author === 'seller'" [class.ti-message-circle]="n.author === 'buyer'" aria-hidden="true"></i>
+                    <span><b>{{ n.author === 'buyer' ? 'Comprador:' : 'Nota:' }}</b> {{ n.text }}</span>
+                  </li>
+                }
+              </ul>
+            }
 
             <ul class="pk-items">
               @for (it of p.items; track $index) {

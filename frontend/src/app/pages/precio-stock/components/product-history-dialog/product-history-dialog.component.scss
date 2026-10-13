@@ -65,6 +65,15 @@
   padding: 0.75rem 1.25rem 1.25rem;
 }
 
+// Pestañas Stock / Precio. El componente de tabs ya trae su margen inferior, así que el cuerpo
+// arranca sin padding arriba.
+.hist-tabs {
+  display: block;
+  padding: 0.75rem 1.25rem 0;
+
+  + .hist-body { padding-top: 0; }
+}
+
 .hist-msg {
   font-size: 0.82rem;
   color: var(--text-2);
@@ -144,7 +153,6 @@
   align-items: center;
   gap: 0.9rem;
   flex-wrap: wrap;
-  padding-left: 1.55rem; // alineado con el texto de arriba, después del icono
 }
 
 .hist-side {
@@ -173,29 +181,6 @@
   &.desync {
     color: var(--warn);
     font-weight: 600;
-  }
-}
-
-// Qué tipo de cambio es (stock o precio), para distinguirlos de un vistazo en la línea de tiempo.
-.hist-kind {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.15rem;
-  height: 1.15rem;
-  border-radius: 5px;
-  flex-shrink: 0;
-
-  .ti { font-size: 0.72rem; }
-
-  &.stock {
-    background: var(--surface-2);
-    color: var(--text-2);
-  }
-
-  &.price {
-    background: var(--brand-bg);
-    color: var(--brand);
   }
 }
 

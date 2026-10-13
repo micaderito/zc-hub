@@ -626,3 +626,31 @@
 }
 
 
+
+/* ---------- Modo edición (Publicaciones → Editar publicación) ---------- */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-2);
+  text-decoration: none;
+  margin-bottom: 0.35rem;
+  &:hover { color: var(--brand); }
+}
+.edit-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  font-size: 0.85rem;
+  color: var(--text-2);
+  .spin { animation: edit-spin 0.9s linear infinite; color: var(--brand); }
+}
+@keyframes edit-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .edit-loading .spin { animation: none; } }
+.edit-notes ul { margin: 0; padding-left: 1rem; display: flex; flex-direction: column; gap: 0.2rem; }
+
+/* El fieldset que envuelve el form solo existe para poder deshabilitarlo entero al guardar una edición. */
+.form-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
+.form-fieldset:disabled { display: block; opacity: 0.7; }

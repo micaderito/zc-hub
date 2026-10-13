@@ -63,9 +63,10 @@ describe('ProductHistoryDialogComponent', () => {
    * Crea el componente y espera a que resuelvan las DOS queries. TanStack necesita que corra un
    * macrotask además del whenStable para pasar de 'pending' a 'success'/'error'.
    */
-  async function createAndLoad(): Promise<void> {
+  async function createAndLoad(initialTab: 'stock' | 'price' = 'stock'): Promise<void> {
     fixture = TestBed.createComponent(ProductHistoryDialogComponent);
     fixture.componentRef.setInput('sku', 'SKU1');
+    fixture.componentRef.setInput('initialTab', initialTab);
     fixture.detectChanges();
     for (let i = 0; i < 3; i++) {
       await fixture.whenStable();
@@ -74,27 +75,91 @@ describe('ProductHistoryDialogComponent', () => {
     }
   }
 
-  it('fusiona stock y precios en una sola línea de tiempo, más reciente primero', async () => {
+  /** Click en la pestaña con ese texto ("Stock" / "Precio"). */
+  async function clickTab(label: string): Promise<void> {
+    const btn = [...fixture.nativeElement.querySelectorAll('[role="tab"]')]
+      .find((b: HTMLElement) => b.textContent?.trim().startsWith(label)) as HTMLElement;
+    btn.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+
+  it('separa stock y precio en dos pestañas, con el total de cada una', async () => {
     syncSpy.getStockHistoryBySku.and.returnValue(
       of({ rows: [stockRow({ id: 1, createdAt: '2026-07-10T10:00:00.000Z' })], total: 1 }) as never,
     );
     pricingSpy.getPriceHistoryBySku.and.returnValue(
-      of({ rows: [priceRow({ id: 1, createdAt: '2026-07-11T10:00:00.000Z' })], total: 1 }) as never,
+      of({
+        rows: [
+          priceRow({ id: 1, createdAt: '2026-07-11T10:00:00.000Z' }),
+          priceRow({ id: 2, createdAt: '2026-07-12T10:00:00.000Z', source: 'externo', channel: 'tiendanube' }),
+        ],
+        total: 2,
+      }) as never,
     );
 
     await createAndLoad();
 
-    const text = fixture.nativeElement.textContent as string;
-    // ambas fuentes presentes
-    expect(text).toContain('Historial del producto');
+    const tabs = [...fixture.nativeElement.querySelectorAll('[role="tab"]')] as HTMLElement[];
+    expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['Stock 1', 'Precio 2']);
+    // Arranca en Stock: solo el movimiento de stock.
+    expect(fixture.nativeElement.querySelectorAll('.hist-row').length).toBe(1);
+    expect(fixture.nativeElement.textContent).toContain('Cuaderno');
+
+    await clickTab('Precio');
     const rows = fixture.nativeElement.querySelectorAll('.hist-row');
     expect(rows.length).toBe(2);
-    // el de precio (11/07) es más reciente que el de stock (10/07): va primero
-    expect(rows[0].querySelector('.hist-kind.price')).not.toBeNull();
-    expect(rows[1].querySelector('.hist-kind.stock')).not.toBeNull();
+    // más reciente primero: el externo de TN (12/07) antes que el de Precios (11/07)
+    expect(rows[0].querySelector('.hist-source')?.textContent?.trim()).toBe('Cambio en TN');
+    expect(rows[0].querySelector('.hist-source.externo')).not.toBeNull();
+    expect(rows[1].querySelector('.hist-source')?.textContent?.trim()).toBe('Precios');
   });
 
-  it('muestra el historial de stock aunque el de precios falle', async () => {
+  it('initialTab="price" abre directo en la pestaña de precio', async () => {
+    syncSpy.getStockHistoryBySku.and.returnValue(of({ rows: [stockRow()], total: 1 }) as never);
+    pricingSpy.getPriceHistoryBySku.and.returnValue(
+      of({ rows: [priceRow({ source: 'sync', channel: 'tiendanube' })], total: 1 }) as never,
+    );
+
+    await createAndLoad('price');
+
+    const active = fixture.nativeElement.querySelector('[role="tab"].active') as HTMLElement;
+    expect(active.textContent).toContain('Precio');
+    expect(fixture.nativeElement.querySelector('.hist-source')?.textContent?.trim()).toBe('Sincronizar precios');
+  });
+
+  it('el mismo "aplicar" en ML y TN se muestra como un solo evento de precio', async () => {
+    syncSpy.getStockHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+    pricingSpy.getPriceHistoryBySku.and.returnValue(
+      of({
+        rows: [
+          priceRow({ id: 1, channel: 'mercadolibre', source: 'manual', productLabel: null, createdAt: '2026-07-11T10:00:00.000Z' }),
+          priceRow({ id: 2, channel: 'tiendanube', source: 'manual', productLabel: null, createdAt: '2026-07-11T10:00:20.000Z' }),
+        ],
+        total: 2,
+      }) as never,
+    );
+
+    await createAndLoad('price');
+
+    const rows = fixture.nativeElement.querySelectorAll('.hist-row');
+    expect(rows.length).toBe(1);
+    expect(rows[0].querySelectorAll('.hist-side').length).toBe(2);
+    expect(rows[0].querySelector('.hist-source.manual')?.textContent?.trim()).toBe('Cambio manual');
+  });
+
+  it('un cambio manual hecho desde el editor de publicaciones muestra su propio rótulo', async () => {
+    syncSpy.getStockHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
+    pricingSpy.getPriceHistoryBySku.and.returnValue(
+      of({ rows: [priceRow({ source: 'manual', productLabel: 'Edición de publicación' })], total: 1 }) as never,
+    );
+
+    await createAndLoad('price');
+
+    expect(fixture.nativeElement.querySelector('.hist-source')?.textContent?.trim()).toBe('Edición de publicación');
+  });
+
+  it('muestra el historial de stock aunque el de precios falle (y el error queda en su pestaña)', async () => {
     syncSpy.getStockHistoryBySku.and.returnValue(of({ rows: [stockRow()], total: 1 }) as never);
     pricingSpy.getPriceHistoryBySku.and.returnValue(throwError(() => new Error('boom')) as never);
 
@@ -102,24 +167,20 @@ describe('ProductHistoryDialogComponent', () => {
 
     expect(fixture.nativeElement.querySelectorAll('.hist-row').length).toBe(1);
     expect(fixture.nativeElement.querySelector('.hist-msg.err')).toBeNull();
+
+    await clickTab('Precio');
+    expect(fixture.nativeElement.querySelector('.hist-msg.err')?.textContent).toContain('precios');
   });
 
-  it('solo muestra error si fallan las dos fuentes', async () => {
-    syncSpy.getStockHistoryBySku.and.returnValue(throwError(() => new Error('boom')) as never);
-    pricingSpy.getPriceHistoryBySku.and.returnValue(throwError(() => new Error('boom')) as never);
-
-    await createAndLoad();
-
-    expect(fixture.nativeElement.querySelector('.hist-msg.err')).not.toBeNull();
-  });
-
-  it('sin cambios en ninguna fuente muestra el estado vacío', async () => {
+  it('sin cambios en ninguna fuente cada pestaña muestra su estado vacío', async () => {
     syncSpy.getStockHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
     pricingSpy.getPriceHistoryBySku.and.returnValue(of({ rows: [], total: 0 }) as never);
 
     await createAndLoad();
+    expect(fixture.nativeElement.querySelector('.hist-empty')?.textContent).toContain('stock');
 
-    expect(fixture.nativeElement.querySelector('.hist-empty')).not.toBeNull();
+    await clickTab('Precio');
+    expect(fixture.nativeElement.querySelector('.hist-empty')?.textContent).toContain('precio');
   });
 
   it('una subida de precio se marca como up y una baja como down', async () => {
@@ -134,7 +195,7 @@ describe('ProductHistoryDialogComponent', () => {
       }) as never,
     );
 
-    await createAndLoad();
+    await createAndLoad('price');
 
     const rows = fixture.nativeElement.querySelectorAll('.hist-row');
     expect(rows[0].querySelector('strong.up')).not.toBeNull();
@@ -297,7 +358,7 @@ describe('ProductHistoryDialogComponent', () => {
       of({ rows: [priceRow({ priceBefore: null, priceAfter: 1200 })], total: 1 }) as never,
     );
 
-    await createAndLoad();
+    await createAndLoad('price');
 
     const row = fixture.nativeElement.querySelector('.hist-row');
     expect(row.querySelector('strong.up')).toBeNull();

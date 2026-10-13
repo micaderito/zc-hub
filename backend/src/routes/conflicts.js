@@ -4,13 +4,10 @@ import {
   getAnalysis,
   patchMlSku,
   patchTnSku,
-  patchTnPrice,
-  patchTnStock,
-  readTnSnapshotRow,
 } from '../services/conflictsService.js';
-import { rememberStockWrite, forgetStockWrite, tnStockEchoKey } from '../lib/stockEcho.js';
 import { persistSkuToChannels } from '../services/syncService.js';
-import { enqueueMlTask, getMlTaskStatus, insertAuditLog, listStockAlerts } from '../db.js';
+import { setTnStockManual, setTnPriceManual } from '../services/tnManualWrites.js';
+import { enqueueMlTask, getMlTaskStatus, listStockAlerts } from '../db.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -272,6 +269,9 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
         itemId,
         variationId: vid,
         targetPrice: priceMLNum,
+        // El worker registra el cambio en el historial de precios; sin esto quedaba rotulado
+        // como "Precios" (masivo) aunque lo hubiera editado la usuaria a mano.
+        contextJson: JSON.stringify({ source: 'manual' }),
         idempotencyKey: `price_ml:${itemId}:${vid || 'item'}`, // coalescing: el último precio gana
       });
       if (!mlPriceTaskId) {
@@ -281,21 +281,12 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       }
     }
     if (priceTNNum > 0) {
-      tnPriceOk = applyTnToAllVariants
-        ? await tn.updateVariantPriceAllVariants(
-            tokens.tiendanube.access_token,
-            tokens.tiendanube.store_id,
-            Number(productId),
-            priceTNNum
-          )
-        : await tn.updateVariantPrice(
-            tokens.tiendanube.access_token,
-            tokens.tiendanube.store_id,
-            Number(productId),
-            Number(variantId),
-            priceTNNum
-          );
-      if (tnPriceOk) await patchTnPrice(Number(productId), Number(variantId), priceTNNum, !!applyTnToAllVariants);
+      // Valor previo leído antes de escribir, eco, foto e historial de precios: ver
+      // services/tnManualWrites.js (lo comparte con el editor de publicaciones).
+      tnPriceOk = await setTnPriceManual(Number(productId), Number(variantId), priceTNNum, {
+        applyAll: !!applyTnToAllVariants,
+        logPrefix: '[Conflicts]',
+      });
     }
     // El stock en ML se encola (igual que el precio y el SKU): antes se aplicaba inline con
     // fetchWith429Retry y, si los reintentos ante 429 se agotaban, la función devolvía `false`
@@ -318,52 +309,8 @@ conflictsRoutes.post('/update-prices', async (req, res) => {
       }
     }
     if (stockTNNum !== undefined && stockTNNum >= 0) {
-      const flooredTn = Math.max(0, Math.floor(stockTNNum));
-      const tnEchoKey = tnStockEchoKey(Number(productId), Number(variantId));
-
-      // El valor previo se lee de la foto ANTES de escribir en TN — mismo motivo que en ML
-      // (ver readTnSnapshotRow): nuestra propia escritura dispara el webhook `product/updated`
-      // de TN casi en el acto, y ese refresh puede mover la foto al valor nuevo antes de que
-      // lleguemos a leerla más abajo.
-      const before = await readTnSnapshotRow(Number(productId), Number(variantId)).catch(e => {
-        console.error('[Conflicts] readTnSnapshotRow:', e.message);
-        return null;
-      });
-
-      // El eco se anota ANTES de escribir, por la misma carrera, y se olvida si la escritura
-      // falla (para no tapar un cambio externo real que después deje el stock en ese valor).
-      rememberStockWrite(tnEchoKey, flooredTn);
-      try {
-        tnStockOk = await tn.updateVariantStock(
-          tokens.tiendanube.access_token,
-          tokens.tiendanube.store_id,
-          Number(productId),
-          Number(variantId),
-          flooredTn
-        );
-      } catch (e) {
-        forgetStockWrite(tnEchoKey);
-        throw e;
-      }
-      if (!tnStockOk) forgetStockWrite(tnEchoKey);
-
-      if (tnStockOk) {
-        // La foto ya puede estar al día por el webhook; esto la deja consistente igual, aunque
-        // el historial ya no dependa de lo que devuelva este parche.
-        await patchTnStock(Number(productId), Number(variantId), flooredTn).catch(e => console.error('[Conflicts] patchTnStock:', e.message));
-        if (before && before.stock !== flooredTn) {
-          await insertAuditLog({
-            source: 'manual',
-            sku: before.sku || '',
-            productLabel: 'Cambio manual',
-            updatedChannel: 'tiendanube',
-            stockBefore: before.stock,
-            stockAfter: flooredTn,
-          }).catch(e => console.error('[Conflicts] insertAuditLog:', e.message));
-        } else if (!before) {
-          console.warn(`[Conflicts] stock TN manual: sin fila en el snapshot para ${productId}/${variantId}, no se registra en el historial.`);
-        }
-      }
+      // Valor previo leído antes de escribir, eco, foto e historial: ver services/tnManualWrites.js.
+      tnStockOk = await setTnStockManual(Number(productId), Number(variantId), stockTNNum, { logPrefix: '[Conflicts]' });
     }
 
     const triedTn = priceTNNum > 0 || (stockTNNum !== undefined && stockTNNum >= 0);

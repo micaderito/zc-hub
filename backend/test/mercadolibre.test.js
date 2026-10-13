@@ -494,3 +494,18 @@ test('getShipmentSla: devuelve el límite de despacho; 404 → null; 429 tira co
   state.responder = () => makeRes({ status: 404, json: {} });
   assert.equal(await ml.getShipmentSla(TOKEN, 44), null);
 });
+
+test('getOrderNotes: textos de las notas de la orden, del más viejo al más nuevo; 404 → []', async () => {
+  state.responder = (url) => {
+    assert.match(url, /\/orders\/77\/notes$/);
+    return makeRes({ json: [{ order_id: 77, results: [
+      { note: 'Cambiar a azul', date_created: '2026-10-09T10:00:00.000-03:00' },
+      { note: '  ', date_created: '2026-10-09T09:30:00.000-03:00' },
+      { note: 'Va con moño', date_created: '2026-10-09T09:00:00.000-03:00' },
+    ] }] });
+  };
+  assert.deepEqual(await ml.getOrderNotes(TOKEN, 77), ['Va con moño', 'Cambiar a azul']);
+
+  state.responder = () => makeRes({ status: 404, json: {} });
+  assert.deepEqual(await ml.getOrderNotes(TOKEN, 77), []);
+});
