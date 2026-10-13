@@ -396,6 +396,29 @@ test('caché de 60 s: la segunda visita no le pega a ML, refresh sí', async () 
   assert.equal(state.calls.getShipment.length, 2);
 });
 
+test('dos pedidos a la vez (abrir + "Actualizar") comparten la misma carga contra ML', async () => {
+  state.orders = [mlOrder(1)];
+  state.shipments = { 500: shipment(500) };
+  const [a, b] = await Promise.all([
+    svc.getDispatchList({ now: NOW }),
+    svc.getDispatchList({ now: NOW, refresh: true }),
+  ]);
+  assert.equal(state.calls.getShipment.length, 1);
+  assert.equal(a.packages.length, 1);
+  assert.equal(b.packages.length, 1);
+  // Terminada la carga, un "Actualizar" nuevo sí vuelve a pedir.
+  await svc.getDispatchList({ now: NOW, refresh: true });
+  assert.equal(state.calls.getShipment.length, 2);
+});
+
+test('pendiente → se piden su SLA y sus notas; despachado de días anteriores → ninguno de los dos', async () => {
+  state.orders = [mlOrder(1, { shipId: 500 }), mlOrder(2, { shipId: 501 })];
+  state.shipments = { 500: shipment(500), 501: shipment(501, { status: 'shipped', substatus: null }) };
+  await svc.getDispatchList({ now: NOW });
+  assert.deepEqual(state.calls.getShipmentSla, ['500']);
+  assert.deepEqual(state.calls.getOrderNotes, ['1']);
+});
+
 test('notas de ML: las del carrito juntas y sin repetir; no se piden para cancelados', async () => {
   state.orders = [
     mlOrder(1, { packId: 900 }),
