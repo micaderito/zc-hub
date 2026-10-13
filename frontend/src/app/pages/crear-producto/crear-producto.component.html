@@ -6,6 +6,52 @@
   de lo que muta un `[(ngModel)]` (ej. "Falta el stock" seguía apareciendo después de cargarlo).
 -->
 <div class="page" (input)="store.touch()" (change)="store.touch()">
+  @if (isEdit()) {
+    <header class="page-head">
+      <div>
+        <a class="back-link" routerLink="/publicaciones" [queryParams]="backToProduct()"><i class="ti ti-arrow-left"></i> Publicaciones</a>
+        <h1>Editar publicación</h1>
+        <p class="subtitle">Los datos vienen de Mercado Libre y Tienda Nube. Cambiá lo que necesites: se guarda solo lo que toques.</p>
+      </div>
+    </header>
+
+    @if (store.editLoadError()) {
+      <div class="publish-warning">
+        <i class="ti ti-alert-triangle"></i>
+        <span>{{ store.editLoadError() }}</span>
+        <a class="zc-btn small" routerLink="/publicaciones" [queryParams]="backToProduct()">Volver</a>
+      </div>
+    } @else if (!store.edit()) {
+      <div class="edit-loading zc-card"><i class="ti ti-loader-2 spin"></i> Leyendo las publicaciones de Mercado Libre y Tienda Nube…</div>
+    }
+
+    @if (store.edit()?.resumed) {
+      <div class="publish-warning draft-banner">
+        <i class="ti ti-history"></i>
+        <span>Retomaste una edición que habías dejado a medias @if (store.edit()?.updatedAt) { <span class="muted">({{ store.edit()!.updatedAt | date: 'short' }})</span> }.</span>
+      </div>
+    }
+    @if (store.editRemoteChanges().length) {
+      <div class="publish-warning">
+        <i class="ti ti-alert-triangle"></i>
+        <span>
+          Desde que empezaste a editar, alguien cambió
+          @for (c of store.editRemoteChanges(); track c.channel + c.id; let last = $last) {
+            <strong>{{ c.name }}</strong> ({{ c.channel === 'ml' ? 'ML' : 'TN' }}){{ last ? '' : ', ' }}
+          }
+          desde el panel del canal. Al guardar se mandan solo tus cambios, pero si tocaste lo mismo, gana lo tuyo.
+        </span>
+      </div>
+    }
+    @if (store.editNotes().length) {
+      <div class="publish-warning edit-notes">
+        <i class="ti ti-info-circle"></i>
+        <ul>
+          @for (n of store.editNotes(); track n) { <li>{{ n }}</li> }
+        </ul>
+      </div>
+    }
+  } @else {
   <header class="page-head">
     <div>
       <h1>Crear producto</h1>
@@ -20,8 +66,9 @@
   @if (draftsPanelOpen()) {
     <zc-drafts-panel />
   }
+  }
 
-  @if (draftRestored()) {
+  @if (!isEdit() && draftRestored()) {
     <div class="publish-warning draft-banner">
       <i class="ti ti-file-text"></i>
       <span>
@@ -38,6 +85,9 @@
     <span class="tag tag-own"><i class="ti ti-pencil"></i> propio del canal</span>
   </div>
 
+  @if (!isEdit() || store.edit()) {
+  <!-- Mientras se guarda (y después) el form queda de solo lectura: lo que se manda ya salió. -->
+  <fieldset class="form-fieldset" [disabled]="store.editLocked()">
   <zc-common-data-section />
 
   <zc-ml-section
@@ -66,8 +116,29 @@
 
   <zc-variants-section />
 
-  <zc-stock-alert-section />
+  @if (!isEdit()) {
+    <zc-stock-alert-section />
+  }
+  </fieldset>
+  }
 
+  @if (isEdit()) {
+    @if (store.edit()) {
+      @if (imageError() && imageErrorScope() === 'draft') {
+        <div class="publish-warning">
+          <i class="ti ti-alert-triangle"></i>
+          <span>{{ imageError() }}</span>
+        </div>
+      }
+      @if (hasPendingUploads()) {
+        <div class="publish-warning">
+          <i class="ti ti-loader"></i>
+          <span>Esperando a que terminen de subirse las fotos.</span>
+        </div>
+      }
+      <zc-edit-review (save)="saveEdit()" (discard)="discardEdit()" (finished)="finishEdit()" />
+    }
+  } @else {
   @if (publishPhase() !== 'idle') {
     <div
       class="publish-progress zc-card block"
@@ -273,6 +344,7 @@
       }
     </div>
   </div>
+  }
 </div>
 
 @if (mlTreeOpen()) {

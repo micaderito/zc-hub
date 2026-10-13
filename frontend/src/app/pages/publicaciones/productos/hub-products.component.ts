@@ -1,5 +1,5 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { injectQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import {
   HubMlPublication,
@@ -39,7 +39,7 @@ export const HUB_STATUS_META: Record<HubStatus, { label: string; cls: 'ok' | 'wa
 @Component({
   selector: 'zc-hub-products',
   standalone: true,
-  imports: [SearchBarComponent, PaginationComponent, ProductThumbComponent, CanWriteDirective, LinkVariantDialogComponent],
+  imports: [RouterLink, SearchBarComponent, PaginationComponent, ProductThumbComponent, CanWriteDirective, LinkVariantDialogComponent],
   templateUrl: './hub-products.component.html',
   styleUrl: './hub-products.component.scss',
 })

@@ -89,6 +89,12 @@ export interface DraftImage {
   /** URL para el <img> (object URL de la miniatura local, o /api/products/images/:id). */
   previewUrl: string;
   /**
+   * Foto que YA está publicada en un canal (solo en Publicaciones → Editar): el `id` es
+   * `ml-<picture_id>` / `tn-<image_id>` y el preview es la URL del canal. Guardar la reusa por su id
+   * en vez de volver a subirla. Las fotos nuevas no lo tienen (se suben como en Crear producto).
+   */
+  remote?: { channel: Channel; id: string; url: string };
+  /**
    * true mientras el archivo original todavía se está subiendo al backend (la miniatura y el
    * `id` temporal ya están listos, así que la fila se puede mostrar de entrada). No viaja en el
    * payload de publicación: `hasPendingUploads()` bloquea publicar/guardar mientras exista una.

@@ -31,6 +31,7 @@ const publishState = {
   mlFailOnCall: null // si se setea, publishMlUnit tira en esa llamada N (1-based)
 };
 const alertState = { calls: [] };
+const editState = { failKeys: new Set(), refreshed: null };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '9' } } };
 
 let publishWorker;
@@ -75,7 +76,27 @@ before(async () => {
         return 0;
       },
       hasDatabase: () => dbState.hasDb,
+      setPublicationEditStatus: async (id, status) => {
+        dbState.editStatus = { id, status };
+        return true;
+      },
       PUBLISH_JOB_HEARTBEAT_MS: 30_000
+    }
+  });
+  mock.module('../src/services/publicationUpdate.js', {
+    exports: {
+      orderOps: (ops) => ops,
+      refreshTouched: async (ml, tn) => { editState.refreshed = { ml, tn }; },
+      runChannelOps: async (channel, payload, doneKeys, { report }) => {
+        let ok = 0, err = 0;
+        for (const op of payload.ops.filter((o) => o.channel === channel)) {
+          if (doneKeys.has(op.key)) { ok++; continue; }
+          const fail = editState.failKeys.has(op.key);
+          await report(op, fail ? { status: 'error', detail: 'no' } : { status: 'ok', detail: 'Listo' });
+          fail ? err++ : ok++;
+        }
+        return { ok, err, touched: channel === 'ml' ? ['MLA1'] : [5] };
+      }
     }
   });
   mock.module('../src/services/productPublish.js', {
@@ -119,6 +140,9 @@ before(async () => {
 
 beforeEach(() => {
   alertState.calls = [];
+  editState.failKeys = new Set();
+  editState.refreshed = null;
+  dbState.editStatus = null;
   dbState.claimedJob = null;
   dbState.claimThrows = false;
   dbState.staleSweeps = 0;
@@ -374,4 +398,43 @@ test('processJob: si no se publicó nada en ningún canal, NO da de alta la aler
 test('processJob: sin alerta en el payload no llama al alta', async () => {
   await publishWorker.processJob(baseJob);
   assert.equal(alertState.calls.length, 0);
+});
+
+/* ── Jobs de edición (Publicaciones → Editar → Guardar) ── */
+
+const editJob = (ops) => ({
+  id: 'jedit',
+  draftId: null,
+  channels: 'ml,tn',
+  payloadJson: JSON.stringify({ kind: 'update', editId: 'e1', ops, draft: {}, refs: {} }),
+  attempts: 1,
+});
+const editOps = [
+  { key: 'ml:MLA1:description', channel: 'ml', kind: 'description' },
+  { key: 'tn:5:stock:v1', channel: 'tn', kind: 'stock:v1' },
+];
+
+test('job de edición: siembra una unidad por cambio, los aplica, refresca la foto y cierra la edición', async () => {
+  await publishWorker.processJob(editJob(editOps));
+  assert.deepEqual(dbState.seeded.map((s) => [s.channel, s.unitKeys]), [['ml', ['ml:MLA1:description']], ['tn', ['tn:5:stock:v1']]]);
+  assert.deepEqual(dbState.upserts.map((u) => [u.unitKey, u.status]), [['ml:MLA1:description', 'ok'], ['tn:5:stock:v1', 'ok']]);
+  assert.equal(dbState.finished.status, 'done');
+  assert.deepEqual(editState.refreshed, { ml: ['MLA1'], tn: [5] });
+  assert.deepEqual(dbState.editStatus, { id: 'e1', status: 'done' });
+  assert.equal(publishState.mlCallCount, 0, 'no usa el camino de publicar');
+});
+
+test('job de edición con un error: el job queda en error y la edición abierta para reintentar', async () => {
+  editState.failKeys.add('tn:5:stock:v1');
+  await publishWorker.processJob(editJob(editOps));
+  assert.equal(dbState.finished.status, 'error');
+  assert.match(dbState.finished.error, /1 de 2/);
+  assert.equal(dbState.editStatus, null);
+});
+
+test('reintento de un job de edición saltea lo que ya quedó ok', async () => {
+  dbState.existingUnits = [{ channel: 'ml', unitKey: 'ml:MLA1:description', status: 'ok' }];
+  await publishWorker.processJob(editJob(editOps));
+  assert.deepEqual(dbState.upserts.map((u) => u.unitKey), ['tn:5:stock:v1']);
+  assert.equal(dbState.finished.status, 'done');
 });

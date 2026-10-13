@@ -24,6 +24,14 @@ export interface HubProductSummary {
   variantCount: number;
   mlStock: number;
   tnStock: number;
+  /** Edición abierta (Publicaciones → Editar) que todavía no se guardó ni descartó. */
+  edit?: HubOpenEdit | null;
+}
+
+export interface HubOpenEdit {
+  id: string;
+  status: 'editing' | 'saving';
+  updatedAt: string;
 }
 
 export interface HubProductList {
@@ -97,6 +105,7 @@ export interface HubProductDetail {
   variantCount: number;
   mlStock: number;
   tnStock: number;
+  edit?: HubOpenEdit | null;
 }
 
 /** Variante sin par en el otro canal, ofrecida en el picker de "Vincular". */

@@ -603,3 +603,52 @@ export async function registerOrderWebhooks(accessToken, storeId, baseUrl) {
   }
   return created;
 }
+
+/** Escritura a TN que tira con el mensaje legible de la API si no anda. Devuelve el JSON de respuesta. */
+async function tnWrite(accessToken, storeId, method, path, body, opts) {
+  const res = await fetchTn(
+    `${getBaseUrl(storeId)}${path}`,
+    {
+      method,
+      headers: {
+        Authentication: `bearer ${accessToken}`,
+        'User-Agent': 'ZonacuadernoSync/1.0',
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {})
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {})
+    },
+    opts
+  );
+  if (!res.ok) {
+    const msg = await parseTnError(res);
+    console.error('[TN] %s %s → HTTP %s: %s', method, path, res.status, msg?.slice?.(0, 300));
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
+  const text = await res.text();
+  try { return text ? JSON.parse(text) : {}; } catch { return {}; }
+}
+
+/** PUT /products/{id}: nombre, descripción, categorías, marca, SEO, etc. (solo lo que viaja en `body`). */
+export async function updateProduct(accessToken, storeId, productId, body) {
+  return tnWrite(accessToken, storeId, 'PUT', `/products/${productId}`, body);
+}
+
+/** POST /products/{id}/variants: agrega una variante a un producto existente. */
+export async function createVariant(accessToken, storeId, productId, body) {
+  return tnWrite(accessToken, storeId, 'POST', `/products/${productId}/variants`, body);
+}
+
+/** DELETE /products/{id}/variants/{variantId}. */
+export async function deleteVariant(accessToken, storeId, productId, variantId) {
+  return tnWrite(accessToken, storeId, 'DELETE', `/products/${productId}/variants/${variantId}`);
+}
+
+/** DELETE /products/{id}. */
+export async function deleteProduct(accessToken, storeId, productId) {
+  return tnWrite(accessToken, storeId, 'DELETE', `/products/${productId}`);
+}
+
+/** DELETE /products/{id}/images/{imageId}. */
+export async function deleteProductImage(accessToken, storeId, productId, imageId) {
+  return tnWrite(accessToken, storeId, 'DELETE', `/products/${productId}/images/${imageId}`);
+}

@@ -306,3 +306,20 @@ label {
     margin: 0;
   }
 }
+
+/* Campos que no se pueden cambiar al editar una publicación existente (Publicaciones → Editar). */
+.locked-hint { color: var(--text-2); .ti-lock { color: var(--text-3); } }
+.locked-box {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 0.5rem 0.65rem;
+  font-size: 0.8rem;
+  color: var(--text-2);
+  .ti-lock { margin-top: 2px; color: var(--text-3); }
+  .locked-value { display: block; color: var(--text); font-weight: 500; }
+  small { display: block; margin-top: 2px; font-size: 0.72rem; color: var(--text-3); }
+}

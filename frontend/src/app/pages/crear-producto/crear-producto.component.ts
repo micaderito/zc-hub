@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/services/api.service';
 import {
   CatalogService,
@@ -35,6 +36,7 @@ import { PriceProfitSectionComponent } from './components/price-profit-section/p
 import { TnSectionComponent } from './components/tn-section/tn-section.component';
 import { VariantsSectionComponent } from './components/variants-section/variants-section.component';
 import { StockAlertSectionComponent } from './components/stock-alert-section/stock-alert-section.component';
+import { EditReviewComponent } from './components/edit-review/edit-review.component';
 
 /**
  * Página de creación de producto.
@@ -58,7 +60,9 @@ import { StockAlertSectionComponent } from './components/stock-alert-section/sto
     PriceProfitSectionComponent,
     TnSectionComponent,
     VariantsSectionComponent,
-    StockAlertSectionComponent
+    StockAlertSectionComponent,
+    EditReviewComponent,
+    RouterLink
   ],
   templateUrl: './crear-producto.component.html',
   styleUrl: './crear-producto.component.scss',
@@ -70,6 +74,15 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   /** Público: los sub-componentes y el template leen el estado del borrador de acá. */
   readonly store = inject(ProductDraftStore);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  /**
+   * Producto del hub que se está editando (ruta `/publicaciones/:key/editar`, data `mode: 'edit'`),
+   * o null en Crear producto. El mismo form sirve para los dos: ver `ProductDraftStore.mode`.
+   */
+  readonly editKey: string | null = this.route.snapshot.data?.['mode'] === 'edit' ? this.route.snapshot.paramMap.get('key') : null;
+  readonly isEdit = this.store.isEdit;
 
   /* ---------- alias del store ----------
    * El template y los tests siguen hablándole al componente; el estado vive en el store.
@@ -223,6 +236,18 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   async ngOnInit(): Promise<void> {
     // Precargamos las categorías de TN para poblar el multi-select (requiere estar conectado).
     void this.loadTnCategories();
+    if (this.editKey) {
+      // Editar una publicación existente: se importa en vivo (o se retoma la edición abierta) en
+      // vez de restaurar "Mis borradores". Lo de la categoría de ML se repone igual que al restaurar.
+      await this.store.openEdit(this.editKey);
+      void this.store.loadPricingSettings();
+      const editCategory = this.draft().ml.categoryId;
+      if (editCategory) {
+        void this.refreshMlVariationAttrs(editCategory);
+        void this.refreshMlCategoryLimits(editCategory);
+      }
+      return;
+    }
     // Los borradores vivían en localStorage; ahora viven en el backend (para poder retomar una
     // publicación fallida desde cualquier navegador). Migración única, antes de listar/restaurar.
     await this.store.migrateLocalDraftsToBackend();
@@ -243,6 +268,29 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.store.destroy();
+  }
+
+  /** Link de vuelta al producto en Publicaciones. */
+  backToProduct(): { p: string } | null {
+    return this.editKey ? { p: this.editKey } : null;
+  }
+
+  async discardEdit(): Promise<void> {
+    if (await this.store.discardEdit()) {
+      void this.router.navigate(['/publicaciones'], { queryParams: this.backToProduct() });
+    }
+  }
+
+  /** Guardar en ML/TN: lo aplica el publish worker en segundo plano (ver publicationUpdate.js). */
+  saveEdit(): Promise<void> {
+    return this.store.applyEditChanges();
+  }
+
+  /** Cierra la edición ya guardada y vuelve al producto (la próxima vez se importa de nuevo). */
+  async finishEdit(): Promise<void> {
+    if (await this.store.closeEdit()) {
+      void this.router.navigate(['/publicaciones'], { queryParams: this.backToProduct() });
+    }
   }
 
   /* ---------- delegaciones al store (el template y los tests las llaman acá) ---------- */
