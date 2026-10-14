@@ -15,11 +15,13 @@ import {
   savePriceList, getPriceLists, getPriceListItems, getSupplierCodes,
   getSkuCodeMap, upsertSkuCodeMap, deleteSkuCodeMap, upsertProductCost as upsertCost,
   getPackCodeMap, upsertPackCodeMap, deletePackCodeMap, listPacks,
-  getPriceOverrides, upsertPriceOverride, deletePriceOverride,
+  getPriceOverrides, upsertPriceOverride, deletePriceOverride, getLatestPriceListItems,
 } from '../db.js';
-import { patchTnPrice, readTnSnapshotRow } from './conflictsService.js';
+import { patchTnPrice, readTnSnapshotRow, getCatalogRows } from './conflictsService.js';
 import { rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey } from '../lib/stockEcho.js';
-import { getMlItemBySku, getTnVariantBySku, getResolvedSkus, getMlToken } from '../store.js';
+import {
+  getMlItemBySku, getTnVariantBySku, getResolvedSkus, getMlToken, setResolutionFromAnalysis,
+} from '../store.js';
 import { parseSupplierList, parseSupplierCsv } from '../lib/supplierListParser.js';
 import { buildMappingSuggestions } from '../lib/skuMatcher.js';
 import { buildSkuPackIndex } from '../lib/packIndex.js';
@@ -97,6 +99,59 @@ export function previewRow(cost, settings, dbSettings, current = {}, overrides =
   };
 }
 
+/**
+ * sku → nombre legible de la publicación: el de TN (producto · variante) si está, si no el de ML
+ * (título · variación). Puro y testeable.
+ */
+export function buildSkuNames(mlRows = [], tnRows = []) {
+  const names = new Map();
+  // Una variante de TN sin valores propios trae el SKU como nombre: no se repite al lado del título.
+  const join = (sku, ...parts) => parts.filter((p) => p && p !== sku).join(' · ') || null;
+  for (const r of tnRows) {
+    if (!r?.sku || names.has(r.sku)) continue;
+    names.set(r.sku, join(r.sku, r.productName, r.variantName));
+  }
+  for (const r of mlRows) {
+    if (!r?.sku || names.has(r.sku)) continue;
+    names.set(r.sku, join(r.sku, r.title, r.variationName));
+  }
+  return names;
+}
+
+const CATALOG_TTL_MS = 60_000;
+let catalogCache = null; // { at, names }
+
+/**
+ * El índice SKU → publicación de ML/TN (store.js) vive solo en memoria y se llena al correr el
+ * análisis de Conflictos / Precio y stock. Después de un deploy queda VACÍO hasta que alguien abre
+ * esas pantallas, y Precios lo usa para todo: la tabla marcaba "sin mapear" cada fila, el import no
+ * tenía productos contra los que matchear los códigos (0 costos actualizados) y "Aplicar" decía
+ * "sin ítem de ML mapeado". Acá se lee la foto del catálogo (sin pegarle a ML/TN) y, si el índice
+ * está vacío, se puebla — mismo criterio que ensureSkuResolved en syncService.js.
+ *
+ * De paso arma los nombres de cada SKU. Se cachea 60 s: la foto se lee entera de Postgres y cuenta
+ * para el egress de Supabase, y la tabla de precios se refresca después de cada edición.
+ */
+export async function loadCatalogContext() {
+  // Con la caché fresca alcanza, salvo que el índice se haya vaciado aunque la foto tenía SKUs.
+  const indexLost = getResolvedSkus().length === 0 && catalogCache?.names.size > 0;
+  if (catalogCache && !indexLost && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache;
+  try {
+    const { mlRows = [], tnRows = [] } = await getCatalogRows();
+    if (getResolvedSkus().length === 0) setResolutionFromAnalysis(mlRows, tnRows);
+    catalogCache = { at: Date.now(), names: buildSkuNames(mlRows, tnRows) };
+  } catch (e) {
+    console.error('[Pricing] no se pudo leer el catálogo:', e.message);
+    if (!catalogCache) return { at: 0, names: new Map() };
+  }
+  return catalogCache;
+}
+
+/** Solo para tests: olvida la caché de loadCatalogContext. */
+export function _resetCatalogCache() {
+  catalogCache = null;
+}
+
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
@@ -147,6 +202,7 @@ export async function saveConfig(patch) {
  * `currentBySku` (opcional) mapea sku → { ml, tn } con los precios actuales del snapshot.
  */
 export async function getPreview(currentBySku = {}) {
+  const { names } = await loadCatalogContext();
   const db = await getPricingSettings();
   const settings = buildSettings(db);
   const [costs, packs, overridesBySku] = await Promise.all([
@@ -155,6 +211,9 @@ export async function getPreview(currentBySku = {}) {
   const packBySku = buildSkuPackIndex(packs);
   return costs.map((cost) => ({
     ...previewRow(cost, settings, db, currentBySku[cost.sku] || {}, overridesBySku[cost.sku] || {}),
+    // Nombre de la publicación: en un pack todos los modelos traen la MISMA descripción de la
+    // lista (`label`), así que sin esto no hay forma de distinguirlos.
+    name: names.get(cost.sku) ?? null,
     pack: packBySku.get(cost.sku) || null,
   }));
 }
@@ -188,6 +247,7 @@ export async function getPriceHistory(sku, limit = 50, offset = 0) {
  * @param {{ ml?: boolean, tn?: boolean }} channels qué canales aplicar (default ambos).
  */
 export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
+  if (getResolvedSkus().length === 0) await loadCatalogContext();
   const db = await getPricingSettings();
   const settings = buildSettings(db);
   const overridesBySku = await buildOverridesBySku();
@@ -320,22 +380,27 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
  * miembros se siguen mapeando uno por uno, como antes de esto — es el caso, por ejemplo, del pack
  * de repuestos que es el mismo SKU ×8: ahí el propio SKU del producto YA matchea directo.
  *
- * @returns {{ entities: Array, packMemberSkus: Set<string> }} `entities` son objetos
- *   `{ sku, label?, isPack, packId?, memberSkus? }` listos para pasarle a buildMappingSuggestions.
+ * Los productos sueltos llevan `name` (el nombre de la publicación) solo para mostrarlo: NO va en
+ * `label`, que es lo que usa el escalón "parecido por descripción" del matcher — con tres listas,
+ * matchear por texto cada producto contra cada lista llenaría el import de sugerencias falsas.
+ *
+ * @param {Map<string, string|null>} [names] sku → nombre de la publicación (loadCatalogContext)
+ * @returns {Promise<{ entities: Array, packMemberSkus: Set<string>, packs: Array }>} `entities` son
+ *   objetos `{ sku, label?, name?, isPack, packId?, memberSkus? }` listos para buildMappingSuggestions.
  */
-async function buildMatchEntities() {
+async function buildMatchEntities(names = new Map()) {
   const packs = await listPacks();
   const packsWithCode = packs.filter((pk) => pk.sku);
   const packMemberSkus = new Set(packsWithCode.flatMap((pk) => pk.skus));
 
   const packEntities = packsWithCode.map((pk) => ({
-    sku: pk.sku, label: pk.name, isPack: true, packId: pk.id, memberSkus: pk.skus,
+    sku: pk.sku, label: pk.name, name: pk.name, isPack: true, packId: pk.id, memberSkus: pk.skus,
   }));
   const productEntities = getResolvedSkus()
     .filter((sku) => !packMemberSkus.has(sku))
-    .map((sku) => ({ sku, isPack: false }));
+    .map((sku) => ({ sku, name: names.get(sku) ?? null, isPack: false }));
 
-  return { entities: [...packEntities, ...productEntities], packMemberSkus };
+  return { entities: [...packEntities, ...productEntities], packMemberSkus, packs };
 }
 
 /** sku_code_map + pack_code_map fundidos en un solo `Record<identidad, código>`, con la MISMA
@@ -352,6 +417,66 @@ async function buildSavedMap(packEntities) {
   return savedMap;
 }
 
+/** Versión corta de una entidad para listarla en la UI (resumen del import). */
+function briefEntity(e, code = null) {
+  return {
+    sku: e.sku,
+    name: e.name ?? e.label ?? null,
+    isPack: !!e.isPack,
+    packId: e.packId ?? null,
+    memberCount: e.isPack ? (e.memberSkus || []).length : null,
+    code,
+  };
+}
+
+/**
+ * Reparte el resultado del matcher según la lista que se está importando. Hace falta porque
+ * `auto` del matcher incluye los mapeos YA guardados aunque su código sea de OTRA lista (la
+ * usuaria trabaja con 3 listas): contarlos como "mapeos automáticos" de esta lista hacía que el
+ * import dijera "34 mapeos" y "0 costos actualizados" a la vez. Puro y testeable.
+ *
+ *  - inList:       tiene código y ese código está en esta lista → toma el precio de acá
+ *  - otherLists:   tiene código, pero de otra lista → esta lista no lo toca
+ *  - review:       sugerencia a confirmar (base / grupo / texto)
+ *  - unmatched:    sin código y sin sugerencia
+ *  - codesWithoutProduct: códigos de esta lista que no quedaron asignados a nada (ni a un
+ *    producto, ni a un pack, ni como sugerencia pendiente) — candidatos a mapear a mano
+ *
+ * @param {{ auto: Array, review: Array, unmatched: Array }} mapping de buildMappingSuggestions
+ * @param {Array<{ code: string, description?: string }>} listCodes códigos de la lista
+ * @param {Set<string>} [extraMappedCodes] códigos mapeados por fuera de las entidades (p. ej. el
+ *   mapeo individual de un modelo que además está en un pack con código)
+ */
+export function splitMappingByList(mapping, listCodes, extraMappedCodes = new Set()) {
+  const codeSet = new Set(listCodes.map((c) => c.code));
+  const inList = [];
+  const otherLists = [];
+  for (const e of mapping.auto) {
+    const code = e.suggestion?.code;
+    if (code && codeSet.has(code)) inList.push(briefEntity(e, code));
+    else otherLists.push(briefEntity(e, code ?? null));
+  }
+  const used = new Set([
+    ...inList.map((e) => e.code),
+    ...mapping.review.map((e) => e.suggestion?.code).filter(Boolean),
+    ...extraMappedCodes,
+  ]);
+  const seen = new Set();
+  const codesWithoutProduct = [];
+  for (const c of listCodes) {
+    if (used.has(c.code) || seen.has(c.code)) continue;
+    seen.add(c.code);
+    codesWithoutProduct.push({ code: c.code, description: c.description ?? null });
+  }
+  return {
+    inList,
+    otherLists,
+    review: mapping.review,
+    unmatched: mapping.unmatched.map((e) => briefEntity(e)),
+    codesWithoutProduct,
+  };
+}
+
 /**
  * Parsea el texto de una lista SIN guardar nada: devuelve las filas, las marcadas para revisión y
  * las sugerencias de mapeo contra los SKUs y los packs del hub. Es el preview del import.
@@ -361,21 +486,27 @@ async function buildSavedMap(packEntities) {
  */
 export async function previewImport(text, opts = {}) {
   const parsed = opts.format === 'csv' ? parseSupplierCsv(text) : parseSupplierList(text);
+  const { names } = await loadCatalogContext();
 
   // Códigos que trae esta lista, para sugerir el mapeo de los SKUs/packs que todavía no lo tienen.
   const codes = parsed.valid.map((r) => ({ code: r.code, description: r.description }));
-  const { entities } = await buildMatchEntities();
+  const { entities } = await buildMatchEntities(names);
   const savedMap = await buildSavedMap(entities.filter((e) => e.isPack));
-  const mapping = buildMappingSuggestions(entities, codes, savedMap);
+  const mappedCodes = new Set([...(await getSkuCodeMap()).map((m) => m.code), ...Object.values(savedMap)]);
+  const split = splitMappingByList(buildMappingSuggestions(entities, codes, savedMap), codes, mappedCodes);
 
   return {
     stats: parsed.stats,
     rows: parsed.rows,
     flagged: parsed.flagged,
     mapping: {
-      auto: mapping.auto.length,
-      review: mapping.review,
-      unmatched: mapping.unmatched.length,
+      auto: split.inList.length,
+      otherLists: split.otherLists.length,
+      review: split.review,
+      unmatched: split.unmatched.length,
+      inListItems: split.inList,
+      unmatchedItems: split.unmatched,
+      codesWithoutProduct: split.codesWithoutProduct,
     },
   };
 }
@@ -383,27 +514,56 @@ export async function previewImport(text, opts = {}) {
 /**
  * Confirma la importación: guarda la lista + sus ítems + el catálogo de códigos, aplica los
  * mapeos automáticos (de SKU y de pack), y actualiza el costo de cada SKU/pack mapeado con el
- * precio de esta lista.
+ * precio de esta lista. Devuelve el resumen de qué tomó precio de esta lista y qué no.
  */
 export async function confirmImport({ label, sourceFilename, discount1, discount2, rows, format }) {
   const items = (rows || []).filter((r) => r?.valid !== false && r?.code);
+  const { names } = await loadCatalogContext();
   const listId = await savePriceList({ label, sourceFilename, discount1, discount2, items });
   if (!listId) return { ok: false, error: 'No se pudo guardar la lista' };
 
   // Mapeos que se aplican solos (exactos y ya confirmados).
   const codes = items.map((r) => ({ code: r.code, description: r.description }));
-  const { entities } = await buildMatchEntities();
-  const savedMap = await buildSavedMap(entities.filter((e) => e.isPack));
-  const { auto } = buildMappingSuggestions(entities, codes, savedMap);
+  const { entities } = await buildMatchEntities(names);
+  const packEntities = entities.filter((e) => e.isPack);
+  const { auto } = buildMappingSuggestions(entities, codes, await buildSavedMap(packEntities));
 
+  let newMappings = 0;
   for (const p of auto) {
     if (p.suggestion.matchSource !== 'exact') continue;
     if (p.isPack) await upsertPackCodeMap(p.packId, p.suggestion.code, 'exact');
     else await upsertSkuCodeMap(p.sku, p.suggestion.code, 'exact');
+    newMappings++;
   }
 
   const { updated, changedSkus } = await applyListCosts(listId, { discount1, discount2 });
-  return { ok: true, listId, autoMapped: auto.length, costsUpdated: updated, changedSkus };
+
+  // Resumen con los mapeos YA guardados (incluye lo que se confirmó a mano antes de este POST):
+  // lo pendiente que no se confirmó queda como "sin código".
+  const savedMap = await buildSavedMap(packEntities);
+  const after = buildMappingSuggestions(entities, codes, savedMap);
+  const confirmed = {
+    auto: after.auto.filter((e) => e.suggestion.matchSource === 'saved'),
+    review: [],
+    unmatched: [...after.unmatched, ...after.review, ...after.auto.filter((e) => e.suggestion.matchSource !== 'saved')],
+  };
+  const skuMapCodes = new Set((await getSkuCodeMap()).map((m) => m.code));
+  const split = splitMappingByList(confirmed, codes, skuMapCodes);
+
+  return {
+    ok: true,
+    listId,
+    autoMapped: split.inList.length,
+    newMappings,
+    costsUpdated: updated,
+    changedSkus,
+    summary: {
+      inList: split.inList,
+      otherLists: split.otherLists.length,
+      unmatched: split.unmatched,
+      codesWithoutProduct: split.codesWithoutProduct,
+    },
+  };
 }
 
 /** Costo unitario de una fila de product_costs, sea por bulto o directo. `null` si no hay costo previo. */
@@ -417,6 +577,22 @@ function unitCostOfSavedCost(cost) {
   }
   return cost.unitCost ?? null;
 }
+
+/**
+ * Vuelca el precio de un ítem de lista al costo de un SKU.
+ * @returns {Promise<{ ok: boolean, changed: boolean }>} `changed` = el costo unitario se movió
+ */
+async function applyItemCost(sku, item, { discount1 = 0, discount2 = 0 } = {}, label = null) {
+  const prevUnit = unitCostOfSavedCost(await getProductCost(sku));
+  const nextUnit = computeUnitCostFromBulk({ bulkPrice: item.bulkPrice, bulkQty: item.bulkQty, discount1, discount2 });
+  const ok = await upsertCost(sku, {
+    source: 'list', bulkPrice: item.bulkPrice, bulkQty: item.bulkQty, discount1, discount2, label,
+  });
+  if (!ok) return { ok: false, changed: false };
+  return { ok: true, changed: prevUnit == null || Math.abs(prevUnit - nextUnit) > 0.01 };
+}
+
+const hasBulkPrice = (item) => !!item && item.bulkPrice > 0 && item.bulkQty > 0;
 
 /**
  * Vuelca los precios de una lista a `product_costs`. Primero los packs con código propio: el
@@ -438,16 +614,11 @@ export async function applyListCosts(listId = null, { discount1 = 0, discount2 =
 
   let updated = 0;
   const changedSkus = [];
-
   const applyOne = async (sku, item, label) => {
-    const prevUnit = unitCostOfSavedCost(await getProductCost(sku));
-    const nextUnit = computeUnitCostFromBulk({ bulkPrice: item.bulkPrice, bulkQty: item.bulkQty, discount1, discount2 });
-    const ok = await upsertCost(sku, {
-      source: 'list', bulkPrice: item.bulkPrice, bulkQty: item.bulkQty, discount1, discount2, label,
-    });
-    if (!ok) return;
+    const r = await applyItemCost(sku, item, { discount1, discount2 }, label);
+    if (!r.ok) return;
     updated++;
-    if (prevUnit == null || Math.abs(prevUnit - nextUnit) > 0.01) changedSkus.push(sku);
+    if (r.changed) changedSkus.push(sku);
   };
 
   const packMap = await getPackCodeMap();
@@ -456,7 +627,7 @@ export async function applyListCosts(listId = null, { discount1 = 0, discount2 =
     for (const { packId, code } of packMap) {
       const item = byCode.get(code);
       const pack = packsById.get(packId);
-      if (!item || !pack || !(item.bulkPrice > 0) || !(item.bulkQty > 0)) continue;
+      if (!pack || !hasBulkPrice(item)) continue;
       for (const sku of pack.skus) await applyOne(sku, item, item.description || pack.name);
     }
   }
@@ -464,28 +635,108 @@ export async function applyListCosts(listId = null, { discount1 = 0, discount2 =
   const map = await getSkuCodeMap();
   for (const { sku, code } of map) {
     const item = byCode.get(code);
-    if (!item || !(item.bulkPrice > 0) || !(item.bulkQty > 0)) continue;
+    if (!hasBulkPrice(item)) continue;
     await applyOne(sku, item, item.description);
   }
   return { updated, changedSkus };
 }
 
-/** Estado del mapeo: qué SKUs/packs tienen código, cuáles no, y qué códigos no tienen SKU/pack. */
+/**
+ * Vuelca a `skus` el precio del código en la lista MÁS RECIENTE que lo trae (con los descuentos
+ * de esa lista). Es lo que hace que mapear un código a mano tome el precio en el momento, sin
+ * tener que volver a importar la lista.
+ */
+async function applyLatestCostForCode(skus, code, labelFallback = null) {
+  const [item] = await getLatestPriceListItems([code]);
+  if (!hasBulkPrice(item)) return { costsUpdated: 0, changedSkus: [], listLabel: null };
+  const changedSkus = [];
+  let costsUpdated = 0;
+  for (const sku of skus) {
+    const r = await applyItemCost(sku, item, item, item.description || labelFallback);
+    if (!r.ok) continue;
+    costsUpdated++;
+    if (r.changed) changedSkus.push(sku);
+  }
+  return { costsUpdated, changedSkus, listLabel: item.listLabel ?? null };
+}
+
+/**
+ * Estado del mapeo para la pestaña "Mapeo": TODOS los productos de la tienda (y los packs con
+ * código propio) con el código del proveedor que tienen — o ninguno —, de qué lista sale su
+ * precio y si ya tienen costo. Además los códigos del proveedor, para elegir uno a mano.
+ *
+ * Mantiene los campos viejos (mapped, packMapped, skusWithoutCode, …) por compatibilidad.
+ */
 export async function getMappingState() {
-  const codes = await getSupplierCodes();
-  const map = await getSkuCodeMap();
-  const packMap = await getPackCodeMap();
-  const packs = await listPacks();
+  const { names } = await loadCatalogContext();
+  const [codes, map, packMap, packs, latest, costs] = await Promise.all([
+    getSupplierCodes(), getSkuCodeMap(), getPackCodeMap(), listPacks(),
+    getLatestPriceListItems(null), getAllProductCosts(),
+  ]);
   const packsWithCode = packs.filter((pk) => pk.sku);
   const packsById = new Map(packs.map((pk) => [pk.id, pk]));
+  const latestByCode = new Map(latest.map((i) => [i.code, i]));
+  const costBySku = new Set(costs.map((c) => c.sku));
+  const packBySku = buildSkuPackIndex(packs);
 
-  const mappedSkus = new Set(map.map((m) => m.sku));
-  const mappedPackIds = new Set(packMap.map((m) => m.packId));
+  const mapBySku = new Map(map.map((m) => [m.sku, m]));
+  const packMapById = new Map(packMap.map((m) => [m.packId, m]));
   const mappedCodes = new Set([...map.map((m) => m.code), ...packMap.map((m) => m.code)]);
   const packMemberSkus = new Set(packsWithCode.flatMap((pk) => pk.skus));
   const skus = getResolvedSkus().filter((s) => !packMemberSkus.has(s));
 
+  const codeInfo = (code) => {
+    if (!code) return { code: null, codeDescription: null, listLabel: null };
+    const it = latestByCode.get(code);
+    return { code, codeDescription: it?.description ?? null, listLabel: it?.listLabel ?? null };
+  };
+
+  const products = [
+    ...packsWithCode.map((pk) => {
+      const m = packMapById.get(pk.id);
+      return {
+        key: `pack:${pk.id}`,
+        kind: 'pack',
+        sku: pk.sku,
+        packId: pk.id,
+        name: pk.name,
+        memberSkus: pk.skus,
+        packName: null,
+        ...codeInfo(m?.code),
+        matchSource: m?.matchSource ?? null,
+        hasCost: pk.skus.length > 0 && pk.skus.every((s) => costBySku.has(s)),
+        mappedMl: pk.skus.some((s) => !!getMlItemBySku(s)),
+        mappedTn: pk.skus.some((s) => !!getTnVariantBySku(s)),
+      };
+    }),
+    ...skus.map((sku) => {
+      const m = mapBySku.get(sku);
+      return {
+        key: `sku:${sku}`,
+        kind: 'sku',
+        sku,
+        packId: null,
+        name: names.get(sku) ?? null,
+        memberSkus: [],
+        // Pack SIN código propio al que pertenece (para agrupar en la UI): sus modelos se mapean de a uno.
+        packName: packBySku.get(sku)?.name ?? null,
+        ...codeInfo(m?.code),
+        matchSource: m?.matchSource ?? null,
+        hasCost: costBySku.has(sku),
+        mappedMl: !!getMlItemBySku(sku),
+        mappedTn: !!getTnVariantBySku(sku),
+      };
+    }),
+  ];
+
   return {
+    products,
+    codes: codes.map((c) => ({
+      code: c.code,
+      description: c.description ?? latestByCode.get(c.code)?.description ?? null,
+      listLabel: latestByCode.get(c.code)?.listLabel ?? null,
+      mapped: mappedCodes.has(c.code),
+    })),
     mapped: map,
     packMapped: packMap.map((m) => ({
       ...m,
@@ -494,10 +745,10 @@ export async function getMappingState() {
       memberSkus: packsById.get(m.packId)?.skus ?? [],
     })),
     // Productos del hub sin código: son de otra marca (costo a mano) o falta confirmarlos.
-    skusWithoutCode: skus.filter((s) => !mappedSkus.has(s)),
+    skusWithoutCode: skus.filter((s) => !mapBySku.has(s)),
     // Packs con código propio que todavía no se mapearon.
     packsWithoutCode: packsWithCode
-      .filter((pk) => !mappedPackIds.has(pk.id))
+      .filter((pk) => !packMapById.has(pk.id))
       .map((pk) => ({ id: pk.id, name: pk.name, sku: pk.sku })),
     // Códigos que el proveedor vende y el hub no tiene: candidatos a crear producto.
     codesWithoutSku: codes.filter((c) => !mappedCodes.has(c.code)),
@@ -509,16 +760,32 @@ export async function getMappingState() {
   };
 }
 
+/**
+ * Confirma (o corrige) el mapeo de un SKU y le vuelca en el momento el precio de ese código en la
+ * lista más reciente que lo trae.
+ */
 export async function confirmMapping(sku, code, matchSource = 'manual') {
-  return upsertSkuCodeMap(sku, code, matchSource);
+  const ok = await upsertSkuCodeMap(sku, code, matchSource);
+  if (!ok) return { ok: false, costsUpdated: 0, changedSkus: [], listLabel: null };
+  return { ok: true, ...(await applyLatestCostForCode([sku], code)) };
 }
 
 export async function removeMapping(sku) {
   return deleteSkuCodeMap(sku);
 }
 
+/**
+ * Igual que confirmMapping pero para un pack: el precio va a todos sus modelos, salvo a los que
+ * tienen un mapeo individual propio (que es más específico, mismo criterio que applyListCosts).
+ */
 export async function confirmPackMapping(packId, code, matchSource = 'manual') {
-  return upsertPackCodeMap(packId, code, matchSource);
+  const ok = await upsertPackCodeMap(packId, code, matchSource);
+  if (!ok) return { ok: false, costsUpdated: 0, changedSkus: [], listLabel: null };
+  const pack = (await listPacks()).find((pk) => pk.id === packId);
+  if (!pack) return { ok: true, costsUpdated: 0, changedSkus: [], listLabel: null };
+  const individual = new Set((await getSkuCodeMap()).map((m) => m.sku));
+  const skus = pack.skus.filter((s) => !individual.has(s));
+  return { ok: true, ...(await applyLatestCostForCode(skus, code, pack.name)) };
 }
 
 export async function removePackMapping(packId) {

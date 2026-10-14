@@ -1,0 +1,172 @@
+<p class="mp-intro">
+  <i class="ti ti-info-circle"></i>
+  Cada producto de la tienda con el código de la lista del proveedor que le corresponde. Los que no tienen código no
+  toman precio de ninguna lista: asignáselo a mano (el precio se toma al momento, de la lista más reciente que lo trae).
+</p>
+
+<div class="mp-toolbar">
+  <div class="mp-search">
+    <i class="ti ti-search"></i>
+    <input type="text" placeholder="Buscar producto, SKU o código…" [ngModel]="search()" (ngModelChange)="search.set($event)" />
+  </div>
+  <div class="mp-chips" role="group" aria-label="Filtrar por estado">
+    <button type="button" [class.on]="filter() === 'all'" (click)="filter.set('all')">Todos <b>{{ counts().all }}</b></button>
+    <button type="button" [class.on]="filter() === 'mapped'" (click)="filter.set('mapped')">
+      <i class="ti ti-link"></i> Con código <b>{{ counts().mapped }}</b>
+    </button>
+    <button type="button" class="warn" [class.on]="filter() === 'unmapped'" (click)="filter.set('unmapped')">
+      <i class="ti ti-link-off"></i> Sin código <b>{{ counts().unmapped }}</b>
+    </button>
+  </div>
+  <select class="mp-select" [ngModel]="listFilter()" (ngModelChange)="listFilter.set($event)" aria-label="Filtrar por lista">
+    <option value="">Todas las listas</option>
+    @for (l of listLabels(); track l) { <option [value]="l">{{ l }}</option> }
+    <option [value]="noListValue">Sin lista (sin código)</option>
+  </select>
+  <div class="spacer"></div>
+  <button type="button" class="link" (click)="setAllExpanded(true)">Desplegar packs</button>
+  <button type="button" class="link" (click)="setAllExpanded(false)">Plegar packs</button>
+</div>
+
+@if (message(); as m) {
+  <div class="mp-msg" [class.ok]="m.kind === 'ok'" [class.warn]="m.kind === 'warn'" [class.err]="m.kind === 'err'">
+    <i class="ti" [class.ti-circle-check]="m.kind === 'ok'" [class.ti-alert-triangle]="m.kind !== 'ok'"></i>
+    <span>{{ m.text }}</span>
+    <button type="button" class="icon-btn" (click)="message.set(null)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+  </div>
+}
+
+<datalist id="mp-supplier-codes">
+  @for (c of codes(); track c.code) {
+    <option [value]="c.code">{{ c.description || '' }}{{ c.listLabel ? ' · ' + c.listLabel : '' }}{{ c.mapped ? ' (ya asignado)' : '' }}</option>
+  }
+</datalist>
+
+@if (mappingQuery.isLoading()) {
+  <p class="mp-empty">Cargando productos…</p>
+} @else if (mappingQuery.isError()) {
+  <p class="mp-empty err">No se pudo cargar el mapeo. Probá de nuevo en un rato.</p>
+} @else if (groups().length === 0) {
+  <p class="mp-empty">No hay productos que coincidan con el filtro.</p>
+} @else {
+  <div class="mp-table-wrap">
+    <table class="mp-table">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Código del proveedor</th>
+          <th>Lista</th>
+          <th>Costo</th>
+          <th class="col-actions"></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (g of groups(); track g.key) {
+          @if (g.pack) {
+            <tr class="group-row">
+              <td colspan="5">
+                <button type="button" class="group-toggle" (click)="togglePack(g.pack)" [attr.aria-expanded]="isExpanded(g.pack)">
+                  <i class="ti" [class.ti-chevron-down]="isExpanded(g.pack)" [class.ti-chevron-right]="!isExpanded(g.pack)"></i>
+                  <i class="ti ti-stack-2"></i>
+                  <b>{{ g.pack }}</b>
+                  <span class="group-meta">{{ g.rows.length }} modelo{{ g.rows.length === 1 ? '' : 's' }}</span>
+                  @if (g.unmapped > 0) {
+                    <span class="badge warn">{{ g.unmapped }} sin código</span>
+                  } @else {
+                    <span class="badge ok"><i class="ti ti-check"></i> todos con código</span>
+                  }
+                </button>
+              </td>
+            </tr>
+          } @else if (groups().length > 1) {
+            <tr class="group-row">
+              <td colspan="5"><div class="group-static"><i class="ti ti-package-off"></i> <b>Sin pack</b></div></td>
+            </tr>
+          }
+          @if (!g.pack || isExpanded(g.pack)) {
+            @for (p of g.rows; track p.key) {
+              <tr [class.row-unmapped]="!p.code">
+                <td>
+                  <div class="mp-prod">
+                    <span class="mp-prod-name">
+                      @if (p.kind === 'pack') { <i class="ti ti-stack-2" title="Pack con código propio"></i> }
+                      {{ displayName(p) }}
+                    </span>
+                    <span class="mp-prod-sub">
+                      <span class="sku">{{ p.sku }}</span>
+                      @if (p.kind === 'pack') { <span class="badge neu">pack · {{ p.memberSkus.length }} modelos</span> }
+                      @if (p.mappedMl) { <span class="badge ml">ML</span> }
+                      @if (p.mappedTn) { <span class="badge tn">TN</span> }
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  @if (editingKey() === p.key) {
+                    <form class="mp-edit" (submit)="$event.preventDefault(); saveEdit(p)">
+                      <input
+                        class="zc-input"
+                        type="text"
+                        list="mp-supplier-codes"
+                        placeholder="Código de la lista"
+                        [ngModel]="editCode()"
+                        (ngModelChange)="editCode.set($event)"
+                        name="code"
+                        autocomplete="off"
+                      />
+                      <button type="submit" class="btn btn-s pri" [disabled]="saving() || !editCode().trim()">
+                        {{ saving() ? 'Guardando…' : 'Guardar' }}
+                      </button>
+                      <button type="button" class="btn btn-s" (click)="cancelEdit()">Cancelar</button>
+                    </form>
+                  } @else if (p.code) {
+                    <div class="mp-code">
+                      <code>{{ p.code }}</code>
+                      @if (matchLabel(p.matchSource)) { <span class="why">{{ matchLabel(p.matchSource) }}</span> }
+                      @if (p.codeDescription) { <span class="mp-code-desc">{{ p.codeDescription }}</span> }
+                    </div>
+                  } @else {
+                    <span class="badge warn"><i class="ti ti-link-off"></i> sin código</span>
+                  }
+                </td>
+                <td class="mp-list">
+                  @if (p.listLabel) { {{ p.listLabel }} }
+                  @else if (p.code) { <span class="muted" title="El código no aparece en ninguna lista importada">no está en ninguna lista</span> }
+                  @else { <span class="muted">—</span> }
+                </td>
+                <td>
+                  @if (p.hasCost) { <span class="mp-cost ok"><i class="ti ti-check"></i> cargado</span> }
+                  @else { <span class="mp-cost muted">sin costo</span> }
+                </td>
+                <td class="col-actions">
+                  @if (editingKey() !== p.key) {
+                    <button type="button" class="btn btn-s" (click)="startEdit(p)">
+                      {{ p.code ? 'Cambiar' : 'Asignar código' }}
+                    </button>
+                    @if (p.code) {
+                      <button type="button" class="icon-btn danger" (click)="removeCode(p)" title="Sacar el código"><i class="ti ti-unlink"></i></button>
+                    }
+                  }
+                </td>
+              </tr>
+            }
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+}
+
+@if (unusedCodes().length > 0) {
+  <details class="mp-unused">
+    <summary>
+      <i class="ti ti-file-unknown"></i>
+      {{ unusedCodes().length }} código{{ unusedCodes().length === 1 ? '' : 's' }} de las listas sin producto asignado
+    </summary>
+    <p class="hint">Son productos del proveedor que la tienda no tiene, o que tienen otro SKU: si es lo segundo, asignale el código desde la fila del producto.</p>
+    <ul>
+      @for (c of unusedCodes(); track c.code) {
+        <li><code>{{ c.code }}</code> {{ c.description }} @if (c.listLabel) { <span class="why">{{ c.listLabel }}</span> }</li>
+      }
+    </ul>
+  </details>
+}

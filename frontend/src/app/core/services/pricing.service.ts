@@ -80,6 +80,8 @@ export interface PreviewRow {
   freeShipping: boolean;
   mappedMl: boolean;
   mappedTn: boolean;
+  /** Nombre de la publicación (TN o ML). En un pack todos traen la misma descripción de lista en `label`. */
+  name: string | null;
   pack: PreviewRowPack | null;
 }
 
@@ -123,6 +125,8 @@ export interface ParsedListRow {
 export interface MappingSuggestion {
   sku: string;
   label?: string | null;
+  /** Nombre de la publicación (solo para mostrar). */
+  name?: string | null;
   /** true si esta entidad es un PACK (sku = su código propio): confirmarla aplica el costo a TODOS sus memberSkus. */
   isPack?: boolean;
   packId?: number | null;
@@ -135,14 +139,91 @@ export interface MappingSuggestion {
   } | null;
 }
 
+/** Un producto o pack, en versión corta, para los resúmenes del import. */
+export interface MappingBrief {
+  sku: string;
+  name: string | null;
+  isPack: boolean;
+  packId: number | null;
+  memberCount: number | null;
+  code: string | null;
+}
+
+export interface SupplierCodeBrief {
+  code: string;
+  description: string | null;
+}
+
 export interface ImportPreview {
   stats: { total: number; valid: number; flagged: number };
   rows: ParsedListRow[];
   flagged: ParsedListRow[];
-  mapping: { auto: number; review: MappingSuggestion[]; unmatched: number };
+  mapping: {
+    /** Productos/packs que toman el precio de ESTA lista (código exacto o ya confirmado). */
+    auto: number;
+    /** Ya tienen código, pero de otra lista: esta no los toca. */
+    otherLists: number;
+    review: MappingSuggestion[];
+    unmatched: number;
+    inListItems: MappingBrief[];
+    unmatchedItems: MappingBrief[];
+    codesWithoutProduct: SupplierCodeBrief[];
+  };
+}
+
+export interface ImportResult {
+  ok: boolean;
+  listId: number;
+  autoMapped: number;
+  newMappings: number;
+  costsUpdated: number;
+  changedSkus: string[];
+  summary: {
+    inList: MappingBrief[];
+    otherLists: number;
+    unmatched: MappingBrief[];
+    codesWithoutProduct: SupplierCodeBrief[];
+  };
+}
+
+/** Un producto (o pack con código propio) de la tienda, con su código del proveedor. */
+export interface MappingProduct {
+  key: string;
+  kind: 'sku' | 'pack';
+  sku: string;
+  packId: number | null;
+  name: string | null;
+  memberSkus: string[];
+  /** Pack SIN código propio al que pertenece (sus modelos se mapean de a uno). */
+  packName: string | null;
+  code: string | null;
+  codeDescription: string | null;
+  /** Lista más reciente que trae el código (de ahí sale el precio). */
+  listLabel: string | null;
+  matchSource: string | null;
+  hasCost: boolean;
+  mappedMl: boolean;
+  mappedTn: boolean;
+}
+
+export interface SupplierCode {
+  code: string;
+  description: string | null;
+  listLabel: string | null;
+  mapped: boolean;
+}
+
+/** Resultado de mapear un código a mano: el precio se toma en el momento de la lista más reciente. */
+export interface MappingSaveResult {
+  ok: boolean;
+  costsUpdated: number;
+  changedSkus: string[];
+  listLabel: string | null;
 }
 
 export interface MappingState {
+  products: MappingProduct[];
+  codes: SupplierCode[];
   mapped: Array<{ sku: string; code: string; matchSource: string; confirmedAt: string | null }>;
   packMapped: Array<{ packId: number; code: string; matchSource: string; confirmedAt: string | null; packName: string | null; packSku: string | null; memberSkus: string[] }>;
   skusWithoutCode: string[];
@@ -219,9 +300,7 @@ export class PricingService {
     discount2: number;
     rows: ParsedListRow[];
   }) {
-    return this.http.post<{ ok: boolean; listId: number; autoMapped: number; costsUpdated: number; changedSkus: string[] }>(
-      `${this.api.baseUrl}/pricing/lists`, body,
-    );
+    return this.http.post<ImportResult>(`${this.api.baseUrl}/pricing/lists`, body);
   }
 
   getLists() {
@@ -233,7 +312,7 @@ export class PricingService {
   }
 
   confirmMapping(sku: string, code: string, matchSource = 'manual') {
-    return this.http.put<{ ok: boolean }>(
+    return this.http.put<MappingSaveResult>(
       `${this.api.baseUrl}/pricing/mapping/${encodeURIComponent(sku)}`, { code, matchSource },
     );
   }
@@ -244,7 +323,7 @@ export class PricingService {
 
   /** Confirma (o corrige) el mapeo de un PACK: el costo se aplica a TODOS sus SKUs miembro. */
   confirmPackMapping(packId: number, code: string, matchSource = 'manual') {
-    return this.http.put<{ ok: boolean }>(
+    return this.http.put<MappingSaveResult>(
       `${this.api.baseUrl}/pricing/mapping/pack/${packId}`, { code, matchSource },
     );
   }

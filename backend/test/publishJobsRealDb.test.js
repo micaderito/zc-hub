@@ -225,3 +225,41 @@ test(
     }
   }
 );
+
+test(
+  'getLatestPriceListItems: por código, el ítem de la lista más reciente (Postgres real)',
+  { skip: hasDb ? false : 'requiere DATABASE_URL' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined
+    });
+    assert.equal(await db.initDb(), true);
+    const code = `T-CODE-${Date.now()}`;
+    const listIds = [];
+    try {
+      for (const [label, ago, price] of [['vieja', '2 days', 100], ['nueva', '1 hour', 200]]) {
+        const r = await pool.query(
+          `INSERT INTO price_lists (label, discount_1, discount_2, imported_at) VALUES ($1, 10, 5, NOW() - $2::interval) RETURNING id`,
+          [`t-${label}`, ago]
+        );
+        listIds.push(r.rows[0].id);
+        await pool.query(
+          `INSERT INTO price_list_items (list_id, code, description, bulk_qty, bulk_price) VALUES ($1, $2, 'd', 8, $3)`,
+          [r.rows[0].id, code, price]
+        );
+      }
+      const [item] = await db.getLatestPriceListItems([code]);
+      assert.equal(item.bulkPrice, 200);
+      assert.equal(item.listLabel, 't-nueva');
+      assert.equal(item.discount1, 10);
+      const all = await db.getLatestPriceListItems(null);
+      assert.equal(all.filter((i) => i.code === code).length, 1, 'sin filtro, un solo ítem por código');
+    } finally {
+      await pool.query('DELETE FROM price_lists WHERE id = ANY($1)', [listIds]);
+      await pool.end();
+    }
+  }
+);

@@ -31,6 +31,10 @@ const overrideState = { rows: [] };
 const feesState = { config: null, error: null };
 // registro de lo guardado en Ajustes (savePricingSettings/saveMlFeeTiers).
 const saveState = { settings: [], tiers: [] };
+// foto del catálogo (getCatalogRows) y el índice SKU → canal que se puebla desde ella.
+const catalogState = { mlRows: [], tnRows: [], calls: 0, resolutionCalls: 0 };
+// ítem más reciente por código (getLatestPriceListItems), con los datos de su lista.
+const latestState = { items: [] };
 
 let svc;
 before(async () => {
@@ -69,6 +73,7 @@ before(async () => {
         overrideState.rows = overrideState.rows.filter((r) => !(r.sku === sku && r.channel === channel)).concat({ sku, channel, value });
         return true;
       },
+      getLatestPriceListItems: async (codes) => latestState.items.filter((i) => !codes || codes.includes(i.code)),
       deletePriceOverride: async (sku, channel) => {
         overrideState.rows = overrideState.rows.filter((r) => !(r.sku === sku && r.channel === channel));
         return true;
@@ -85,6 +90,10 @@ before(async () => {
         patchState.readCalls.push(a);
         return patchState.tnSnapshotRow;
       },
+      getCatalogRows: async () => {
+        catalogState.calls++;
+        return { mlRows: catalogState.mlRows, tnRows: catalogState.tnRows };
+      },
     },
   });
   mock.module('../src/store.js', {
@@ -92,6 +101,12 @@ before(async () => {
       getMlItemBySku: (sku) => storeState.mlBySku[sku] || null,
       getTnVariantBySku: (sku) => storeState.tnBySku[sku] || null,
       getResolvedSkus: () => storeState.resolvedSkus,
+      setResolutionFromAnalysis: (mlRows, tnRows) => {
+        catalogState.resolutionCalls++;
+        storeState.resolvedSkus = [...new Set([...mlRows, ...tnRows].map((r) => r.sku).filter(Boolean))];
+        for (const r of mlRows) if (r.sku) storeState.mlBySku[r.sku] = { itemId: r.itemId };
+        for (const r of tnRows) if (r.sku) storeState.tnBySku[r.sku] = { productId: r.productId, variantId: r.variantId };
+      },
       getMlToken: async () => storeState.mlToken,
       tokens: storeState,
     },
@@ -143,6 +158,12 @@ beforeEach(() => {
   feesState.error = null;
   saveState.settings = [];
   saveState.tiers = [];
+  catalogState.mlRows = [];
+  catalogState.tnRows = [];
+  catalogState.calls = 0;
+  catalogState.resolutionCalls = 0;
+  latestState.items = [];
+  svc._resetCatalogCache();
 });
 
 // ── helpers puros ──────────────────────────────────────────────────────────
@@ -400,7 +421,8 @@ test('getMappingState: separa SKUs sin código y códigos sin SKU', async () => 
 });
 
 test('confirmMapping / removeMapping: se guarda una vez y se puede rehacer', async () => {
-  await svc.confirmMapping('30700-ROSA', '30700', 'base');
+  const r = await svc.confirmMapping('30700-ROSA', '30700', 'base');
+  assert.equal(r.ok, true);
   assert.deepEqual(listState.map, [{ sku: '30700-ROSA', code: '30700', matchSource: 'base' }]);
 
   // Una vez confirmado, deja de pedir revisión: la siguiente importación lo aplica solo.
@@ -608,4 +630,154 @@ test('syncMlFees: si la API falla, propaga el error (los valores a mano quedan i
   feesState.error = new Error('listing_prices 403: PolicyAgent');
   await assert.rejects(() => svc.syncMlFees({ apply: true }), /403/);
   assert.equal(saveState.settings.length, 0);
+});
+
+// ── índice SKU → canal vacío tras un deploy + resumen por lista + pestaña Mapeo ─────────────
+
+const CATALOG = {
+  mlRows: [{ sku: '30700', itemId: 'MLA1', title: 'Cuaderno removible', variationName: null }],
+  tnRows: [
+    { sku: '30700', productId: 1, variantId: 11, productName: 'Cuaderno', variantName: 'Rosa' },
+    { sku: 'OTRA-MARCA', productId: 2, variantId: 21, productName: 'Lapicera', variantName: null },
+  ],
+};
+
+test('buildSkuNames: prefiere el nombre de TN (producto · variante) y cae al de ML', () => {
+  const names = svc.buildSkuNames(
+    [{ sku: 'A', title: 'Título ML', variationName: 'Azul' }, { sku: 'B', title: 'Solo ML' }],
+    [{ sku: 'A', productName: 'Cuaderno', variantName: 'Rosa' }],
+  );
+  assert.equal(names.get('A'), 'Cuaderno · Rosa');
+  assert.equal(names.get('B'), 'Solo ML');
+  // TN usa el SKU como nombre de una variante sin valores: no se repite.
+  assert.equal(svc.buildSkuNames([], [{ sku: 'C-1', productName: 'Carpeta', variantName: 'C-1' }]).get('C-1'), 'Carpeta');
+});
+
+test('previewImport: con el índice vacío (backend recién deployado) lo puebla desde la foto y matchea', async () => {
+  storeState.resolvedSkus = [];
+  catalogState.mlRows = CATALOG.mlRows;
+  catalogState.tnRows = CATALOG.tnRows;
+
+  const out = await svc.previewImport(PDF_SNIPPET);
+
+  assert.equal(catalogState.resolutionCalls, 1, 'pobló el índice desde la foto');
+  assert.equal(out.mapping.auto, 1, '30700 matchea exacto aunque nadie haya abierto Conflictos');
+  assert.equal(out.mapping.inListItems[0].name, 'Cuaderno · Rosa');
+  assert.deepEqual(out.mapping.unmatchedItems.map((u) => u.sku), ['OTRA-MARCA']);
+});
+
+test('loadCatalogContext: con el índice poblado, la foto se lee una sola vez por minuto', async () => {
+  storeState.resolvedSkus = ['30700'];
+  await svc.loadCatalogContext();
+  await svc.loadCatalogContext();
+  assert.equal(catalogState.calls, 1);
+  assert.equal(catalogState.resolutionCalls, 0, 'no pisa un índice que ya estaba poblado');
+});
+
+test('previewImport: un mapeo guardado de OTRA lista no cuenta como mapeo de esta', async () => {
+  // La usuaria trabaja con varias listas: 30700 está en la que se importa; LAP-1 ya tiene código
+  // de otra lista (LAP-01) que no viene en esta.
+  storeState.resolvedSkus = ['30700', 'LAP-1'];
+  listState.map = [{ sku: 'LAP-1', code: 'LAP-01' }];
+
+  const out = await svc.previewImport(PDF_SNIPPET);
+
+  assert.equal(out.mapping.auto, 1);
+  assert.equal(out.mapping.inListItems[0].sku, '30700');
+  assert.equal(out.mapping.otherLists, 1);
+  // 39001 no quedó asignado a nada: es candidato a mapear a mano.
+  assert.deepEqual(out.mapping.codesWithoutProduct.map((c) => c.code), ['39001']);
+});
+
+test('confirmImport: devuelve el resumen de qué tomó precio de esta lista y qué no', async () => {
+  storeState.resolvedSkus = ['30700', '30700-ROSA', 'LAP-1'];
+  listState.map = [{ sku: 'LAP-1', code: 'LAP-01' }];
+  const parsed = await svc.previewImport(PDF_SNIPPET);
+  // getPriceListItems devuelve lo guardado de esta lista.
+  listState.items = parsed.rows.filter((r) => r.valid);
+
+  const res = await svc.confirmImport({ label: 'Marzo', discount1: 0, discount2: 0, rows: parsed.rows });
+
+  assert.equal(res.autoMapped, 1);
+  assert.equal(res.newMappings, 1);
+  assert.equal(res.costsUpdated, 1);
+  assert.deepEqual(res.summary.inList.map((e) => [e.sku, e.code]), [['30700', '30700']]);
+  assert.equal(res.summary.otherLists, 1);
+  // 30700-ROSA tenía una sugerencia que no se confirmó: queda sin código.
+  assert.deepEqual(res.summary.unmatched.map((e) => e.sku), ['30700-ROSA']);
+  assert.deepEqual(res.summary.codesWithoutProduct.map((c) => c.code), ['39001']);
+});
+
+test('confirmMapping: toma en el momento el precio del código en la lista más reciente', async () => {
+  latestState.items = [{ code: '39001', description: 'Repuesto', bulkQty: 8, bulkPrice: 5800, listLabel: 'Repuestos', discount1: 0, discount2: 0 }];
+
+  const r = await svc.confirmMapping('REP-1', '39001');
+
+  assert.equal(r.costsUpdated, 1);
+  assert.deepEqual(r.changedSkus, ['REP-1']);
+  assert.equal(r.listLabel, 'Repuestos');
+});
+
+test('confirmMapping: un código que no está en ninguna lista guarda el mapeo sin tocar costos', async () => {
+  const r = await svc.confirmMapping('REP-1', 'NUEVO');
+  assert.equal(r.ok, true);
+  assert.equal(r.costsUpdated, 0);
+  assert.deepEqual(listState.map, [{ sku: 'REP-1', code: 'NUEVO', matchSource: 'manual' }]);
+});
+
+test('confirmPackMapping: vuelca el precio a los modelos del pack, salvo los que tienen mapeo propio', async () => {
+  packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
+  listState.map = [{ sku: 'REP-ROJO', code: 'ESPECIAL' }];
+  latestState.items = [{ code: '39001', description: 'Repuesto', bulkQty: 8, bulkPrice: 5800, listLabel: 'Repuestos', discount1: 0, discount2: 0 }];
+
+  const r = await svc.confirmPackMapping(1, '39001');
+
+  assert.deepEqual(r.changedSkus, ['REP-AZUL']);
+});
+
+test('getMappingState: lista cada producto y pack con su código, la lista de origen y si tiene costo', async () => {
+  storeState.resolvedSkus = ['30700', 'OTRA-MARCA', 'REP-ROJO', 'REP-AZUL'];
+  storeState.tnBySku['30700'] = { productId: 1, variantId: 11 };
+  catalogState.tnRows = CATALOG.tnRows;
+  packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
+  listState.map = [{ sku: '30700', code: '30700', matchSource: 'exact' }];
+  listState.codes = [{ code: '30700', description: 'Cuaderno' }, { code: '39001', description: 'Repuesto' }];
+  latestState.items = [{ code: '30700', description: 'Cuaderno', bulkQty: 8, bulkPrice: 70400, listLabel: 'Cuadernos' }];
+  dbState.costs['30700'] = { sku: '30700', source: 'list' };
+
+  const state = await svc.getMappingState();
+
+  const byKey = Object.fromEntries(state.products.map((p) => [p.key, p]));
+  assert.deepEqual(Object.keys(byKey).sort(), ['pack:1', 'sku:30700', 'sku:OTRA-MARCA']);
+  assert.equal(byKey['sku:30700'].code, '30700');
+  assert.equal(byKey['sku:30700'].listLabel, 'Cuadernos');
+  assert.equal(byKey['sku:30700'].name, 'Cuaderno · Rosa');
+  assert.equal(byKey['sku:30700'].hasCost, true);
+  assert.equal(byKey['sku:30700'].mappedTn, true);
+  assert.equal(byKey['sku:OTRA-MARCA'].code, null);
+  assert.equal(byKey['pack:1'].code, null);
+  assert.deepEqual(byKey['pack:1'].memberSkus, ['REP-ROJO', 'REP-AZUL']);
+  assert.deepEqual(state.codes.map((c) => [c.code, c.mapped]), [['30700', true], ['39001', false]]);
+});
+
+test('getPreview: puebla el índice si está vacío y trae el nombre de la publicación', async () => {
+  storeState.resolvedSkus = [];
+  catalogState.mlRows = CATALOG.mlRows;
+  catalogState.tnRows = CATALOG.tnRows;
+  dbState.costs['30700'] = { sku: '30700', source: 'list', bulkPrice: 70400, bulkQty: 8, discount1: 0, discount2: 0, label: 'Descr. lista' };
+
+  const rows = await svc.getPreview();
+
+  assert.equal(rows[0].name, 'Cuaderno · Rosa');
+  assert.ok(storeState.mlBySku['30700'], 'la ruta ya puede anotar mappedMl sin marcar "sin mapear"');
+});
+
+test('enqueueApply: con el índice vacío lo puebla antes de buscar el ítem de ML', async () => {
+  storeState.resolvedSkus = [];
+  catalogState.mlRows = CATALOG.mlRows;
+  dbState.costs['30700'] = { sku: '30700', source: 'list', bulkPrice: 70400, bulkQty: 8, discount1: 0, discount2: 0 };
+
+  const res = await svc.enqueueApply(['30700'], { ml: true, tn: false });
+
+  assert.equal(res.enqueuedMl, 1);
 });

@@ -1,12 +1,32 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
 import {
   PricingService, PricingConfig, PreviewRow, PreviewRowPack, PricingSettings, MlFeeTier,
-  ImportPreview, MappingSuggestion, MlFeesSync, ImportedList,
+  ImportPreview, MappingSuggestion, MlFeesSync, ImportedList, ImportResult,
 } from '../../core/services/pricing.service';
+import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
+import { MapeoProveedorComponent } from './mapeo/mapeo-proveedor.component';
+
+type PreciosTab = 'precios' | 'mapeo';
+
+/** Un pack de la planilla: sus filas + el resumen que se ve con el grupo plegado. */
+export interface PriceGroup {
+  pack: PreviewRowPack;
+  rows: PreviewRow[];
+  /** Rango de precios efectivos de los modelos (iguales casi siempre: mismo costo de compra). */
+  tn: { min: number; max: number };
+  ml: { min: number; max: number };
+  /** Modelos cuyo SKU no aparece en ML ni en TN. */
+  unpublished: number;
+}
+
+function range(values: number[]): { min: number; max: number } {
+  return { min: Math.min(...values), max: Math.max(...values) };
+}
 import { PdfTextService } from '../../core/services/pdf-text.service';
 import { ProductHistoryDialogComponent } from '../precio-stock/components/product-history-dialog/product-history-dialog.component';
 
@@ -39,13 +59,33 @@ function emptyCostForm(): CostForm {
 @Component({
   selector: 'app-precios',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, FormsModule, NgTemplateOutlet, ProductHistoryDialogComponent],
+  imports: [CurrencyPipe, DatePipe, FormsModule, NgTemplateOutlet, ProductHistoryDialogComponent, TabsComponent, MapeoProveedorComponent],
   templateUrl: './precios.component.html',
   styleUrl: './precios.component.scss',
 })
 export class PreciosComponent {
   private readonly pricing = inject(PricingService);
   private readonly pdfText = inject(PdfTextService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  // ── Pestañas: planilla de precios / mapeo con el proveedor (vive en ?tab=mapeo) ──
+  readonly tabs: TabDef[] = [
+    { key: 'precios', label: 'Precios' },
+    { key: 'mapeo', label: 'Mapeo con el proveedor' },
+  ];
+  readonly tab = signal<PreciosTab>(this.route.snapshot.queryParamMap.get('tab') === 'mapeo' ? 'mapeo' : 'precios');
+
+  setTab(key: string): void {
+    const tab: PreciosTab = key === 'mapeo' ? 'mapeo' : 'precios';
+    this.tab.set(tab);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: tab === 'mapeo' ? 'mapeo' : null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
 
   // ── Importación de lista (fase 4) ──
   readonly showImport = signal(false);
@@ -85,7 +125,10 @@ export class PreciosComponent {
     const q = this.search().trim().toLowerCase();
     if (!q) return this.rows();
     return this.rows().filter(
-      (r) => r.sku.toLowerCase().includes(q) || (r.label ?? '').toLowerCase().includes(q),
+      (r) => r.sku.toLowerCase().includes(q)
+        || (r.label ?? '').toLowerCase().includes(q)
+        || (r.name ?? '').toLowerCase().includes(q)
+        || (r.pack?.name ?? '').toLowerCase().includes(q),
     );
   });
 
@@ -96,7 +139,7 @@ export class PreciosComponent {
   });
 
   /** Filas agrupadas por pack (mismo precio de compra para todos los modelos) + las sueltas. */
-  readonly priceGroups = computed<{ groups: { pack: PreviewRowPack; rows: PreviewRow[] }[]; noPack: PreviewRow[] }>(() => {
+  readonly priceGroups = computed<{ groups: PriceGroup[]; noPack: PreviewRow[] }>(() => {
     const byPack = new Map<number, { pack: PreviewRowPack; rows: PreviewRow[] }>();
     const noPack: PreviewRow[] = [];
     for (const r of this.filteredRows()) {
@@ -108,9 +151,60 @@ export class PreciosComponent {
         noPack.push(r);
       }
     }
-    const groups = [...byPack.values()].sort((a, b) => a.pack.name.localeCompare(b.pack.name, 'es'));
+    const groups = [...byPack.values()]
+      .sort((a, b) => a.pack.name.localeCompare(b.pack.name, 'es'))
+      .map((g) => ({
+        ...g,
+        tn: range(g.rows.map((r) => r.tn.effective)),
+        ml: range(g.rows.map((r) => r.mlEffective)),
+        unpublished: g.rows.filter((r) => !r.mappedMl && !r.mappedTn).length,
+      }));
     return { groups, noPack };
   });
+
+  // ── Packs plegables ──
+  /** Packs desplegados. Arrancan plegados: con muchos packs la planilla se hacía eterna. */
+  readonly expandedPacks = signal<Set<number>>(new Set());
+
+  /** Con una búsqueda activa se muestran abiertos: si no, lo que matcheó quedaría escondido. */
+  isPackExpanded(packId: number): boolean {
+    return !!this.search().trim() || this.expandedPacks().has(packId);
+  }
+
+  togglePack(packId: number): void {
+    this.expandedPacks.update((set) => {
+      const next = new Set(set);
+      if (next.has(packId)) next.delete(packId); else next.add(packId);
+      return next;
+    });
+  }
+
+  setAllPacksExpanded(open: boolean): void {
+    this.expandedPacks.set(open ? new Set(this.priceGroups().groups.map((g) => g.pack.packId)) : new Set());
+  }
+
+  /** ¿Alguna fila del pack se movió con el último cambio? (para marcar el grupo plegado) */
+  groupChanged(g: PriceGroup): boolean {
+    const changed = this.changedSkus();
+    return g.rows.some((r) => changed.has(r.sku));
+  }
+
+  groupSelection(g: PriceGroup): 'all' | 'some' | 'none' {
+    const sel = this.selected();
+    const n = g.rows.filter((r) => sel.has(r.sku)).length;
+    return n === 0 ? 'none' : n === g.rows.length ? 'all' : 'some';
+  }
+
+  toggleGroup(g: PriceGroup): void {
+    const selectAll = this.groupSelection(g) !== 'all';
+    this.selected.update((set) => {
+      const next = new Set(set);
+      for (const r of g.rows) {
+        if (selectAll) next.add(r.sku); else next.delete(r.sku);
+      }
+      return next;
+    });
+  }
 
   // ── Modales ──
   readonly showSettings = signal(false);
@@ -325,6 +419,7 @@ export class PreciosComponent {
 
   openImport(): void {
     this.importPreview.set(null);
+    this.importResult.set(null);
     this.importFileName.set(null);
     this.importLabel.set('');
     this.mappingChoices.set({});
@@ -346,6 +441,8 @@ export class PreciosComponent {
     try {
       const { text, format } = await this.pdfText.extract(file);
       this.importFormat.set(format);
+      this.importResult.set(null);
+      this.mappingChoices.set({});
       this.importFileName.set(file.name);
       if (!this.importLabel()) this.importLabel.set(file.name.replace(/\.(pdf|csv|txt)$/i, ''));
       const preview = await firstValueFrom(this.pricing.previewImport(text, format));
@@ -367,6 +464,9 @@ export class PreciosComponent {
       return next;
     });
   }
+
+  /** Resultado del último import: el modal pasa a mostrar qué tomó precio de la lista y qué no. */
+  readonly importResult = signal<ImportResult | null>(null);
 
   readonly pendingMappings = computed<MappingSuggestion[]>(
     () => this.importPreview()?.mapping.review ?? [],
@@ -406,19 +506,39 @@ export class PreciosComponent {
         rows: preview.rows,
       }));
 
+      const sinCodigo = res.summary?.unmatched.length ?? 0;
       this.applyResult.set(
-        `Lista importada: ${res.autoMapped} mapeos automáticos · ${res.costsUpdated} costos actualizados`,
+        `Lista "${this.importLabel().trim()}": ${res.autoMapped} producto${res.autoMapped === 1 ? '' : 's'} con precio de esta lista`
+        + ` · ${res.costsUpdated} costo${res.costsUpdated === 1 ? '' : 's'} actualizado${res.costsUpdated === 1 ? '' : 's'}`
+        + (sinCodigo > 0 ? ` · ${sinCodigo} sin código` : ''),
       );
       // Resalta en la planilla los productos cuyo costo esta lista realmente movió (no todos los
       // que tienen mapeo — algunos pueden haber quedado con el mismo precio que antes).
       this.changedSkus.set(new Set(res.changedSkus ?? []));
       await this.previewQuery.refetch();
-      this.showImport.set(false);
+      // El modal no se cierra: muestra el resumen (qué tomó precio, qué no tiene código).
+      this.importResult.set(res);
     } catch (e) {
       this.errorMsg.set((e as Error)?.message ?? 'No se pudo importar');
     } finally {
       this.saving.set(false);
     }
+  }
+
+  /** Desde el resumen del import: cerrar e ir a la pestaña de mapeo para asignar lo que falta. */
+  goToMapping(): void {
+    this.showImport.set(false);
+    this.setTab('mapeo');
+  }
+
+  /** Lo que cambió desde la pestaña de mapeo (código asignado a mano) se resalta en la planilla. */
+  onMappingCostsChanged(skus: string[]): void {
+    this.changedSkus.set(new Set(skus));
+    void this.previewQuery.refetch();
+  }
+
+  briefName(b: { name: string | null; sku: string }): string {
+    return b.name || b.sku;
   }
 
   matchSourceLabel(source: string): string {

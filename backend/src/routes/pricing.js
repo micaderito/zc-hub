@@ -136,7 +136,7 @@ pricingRoutes.get('/lists', async (_req, res) => {
   }
 });
 
-/** Estado del mapeo: SKUs sin código, códigos sin SKU, y lo ya confirmado. */
+/** Estado del mapeo: cada producto/pack de la tienda con su código (o sin), y los códigos del proveedor. */
 pricingRoutes.get('/mapping', async (_req, res) => {
   try {
     res.json(await pricing.getMappingState());
@@ -145,14 +145,16 @@ pricingRoutes.get('/mapping', async (_req, res) => {
   }
 });
 
-/** Confirma (o corrige) el mapeo de un SKU. Se hace una vez y no se vuelve a preguntar. */
+/** Confirma (o corrige) el mapeo de un SKU. Se hace una vez y no se vuelve a preguntar. Toma el precio en el momento. */
 pricingRoutes.put('/mapping/:sku', async (req, res) => {
   const sku = (req.params.sku || '').trim();
   const code = (req.body?.code || '').trim();
   if (!sku || !code) return res.status(400).json({ error: 'sku y code requeridos' });
   try {
-    await pricing.confirmMapping(sku, code, req.body?.matchSource || 'manual');
-    res.json({ ok: true });
+    // Además del mapeo, vuelca el precio del código en la lista más reciente que lo trae.
+    const result = await pricing.confirmMapping(sku, code, req.body?.matchSource || 'manual');
+    if (!result.ok) return res.status(500).json({ error: 'No se pudo guardar el mapeo' });
+    res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -176,8 +178,9 @@ pricingRoutes.put('/mapping/pack/:packId', async (req, res) => {
   const code = (req.body?.code || '').trim();
   if (!packId || !code) return res.status(400).json({ error: 'packId y code requeridos' });
   try {
-    await pricing.confirmPackMapping(packId, code, req.body?.matchSource || 'manual');
-    res.json({ ok: true });
+    const result = await pricing.confirmPackMapping(packId, code, req.body?.matchSource || 'manual');
+    if (!result.ok) return res.status(500).json({ error: 'No se pudo guardar el mapeo' });
+    res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
