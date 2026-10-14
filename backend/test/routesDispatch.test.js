@@ -16,6 +16,7 @@ before(async () => {
         state.listArgs = args;
         return { packages: [], errors: {} };
       },
+      getDispatchNotes: async () => ({ generatedAt: 'x', notes: { 9: [{ text: 'Ojo', author: 'seller' }] }, failed: 0 }),
     },
   });
   mock.module('../src/db.js', {
@@ -36,6 +37,12 @@ before(async () => {
 
 after(() => server.close());
 beforeEach(() => { state.listArgs = null; state.prepared = []; state.seen = []; state.dbOk = true; });
+
+test('GET /notes devuelve las notas de ML de la lista', async () => {
+  const res = await fetch(`${baseUrl}/notes`);
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).notes, { 9: [{ text: 'Ojo', author: 'seller' }] });
+});
 
 test('GET / pasa refresh solo con ?refresh=1', async () => {
   let r = await fetch(baseUrl);

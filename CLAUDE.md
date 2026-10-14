@@ -467,21 +467,26 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   (`inFlight`): abrir la página + "Actualizar" no dispara dos tandas. Cada carga loguea
   `[Despachos] ML en X ms — órdenes … · envíos+SLA+notas … · fotos …` para ver en prod dónde va el tiempo.
 - **Notas = 2 de cada 3 pedidos** (logs de prod 2026-10-13: 133 pedidos por carga, 89 de notas →
-  ~20 s, justo 133 × 150 ms del limitador). `GET /orders/:id/notes` es por ORDEN (un carrito de 9
-  productos = 9) y no hay endpoint por pack en la doc. La usuaria carga la nota a la venta entera:
-  `logNotesDiagnostics` loguea (`[Despachos] diag …`) qué campos trae `/orders/search` y, en cada
-  carrito con nota, en qué órdenes aparece — si está repetida en todas, alcanza con 1 pedido por
-  carrito (pendiente de confirmar con esos logs). Las notas se piden siempre frescas (sin memo, a
-  pedido de la usuaria) y también para los despachados de hoy; a esos no se les pide el SLA. El SLA
+  ~20 s, justo 133 × 150 ms del limitador). `GET /orders/:id/notes` es por ORDEN y no hay endpoint
+  por pack ni campo `notes` en `/orders/search` (campos reales logueados 2026-10-13; trae un
+  `comment`, sin verificar qué contiene — no se usa). Pero la usuaria carga la nota a la venta entera y **ML la repite en todas las órdenes del
+  carrito** (confirmado en prod 2026-10-13), así que se pide **una orden por envío**, no una por
+  producto (`noteOrderId` en cada paquete). Igual es un pedido por VENTA (no hay forma de pedir las
+  notas de varias de una), así que **van aparte**: `GET /api/dispatch/notes` (`getDispatchNotes`) y
+  el front las pide recién cuando llegó la lista (query con `generatedAt` en la clave) — la lista se
+  ve sin esperarlas, con "Cargando notas de ML…", y si alguna falló (`failed`) se avisa. Se piden
+  DESPUÉS y no en paralelo a propósito: comparten el limitador de ML y le sacarían turnos a los
+  envíos. Siempre frescas (sin memo, a pedido de la usuaria; se comparten solo entre requests de la
+  misma lista) y también para los despachados de hoy; a esos no se les pide el SLA. El SLA
   por envío sí se recuerda 10 min (`SLA_TTL_MS`): casi no cambia y "atrasado" igual se calcula
   contra la hora. El estado del envío se pide SIEMPRE (es lo que dice si ya salió).
 - Si un canal falla (429, token), el otro se devuelve igual con `errors.{ml,tn}` y la UI lo avisa:
   una lista vacía nunca debe significar "no hay pedidos" cuando en realidad ML no contestó.
 - **Notas de la venta**: las mismas que se cargan en el panel de cada canal, en un recuadro arriba
-  de los productos. ML: `GET /orders/:id/notes` (`ml.getOrderNotes`) por cada orden pagada que se
-  muestra — en un carrito se juntan sin repetir; si falla (429), el paquete sale igual sin nota.
+  de los productos. ML: `GET /orders/:id/notes` (`ml.getOrderNotes`) de una orden pagada por venta,
+  aparte de la lista (ver arriba); si falla (429), el paquete sale igual sin nota.
   TN: `owner_note` (la de la vendedora) y `note` (la del comprador, rotulada "Comprador:"), que ya
-  vienen en la orden. Entran en la misma caché de 60 s.
+  vienen en la orden, así que llegan con la lista.
 - `zc-photo-lightbox` (`shared/components/photo-lightbox/`) es reusable: foto grande, flechas/teclado, Esc.
   Ojo: las flechas se centran con `top: calc(50% - 18px)`, NO con `transform` — el `button:active`
   global (`transform: scale(.98)`) pisaba el `translateY(-50%)`, el botón saltaba al apretarlo y el
