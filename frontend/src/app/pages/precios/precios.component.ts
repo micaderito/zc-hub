@@ -22,6 +22,8 @@ export interface PriceGroup {
   ml: { min: number; max: number };
   /** Modelos cuyo SKU no aparece en ML ni en TN. */
   unpublished: number;
+  /** Modelos con precio sin aplicar. */
+  pending: number;
 }
 
 function range(values: number[]): { min: number; max: number } {
@@ -112,6 +114,9 @@ export class PreciosComponent {
     queryKey: ['pricing', 'preview'],
     queryFn: () => firstValueFrom(this.pricing.getPreview()),
     staleTime: 15_000,
+    // Mientras haya precios en la cola de ML, se refresca solo para que "en cola" pase a aplicado.
+    refetchInterval: (q: { state: { data?: { rows: PreviewRow[] } } }) =>
+      q.state.data?.rows.some((r) => r.mlQueued) ? 10_000 : false,
   }));
 
   readonly rows = computed<PreviewRow[]>(() => this.previewQuery.data()?.rows ?? []);
@@ -120,11 +125,21 @@ export class PreciosComponent {
   // Selección para aplicar. Empieza con todo lo que esté mapeado en al menos un canal.
   readonly selected = signal<Set<string>>(new Set());
   readonly search = signal('');
+  /** Mostrar solo lo que falta aplicar (precio calculado ≠ publicado). */
+  readonly onlyPending = signal(false);
+
+  /** ¿Falta aplicar en algún canal? Lo que ya está en la cola de ML no cuenta como pendiente. */
+  isPending(r: PreviewRow): boolean {
+    return (r.pendingMl && !r.mlQueued) || r.pendingTn;
+  }
+
+  readonly pendingCount = computed(() => this.rows().filter((r) => this.isPending(r)).length);
 
   readonly filteredRows = computed(() => {
     const q = this.search().trim().toLowerCase();
-    if (!q) return this.rows();
-    return this.rows().filter(
+    const base = this.onlyPending() ? this.rows().filter((r) => this.isPending(r)) : this.rows();
+    if (!q) return base;
+    return base.filter(
       (r) => r.sku.toLowerCase().includes(q)
         || (r.label ?? '').toLowerCase().includes(q)
         || (r.name ?? '').toLowerCase().includes(q)
@@ -158,6 +173,7 @@ export class PreciosComponent {
         tn: range(g.rows.map((r) => r.tn.effective)),
         ml: range(g.rows.map((r) => r.mlEffective)),
         unpublished: g.rows.filter((r) => !r.mappedMl && !r.mappedTn).length,
+        pending: g.rows.filter((r) => this.isPending(r)).length,
       }));
     return { groups, noPack };
   });
@@ -166,9 +182,14 @@ export class PreciosComponent {
   /** Packs desplegados. Arrancan plegados: con muchos packs la planilla se hacía eterna. */
   readonly expandedPacks = signal<Set<number>>(new Set());
 
-  /** Con una búsqueda activa se muestran abiertos: si no, lo que matcheó quedaría escondido. */
+  /** Con una búsqueda o "solo pendientes" se muestran abiertos: si no, lo filtrado quedaría escondido. */
   isPackExpanded(packId: number): boolean {
-    return !!this.search().trim() || this.expandedPacks().has(packId);
+    return !!this.search().trim() || this.onlyPending() || this.expandedPacks().has(packId);
+  }
+
+  /** Selecciona exactamente lo que falta aplicar (dentro de lo filtrado por la búsqueda). */
+  selectPending(): void {
+    this.selected.set(new Set(this.filteredRows().filter((r) => this.isPending(r)).map((r) => r.sku)));
   }
 
   togglePack(packId: number): void {

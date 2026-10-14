@@ -63,7 +63,7 @@
 }
 
 /* Toolbar */
-.pr-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 11px; }
+.pr-toolbar { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; margin-bottom: 11px; }
 .pr-search {
   position: relative;
   i { position: absolute; left: 9px; top: 7px; font-size: 14px; color: var(--text-3); }
@@ -180,7 +180,25 @@
   &.warn { background: var(--warn-bg); color: var(--warn); }
   &.neu { background: var(--surface-2); color: var(--text-2); }
   &.brand { background: var(--brand-bg); color: var(--brand); }
+  &.pend { background: var(--warn-bg); color: var(--warn); }
 }
+
+/* Precio publicado hoy, debajo del input */
+.pub-ref {
+  display: block; margin-top: 3px; font-size: 10px; color: var(--text-3); white-space: nowrap;
+  i { font-size: 11px; vertical-align: -1px; }
+  &.pending { color: var(--warn); }
+  &.ok { color: var(--ok); }
+  .delta { margin-left: 3px; }
+}
+.pend-chip {
+  font: inherit; font-size: 11.5px; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+  border: 0.5px solid var(--border); background: var(--surface); color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 5px;
+  b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  &.on { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); b { color: var(--warn); } }
+}
+.pr-table td.pr-none { text-align: center; color: var(--text-2); padding: 22px 10px; i { color: var(--ok); } }
 
 .delta {
   font-size: 10px; margin-left: 4px;

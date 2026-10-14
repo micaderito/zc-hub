@@ -14,7 +14,8 @@ function row(over: Partial<PreviewRow> = {}): PreviewRow {
   return {
     sku: '30700', label: 'Descr. de la lista', source: 'list', bulkQty: 8, unitCost: 1000, valorFinal: 2000,
     tn: { transfer: 2000, list: 2500, override: null, effective: 2500 }, ml: 3000, mlOverride: null, mlEffective: 3000,
-    mlNet: 2200, currentMl: null, currentTn: null, freeShipping: false, mappedMl: true, mappedTn: true,
+    mlNet: 2200, currentMl: null, currentTn: null, pendingMl: false, pendingTn: false, mlQueued: false,
+    freeShipping: false, mappedMl: true, mappedTn: true,
     name: 'Cuaderno · Rosa', pack: null, ...over,
   };
 }
@@ -22,7 +23,7 @@ function row(over: Partial<PreviewRow> = {}): PreviewRow {
 function rows(): PreviewRow[] {
   return [
     row(),
-    row({ sku: 'REP-ROJO', name: 'Repuesto rojo', pack: PACK }),
+    row({ sku: 'REP-ROJO', name: 'Repuesto rojo', pack: PACK, currentTn: 2000, pendingTn: true }),
     row({ sku: 'REP-AZUL', name: 'Repuesto azul', pack: PACK, mappedMl: false, mappedTn: false, mlEffective: 3100 }),
   ];
 }
@@ -161,5 +162,38 @@ describe('PreciosComponent', () => {
     fixture.detectChanges();
     expect(component.showImport()).toBeFalse();
     expect(component.tab()).toBe('mapeo');
+  });
+
+  it('marca lo pendiente de aplicar, filtra "Solo pendientes" y lo selecciona', async () => {
+    await render();
+    expect(component.pendingCount()).toBe(1);
+    expect(component.priceGroups().groups[0].pending).toBe(1);
+    expect(text()).toContain('1 pendiente');
+
+    component.onlyPending.set(true);
+    fixture.detectChanges();
+    expect(component.filteredRows().map((r) => r.sku)).toEqual(['REP-ROJO']);
+    // El pack se abre solo para que se vea lo pendiente, con el precio publicado hoy.
+    expect(text()).toContain('Repuesto rojo');
+    expect(text()).toContain('pendiente de aplicar');
+    expect(text()).toContain('hoy');
+
+    component.selectPending();
+    expect([...component.selected()]).toEqual(['REP-ROJO']);
+  });
+
+  it('lo que ya está en la cola de ML no cuenta como pendiente', async () => {
+    pricing.getPreview.and.callFake(() => of({ rows: [row({ currentMl: 2500, pendingMl: true, mlQueued: true })] }));
+    await render();
+    expect(component.pendingCount()).toBe(0);
+    expect(text()).toContain('en cola ML');
+  });
+
+  it('con "Solo pendientes" y nada pendiente avisa que está todo aplicado', async () => {
+    pricing.getPreview.and.callFake(() => of({ rows: [row({ currentMl: 3000, currentTn: 2500 })] }));
+    await render();
+    component.onlyPending.set(true);
+    fixture.detectChanges();
+    expect(text()).toContain('No hay nada pendiente');
   });
 });
