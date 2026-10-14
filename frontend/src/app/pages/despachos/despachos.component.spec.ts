@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { DispatchList, DispatchPackage, DispatchService } from '../../core/services/dispatch.service';
-import { DespachosComponent, LAST_LIST_KEY, countdown } from './despachos.component';
+import { DespachosComponent, countdown } from './despachos.component';
 
 const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
@@ -57,7 +57,6 @@ describe('DespachosComponent', () => {
   }
 
   beforeEach(async () => {
-    localStorage.removeItem(LAST_LIST_KEY);
     svc = new DispatchMock();
     await TestBed.configureTestingModule({
       imports: [DespachosComponent],
@@ -95,39 +94,6 @@ describe('DespachosComponent', () => {
   it('primera carga: tarjetas fantasma mientras no hay datos', () => {
     svc.getList.and.returnValue(new Promise<DispatchList>(() => {}));
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.sk-card').length).toBe(3);
-  });
-
-  it('muestra al instante la última lista de hoy guardada y la actualiza', async () => {
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    const old = { ...list([pkg({ saleId: 'viejo' })]), today, generatedAt: new Date(Date.now() - 10 * 60_000).toISOString() };
-    localStorage.setItem(LAST_LIST_KEY, JSON.stringify(old));
-    fixture = TestBed.createComponent(DespachosComponent);
-    component = fixture.componentInstance;
-    let resolve!: (v: DispatchList) => void;
-    svc.getList.and.returnValue(new Promise<DispatchList>((r) => (resolve = r)));
-    fixture.detectChanges();
-    await settle();
-    fixture.detectChanges();
-    const el: HTMLElement = fixture.nativeElement;
-    expect(el.querySelectorAll('.sk-card').length).toBe(0);
-    expect(el.textContent).toContain('Venta #viejo');
-    expect(el.querySelector('.ds-updating')).not.toBeNull();
-    expect(svc.getList).toHaveBeenCalled();
-    resolve({ ...list([pkg({ saleId: 'nuevo' })]), today });
-    await settle();
-    fixture.detectChanges();
-    expect(el.textContent).toContain('Venta #nuevo');
-    expect(el.textContent).not.toContain('Venta #viejo');
-    expect(JSON.parse(localStorage.getItem(LAST_LIST_KEY)!).packages[0].saleId).toBe('nuevo');
-  });
-
-  it('una lista guardada de otro día no se muestra', () => {
-    localStorage.setItem(LAST_LIST_KEY, JSON.stringify({ ...list([pkg({ saleId: 'ayer' })]), today: '2020-01-01' }));
-    fixture = TestBed.createComponent(DespachosComponent);
-    svc.getList.and.returnValue(new Promise<DispatchList>(() => {}));
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).not.toContain('Venta #ayer');
     expect(fixture.nativeElement.querySelectorAll('.sk-card').length).toBe(3);
   });
 

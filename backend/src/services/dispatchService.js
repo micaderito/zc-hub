@@ -28,8 +28,7 @@ export const ML_LOOKBACK_DAYS = 15;
 /** Ventana en la que una cancelación todavía se avisa ("no despachar"). */
 export const CANCELLED_WINDOW_HOURS = 48;
 const CACHE_TTL_MS = 60_000;
-/** Cuánto se recuerdan las notas de una orden y el SLA de un envío (ver loadMl). */
-export const NOTES_TTL_MS = 10 * 60_000;
+/** Cuánto se recuerda el SLA de un envío (ver loadMl). */
 export const SLA_TTL_MS = 10 * 60_000;
 
 // ─────────────────────────── funciones puras (sin red ni base) ───────────────────────────
@@ -452,8 +451,7 @@ function rememberFinal(shipment) {
   finalShipments.set(String(shipment.id), shipment);
 }
 
-/** Memos por id con vencimiento: `{ at, value }`. Se podan solas al pasar el doble del TTL. */
-const notesMemo = new Map();
+/** Memo por id con vencimiento: `{ at, value }`. Se podan solas al pasar el doble del TTL. */
 const slaMemo = new Map();
 
 function fresh(memo, id, ttl, now) {
@@ -552,17 +550,13 @@ async function loadMl(now) {
   let slaCount = 0;
   let noteCount = 0;
 
-  // Notas de la vendedora: de lo que se muestra (no de los cancelados). Eran 2 de cada 3 pedidos a
-  // ML (`GET /orders/:id/notes` es por ORDEN, y un carrito de 9 productos son 9 órdenes), así que se
-  // recuerdan NOTES_TTL_MS por orden — también vacías, que es el caso común. Una nota que no se pudo
-  // leer no se recuerda (se reintenta la próxima) ni tumba la lista: el paquete sale sin nota.
+  // Notas de la vendedora: de lo que se muestra (no de los cancelados), siempre frescas.
+  // `GET /orders/:id/notes` es por ORDEN (un carrito de 9 productos son 9 pedidos): ver
+  // logNotesDiagnostics. Una nota que no se pudo leer no tumba la lista: el paquete sale sin nota.
   const loadNotes = (orderIds) => Promise.all(orderIds.map(async (id) => {
-    const memo = fresh(notesMemo, id, NOTES_TTL_MS, now);
-    if (memo) { if (memo.length) notes.set(id, memo); return; }
     noteCount++;
     try {
       const list = await ml.getOrderNotes(token, id);
-      notesMemo.set(id, { at: now.getTime(), value: list });
       if (list.length) notes.set(id, list);
     } catch (e) {
       console.warn(`[Despachos] notas de la orden ${id}:`, e?.message);
@@ -596,7 +590,6 @@ async function loadMl(now) {
   });
   logNotesDiagnostics(orders, paidByShipment, notes);
   const tShipments = Date.now();
-  pruneMemo(notesMemo, NOTES_TTL_MS, now);
   pruneMemo(slaMemo, SLA_TTL_MS, now);
 
   console.info('[Despachos] envíos ML:', JSON.stringify(countByStatus(shipments)));
@@ -691,6 +684,5 @@ export function _resetDispatchCache() {
   cache = null;
   inFlight = null;
   finalShipments.clear();
-  notesMemo.clear();
   slaMemo.clear();
 }
