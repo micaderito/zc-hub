@@ -327,6 +327,37 @@ El modal de historial del producto tiene dos pestañas, **Stock** y **Precio** (
 Precios abre en Precio). Las filas de ML y TN de un mismo "aplicar" (mismo `source`, < 60 s) se
 muestran como un solo evento; las externas van sueltas.
 
+### Actualizar precios: varias listas del proveedor + pestaña "Mapeo con el proveedor"
+
+Incidente 2026-10-13: al importar una lista, "34 mapeos automáticos · 0 costos actualizados", y la
+planilla mostraba todo "sin mapear". Tres causas (`services/pricingService.js`):
+
+1. **Índice SKU → canal vacío tras un deploy.** `store.js` lo llena solo al correr el análisis de
+   Conflictos / Precio y stock; Precios lo usaba sin poblarlo (la tabla marcaba "sin mapear", el
+   import no tenía productos contra qué matchear y "Aplicar" decía "sin ítem de ML"). Ahora
+   `loadCatalogContext()` lee la foto (`getCatalogRows`, sin pegarle a ML/TN) y, si el índice está
+   vacío, lo puebla con `setResolutionFromAnalysis` — lo llaman `getPreview`, `previewImport`,
+   `confirmImport`, `getMappingState` y `enqueueApply`. Arma también sku → nombre de la
+   publicación (`buildSkuNames`) y se cachea 60 s (la foto se lee entera de Postgres = egress).
+2. **"Mapeos automáticos" contaba los de OTRAS listas.** La usuaria importa 3 listas; el matcher
+   da por `auto` todo mapeo ya guardado aunque su código no venga en esta lista.
+   `splitMappingByList` separa `inList` (toma precio de acá) / `otherLists` / `review` /
+   `unmatched` / `codesWithoutProduct`. `confirmImport` devuelve ese `summary` y el modal ya no se
+   cierra: muestra qué tomó precio, qué es de otra lista y qué quedó sin código.
+3. **No había forma de ver lo que no mapeó.** La planilla lista solo SKUs con costo cargado (no es
+   paginación). Pestaña nueva **Mapeo con el proveedor** (`?tab=mapeo`,
+   `pages/precios/mapeo/`): todos los productos de la tienda + los packs con código propio, con su
+   código, de qué lista sale (`getLatestPriceListItems`: lista más reciente que trae el código) y si
+   tienen costo; filtros Con/Sin código y por lista; asignar/cambiar/sacar un código a mano.
+   `confirmMapping`/`confirmPackMapping` ahora **vuelcan el costo al momento** desde esa lista (un
+   pack no pisa a sus modelos con mapeo individual, mismo criterio que `applyListCosts`).
+
+Los productos sueltos llevan `name` solo para mostrar: NO va en `label`, que es lo que usa el
+escalón "parecido por descripción" del matcher (con 3 listas llenaría el import de sugerencias
+falsas). En la planilla los packs arrancan **plegados** (rango de precios TN/ML en el encabezado,
+checkbox que selecciona todo el pack, se abren solos al buscar), y la etiqueta "sin mapear" pasó a
+"no publicado" (es "el SKU no está en ML ni TN", no "sin código del proveedor").
+
 ### Alertas de stock: sugerencia de reposición por pack, no por modelo
 
 En "Para reponer" (`backend/src/services/alertsService.js`, `frontend/.../pages/alertas/`), cuando
@@ -1147,6 +1178,13 @@ características, medidas, títulos por variante, producto simple, canal no publ
 `crear-producto.edit.spec.ts` (abre la edición de la ruta, candados, fotos remotas en el
 autoguardado, panel de cambios, aviso al retomar, descartar, error de importación).
 `backend/test/routesProducts.test.js` cubre que la ruta de atributos exponga `conditionalRequired`.
+Actualizar precios con varias listas: `backend/test/pricingService.test.js` (índice vacío tras un
+deploy que se puebla desde la foto en import/preview/aplicar, caché de 60 s de la foto, mapeo de
+otra lista que no cuenta como de esta, resumen de `confirmImport`, mapear a mano toma el costo de la
+lista más reciente / sin lista guarda sin tocar costos / pack respeta mapeos individuales, estado de
+mapeo por producto, `buildSkuNames`) + `getLatestPriceListItems` contra Postgres real en
+`publishJobsRealDb.test.js`; en el front `precios.component.spec.ts` (packs plegados, rango de
+precios, selección por pack, resumen del import) y `mapeo-proveedor.component.spec.ts`.
 
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y
 Full, carrito = un paquete con un solo GET de envío, buckets atrasado/hoy/próximos con `now`

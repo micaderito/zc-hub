@@ -1,0 +1,128 @@
+:host { display: block; }
+
+.mp-intro {
+  font-size: 12px; color: var(--text-2); margin: 0 0 12px;
+  display: flex; gap: 6px; align-items: flex-start; line-height: 1.45;
+  i { color: var(--text-3); font-size: 14px; margin-top: 1px; }
+}
+
+.mp-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 11px; }
+.spacer { flex: 1; }
+.mp-search {
+  position: relative;
+  i { position: absolute; left: 9px; top: 7px; font-size: 14px; color: var(--text-3); }
+  input {
+    font: inherit; font-size: 12.5px; width: 260px; max-width: 100%; padding: 7px 10px 7px 28px;
+    border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+  }
+}
+.mp-chips {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  button {
+    font: inherit; font-size: 11.5px; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+    border: 0.5px solid var(--border); background: var(--surface); color: var(--text-2);
+    display: inline-flex; align-items: center; gap: 5px;
+    b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+    &.on { background: var(--brand-bg); border-color: var(--brand); color: var(--brand); b { color: var(--brand); } }
+    &.warn.on { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); b { color: var(--warn); } }
+  }
+}
+.mp-select {
+  font: inherit; font-size: 12px; padding: 6px 8px; border-radius: 8px;
+  border: 0.5px solid var(--border); background: var(--bg); color: var(--text);
+}
+.link { border: none; background: none; color: var(--brand); cursor: pointer; font: inherit; font-size: 11.5px; padding: 0 4px; }
+
+.mp-msg {
+  display: flex; align-items: center; gap: 7px; font-size: 12px; border-radius: 8px; padding: 7px 10px; margin-bottom: 11px;
+  span { flex: 1; }
+  &.ok { background: var(--ok-bg); color: var(--ok); }
+  &.warn { background: var(--warn-bg); color: var(--warn); }
+  &.err { background: var(--err-bg); color: var(--err); }
+}
+
+.mp-empty { color: var(--text-2); font-size: 13px; &.err { color: var(--err); } }
+
+.mp-table-wrap { border: 0.5px solid var(--border); border-radius: 12px; background: var(--surface); overflow-x: auto; }
+.mp-table {
+  width: 100%; border-collapse: collapse;
+  thead { background: var(--surface-2); }
+  th {
+    font-size: 10px; color: var(--text-3); font-weight: 500; text-align: left;
+    padding: 8px 10px; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+  }
+  td { font-size: 12px; padding: 8px 10px; border-top: 0.5px solid var(--border); vertical-align: middle; }
+  .col-actions { text-align: right; white-space: nowrap; width: 1%; }
+  tr.row-unmapped { background: color-mix(in srgb, var(--warn-bg) 45%, transparent); }
+
+  tr.group-row td { background: var(--surface-2); padding: 0; }
+}
+
+.group-toggle, .group-static {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%;
+  padding: 8px 10px; font: inherit; font-size: 0.76rem; color: var(--text); text-align: left;
+  background: none; border: none;
+  > .ti { color: var(--brand); }
+}
+.group-toggle { cursor: pointer; &:hover { background: var(--surface); } }
+.group-meta { color: var(--text-2); }
+
+.mp-prod { display: flex; flex-direction: column; gap: 2px; }
+.mp-prod-name { font-weight: 500; i { color: var(--brand); font-size: 13px; } }
+.mp-prod-sub { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-3); flex-wrap: wrap; }
+.sku { font-variant-numeric: tabular-nums; }
+
+.mp-code {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; color: var(--text); }
+}
+.mp-code-desc { font-size: 10.5px; color: var(--text-3); width: 100%; }
+.why { font-size: 10px; color: var(--text-3); }
+.mp-list { font-size: 11.5px; color: var(--text-2); }
+.muted { color: var(--text-3); font-size: 11px; }
+.mp-cost { font-size: 11px; display: inline-flex; align-items: center; gap: 3px; &.ok { color: var(--ok); } }
+
+.mp-edit {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  input { width: 150px; font-size: 12px; padding: 5px 8px; }
+}
+
+.badge {
+  font-size: 9.5px; font-weight: 500; padding: 1px 6px; border-radius: 5px;
+  display: inline-flex; align-items: center; gap: 3px;
+  &.ml { background: var(--ml-bg); color: var(--ml-text); }
+  &.tn { background: var(--tn-bg); color: var(--tn-text); }
+  &.warn { background: var(--warn-bg); color: var(--warn); }
+  &.ok { background: var(--ok-bg); color: var(--ok); }
+  &.neu { background: var(--surface-2); color: var(--text-2); }
+}
+
+.btn {
+  font: inherit; font-size: 12px; border: 0.5px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 8px; padding: 6px 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+  &:hover { background: var(--surface-2); }
+  &.pri { background: var(--brand); color: var(--brand-contrast); border-color: transparent; }
+  &:disabled { opacity: 0.45; cursor: default; }
+  &.btn-s { font-size: 11px; padding: 4px 9px; }
+}
+.icon-btn {
+  border: none; background: none; color: var(--text-2); cursor: pointer;
+  padding: 4px; border-radius: 6px; font-size: 15px; line-height: 1; vertical-align: middle;
+  &:hover { background: var(--surface-2); color: var(--text); }
+  &.danger:hover { color: var(--err); }
+}
+
+.mp-unused {
+  margin-top: 14px; border: 0.5px solid var(--border); border-radius: 10px; background: var(--surface);
+  padding: 9px 12px; font-size: 12px;
+  summary { cursor: pointer; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+  .hint { font-size: 11px; color: var(--text-3); margin: 8px 0 6px; }
+  ul { margin: 0; padding-left: 18px; columns: 2; column-gap: 24px; @media (max-width: 720px) { columns: 1; } }
+  li { margin-bottom: 3px; break-inside: avoid; color: var(--text-2); }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+}
+
+@media (max-width: 640px) {
+  .mp-search input { width: 100%; }
+  .mp-search { flex: 1 1 100%; }
+}
