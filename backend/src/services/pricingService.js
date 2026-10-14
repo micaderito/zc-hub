@@ -16,6 +16,7 @@ import {
   getSkuCodeMap, upsertSkuCodeMap, deleteSkuCodeMap, upsertProductCost as upsertCost,
   getPackCodeMap, upsertPackCodeMap, deletePackCodeMap, listPacks,
   getPriceOverrides, upsertPriceOverride, deletePriceOverride, getLatestPriceListItems,
+  getActiveMlTasks,
 } from '../db.js';
 import { patchTnPrice, readTnSnapshotRow, getCatalogRows } from './conflictsService.js';
 import { rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey } from '../lib/stockEcho.js';
@@ -94,9 +95,42 @@ export function previewRow(cost, settings, dbSettings, current = {}, overrides =
     mlNet: round2(mlNetReceived(mlEffective, settings)),
     currentMl: current.ml ?? null,
     currentTn: current.tn ?? null,
+    // "Pendiente de aplicar": lo que se aplicaría no coincide con lo que hoy está publicado. Solo
+    // si se conoce el publicado — sin publicación (o con precio desconocido) no hay nada que comparar.
+    pendingMl: isPending(current.ml, mlEffective),
+    pendingTn: isPending(current.tn, tnOverride ?? out.tn.list),
     // ¿el precio de ML cae en la zona de envío gratis? (para el aviso de zona muerta)
     freeShipping: out.ml > settings.freeShippingThreshold,
   };
+}
+
+/** Medio peso de tolerancia: TN guarda centavos y la fórmula redondea, ML no. */
+function isPending(published, next) {
+  return published != null && Math.abs(published - next) >= 0.5;
+}
+
+/**
+ * sku → precio publicado hoy en cada canal, leído de la foto del catálogo. Toma la fila de la
+ * publicación a la que el hub le aplicaría el precio (`resolveMl`/`resolveTn`, el índice de
+ * store.js), no la primera que aparezca: con un SKU repetido, comparar contra otra publicación
+ * marcaría pendiente algo que no lo está. Precio 0 en la foto = desconocido. Puro y testeable.
+ *
+ * @returns {Map<string, { ml: number|null, tn: number|null }>}
+ */
+export function buildSkuPrices(mlRows = [], tnRows = [], resolveMl = () => null, resolveTn = () => null) {
+  const mlByKey = new Map(mlRows.map((r) => [`${r.itemId}:${r.variationId ?? ''}`, r]));
+  const tnByKey = new Map(tnRows.map((r) => [`${r.productId}:${r.variantId}`, r]));
+  const known = (v) => (Number(v) > 0 ? Number(v) : null);
+  const skus = new Set([...mlRows, ...tnRows].map((r) => r.sku).filter(Boolean));
+  const prices = new Map();
+  for (const sku of skus) {
+    const ml = resolveMl(sku);
+    const tn = resolveTn(sku);
+    const mlRow = ml ? mlByKey.get(`${ml.itemId}:${ml.variationId ?? ''}`) : null;
+    const tnRow = tn ? tnByKey.get(`${tn.productId}:${tn.variantId}`) : null;
+    prices.set(sku, { ml: known(mlRow?.price), tn: known(tnRow?.price) });
+  }
+  return prices;
 }
 
 /**
@@ -118,8 +152,10 @@ export function buildSkuNames(mlRows = [], tnRows = []) {
   return names;
 }
 
-const CATALOG_TTL_MS = 60_000;
-let catalogCache = null; // { at, names }
+// Corto a propósito: los precios publicados salen de acá y, después de "Aplicar", la foto se
+// parcha sola (patchTnPrice / patchMlPrice al terminar la tarea de la cola).
+const CATALOG_TTL_MS = 15_000;
+let catalogCache = null; // { at, names, prices }
 
 /**
  * El índice SKU → publicación de ML/TN (store.js) vive solo en memoria y se llena al correr el
@@ -129,8 +165,9 @@ let catalogCache = null; // { at, names }
  * "sin ítem de ML mapeado". Acá se lee la foto del catálogo (sin pegarle a ML/TN) y, si el índice
  * está vacío, se puebla — mismo criterio que ensureSkuResolved en syncService.js.
  *
- * De paso arma los nombres de cada SKU. Se cachea 60 s: la foto se lee entera de Postgres y cuenta
- * para el egress de Supabase, y la tabla de precios se refresca después de cada edición.
+ * De paso arma los nombres de cada SKU y su precio publicado hoy. Se cachea 15 s: la foto se lee
+ * entera de Postgres y cuenta para el egress de Supabase, y la tabla se refresca después de cada
+ * edición; "Aplicar" la invalida.
  */
 export async function loadCatalogContext() {
   // Con la caché fresca alcanza, salvo que el índice se haya vaciado aunque la foto tenía SKUs.
@@ -139,15 +176,19 @@ export async function loadCatalogContext() {
   try {
     const { mlRows = [], tnRows = [] } = await getCatalogRows();
     if (getResolvedSkus().length === 0) setResolutionFromAnalysis(mlRows, tnRows);
-    catalogCache = { at: Date.now(), names: buildSkuNames(mlRows, tnRows) };
+    catalogCache = {
+      at: Date.now(),
+      names: buildSkuNames(mlRows, tnRows),
+      prices: buildSkuPrices(mlRows, tnRows, getMlItemBySku, getTnVariantBySku),
+    };
   } catch (e) {
     console.error('[Pricing] no se pudo leer el catálogo:', e.message);
-    if (!catalogCache) return { at: 0, names: new Map() };
+    if (!catalogCache) return { at: 0, names: new Map(), prices: new Map() };
   }
   return catalogCache;
 }
 
-/** Solo para tests: olvida la caché de loadCatalogContext. */
+/** Olvida la caché de loadCatalogContext (después de aplicar, y en los tests). */
 export function _resetCatalogCache() {
   catalogCache = null;
 }
@@ -198,19 +239,29 @@ export async function saveConfig(patch) {
 }
 
 /**
- * Preview de TODOS los costos cargados: precios calculados + delta contra lo que hoy está publicado.
- * `currentBySku` (opcional) mapea sku → { ml, tn } con los precios actuales del snapshot.
+ * Preview de TODOS los costos cargados: precios calculados + lo que hoy está publicado en cada
+ * canal (de la foto del catálogo), para marcar qué falta aplicar. `currentBySku` (opcional) pisa
+ * los publicados — lo usan los tests.
+ *
+ * `mlQueued`: hay un `price_ml` encolado para ese ítem (se aplicó pero la cola de ML todavía no lo
+ * escribió). Sin esto, justo después de "Aplicar" la fila seguiría diciendo "pendiente".
  */
-export async function getPreview(currentBySku = {}) {
-  const { names } = await loadCatalogContext();
+export async function getPreview(currentBySku = null) {
+  const { names, prices } = await loadCatalogContext();
   const db = await getPricingSettings();
   const settings = buildSettings(db);
-  const [costs, packs, overridesBySku] = await Promise.all([
-    getAllProductCosts(), listPacks(), buildOverridesBySku(),
+  const [costs, packs, overridesBySku, activeTasks] = await Promise.all([
+    getAllProductCosts(), listPacks(), buildOverridesBySku(), getActiveMlTasks(),
   ]);
   const packBySku = buildSkuPackIndex(packs);
+  const queuedItems = new Set(activeTasks.filter((t) => t.kind === 'price_ml').map((t) => String(t.itemId)));
   return costs.map((cost) => ({
-    ...previewRow(cost, settings, db, currentBySku[cost.sku] || {}, overridesBySku[cost.sku] || {}),
+    ...previewRow(
+      cost, settings, db,
+      (currentBySku ? currentBySku[cost.sku] : prices?.get(cost.sku)) || {},
+      overridesBySku[cost.sku] || {},
+    ),
+    mlQueued: queuedItems.has(String(getMlItemBySku(cost.sku)?.itemId ?? '')),
     // Nombre de la publicación: en un pack todos los modelos traen la MISMA descripción de la
     // lista (`label`), así que sin esto no hay forma de distinguirlos.
     name: names.get(cost.sku) ?? null,
@@ -359,6 +410,9 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
       }
     }
   }
+
+  // Lo publicado cambió (TN ya, ML al terminar la cola): la próxima lectura no usa la foto cacheada.
+  _resetCatalogCache();
 
   return {
     total: skus.length,

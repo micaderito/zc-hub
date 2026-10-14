@@ -46,6 +46,19 @@
         <i class="ti ti-search"></i>
         <input type="text" placeholder="Buscar SKU o producto…" [ngModel]="search()" (ngModelChange)="search.set($event)" />
       </div>
+      <button
+        type="button"
+        class="pend-chip"
+        [class.on]="onlyPending()"
+        (click)="onlyPending.set(!onlyPending())"
+        [attr.aria-pressed]="onlyPending()"
+        title="Productos cuyo precio a aplicar no coincide con el publicado hoy en ML o TN"
+      >
+        <i class="ti ti-clock-exclamation"></i> Solo pendientes <b>{{ pendingCount() }}</b>
+      </button>
+      @if (pendingCount() > 0) {
+        <button type="button" class="link" (click)="selectPending()">Seleccionar pendientes</button>
+      }
       @if (priceGroups().groups.length > 0) {
         <span class="pr-pack-toggles">
           <button type="button" class="link" (click)="setAllPacksExpanded(true)">Desplegar packs</button>
@@ -121,6 +134,9 @@
                     @if (group.unpublished > 0) {
                       <span class="badge warn" title="Modelos cuyo SKU no aparece en ML ni en TN">{{ group.unpublished }} no publicado{{ group.unpublished === 1 ? '' : 's' }}</span>
                     }
+                    @if (group.pending > 0) {
+                      <span class="badge pend">{{ group.pending }} pendiente{{ group.pending === 1 ? '' : 's' }}</span>
+                    }
                     @if (groupChanged(group)) { <span class="badge brand"><i class="ti ti-sparkles"></i> cambió</span> }
                   </button>
                 </td>
@@ -150,6 +166,17 @@
                 <ng-container *ngTemplateOutlet="priceRowTpl; context: { $implicit: row }" />
               }
             }
+            @if (filteredRows().length === 0) {
+              <tr>
+                <td colspan="9" class="pr-none">
+                  @if (onlyPending() && !search().trim()) {
+                    <i class="ti ti-circle-check"></i> No hay nada pendiente: lo publicado en ML y TN coincide con lo calculado.
+                  } @else {
+                    No hay productos que coincidan con la búsqueda.
+                  }
+                </td>
+              </tr>
+            }
           </tbody>
         </table>
       </div>
@@ -172,6 +199,11 @@
                 <span class="badge warn" title="Este SKU no aparece en Mercado Libre ni en Tienda Nube: no hay dónde aplicar el precio">no publicado</span>
               }
               @if (row.source === 'manual') { <span class="badge neu"><i class="ti ti-pencil"></i> manual</span> }
+              @if (isPending(row)) {
+                <span class="badge pend" title="El precio a aplicar no coincide con el publicado hoy">pendiente de aplicar</span>
+              } @else if (row.mlQueued) {
+                <span class="badge neu" title="Se aplicó y la cola de ML todavía lo está escribiendo"><i class="ti ti-clock"></i> en cola ML</span>
+              }
             </span>
           </div>
         </td>
@@ -191,9 +223,7 @@
               <span class="calc-ref" title="Precio calculado">calc. {{ row.tn.list | currency:'ARS':'symbol':'1.0-0' }}</span>
             }
           </div>
-          @if (delta(row.currentTn, row.tn.effective); as d) {
-            <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
-          }
+          <ng-container *ngTemplateOutlet="publishedTpl; context: { current: row.currentTn, next: row.tn.effective, pending: row.pendingTn, queued: false }" />
         </td>
         <td class="num ml">
           <div class="price-cell">
@@ -209,9 +239,7 @@
             }
           </div>
           @if (row.freeShipping) { <i class="ti ti-truck" title="En zona de envío gratis"></i> }
-          @if (delta(row.currentMl, row.mlEffective); as d) {
-            <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
-          }
+          <ng-container *ngTemplateOutlet="publishedTpl; context: { current: row.currentMl, next: row.mlEffective, pending: row.pendingMl, queued: row.mlQueued }" />
         </td>
         <td class="num net">{{ row.mlNet | currency:'ARS':'symbol':'1.0-0' }}</td>
         <td class="col-actions">
@@ -653,5 +681,23 @@
         </li>
       }
     </ul>
+  }
+</ng-template>
+
+<!-- Precio publicado hoy en un canal, debajo del precio a aplicar -->
+<ng-template #publishedTpl let-current="current" let-next="next" let-pending="pending" let-queued="queued">
+  @if (current != null) {
+    @if (pending && queued) {
+      <span class="pub-ref" title="Se aplicó; la cola de ML todavía lo está escribiendo"><i class="ti ti-clock"></i> en cola · hoy {{ current | currency:'ARS':'symbol':'1.0-0' }}</span>
+    } @else if (pending) {
+      <span class="pub-ref pending" title="Precio publicado hoy">
+        hoy {{ current | currency:'ARS':'symbol':'1.0-0' }}
+        @if (delta(current, next); as d) {
+          <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
+        }
+      </span>
+    } @else {
+      <span class="pub-ref ok" title="Lo publicado coincide"><i class="ti ti-check"></i> publicado</span>
+    }
   }
 </ng-template>
