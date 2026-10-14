@@ -411,64 +411,85 @@ test('dos pedidos a la vez (abrir + "Actualizar") comparten la misma carga contr
   assert.equal(state.calls.getShipment.length, 2);
 });
 
-test('pendiente → se piden su SLA y sus notas; despachado de días anteriores → ninguno de los dos', async () => {
-  state.orders = [mlOrder(1, { shipId: 500 }), mlOrder(2, { shipId: 501 })];
-  state.shipments = { 500: shipment(500), 501: shipment(501, { status: 'shipped', substatus: null }) };
+test('la lista no pide notas: SLA solo de los pendientes', async () => {
+  state.orders = [mlOrder(1, { shipId: 500 }), mlOrder(2, { shipId: 501 }), mlOrder(3, { shipId: 503 })];
+  state.shipments = {
+    500: shipment(500),
+    501: shipment(501, { status: 'shipped', substatus: null }),
+    503: shipment(503, { substatus: 'in_hub' }),
+  };
   await svc.getDispatchList({ now: NOW });
   assert.deepEqual(state.calls.getShipmentSla, ['500']);
-  assert.deepEqual(state.calls.getOrderNotes, ['1']);
+  assert.deepEqual(state.calls.getOrderNotes, []);
 });
 
-test('despachado hoy: se muestra con sus notas, pero sin pedir el SLA', async () => {
-  state.orders = [mlOrder(1, { shipId: 503 })];
-  state.shipments = { 503: shipment(503, { substatus: 'in_hub' }) };
-  state.notes = { 1: ['Fragil'] };
-  const r = await svc.getDispatchList({ now: NOW });
-  assert.equal(r.packages[0].bucket, 'dispatched');
-  assert.deepEqual(r.packages[0].notes.map((n) => n.text), ['Fragil']);
-  assert.deepEqual(state.calls.getShipmentSla, []);
+test('notas aparte: una por venta (ML repite la nota en todo el carrito), también despachados, no cancelados', async () => {
+  state.orders = [
+    mlOrder(1, { packId: 900 }),
+    mlOrder(2, { packId: 900 }),
+    mlOrder(4, { shipId: 503 }),
+    mlOrder(3, { shipId: null, status: 'cancelled', date_last_updated: '2026-10-09T12:00:00.000Z' }),
+  ];
+  state.shipments = { 500: shipment(500), 503: shipment(503, { substatus: 'in_hub' }) };
+  state.notes = { 1: ['Va con moño', 'Cambiar a azul'], 2: ['Va con moño', 'Cambiar a azul'], 4: ['Fragil'] };
+
+  await svc.getDispatchList({ now: NOW });
+  const r = await svc.getDispatchNotes({ now: NOW });
+  assert.deepEqual(r.notes, {
+    900: [{ text: 'Va con moño', author: 'seller' }, { text: 'Cambiar a azul', author: 'seller' }],
+    4: [{ text: 'Fragil', author: 'seller' }],
+  });
+  assert.equal(r.failed, 0);
+  assert.deepEqual(state.calls.getOrderNotes.sort(), ['1', '4']);
 });
 
-test('el SLA se recuerda 10 min aunque se apriete "Actualizar"; envío y notas se piden siempre', async () => {
-  state.orders = [mlOrder(1, { packId: 77, shipId: 500 }), mlOrder(2, { packId: 77, shipId: 500 })];
+test('notas: se comparten mientras la lista es la misma y se vuelven a pedir con cada "Actualizar"', async () => {
+  state.orders = [mlOrder(1)];
+  state.shipments = { 500: shipment(500) };
+  state.notes = { 1: ['Ojo'] };
+  await svc.getDispatchList({ now: NOW });
+  const [a, b] = await Promise.all([svc.getDispatchNotes({ now: NOW }), svc.getDispatchNotes({ now: NOW })]);
+  assert.equal(state.calls.getOrderNotes.length, 1);
+  assert.equal(a.generatedAt, b.generatedAt);
+  state.notes = { 1: ['Ojo', 'Cambió'] };
+  await svc.getDispatchList({ now: new Date(NOW.getTime() + 1000), refresh: true });
+  const c = await svc.getDispatchNotes({ now: NOW });
+  assert.equal(state.calls.getOrderNotes.length, 2);
+  assert.deepEqual(c.notes[1].map((n) => n.text), ['Ojo', 'Cambió']);
+});
+
+test('notas sin lista en caché: primero arma la lista', async () => {
+  state.orders = [mlOrder(1)];
+  state.shipments = { 500: shipment(500) };
+  state.notes = { 1: ['Ojo'] };
+  const r = await svc.getDispatchNotes({ now: NOW });
+  assert.equal(state.calls.getShipment.length, 1);
+  assert.deepEqual(Object.keys(r.notes), ['1']);
+});
+
+test('notas de ML: si fallan, la lista sale igual y se informa cuántas fallaron', async () => {
+  state.orders = [mlOrder(1)];
+  state.shipments = { 500: shipment(500) };
+  state.notesThrow = Object.assign(new Error('429'), { statusCode: 429 });
+  const list = await svc.getDispatchList({ now: NOW });
+  assert.equal(list.packages.length, 1);
+  assert.equal(list.errors.ml, undefined);
+  const r = await svc.getDispatchNotes({ now: NOW });
+  assert.deepEqual(r.notes, {});
+  assert.equal(r.failed, 1);
+});
+
+test('el SLA se recuerda 10 min aunque se apriete "Actualizar"; el envío se pide siempre', async () => {
+  state.orders = [mlOrder(1, { shipId: 500 })];
   state.shipments = { 500: shipment(500) };
   state.slas = { 500: { status: 'on_time', expected_date: '2026-10-09T13:00:00.000-03:00' } };
-  state.notes = { 1: ['Envolver para regalo'] };
   await svc.getDispatchList({ now: NOW });
   const r = await svc.getDispatchList({ now: new Date(NOW.getTime() + 5 * 60_000), refresh: true });
   assert.deepEqual(state.calls.getShipmentSla, ['500']);
   assert.equal(state.calls.getShipment.length, 2);
-  assert.equal(state.calls.getOrderNotes.length, 2);
-  assert.deepEqual(r.packages[0].notes.map((n) => n.text), ['Envolver para regalo']);
   assert.equal(r.packages[0].deadlineHasTime, true);
   await svc.getDispatchList({ now: new Date(NOW.getTime() + 11 * 60_000), refresh: true });
   assert.equal(state.calls.getShipmentSla.length, 2);
-});
-
-test('notas de ML: un solo pedido por carrito (ML repite la nota en todas sus órdenes); no para cancelados', async () => {
-  state.orders = [
-    mlOrder(1, { packId: 900 }),
-    mlOrder(2, { packId: 900 }),
-    mlOrder(3, { shipId: null, status: 'cancelled', date_last_updated: '2026-10-09T12:00:00.000Z' }),
-  ];
-  state.shipments = { 500: shipment(500) };
-  state.notes = { 1: ['Va con moño', 'Cambiar a azul'], 2: ['Va con moño', 'Cambiar a azul'] };
-
-  const r = await svc.getDispatchList({ now: NOW });
-  const pkg = r.packages.find((p) => p.saleId === '900');
-  assert.deepEqual(pkg.notes, [{ text: 'Va con moño', author: 'seller' }, { text: 'Cambiar a azul', author: 'seller' }]);
-  assert.deepEqual(state.calls.getOrderNotes, ['1']);
-});
-
-test('notas de ML: si fallan, el paquete se muestra igual sin notas', async () => {
-  state.orders = [mlOrder(1)];
-  state.shipments = { 500: shipment(500) };
-  state.notesThrow = Object.assign(new Error('429'), { statusCode: 429 });
-
-  const r = await svc.getDispatchList({ now: NOW });
-  assert.equal(r.packages.length, 1);
-  assert.deepEqual(r.packages[0].notes, []);
-  assert.equal(r.errors.ml, undefined);
 });
 
 test('notas de TN: la de la vendedora y la del comprador', () => {

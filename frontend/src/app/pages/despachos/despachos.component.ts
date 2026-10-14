@@ -1,6 +1,7 @@
 import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
-import { QueryClient, injectQuery } from '@tanstack/angular-query-experimental';
+import { QueryClient, injectQuery, keepPreviousData } from '@tanstack/angular-query-experimental';
 import {
+  DISPATCH_NOTES_QUERY_KEY,
   DISPATCH_QUERY_KEY,
   DispatchItem,
   DispatchList,
@@ -96,6 +97,28 @@ export class DespachosComponent {
     refetchOnWindowFocus: true,
   }));
 
+  /**
+   * Notas de ML: un pedido a ML por venta, así que van aparte y DESPUÉS de la lista (comparten el
+   * limitador de ML: en paralelo la demorarían). La clave lleva `generatedAt`: cada lista nueva
+   * (Actualizar, refresco solo) trae sus notas frescas.
+   */
+  readonly notesQuery = injectQuery(() => {
+    const generatedAt = this.query.data()?.generatedAt ?? null;
+    return {
+      queryKey: [...DISPATCH_NOTES_QUERY_KEY, generatedAt],
+      queryFn: () => this.svc.getNotes(),
+      enabled: !!generatedAt,
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
+      // Al actualizar, las notas que ya se ven quedan hasta que llegan las nuevas.
+      placeholderData: keepPreviousData,
+    };
+  });
+
+  /** Las notas de ML todavía no llegaron (la lista ya está a la vista). */
+  readonly notesLoading = computed(() => !!this.query.data() && this.notesQuery.isFetching());
+  readonly notesFailed = computed(() => this.notesQuery.isError() || (this.notesQuery.data()?.failed ?? 0) > 0);
+
   constructor() {
     const timer = setInterval(() => this.now.set(Date.now()), 30_000);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
@@ -120,12 +143,14 @@ export class DespachosComponent {
   private readonly packages = computed<DispatchPackage[]>(() => {
     const overrides = this.preparedOverride();
     const seen = this.seenLocal();
+    const mlNotes = this.notesQuery.data()?.notes ?? {};
     return (this.data()?.packages ?? [])
       .filter((p) => !(p.cancelled && seen.has(this.key(p))))
       .map((p) => {
+        const withNotes = p.channel === 'ml' && mlNotes[p.saleId] ? { ...p, notes: mlNotes[p.saleId] } : p;
         const o = overrides.get(this.key(p));
-        if (o === undefined) return p;
-        return { ...p, preparedAt: o ? (p.preparedAt ?? new Date().toISOString()) : null };
+        if (o === undefined) return withNotes;
+        return { ...withNotes, preparedAt: o ? (p.preparedAt ?? new Date().toISOString()) : null };
       });
   });
 

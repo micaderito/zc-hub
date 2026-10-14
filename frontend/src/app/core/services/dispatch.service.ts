@@ -4,6 +4,7 @@ import { lastValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 
 export const DISPATCH_QUERY_KEY = ['dispatch', 'list'] as const;
+export const DISPATCH_NOTES_QUERY_KEY = ['dispatch', 'notes'] as const;
 
 export type DispatchChannel = 'ml' | 'tn';
 export type DispatchBucket = 'cancelled' | 'overdue' | 'today' | 'upcoming' | 'dispatched';
@@ -66,6 +67,14 @@ export interface DispatchList {
   errors: { ml?: string; tn?: string };
 }
 
+/** Notas de las ventas de ML por `saleId`, aparte de la lista (llegan después). */
+export interface DispatchNotes {
+  generatedAt: string;
+  notes: Record<string, DispatchNote[]>;
+  /** Cuántas ventas no se pudieron leer (429): sus notas pueden faltar. */
+  failed: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class DispatchService {
   private readonly http = inject(HttpClient);
@@ -74,6 +83,10 @@ export class DispatchService {
   getList(refresh = false): Promise<DispatchList> {
     const qs = refresh ? '?refresh=1' : '';
     return lastValueFrom(this.http.get<DispatchList>(`${this.api.baseUrl}/dispatch${qs}`));
+  }
+
+  getNotes(): Promise<DispatchNotes> {
+    return lastValueFrom(this.http.get<DispatchNotes>(`${this.api.baseUrl}/dispatch/notes`));
   }
 
   setPrepared(pkg: Pick<DispatchPackage, 'channel' | 'saleId'>, prepared: boolean): Promise<unknown> {
