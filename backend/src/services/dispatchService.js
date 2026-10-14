@@ -285,6 +285,9 @@ export function buildMlPackages(orders, { shipments, slas, items, notes = new Ma
       shippingMethod: null,
       // En un carrito cada orden puede tener su nota (o la misma repetida): se juntan sin duplicar.
       notes: [...new Set(group.flatMap((o) => notes.get(String(o.id)) ?? []))].map((text) => ({ text, author: 'seller' })),
+      // La nota se carga a la venta entera y ML la repite en todas las órdenes del carrito: alcanza
+      // con leer la de una orden pagada (getDispatchNotes).
+      noteOrderId: String((group.find((o) => String(o.status).toLowerCase() === 'paid') ?? first)?.id),
       items: lines,
     };
 
@@ -490,31 +493,12 @@ function countByStatus(shipments) {
 }
 
 /**
- * Lo pesado de la página. Todo pasa por mlLimiter (6 en vuelo, 150 ms entre arranques), así que el
+ * Lo pesado de la página (sin las notas, que van aparte: ver getDispatchNotes). Todo pasa por mlLimiter (6 en vuelo, 150 ms entre arranques), así que el
  * piso es la cantidad de requests; lo que se evita acá son las barreras entre etapas. Antes era
  * envíos (todos) → SLA (todos) → fotos → notas (todas), y cada etapa esperaba al request más lento
  * de la anterior con el caño medio vacío. Ahora cada envío es su propio pipeline: apenas llega,
  * arrancan su SLA y las notas de sus órdenes, mientras otros envíos siguen en vuelo.
  */
-/**
- * Diagnóstico temporal, para decidir con datos reales:
- * 1. ¿`/orders/search` trae algo de notas? Se loguea una vez por proceso qué campos trae una orden.
- * 2. En un carrito, ¿la nota está en UNA orden o repetida en todas? Si está repetida, alcanza con
- *    pedir las notas de una sola orden por carrito (hoy se pide una por producto).
- */
-let loggedOrderKeys = false;
-function logNotesDiagnostics(orders, paidByShipment, notes) {
-  if (!loggedOrderKeys && orders.length) {
-    loggedOrderKeys = true;
-    console.info('[Despachos] diag campos de una orden de /orders/search:', Object.keys(orders[0]).sort().join(','));
-  }
-  for (const [sid, orderIds] of paidByShipment) {
-    if (orderIds.length < 2 || !orderIds.some((id) => notes.has(id))) continue;
-    const detail = orderIds.map((id) => `${id}=${notes.get(id)?.length ?? 0}`).join(' ');
-    console.info(`[Despachos] diag notas en carrito (envío ${sid}, ${orderIds.length} órdenes): ${detail}`);
-  }
-}
-
 async function loadMl(now) {
   const t0 = Date.now();
   const token = await getMlToken();
@@ -543,25 +527,10 @@ async function loadMl(now) {
 
   const shipments = new Map();
   const slas = new Map();
-  const notes = new Map();
   /** Envíos que se van a mostrar (pendientes o despachados hoy): de esos se piden las fotos. */
   const shownIds = new Set();
   let memoHits = 0;
   let slaCount = 0;
-  let noteCount = 0;
-
-  // Notas de la vendedora: de lo que se muestra (no de los cancelados), siempre frescas.
-  // `GET /orders/:id/notes` es por ORDEN (un carrito de 9 productos son 9 pedidos): ver
-  // logNotesDiagnostics. Una nota que no se pudo leer no tumba la lista: el paquete sale sin nota.
-  const loadNotes = (orderIds) => Promise.all(orderIds.map(async (id) => {
-    noteCount++;
-    try {
-      const list = await ml.getOrderNotes(token, id);
-      if (list.length) notes.set(id, list);
-    } catch (e) {
-      console.warn(`[Despachos] notas de la orden ${id}:`, e?.message);
-    }
-  }));
 
   // El SLA (horario límite) casi no se mueve y "atrasado" igual se calcula contra la hora: se
   // recuerda SLA_TTL_MS. El estado del envío NO: es lo que dice si ya se despachó.
@@ -585,10 +554,9 @@ async function loadMl(now) {
     const pending = isPendingShipment(s);
     if (!pending && !isDispatchedToday(s, now)) return;
     shownIds.add(id);
-    // Un despachado ya está en el correo: SLA no, pero las notas sí (puede hacer falta ver algo).
-    await Promise.all([pending ? loadSla(id) : null, loadNotes(paidByShipment.get(id))]);
+    // Un despachado ya está en el correo: no hace falta su SLA. Las notas van aparte (getDispatchNotes).
+    if (pending) await loadSla(id);
   });
-  logNotesDiagnostics(orders, paidByShipment, notes);
   const tShipments = Date.now();
   pruneMemo(slaMemo, SLA_TTL_MS, now);
 
@@ -606,11 +574,11 @@ async function loadMl(now) {
   const tEnd = Date.now();
   console.info(
     `[Despachos] ML en ${tEnd - t0} ms — órdenes ${tOrders - t0} ms (${orders.length}, ${relevant.length} relevantes)`
-    + ` · envíos+SLA+notas ${tShipments - tOrders} ms (${shipmentIds.length} envíos, ${memoHits} de memoria, ${slaCount} SLA, ${noteCount} notas)`
+    + ` · envíos+SLA ${tShipments - tOrders} ms (${shipmentIds.length} envíos, ${memoHits} de memoria, ${slaCount} SLA)`
     + ` · fotos ${tEnd - tShipments} ms (${itemIds.length} ítems)`,
   );
 
-  const { pending, cancelled } = buildMlPackages(relevant, { shipments, slas, items, notes, now });
+  const { pending, cancelled } = buildMlPackages(relevant, { shipments, slas, items, now });
   return [...pending, ...cancelled];
 }
 
@@ -674,6 +642,46 @@ export async function getDispatchList({ refresh = false, now = new Date() } = {}
   };
 }
 
+/** Notas de ML de la lista en caché: `{ at, promise }`, atadas a `cache.at`. */
+let notesCache = null;
+
+async function loadMlNotes(packages) {
+  const t0 = Date.now();
+  const token = await getMlToken();
+  const targets = packages.filter((p) => p.channel === 'ml' && !p.cancelled && p.noteOrderId);
+  const notes = {};
+  let failed = 0;
+  await mapLimit(targets, 6, async (p) => {
+    try {
+      const list = await ml.getOrderNotes(token, p.noteOrderId);
+      if (list.length) notes[p.saleId] = list.map((text) => ({ text, author: 'seller' }));
+    } catch (e) {
+      failed++;
+      console.warn(`[Despachos] notas de la orden ${p.noteOrderId}:`, e?.message);
+    }
+  });
+  console.info(`[Despachos] notas ML en ${Date.now() - t0} ms (${targets.length} ventas, ${failed} fallidas)`);
+  return { notes, failed };
+}
+
+/**
+ * Notas de las ventas de ML, aparte de la lista: son un pedido a ML por venta (~1/3 del total), así
+ * que la página muestra la lista apenas está y las notas llegan después. Siempre frescas: se piden
+ * de nuevo cada vez que la lista se recarga, y se comparten entre los requests de la misma lista.
+ * Se piden DESPUÉS de la lista (no en paralelo) a propósito: todo pasa por el mismo limitador de ML,
+ * así que en paralelo le sacarían turnos a los envíos y la lista tardaría más en aparecer.
+ */
+export async function getDispatchNotes({ now = new Date() } = {}) {
+  if (!cache || inFlight) await getDispatchList({ now });
+  if (!notesCache || notesCache.at !== cache.at) {
+    const promise = loadMlNotes(cache.packages);
+    notesCache = { at: cache.at, promise };
+    promise.catch(() => { if (notesCache?.promise === promise) notesCache = null; });
+  }
+  const { notes, failed } = await notesCache.promise;
+  return { generatedAt: new Date(cache.at).toISOString(), notes, failed };
+}
+
 function describeError(e) {
   if (e?.statusCode === 429) return 'La API no contestó (demasiados pedidos seguidos). Probá de nuevo en un minuto.';
   return e?.message || 'No se pudo leer';
@@ -683,6 +691,7 @@ function describeError(e) {
 export function _resetDispatchCache() {
   cache = null;
   inFlight = null;
+  notesCache = null;
   finalShipments.clear();
   slaMemo.clear();
 }

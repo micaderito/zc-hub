@@ -10,6 +10,9 @@
         @if (busy()) {
           <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Actualizando con ML y TN…</span>
         } @else if (generatedAt()) { · actualizado {{ timeAgo(generatedAt()) }} }
+        @if (notesLoading() && !busy()) {
+          <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Cargando notas de ML…</span>
+        }
       </p>
     </div>
     <button type="button" class="btn" [class.busy]="busy()" (click)="refresh()" [disabled]="busy() || query.isLoading()">
@@ -53,6 +56,9 @@
   }
   @if (errors().tn) {
     <div class="ds-alert"><i class="ti ti-alert-circle" aria-hidden="true"></i> No se pudo leer Tienda Nube: {{ errors().tn }}</div>
+  }
+  @if (notesFailed()) {
+    <div class="ds-alert"><i class="ti ti-alert-circle" aria-hidden="true"></i> Algunas notas de Mercado Libre no se pudieron leer: puede faltar alguna. Probá con Actualizar.</div>
   }
   @if (errorMsg()) {
     <div class="ds-alert">{{ errorMsg() }}</div>

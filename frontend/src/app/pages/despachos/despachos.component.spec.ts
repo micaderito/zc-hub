@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
-import { DispatchList, DispatchPackage, DispatchService } from '../../core/services/dispatch.service';
+import { DispatchList, DispatchNotes, DispatchPackage, DispatchService } from '../../core/services/dispatch.service';
 import { DespachosComponent, countdown } from './despachos.component';
 
 const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -40,6 +40,8 @@ function list(packages: DispatchPackage[]): DispatchList {
 class DispatchMock {
   data = list([]);
   getList = jasmine.createSpy('getList').and.callFake(() => Promise.resolve(this.data));
+  notes: DispatchNotes = { generatedAt: '', notes: {}, failed: 0 };
+  getNotes = jasmine.createSpy('getNotes').and.callFake(() => Promise.resolve(this.notes));
   setPrepared = jasmine.createSpy('setPrepared').and.resolveTo({ ok: true });
   markCancelSeen = jasmine.createSpy('markCancelSeen').and.resolveTo({ ok: true });
 }
@@ -95,6 +97,30 @@ describe('DespachosComponent', () => {
     svc.getList.and.returnValue(new Promise<DispatchList>(() => {}));
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.sk-card').length).toBe(3);
+  });
+
+  it('la lista se ve antes que las notas de ML; cuando llegan se suman a su venta', async () => {
+    let resolveNotes!: (v: DispatchNotes) => void;
+    svc.getNotes.and.returnValue(new Promise<DispatchNotes>((r) => (resolveNotes = r)));
+    await load([pkg({ saleId: '900' }), pkg({ saleId: '901' })]);
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.textContent).toContain('Venta #900');
+    expect(el.textContent).toContain('Cargando notas de ML…');
+    expect(el.querySelector('.pk-notes')).toBeNull();
+    resolveNotes({ generatedAt: '', notes: { 900: [{ text: 'Va con moño', author: 'seller' }] }, failed: 0 });
+    await settle();
+    fixture.detectChanges();
+    expect(el.textContent).not.toContain('Cargando notas de ML…');
+    expect(el.querySelectorAll('.pk-notes').length).toBe(1);
+    expect(el.querySelector('.pk-notes')!.textContent).toContain('Va con moño');
+  });
+
+  it('si alguna nota no se pudo leer, avisa', async () => {
+    svc.notes = { generatedAt: '', notes: {}, failed: 2 };
+    await load([pkg()]);
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Algunas notas de Mercado Libre no se pudieron leer');
   });
 
   it('Hoy: atrasados primero, después ML por horario de corte y TN al final', async () => {

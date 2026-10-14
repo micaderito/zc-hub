@@ -3,7 +3,7 @@
  * services/dispatchService.js; acá solo HTTP + las marcas del hub (preparado / cancelado visto).
  */
 import { Router } from 'express';
-import { getDispatchList } from '../services/dispatchService.js';
+import { getDispatchList, getDispatchNotes } from '../services/dispatchService.js';
 import * as db from '../db.js';
 
 export const dispatchRoutes = Router();
@@ -24,6 +24,15 @@ function parseTarget(req, res) {
 dispatchRoutes.get('/', async (req, res) => {
   try {
     res.json(await getDispatchList({ refresh: req.query.refresh === '1' }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Notas de las ventas de ML de la lista actual. Van aparte para que la lista se vea antes. */
+dispatchRoutes.get('/notes', async (_req, res) => {
+  try {
+    res.json(await getDispatchNotes());
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
