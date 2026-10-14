@@ -577,19 +577,19 @@ export async function getOrdersWindow(accessToken, sellerId, from, to) {
   const firstResults = first?.results ?? [];
 
   if (total <= ML_OFFSET_CAP) {
-    const results = [...firstResults];
-    for (let offset = ORDERS_WINDOW_PAGE_LIMIT; offset < total; offset += ORDERS_WINDOW_PAGE_LIMIT) {
-      const page = await getOrdersSearch(accessToken, {
-        seller: sellerId,
-        dateCreatedFrom: from,
-        dateCreatedTo: to,
-        sort: 'date_asc',
-        limit: ORDERS_WINDOW_PAGE_LIMIT,
-        offset,
-      });
-      results.push(...(page?.results ?? []));
-    }
-    return results;
+    // Con el total ya conocido, el resto de las páginas se piden en paralelo (el ritmo lo pone
+    // mlLimiter): una tras otra sumaban un round-trip entero por página.
+    const offsets = [];
+    for (let offset = ORDERS_WINDOW_PAGE_LIMIT; offset < total; offset += ORDERS_WINDOW_PAGE_LIMIT) offsets.push(offset);
+    const pages = await Promise.all(offsets.map((offset) => getOrdersSearch(accessToken, {
+      seller: sellerId,
+      dateCreatedFrom: from,
+      dateCreatedTo: to,
+      sort: 'date_asc',
+      limit: ORDERS_WINDOW_PAGE_LIMIT,
+      offset,
+    })));
+    return [...firstResults, ...pages.flatMap((page) => page?.results ?? [])];
   }
 
   // Más de 1000 órdenes en la ventana: partir el rango de fechas al medio y recurrir.

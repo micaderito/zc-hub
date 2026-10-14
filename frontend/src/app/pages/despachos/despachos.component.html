@@ -1,14 +1,19 @@
-<div class="ds-page">
+<div class="ds-page" [class.is-busy]="busy()" [attr.aria-busy]="busy()">
+  @if (busy() || query.isLoading()) {
+    <div class="ds-progress" role="progressbar" aria-label="Actualizando pedidos"><span></span></div>
+  }
   <header class="ds-head">
     <div>
       <h1>Para preparar</h1>
       <p>
         <span class="cap">{{ todayLabel() }}</span>
-        @if (generatedAt()) { · actualizado {{ timeAgo(generatedAt()) }} }
+        @if (busy()) {
+          <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Actualizando con ML y TN…</span>
+        } @else if (generatedAt()) { · actualizado {{ timeAgo(generatedAt()) }} }
       </p>
     </div>
-    <button type="button" class="btn" (click)="refresh()" [disabled]="refreshing()">
-      <i class="ti ti-refresh" [class.spin]="refreshing()" aria-hidden="true"></i> Actualizar
+    <button type="button" class="btn" [class.busy]="busy()" (click)="refresh()" [disabled]="busy() || query.isLoading()">
+      <i class="ti ti-refresh" [class.spin]="busy()" aria-hidden="true"></i> {{ busy() ? 'Actualizando…' : 'Actualizar' }}
     </button>
   </header>
 
@@ -55,6 +60,14 @@
 
   @if (query.isLoading()) {
     <p class="ds-msg"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Buscando pedidos en Mercado Libre y Tienda Nube…</p>
+    <div class="ds-skeleton" aria-hidden="true">
+      @for (i of [1, 2, 3]; track i) {
+        <div class="sk-card">
+          <div class="sk-line w40"></div>
+          <div class="sk-row"><div class="sk-thumb"></div><div class="sk-lines"><div class="sk-line w70"></div><div class="sk-line w30"></div></div></div>
+        </div>
+      }
+    </div>
   } @else if (query.isError()) {
     <div class="ds-alert">No se pudo cargar la lista. <button type="button" class="link" (click)="refresh()">Reintentar</button></div>
   } @else {

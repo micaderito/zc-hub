@@ -472,13 +472,22 @@ function countByStatus(shipments) {
   return out;
 }
 
+/**
+ * Lo pesado de la página. Todo pasa por mlLimiter (6 en vuelo, 150 ms entre arranques), así que el
+ * piso es la cantidad de requests; lo que se evita acá son las barreras entre etapas. Antes era
+ * envíos (todos) → SLA (todos) → fotos → notas (todas), y cada etapa esperaba al request más lento
+ * de la anterior con el caño medio vacío. Ahora cada envío es su propio pipeline: apenas llega,
+ * arrancan su SLA y las notas de sus órdenes, mientras otros envíos siguen en vuelo.
+ */
 async function loadMl(now) {
+  const t0 = Date.now();
   const token = await getMlToken();
   const sellerId = tokens.mercadolibre?.user_id;
   if (!token || !sellerId) throw new Error('Mercado Libre no está conectado');
 
   const from = new Date(now.getTime() - ML_LOOKBACK_DAYS * MS_DAY).toISOString();
   const orders = await ml.getOrdersWindow(token, sellerId, from, now.toISOString());
+  const tOrders = Date.now();
   // Solo interesan las pagadas sin entregar y las canceladas recientes; el resto ni se mira.
   const relevant = orders.filter((o) => {
     const st = String(o.status).toLowerCase();
@@ -487,26 +496,58 @@ async function loadMl(now) {
     return false;
   });
 
-  const shipmentIds = [...new Set(relevant.map(getShipmentIdFromOrder).filter(Boolean).map(String))];
+  const paidByShipment = new Map();
+  for (const o of relevant) {
+    const sid = getShipmentIdFromOrder(o);
+    if (!sid) continue;
+    if (!paidByShipment.has(String(sid))) paidByShipment.set(String(sid), []);
+    if (String(o.status).toLowerCase() === 'paid') paidByShipment.get(String(sid)).push(String(o.id));
+  }
+  const shipmentIds = [...paidByShipment.keys()];
+
   const shipments = new Map();
-  await mapLimit(shipmentIds, 4, async (id) => {
-    const memo = finalShipments.get(id);
-    if (memo) { shipments.set(id, memo); return; }
-    const s = await ml.getShipment(token, id);
-    if (s) { shipments.set(id, s); rememberFinal(s); }
+  const slas = new Map();
+  const notes = new Map();
+  /** Envíos que se van a mostrar (pendientes o despachados hoy): de esos se piden las fotos. */
+  const shownIds = new Set();
+  let memoHits = 0;
+  let slaCount = 0;
+  let noteCount = 0;
+
+  // Notas de la vendedora: solo de lo que se va a armar (no de los cancelados). Una nota que no se
+  // pudo leer no tumba la lista: el paquete se muestra igual, sin nota.
+  const loadNotes = (orderIds) => Promise.all(orderIds.map(async (id) => {
+    noteCount++;
+    try {
+      const list = await ml.getOrderNotes(token, id);
+      if (list.length) notes.set(id, list);
+    } catch (e) {
+      console.warn(`[Despachos] notas de la orden ${id}:`, e?.message);
+    }
+  }));
+
+  await mapLimit(shipmentIds, 6, async (id) => {
+    let s = finalShipments.get(id);
+    if (s) memoHits++;
+    else {
+      s = await ml.getShipment(token, id);
+      if (!s) return;
+      rememberFinal(s);
+    }
+    shipments.set(id, s);
+    const pending = isPendingShipment(s);
+    if (!pending && !isDispatchedToday(s, now)) return;
+    shownIds.add(id);
+    await Promise.all([
+      pending ? ml.getShipmentSla(token, id).then((sla) => { slaCount++; if (sla) slas.set(id, sla); }) : null,
+      loadNotes(paidByShipment.get(id)),
+    ]);
   });
+  const tShipments = Date.now();
 
   console.info('[Despachos] envíos ML:', JSON.stringify(countByStatus(shipments)));
 
-  const slas = new Map();
-  const pendingIds = shipmentIds.filter((id) => isPendingShipment(shipments.get(id)));
-  await mapLimit(pendingIds, 4, async (id) => {
-    const sla = await ml.getShipmentSla(token, id);
-    if (sla) slas.set(id, sla);
-  });
-
   // Fotos: solo de los ítems de paquetes que se van a mostrar.
-  const shownIds = new Set([...pendingIds, ...shipmentIds.filter((id) => isDispatchedToday(shipments.get(id), now))]);
   const shown = relevant.filter((o) => {
     const sid = getShipmentIdFromOrder(o);
     return String(o.status).toLowerCase() === 'cancelled' || (sid && shownIds.has(String(sid)));
@@ -515,18 +556,12 @@ async function loadMl(now) {
   const itemList = itemIds.length ? await ml.getItems(token, itemIds, 'id,pictures,variations,secure_thumbnail') : [];
   const items = new Map(itemList.map((it) => [String(it.id), it]));
 
-  // Notas de la vendedora: solo de lo que se va a armar (no de los cancelados). Una nota que no se
-  // pudo leer no tumba la lista: el paquete se muestra igual, sin nota.
-  const notes = new Map();
-  const noteOrderIds = [...new Set(shown.filter((o) => String(o.status).toLowerCase() === 'paid').map((o) => String(o.id)))];
-  await mapLimit(noteOrderIds, 4, async (id) => {
-    try {
-      const list = await ml.getOrderNotes(token, id);
-      if (list.length) notes.set(id, list);
-    } catch (e) {
-      console.warn(`[Despachos] notas de la orden ${id}:`, e?.message);
-    }
-  });
+  const tEnd = Date.now();
+  console.info(
+    `[Despachos] ML en ${tEnd - t0} ms — órdenes ${tOrders - t0} ms (${orders.length}, ${relevant.length} relevantes)`
+    + ` · envíos+SLA+notas ${tShipments - tOrders} ms (${shipmentIds.length} envíos, ${memoHits} de memoria, ${slaCount} SLA, ${noteCount} notas)`
+    + ` · fotos ${tEnd - tShipments} ms (${itemIds.length} ítems)`,
+  );
 
   const { pending, cancelled } = buildMlPackages(relevant, { shipments, slas, items, notes, now });
   return [...pending, ...cancelled];
@@ -555,6 +590,19 @@ async function loadTn(now) {
 }
 
 let cache = null; // { at, packages, errors }
+/** Carga de ML+TN en curso, compartida entre requests simultáneos. */
+let inFlight = null;
+
+async function loadAll(now) {
+  const errors = {};
+  const [mlRes, tnRes] = await Promise.allSettled([loadMl(now), loadTn(now)]);
+  const packages = [];
+  if (mlRes.status === 'fulfilled') packages.push(...mlRes.value);
+  else { errors.ml = describeError(mlRes.reason); console.warn('[Despachos] ML:', mlRes.reason?.message); }
+  if (tnRes.status === 'fulfilled') packages.push(...tnRes.value);
+  else { errors.tn = describeError(tnRes.reason); console.warn('[Despachos] TN:', tnRes.reason?.message); }
+  cache = { at: now.getTime(), packages, errors };
+}
 
 /**
  * Lista para la página. `refresh` saltea la caché (botón "Actualizar"). Si un canal falla, el otro
@@ -562,17 +610,15 @@ let cache = null; // { at, packages, errors }
  * "no hay pedidos" cuando en realidad ML no contestó.
  */
 export async function getDispatchList({ refresh = false, now = new Date() } = {}) {
+  // Las marcas son del hub (no de ML/TN): se leen en paralelo con la carga.
+  const marksP = db.getDispatchMarks();
   if (refresh || !cache || now.getTime() - cache.at > CACHE_TTL_MS) {
-    const errors = {};
-    const [mlRes, tnRes] = await Promise.allSettled([loadMl(now), loadTn(now)]);
-    const packages = [];
-    if (mlRes.status === 'fulfilled') packages.push(...mlRes.value);
-    else { errors.ml = describeError(mlRes.reason); console.warn('[Despachos] ML:', mlRes.reason?.message); }
-    if (tnRes.status === 'fulfilled') packages.push(...tnRes.value);
-    else { errors.tn = describeError(tnRes.reason); console.warn('[Despachos] TN:', tnRes.reason?.message); }
-    cache = { at: now.getTime(), packages, errors };
+    // Una carga en vuelo se comparte: abrir la página y apretar "Actualizar" a la vez (o dos
+    // personas mirando) no dispara dos tandas enteras contra ML. La que está en vuelo ya es fresca.
+    if (!inFlight) inFlight = loadAll(now).finally(() => { inFlight = null; });
+    await inFlight;
   }
-  const marks = await db.getDispatchMarks();
+  const marks = await marksP;
   return {
     generatedAt: new Date(cache.at).toISOString(),
     today: arDayKey(now),
@@ -589,5 +635,6 @@ function describeError(e) {
 /** Solo para tests. */
 export function _resetDispatchCache() {
   cache = null;
+  inFlight = null;
   finalShipments.clear();
 }

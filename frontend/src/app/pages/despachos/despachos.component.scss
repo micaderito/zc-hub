@@ -24,6 +24,58 @@
 .spin { animation: ds-spin 0.9s linear infinite; display: inline-block; }
 @keyframes ds-spin { to { transform: rotate(360deg); } }
 
+/* Actualizando: barra arriba + botón en color de marca (no el gris apagado de un disabled) */
+.ds-progress {
+  position: sticky; top: 0; z-index: 5;
+  height: 3px; margin: -18px -20px 15px; overflow: hidden;
+  background: var(--brand-bg);
+  span {
+    display: block; height: 100%; width: 35%;
+    background: var(--brand); border-radius: 3px;
+    animation: ds-progress 1.1s ease-in-out infinite;
+  }
+}
+@keyframes ds-progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+.btn.busy:disabled {
+  opacity: 1; cursor: progress;
+  background: var(--brand-bg); border-color: var(--brand); color: var(--brand);
+}
+.ds-updating {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;
+  padding: 1px 8px; border-radius: 999px;
+  background: var(--brand-bg); color: var(--brand); font-weight: 500;
+}
+.is-busy {
+  .ds-section, .ds-cancelled, .ds-empty { opacity: 0.6; transition: opacity 0.2s; }
+}
+
+/* Primera carga: tarjetas fantasma con la forma de un paquete */
+.ds-skeleton { margin-top: 12px; }
+.sk-card {
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg);
+  padding: 12px 14px; margin-bottom: 8px;
+}
+.sk-row { display: flex; gap: 10px; margin-top: 10px; }
+.sk-lines { flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.sk-thumb, .sk-line {
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.3s linear infinite;
+}
+.sk-thumb { width: 44px; height: 44px; flex-shrink: 0; }
+.sk-line { height: 10px; }
+.w30 { width: 30%; } .w40 { width: 40%; } .w70 { width: 70%; }
+@keyframes ds-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-progress span { animation-duration: 2.5s; }
+  .sk-thumb, .sk-line { animation: none; }
+}
+
 /* KPIs */
 .ds-kpis {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px;
@@ -185,6 +237,7 @@ a.pk-sale:hover { color: var(--brand); text-decoration: underline; }
 
 @media (max-width: 640px) {
   :host { padding: 14px 16px 90px; }
+  .ds-progress { margin: -14px -16px 11px; }
   .pk-chips { margin-left: 0; width: 100%; }
   .thumb-btn { --thumb-size: 48px; }
 }
