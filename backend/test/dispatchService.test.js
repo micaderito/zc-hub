@@ -419,6 +419,32 @@ test('pendiente → se piden su SLA y sus notas; despachado de días anteriores 
   assert.deepEqual(state.calls.getOrderNotes, ['1']);
 });
 
+test('despachado hoy: se muestra con sus notas, pero sin pedir el SLA', async () => {
+  state.orders = [mlOrder(1, { shipId: 503 })];
+  state.shipments = { 503: shipment(503, { substatus: 'in_hub' }) };
+  state.notes = { 1: ['Fragil'] };
+  const r = await svc.getDispatchList({ now: NOW });
+  assert.equal(r.packages[0].bucket, 'dispatched');
+  assert.deepEqual(r.packages[0].notes.map((n) => n.text), ['Fragil']);
+  assert.deepEqual(state.calls.getShipmentSla, []);
+});
+
+test('el SLA se recuerda 10 min aunque se apriete "Actualizar"; envío y notas se piden siempre', async () => {
+  state.orders = [mlOrder(1, { packId: 77, shipId: 500 }), mlOrder(2, { packId: 77, shipId: 500 })];
+  state.shipments = { 500: shipment(500) };
+  state.slas = { 500: { status: 'on_time', expected_date: '2026-10-09T13:00:00.000-03:00' } };
+  state.notes = { 1: ['Envolver para regalo'] };
+  await svc.getDispatchList({ now: NOW });
+  const r = await svc.getDispatchList({ now: new Date(NOW.getTime() + 5 * 60_000), refresh: true });
+  assert.deepEqual(state.calls.getShipmentSla, ['500']);
+  assert.equal(state.calls.getShipment.length, 2);
+  assert.equal(state.calls.getOrderNotes.length, 4);
+  assert.deepEqual(r.packages[0].notes.map((n) => n.text), ['Envolver para regalo']);
+  assert.equal(r.packages[0].deadlineHasTime, true);
+  await svc.getDispatchList({ now: new Date(NOW.getTime() + 11 * 60_000), refresh: true });
+  assert.equal(state.calls.getShipmentSla.length, 2);
+});
+
 test('notas de ML: las del carrito juntas y sin repetir; no se piden para cancelados', async () => {
   state.orders = [
     mlOrder(1, { packId: 900 }),

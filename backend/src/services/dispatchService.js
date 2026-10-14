@@ -28,6 +28,8 @@ export const ML_LOOKBACK_DAYS = 15;
 /** Ventana en la que una cancelación todavía se avisa ("no despachar"). */
 export const CANCELLED_WINDOW_HOURS = 48;
 const CACHE_TTL_MS = 60_000;
+/** Cuánto se recuerda el SLA de un envío (ver loadMl). */
+export const SLA_TTL_MS = 10 * 60_000;
 
 // ─────────────────────────── funciones puras (sin red ni base) ───────────────────────────
 
@@ -449,6 +451,21 @@ function rememberFinal(shipment) {
   finalShipments.set(String(shipment.id), shipment);
 }
 
+/** Memo por id con vencimiento: `{ at, value }`. Se podan solas al pasar el doble del TTL. */
+const slaMemo = new Map();
+
+function fresh(memo, id, ttl, now) {
+  const hit = memo.get(id);
+  if (!hit) return null;
+  if (now.getTime() - hit.at <= ttl) return hit.value;
+  memo.delete(id);
+  return null;
+}
+
+function pruneMemo(memo, ttl, now) {
+  for (const [id, hit] of memo) if (now.getTime() - hit.at > ttl * 2) memo.delete(id);
+}
+
 async function mapLimit(list, limit, fn) {
   const out = new Array(list.length);
   let i = 0;
@@ -479,6 +496,25 @@ function countByStatus(shipments) {
  * de la anterior con el caño medio vacío. Ahora cada envío es su propio pipeline: apenas llega,
  * arrancan su SLA y las notas de sus órdenes, mientras otros envíos siguen en vuelo.
  */
+/**
+ * Diagnóstico temporal, para decidir con datos reales:
+ * 1. ¿`/orders/search` trae algo de notas? Se loguea una vez por proceso qué campos trae una orden.
+ * 2. En un carrito, ¿la nota está en UNA orden o repetida en todas? Si está repetida, alcanza con
+ *    pedir las notas de una sola orden por carrito (hoy se pide una por producto).
+ */
+let loggedOrderKeys = false;
+function logNotesDiagnostics(orders, paidByShipment, notes) {
+  if (!loggedOrderKeys && orders.length) {
+    loggedOrderKeys = true;
+    console.info('[Despachos] diag campos de una orden de /orders/search:', Object.keys(orders[0]).sort().join(','));
+  }
+  for (const [sid, orderIds] of paidByShipment) {
+    if (orderIds.length < 2 || !orderIds.some((id) => notes.has(id))) continue;
+    const detail = orderIds.map((id) => `${id}=${notes.get(id)?.length ?? 0}`).join(' ');
+    console.info(`[Despachos] diag notas en carrito (envío ${sid}, ${orderIds.length} órdenes): ${detail}`);
+  }
+}
+
 async function loadMl(now) {
   const t0 = Date.now();
   const token = await getMlToken();
@@ -514,8 +550,9 @@ async function loadMl(now) {
   let slaCount = 0;
   let noteCount = 0;
 
-  // Notas de la vendedora: solo de lo que se va a armar (no de los cancelados). Una nota que no se
-  // pudo leer no tumba la lista: el paquete se muestra igual, sin nota.
+  // Notas de la vendedora: de lo que se muestra (no de los cancelados), siempre frescas.
+  // `GET /orders/:id/notes` es por ORDEN (un carrito de 9 productos son 9 pedidos): ver
+  // logNotesDiagnostics. Una nota que no se pudo leer no tumba la lista: el paquete sale sin nota.
   const loadNotes = (orderIds) => Promise.all(orderIds.map(async (id) => {
     noteCount++;
     try {
@@ -525,6 +562,16 @@ async function loadMl(now) {
       console.warn(`[Despachos] notas de la orden ${id}:`, e?.message);
     }
   }));
+
+  // El SLA (horario límite) casi no se mueve y "atrasado" igual se calcula contra la hora: se
+  // recuerda SLA_TTL_MS. El estado del envío NO: es lo que dice si ya se despachó.
+  const loadSla = async (id) => {
+    const memo = fresh(slaMemo, id, SLA_TTL_MS, now);
+    if (memo) { slas.set(id, memo); return; }
+    slaCount++;
+    const sla = await ml.getShipmentSla(token, id);
+    if (sla) { slas.set(id, sla); slaMemo.set(id, { at: now.getTime(), value: sla }); }
+  };
 
   await mapLimit(shipmentIds, 6, async (id) => {
     let s = finalShipments.get(id);
@@ -538,12 +585,12 @@ async function loadMl(now) {
     const pending = isPendingShipment(s);
     if (!pending && !isDispatchedToday(s, now)) return;
     shownIds.add(id);
-    await Promise.all([
-      pending ? ml.getShipmentSla(token, id).then((sla) => { slaCount++; if (sla) slas.set(id, sla); }) : null,
-      loadNotes(paidByShipment.get(id)),
-    ]);
+    // Un despachado ya está en el correo: SLA no, pero las notas sí (puede hacer falta ver algo).
+    await Promise.all([pending ? loadSla(id) : null, loadNotes(paidByShipment.get(id))]);
   });
+  logNotesDiagnostics(orders, paidByShipment, notes);
   const tShipments = Date.now();
+  pruneMemo(slaMemo, SLA_TTL_MS, now);
 
   console.info('[Despachos] envíos ML:', JSON.stringify(countByStatus(shipments)));
 
@@ -637,4 +684,5 @@ export function _resetDispatchCache() {
   cache = null;
   inFlight = null;
   finalShipments.clear();
+  slaMemo.clear();
 }
