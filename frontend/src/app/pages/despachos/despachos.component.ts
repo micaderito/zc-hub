@@ -33,6 +33,29 @@ const LOGISTIC_LABELS: Record<string, string> = {
   pickup: 'Retiro en el local',
 };
 
+/** Última lista recibida, para mostrarla al instante la próxima vez mientras se trae la nueva. */
+export const LAST_LIST_KEY = 'zc-despachos-last-list';
+
+function todayAr(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: AR_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+/** La lista guardada, solo si es de hoy (una de ayer tendría los "para hoy" de ayer). */
+export function readLastList(): DispatchList | undefined {
+  try {
+    const raw = localStorage.getItem(LAST_LIST_KEY);
+    if (!raw) return undefined;
+    const list = JSON.parse(raw) as DispatchList;
+    return list?.today === todayAr() && Array.isArray(list.packages) ? list : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveLastList(list: DispatchList): void {
+  try { localStorage.setItem(LAST_LIST_KEY, JSON.stringify(list)); } catch { /* sin storage: no pasa nada */ }
+}
+
 function timeAr(iso: string): string {
   return new Intl.DateTimeFormat('es-AR', { timeZone: AR_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
 }
@@ -88,12 +111,22 @@ export class DespachosComponent {
 
   readonly lightbox = signal<{ item: DispatchItem; pkg: DispatchPackage } | null>(null);
 
+  /**
+   * Traer la lista de ML lleva varios segundos (el piso son los pedidos a ML, ver dispatchService).
+   * Para no dejar la pantalla vacía, se muestra la última lista conocida —en memoria al navegar
+   * (gcTime) o la guardada en el navegador— y se trae la nueva igual, con "Actualizando…" a la vista
+   * (`initialDataUpdatedAt` = cuándo se generó, así ya cuenta como vieja y se refresca al entrar).
+   */
+  private readonly lastList = readLastList();
   readonly query = injectQuery(() => ({
     queryKey: DISPATCH_QUERY_KEY,
     queryFn: () => this.svc.getList(),
     staleTime: 30_000,
+    gcTime: 30 * 60_000,
     refetchInterval: 5 * 60_000,
     refetchOnWindowFocus: true,
+    initialData: this.lastList,
+    initialDataUpdatedAt: this.lastList ? Date.parse(this.lastList.generatedAt) : undefined,
   }));
 
   constructor() {
@@ -101,8 +134,9 @@ export class DespachosComponent {
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
     // Los tildes optimistas viven hasta que llega la lista con el dato ya guardado.
     effect(() => {
-      this.query.data();
+      const data = this.query.data();
       untracked(() => { if (this.preparedOverride().size) this.preparedOverride.set(new Map()); });
+      if (data) saveLastList(data);
     }, { allowSignalWrites: true });
   }
 

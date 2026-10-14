@@ -466,6 +466,14 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   (todas); `getOrdersWindow` pide las páginas 2..N en paralelo; y una carga en vuelo se comparte
   (`inFlight`): abrir la página + "Actualizar" no dispara dos tandas. Cada carga loguea
   `[Despachos] ML en X ms — órdenes … · envíos+SLA+notas … · fotos …` para ver en prod dónde va el tiempo.
+- **Notas = 2 de cada 3 pedidos** (logs de prod 2026-10-13: 133 pedidos por carga, 89 de notas →
+  ~20 s, justo 133 × 150 ms del limitador). Se piden por ORDEN (un carrito de 9 productos = 9) y se
+  pedían también para los ya despachados. Ahora: ni notas ni SLA para lo despachado, y notas por
+  orden + SLA por envío se recuerdan 10 min (`NOTES_TTL_MS`/`SLA_TTL_MS`, también vacías; una que
+  falló no se recuerda). "Actualizar" no las saltea: una nota recién escrita en ML puede tardar hasta
+  10 min en verse. El estado del envío se pide SIEMPRE (es lo que dice si ya salió).
+- **Front**: muestra al instante la última lista (memoria al navegar, `gcTime` 30 min, o
+  `localStorage` `zc-despachos-last-list` si es del mismo día AR) con "Actualizando…" y la refresca.
 - Si un canal falla (429, token), el otro se devuelve igual con `errors.{ml,tn}` y la UI lo avisa:
   una lista vacía nunca debe significar "no hay pedidos" cuando en realidad ML no contestó.
 - **Notas de la venta**: las mismas que se cargan en el panel de cada canal, en un recuadro arriba
