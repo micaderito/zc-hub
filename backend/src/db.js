@@ -2070,6 +2070,42 @@ export async function getPriceListItems(listId = null) {
   }
 }
 
+/**
+ * Por cada código, el ítem de la lista MÁS RECIENTE que lo trae, con los datos de esa lista
+ * (nombre y descuentos). Sirve para saber de qué lista sale el precio de un código cuando se
+ * trabaja con varias listas a la vez, y para volcar el costo al mapear un código a mano sin
+ * tener que reimportar la lista.
+ * @param {string[] | null} codes `null` = todos los códigos
+ * @returns {Promise<Array<{ code, description, bulkQty, bulkPrice, listId, listLabel, discount1, discount2, importedAt }>>}
+ */
+export async function getLatestPriceListItems(codes = null) {
+  const p = getPool();
+  if (!p) return [];
+  if (Array.isArray(codes) && codes.length === 0) return [];
+  try {
+    const r = await p.query(
+      `SELECT DISTINCT ON (i.code) i.code, i.description, i.bulk_qty AS "bulkQty", i.bulk_price AS "bulkPrice",
+              l.id AS "listId", l.label AS "listLabel", l.discount_1 AS "discount1", l.discount_2 AS "discount2",
+              l.imported_at AS "importedAt"
+       FROM price_list_items i JOIN price_lists l ON l.id = i.list_id
+       WHERE ($1::text[] IS NULL OR i.code = ANY($1::text[]))
+       ORDER BY i.code, l.imported_at DESC, i.id DESC`,
+      [Array.isArray(codes) ? codes : null]
+    );
+    return r.rows.map((row) => ({
+      ...row,
+      bulkQty: row.bulkQty == null ? null : Number(row.bulkQty),
+      bulkPrice: row.bulkPrice == null ? null : Number(row.bulkPrice),
+      discount1: Number(row.discount1) || 0,
+      discount2: Number(row.discount2) || 0,
+      importedAt: row.importedAt ? new Date(row.importedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getLatestPriceListItems:', e.message);
+    return [];
+  }
+}
+
 /** Catálogo completo de códigos del proveedor. */
 export async function getSupplierCodes(supplier = 'punto_cero') {
   const p = getPool();
