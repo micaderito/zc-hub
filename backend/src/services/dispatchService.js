@@ -496,25 +496,6 @@ function countByStatus(shipments) {
  * de la anterior con el caño medio vacío. Ahora cada envío es su propio pipeline: apenas llega,
  * arrancan su SLA y las notas de sus órdenes, mientras otros envíos siguen en vuelo.
  */
-/**
- * Diagnóstico temporal, para decidir con datos reales:
- * 1. ¿`/orders/search` trae algo de notas? Se loguea una vez por proceso qué campos trae una orden.
- * 2. En un carrito, ¿la nota está en UNA orden o repetida en todas? Si está repetida, alcanza con
- *    pedir las notas de una sola orden por carrito (hoy se pide una por producto).
- */
-let loggedOrderKeys = false;
-function logNotesDiagnostics(orders, paidByShipment, notes) {
-  if (!loggedOrderKeys && orders.length) {
-    loggedOrderKeys = true;
-    console.info('[Despachos] diag campos de una orden de /orders/search:', Object.keys(orders[0]).sort().join(','));
-  }
-  for (const [sid, orderIds] of paidByShipment) {
-    if (orderIds.length < 2 || !orderIds.some((id) => notes.has(id))) continue;
-    const detail = orderIds.map((id) => `${id}=${notes.get(id)?.length ?? 0}`).join(' ');
-    console.info(`[Despachos] diag notas en carrito (envío ${sid}, ${orderIds.length} órdenes): ${detail}`);
-  }
-}
-
 async function loadMl(now) {
   const t0 = Date.now();
   const token = await getMlToken();
@@ -551,8 +532,10 @@ async function loadMl(now) {
   let noteCount = 0;
 
   // Notas de la vendedora: de lo que se muestra (no de los cancelados), siempre frescas.
-  // `GET /orders/:id/notes` es por ORDEN (un carrito de 9 productos son 9 pedidos): ver
-  // logNotesDiagnostics. Una nota que no se pudo leer no tumba la lista: el paquete sale sin nota.
+  // `GET /orders/:id/notes` es por ORDEN, pero la nota se carga a la venta entera y ML la repite en
+  // todas las órdenes del carrito (confirmado en prod 2026-10-13: carrito de 2 órdenes, la misma
+  // nota en las dos). Por eso se pide la de UNA orden por envío, no una por producto (eran 102
+  // pedidos de notas por carga contra 34 envíos). Una nota que no se pudo leer no tumba la lista.
   const loadNotes = (orderIds) => Promise.all(orderIds.map(async (id) => {
     noteCount++;
     try {
@@ -586,9 +569,8 @@ async function loadMl(now) {
     if (!pending && !isDispatchedToday(s, now)) return;
     shownIds.add(id);
     // Un despachado ya está en el correo: SLA no, pero las notas sí (puede hacer falta ver algo).
-    await Promise.all([pending ? loadSla(id) : null, loadNotes(paidByShipment.get(id))]);
+    await Promise.all([pending ? loadSla(id) : null, loadNotes(paidByShipment.get(id).slice(0, 1))]);
   });
-  logNotesDiagnostics(orders, paidByShipment, notes);
   const tShipments = Date.now();
   pruneMemo(slaMemo, SLA_TTL_MS, now);
 

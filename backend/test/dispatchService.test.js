@@ -438,26 +438,26 @@ test('el SLA se recuerda 10 min aunque se apriete "Actualizar"; envío y notas s
   const r = await svc.getDispatchList({ now: new Date(NOW.getTime() + 5 * 60_000), refresh: true });
   assert.deepEqual(state.calls.getShipmentSla, ['500']);
   assert.equal(state.calls.getShipment.length, 2);
-  assert.equal(state.calls.getOrderNotes.length, 4);
+  assert.equal(state.calls.getOrderNotes.length, 2);
   assert.deepEqual(r.packages[0].notes.map((n) => n.text), ['Envolver para regalo']);
   assert.equal(r.packages[0].deadlineHasTime, true);
   await svc.getDispatchList({ now: new Date(NOW.getTime() + 11 * 60_000), refresh: true });
   assert.equal(state.calls.getShipmentSla.length, 2);
 });
 
-test('notas de ML: las del carrito juntas y sin repetir; no se piden para cancelados', async () => {
+test('notas de ML: un solo pedido por carrito (ML repite la nota en todas sus órdenes); no para cancelados', async () => {
   state.orders = [
     mlOrder(1, { packId: 900 }),
     mlOrder(2, { packId: 900 }),
     mlOrder(3, { shipId: null, status: 'cancelled', date_last_updated: '2026-10-09T12:00:00.000Z' }),
   ];
   state.shipments = { 500: shipment(500) };
-  state.notes = { 1: ['Va con moño'], 2: ['Va con moño', 'Cambiar a azul'] };
+  state.notes = { 1: ['Va con moño', 'Cambiar a azul'], 2: ['Va con moño', 'Cambiar a azul'] };
 
   const r = await svc.getDispatchList({ now: NOW });
   const pkg = r.packages.find((p) => p.saleId === '900');
   assert.deepEqual(pkg.notes, [{ text: 'Va con moño', author: 'seller' }, { text: 'Cambiar a azul', author: 'seller' }]);
-  assert.deepEqual(state.calls.getOrderNotes.sort(), ['1', '2']);
+  assert.deepEqual(state.calls.getOrderNotes, ['1']);
 });
 
 test('notas de ML: si fallan, el paquete se muestra igual sin notas', async () => {
