@@ -467,9 +467,12 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   (`inFlight`): abrir la página + "Actualizar" no dispara dos tandas. Cada carga loguea
   `[Despachos] ML en X ms — órdenes … · envíos+SLA+notas … · fotos …` para ver en prod dónde va el tiempo.
 - **Notas = 2 de cada 3 pedidos** (logs de prod 2026-10-13: 133 pedidos por carga, 89 de notas →
-  ~20 s, justo 133 × 150 ms del limitador). Se piden por ORDEN (un carrito de 9 productos = 9) y se
-  pedían también para los ya despachados. Ahora: ni notas ni SLA para lo despachado, y notas por
-  orden + SLA por envío se recuerdan 10 min (`NOTES_TTL_MS`/`SLA_TTL_MS`, también vacías; una que
+  ~20 s, justo 133 × 150 ms del limitador). `GET /orders/:id/notes` es por ORDEN (un carrito de 9
+  productos = 9) y no hay endpoint por pack en la doc. La usuaria carga la nota a la venta entera:
+  `logNotesDiagnostics` loguea (`[Despachos] diag …`) qué campos trae `/orders/search` y, en cada
+  carrito con nota, en qué órdenes aparece — si está repetida en todas, alcanza con 1 pedido por
+  carrito (pendiente de confirmar con esos logs). Los despachados de hoy sí traen notas (pedido de
+  la usuaria), sin SLA. Notas por orden + SLA por envío se recuerdan 10 min (`NOTES_TTL_MS`/`SLA_TTL_MS`, también vacías; una que
   falló no se recuerda). "Actualizar" no las saltea: una nota recién escrita en ML puede tardar hasta
   10 min en verse. El estado del envío se pide SIEMPRE (es lo que dice si ya salió).
 - **Front**: muestra al instante la última lista (memoria al navegar, `gcTime` 30 min, o

@@ -498,6 +498,25 @@ function countByStatus(shipments) {
  * de la anterior con el caño medio vacío. Ahora cada envío es su propio pipeline: apenas llega,
  * arrancan su SLA y las notas de sus órdenes, mientras otros envíos siguen en vuelo.
  */
+/**
+ * Diagnóstico temporal, para decidir con datos reales:
+ * 1. ¿`/orders/search` trae algo de notas? Se loguea una vez por proceso qué campos trae una orden.
+ * 2. En un carrito, ¿la nota está en UNA orden o repetida en todas? Si está repetida, alcanza con
+ *    pedir las notas de una sola orden por carrito (hoy se pide una por producto).
+ */
+let loggedOrderKeys = false;
+function logNotesDiagnostics(orders, paidByShipment, notes) {
+  if (!loggedOrderKeys && orders.length) {
+    loggedOrderKeys = true;
+    console.info('[Despachos] diag campos de una orden de /orders/search:', Object.keys(orders[0]).sort().join(','));
+  }
+  for (const [sid, orderIds] of paidByShipment) {
+    if (orderIds.length < 2 || !orderIds.some((id) => notes.has(id))) continue;
+    const detail = orderIds.map((id) => `${id}=${notes.get(id)?.length ?? 0}`).join(' ');
+    console.info(`[Despachos] diag notas en carrito (envío ${sid}, ${orderIds.length} órdenes): ${detail}`);
+  }
+}
+
 async function loadMl(now) {
   const t0 = Date.now();
   const token = await getMlToken();
@@ -533,8 +552,8 @@ async function loadMl(now) {
   let slaCount = 0;
   let noteCount = 0;
 
-  // Notas de la vendedora: solo de lo que hay que armar (ni cancelados ni ya despachados). Eran 2 de
-  // cada 3 pedidos a ML (una por ORDEN, y un carrito de 9 productos son 9 órdenes), así que se
+  // Notas de la vendedora: de lo que se muestra (no de los cancelados). Eran 2 de cada 3 pedidos a
+  // ML (`GET /orders/:id/notes` es por ORDEN, y un carrito de 9 productos son 9 órdenes), así que se
   // recuerdan NOTES_TTL_MS por orden — también vacías, que es el caso común. Una nota que no se pudo
   // leer no se recuerda (se reintenta la próxima) ni tumba la lista: el paquete sale sin nota.
   const loadNotes = (orderIds) => Promise.all(orderIds.map(async (id) => {
@@ -572,9 +591,10 @@ async function loadMl(now) {
     const pending = isPendingShipment(s);
     if (!pending && !isDispatchedToday(s, now)) return;
     shownIds.add(id);
-    // Un despachado ya está en el correo: ni SLA ni notas.
-    if (pending) await Promise.all([loadSla(id), loadNotes(paidByShipment.get(id))]);
+    // Un despachado ya está en el correo: SLA no, pero las notas sí (puede hacer falta ver algo).
+    await Promise.all([pending ? loadSla(id) : null, loadNotes(paidByShipment.get(id))]);
   });
+  logNotesDiagnostics(orders, paidByShipment, notes);
   const tShipments = Date.now();
   pruneMemo(notesMemo, NOTES_TTL_MS, now);
   pruneMemo(slaMemo, SLA_TTL_MS, now);

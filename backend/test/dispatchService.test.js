@@ -419,12 +419,13 @@ test('pendiente → se piden su SLA y sus notas; despachado de días anteriores 
   assert.deepEqual(state.calls.getOrderNotes, ['1']);
 });
 
-test('despachado hoy: se muestra pero sin pedir notas ni SLA (ya está en el correo)', async () => {
+test('despachado hoy: se muestra con sus notas, pero sin pedir el SLA', async () => {
   state.orders = [mlOrder(1, { shipId: 503 })];
   state.shipments = { 503: shipment(503, { substatus: 'in_hub' }) };
+  state.notes = { 1: ['Fragil'] };
   const r = await svc.getDispatchList({ now: NOW });
   assert.equal(r.packages[0].bucket, 'dispatched');
-  assert.deepEqual(state.calls.getOrderNotes, []);
+  assert.deepEqual(r.packages[0].notes.map((n) => n.text), ['Fragil']);
   assert.deepEqual(state.calls.getShipmentSla, []);
 });
 
