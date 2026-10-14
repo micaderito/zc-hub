@@ -358,6 +358,17 @@ falsas). En la planilla los packs arrancan **plegados** (rango de precios TN/ML 
 checkbox que selecciona todo el pack, se abren solos al buscar), y la etiqueta "sin mapear" pasó a
 "no publicado" (es "el SKU no está en ML ni TN", no "sin código del proveedor").
 
+**Pendiente de aplicar.** Importar una lista guarda los costos al toque, pero en ML/TN no cambia
+nada hasta "Aplicar". Para saber qué falta, `getPreview` compara el precio a aplicar (el ajustado si
+lo hay) contra el publicado hoy, leído de la foto (`buildSkuPrices`, usando la publicación que
+resuelve el índice — con un SKU repetido no compara contra otra; precio 0 = desconocido):
+`pendingMl`/`pendingTn` (tolerancia de medio peso). `mlQueued` = hay un `price_ml` activo para el
+ítem (`getActiveMlTasks`): ya se aplicó y la cola no terminó — no cuenta como pendiente, y mientras
+haya alguno la planilla se refresca cada 10 s. La caché de la foto bajó a 15 s y `enqueueApply` la
+invalida. En el front: "hoy $X +Y%" bajo cada precio, chip "pendiente de aplicar", conteo por pack,
+filtro **Solo pendientes** (abre los packs) y **Seleccionar pendientes**. Hasta acá la columna de
+delta existía pero nunca se mostraba: la ruta no le pasaba los precios actuales a `getPreview`.
+
 ### Alertas de stock: sugerencia de reposición por pack, no por modelo
 
 En "Para reponer" (`backend/src/services/alertsService.js`, `frontend/.../pages/alertas/`), cuando
@@ -1182,9 +1193,9 @@ Actualizar precios con varias listas: `backend/test/pricingService.test.js` (ín
 deploy que se puebla desde la foto en import/preview/aplicar, caché de 60 s de la foto, mapeo de
 otra lista que no cuenta como de esta, resumen de `confirmImport`, mapear a mano toma el costo de la
 lista más reciente / sin lista guarda sin tocar costos / pack respeta mapeos individuales, estado de
-mapeo por producto, `buildSkuNames`) + `getLatestPriceListItems` contra Postgres real en
+mapeo por producto, `buildSkuNames`, `buildSkuPrices`, pendiente/en cola en `getPreview`, invalidar la foto al aplicar) + `getLatestPriceListItems` contra Postgres real en
 `publishJobsRealDb.test.js`; en el front `precios.component.spec.ts` (packs plegados, rango de
-precios, selección por pack, resumen del import) y `mapeo-proveedor.component.spec.ts`.
+precios, selección por pack, resumen del import, Solo pendientes / en cola ML) y `mapeo-proveedor.component.spec.ts`.
 
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y
 Full, carrito = un paquete con un solo GET de envío, buckets atrasado/hoy/próximos con `now`

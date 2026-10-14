@@ -73,6 +73,7 @@ before(async () => {
         overrideState.rows = overrideState.rows.filter((r) => !(r.sku === sku && r.channel === channel)).concat({ sku, channel, value });
         return true;
       },
+      getActiveMlTasks: async () => dbState.activeTasks || [],
       getLatestPriceListItems: async (codes) => latestState.items.filter((i) => !codes || codes.includes(i.code)),
       deletePriceOverride: async (sku, channel) => {
         overrideState.rows = overrideState.rows.filter((r) => !(r.sku === sku && r.channel === channel));
@@ -135,6 +136,7 @@ beforeEach(() => {
   dbState.settings = null;
   dbState.costs = {};
   dbState.enqueued = [];
+  dbState.activeTasks = [];
   storeState.mlBySku = {};
   storeState.tnBySku = {};
   storeState.tiendanube = { access_token: 'tn-tok', store_id: '55' };
@@ -780,4 +782,70 @@ test('enqueueApply: con el índice vacío lo puebla antes de buscar el ítem de 
   const res = await svc.enqueueApply(['30700'], { ml: true, tn: false });
 
   assert.equal(res.enqueuedMl, 1);
+});
+
+// ── precio publicado y "pendiente de aplicar" ──────────────────────────────────────────────
+
+test('buildSkuPrices: toma el precio de la publicación resuelta; 0 es desconocido', () => {
+  const ml = [
+    { sku: 'A', itemId: 'MLA1', variationId: '1', price: 5000 },
+    { sku: 'A', itemId: 'MLA9', variationId: null, price: 9999 }, // SKU repetido en otra publicación
+    { sku: 'B', itemId: 'MLA2', variationId: null, price: 0 },
+  ];
+  const tn = [{ sku: 'A', productId: 1, variantId: 11, price: 4500.5 }];
+  const prices = svc.buildSkuPrices(ml, tn,
+    (sku) => ({ A: { itemId: 'MLA1', variationId: '1' }, B: { itemId: 'MLA2' } })[sku] || null,
+    (sku) => ({ A: { productId: 1, variantId: 11 } })[sku] || null);
+  assert.deepEqual(prices.get('A'), { ml: 5000, tn: 4500.5 });
+  assert.deepEqual(prices.get('B'), { ml: null, tn: null });
+});
+
+test('previewRow: pendiente solo si se conoce lo publicado y difiere del precio a aplicar', () => {
+  const cost = { sku: 'X', source: 'manual', unitCost: 1000 };
+  const calc = svc.previewRow(cost, DEFAULT_SETTINGS, null);
+  assert.equal(calc.pendingMl, false, 'sin publicado no hay nada que comparar');
+  const same = svc.previewRow(cost, DEFAULT_SETTINGS, null, { ml: calc.mlEffective, tn: calc.tn.effective + 0.2 });
+  assert.equal(same.pendingMl, false);
+  assert.equal(same.pendingTn, false, 'diferencias de centavos no cuentan');
+  const diff = svc.previewRow(cost, DEFAULT_SETTINGS, null, { ml: calc.mlEffective - 100, tn: calc.tn.effective });
+  assert.equal(diff.pendingMl, true);
+  assert.equal(diff.pendingTn, false);
+  // Con ajuste manual se compara contra el ajustado, no contra el calculado.
+  const ov = svc.previewRow(cost, DEFAULT_SETTINGS, null, { tn: 7777 }, { tn: 7777 });
+  assert.equal(ov.pendingTn, false);
+});
+
+test('getPreview: trae el publicado de la foto y marca pendiente / en cola', async () => {
+  storeState.resolvedSkus = ['30700', 'OTRO'];
+  storeState.mlBySku = { '30700': { itemId: 'MLA1' }, OTRO: { itemId: 'MLA2' } };
+  storeState.tnBySku = { '30700': { productId: 1, variantId: 11 } };
+  catalogState.mlRows = [
+    { sku: '30700', itemId: 'MLA1', variationId: null, price: 100 },
+    { sku: 'OTRO', itemId: 'MLA2', variationId: null, price: 100 },
+  ];
+  catalogState.tnRows = [{ sku: '30700', productId: 1, variantId: 11, price: 100 }];
+  dbState.costs['30700'] = { sku: '30700', source: 'manual', unitCost: 1000 };
+  dbState.costs.OTRO = { sku: 'OTRO', source: 'manual', unitCost: 1000 };
+  dbState.activeTasks = [{ kind: 'price_ml', itemId: 'MLA2', variationId: null }];
+
+  const rows = await svc.getPreview();
+  const a = rows.find((r) => r.sku === '30700');
+  const b = rows.find((r) => r.sku === 'OTRO');
+
+  assert.equal(a.currentMl, 100);
+  assert.equal(a.currentTn, 100);
+  assert.equal(a.pendingMl, true);
+  assert.equal(a.pendingTn, true);
+  assert.equal(a.mlQueued, false);
+  assert.equal(b.mlQueued, true, 'hay un price_ml encolado para su ítem');
+});
+
+test('enqueueApply: invalida la foto cacheada para que el preview vea lo recién publicado', async () => {
+  storeState.resolvedSkus = ['30700'];
+  await svc.loadCatalogContext();
+  assert.equal(catalogState.calls, 1);
+  dbState.costs['30700'] = { sku: '30700', source: 'manual', unitCost: 1000 };
+  await svc.enqueueApply(['30700'], { ml: false, tn: false });
+  await svc.loadCatalogContext();
+  assert.equal(catalogState.calls, 2);
 });

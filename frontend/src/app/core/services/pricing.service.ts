@@ -75,8 +75,14 @@ export interface PreviewRow {
   mlOverride: number | null;
   mlEffective: number;
   mlNet: number;
+  /** Precio publicado hoy en cada canal (de la foto del catálogo); null = sin publicación o desconocido. */
   currentMl: number | null;
   currentTn: number | null;
+  /** Lo que se aplicaría difiere de lo publicado hoy en ese canal. */
+  pendingMl: boolean;
+  pendingTn: boolean;
+  /** Hay un cambio de precio de ML encolado (se aplicó y la cola todavía no lo escribió). */
+  mlQueued: boolean;
   freeShipping: boolean;
   mappedMl: boolean;
   mappedTn: boolean;
