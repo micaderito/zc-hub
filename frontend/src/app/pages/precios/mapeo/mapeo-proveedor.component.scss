@@ -56,6 +56,11 @@
   tr.row-unmapped { background: color-mix(in srgb, var(--warn-bg) 45%, transparent); }
 
   tr.group-row td { background: var(--surface-2); padding: 0; }
+  // Pack con código propio: el encabezado es una fila de datos (código, lista, costo, acciones).
+  tr.group-row.pack-own td { padding: 8px 10px; }
+  tr.group-row.pack-own td:first-child { padding: 0; }
+  tr.group-row.pack-own.row-unmapped td { background: color-mix(in srgb, var(--warn-bg) 45%, var(--surface-2)); }
+  tr.member-row td:first-child { padding-left: 34px; }
 }
 
 .group-toggle, .group-static {
@@ -65,6 +70,7 @@
   > .ti { color: var(--brand); }
 }
 .group-toggle { cursor: pointer; &:hover { background: var(--surface); } }
+.group-toggle .mp-prod { flex: 1; min-width: 0; }
 .group-meta { color: var(--text-2); }
 
 .mp-prod { display: flex; flex-direction: column; gap: 2px; }

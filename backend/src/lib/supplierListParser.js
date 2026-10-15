@@ -13,24 +13,41 @@
  *
  * El parseo SE VALIDA SOLO: si `precio_unitario × cantidad ≠ precio_bulto`, la fila se marca y no
  * se usa. Eso convierte un parseo frágil en uno que falla ruidosamente en vez de en silencio.
+ *
+ * Se usa con las 3 listas de la usuaria (Mi Punto Cero, Escolar, Be Positive). Las dos últimas
+ * traen códigos con letras (`BP700V`, `bp1201`, `V600`, `R15000V`, `LV010`, `BP3505-3507`): hasta
+ * 2026-10-14 el código solo admitía dígitos, así que `BP700V` se leía como `700` y todas las filas
+ * siguientes, "sin código", lo HEREDABAN — 46 productos con el mismo código y ninguno marcado.
  */
 
 /** `$ 8.800,00` + `8` + `$ 70.400,00` — el corazón del formato. */
 const PRICE_TRIPLET = /\$\s*([\d.]+,\d{2})\s*(\d+)\s*\$\s*([\d.]+,\d{2})/g;
 
-/**
- * Un código: 3-6 dígitos, con prefijo FULL/REP opcional y grupos separados por `/` o `-`
- * (ej. `39021/22/33/34/38`, `39024-39025`, `FULL 30700`, `REP50001`).
- */
-const CODE = /(?:FULL\s*\d{3,6}|REP\s*\d{3,6}|\d{3,6}(?:\s*[/\-]\s*\d{1,6})*)/g;
+/** Prefijos de letras de los códigos (`FULL 30700`, `REP50001`, `BP700V`, `BPN2650`, `LV010`, `V600`, `R15000`). */
+const PREFIX = String.raw`(?:FULL\s*|REP\s*|[Bb][Pp][Nn]?|[Ll][Vv]|[Vv]|[Rr])`;
 
 /**
- * Encabezados de sección (`CUADERNO A5`, `MINI BIBLIORATOS A4`, …). En el texto crudo quedan
- * pegados al código que sigue (`CUADERNO A5` + `30700` = `CUADERNO A530700`), y el `5` del `A5` se
- * confundiría con el primer dígito del código. Se les mete un salto de línea antes del número.
- * `FULL`/`REP` se excluyen a propósito: son prefijos de código, no encabezados.
+ * Un código: prefijo opcional + 3-6 dígitos + `V` final opcional (`BP700V`; solo si después viene
+ * un espacio o una palabra, para no comerse la `V` de una descripción) + grupos separados por `/`
+ * o `-` (`39021/22/33`, `39024-39025`, `BP3505-3507`).
  */
-const SECTION_HEADER = /((?!REP\s*\d)[A-ZÁÉÍÓÚÑ]{3,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})*(?:\s+A[45])?)(?=\d)/g;
+const CODE = String.raw`${PREFIX}?\d{3,6}(?:V(?=\s|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]|$))?(?:\s*[/\-]\s*${PREFIX}?\d{1,6})*`;
+const LEADING_CODE = new RegExp(`^(${CODE})`);
+
+/**
+ * Encabezados de sección (`CUADERNO A5`, `CARPETAS`, `MINI BIBLIORATOS A4`, …) pegados al código
+ * que sigue (`CUADERNO A530700`, `CARPETASV100`): se les mete un salto de línea antes del código.
+ * El encabezado es lo más CORTO posible (`CARPETAS` + `V100`, no `CARPETASV` + `100`) y tiene que
+ * ir pegado al código: `TAPA DURA 100 Hojas` es descripción, no encabezado. Tampoco puede
+ * arrancar donde arranca un código (si no, `BULTOBP700V` partiría también `BP` | `700V`).
+ */
+const SECTION_HEADER = new RegExp(
+  String.raw`(?!${CODE})((?:[A-ZÁÉÍÓÚÑ]{2,}\s+)*?[A-ZÁÉÍÓÚÑ]{2,}?(?:\s*A[45])?)(?=${CODE})`,
+  'g',
+);
+
+/** Algo que empieza como un código (`XX123`) aunque no sea uno reconocido: no se hereda el de arriba. */
+const CODE_LIKE = /^[A-Za-z]{0,4}\d{3,}/;
 
 /** `8.800,00` (es-AR: punto de miles, coma decimal) → 8800. */
 export function parseArNumber(raw) {
@@ -41,29 +58,46 @@ export function parseArNumber(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Forma canónica de un código: mayúsculas, sin espacios alrededor de `/`/`-`, `FULL 30700` con un espacio. */
+export function canonicalCode(raw) {
+  return String(raw ?? '')
+    .toUpperCase()
+    .replace(/\s*([/\-])\s*/g, '$1')
+    .replace(/^FULL\s*/, 'FULL ')
+    .replace(/^REP\s*/, 'REP')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Separa "código + descripción" de un bloque de texto.
  *
- * El código es el que ARRANCA la última línea, no cualquiera del bloque:
+ * Si el bloque ARRANCA con un código, ese es (el caso normal: la fila viene justo después del
+ * precio de la anterior). Si no, el código es el que arranca la última línea, no cualquiera:
  *  - No puede ser el último número del bloque, porque las descripciones traen números
  *    (`Hjs.250g`, `de 90 g`, `x40 hojas`) y se elegiría uno de esos.
- *  - No puede ser el primero del bloque, porque antes puede haber basura de la fila anterior o del
- *    encabezado del PDF (`... NOVIEMBRE 2025 ... CÓDIGO ...`).
+ *  - No puede ser el primero del bloque, porque antes puede haber basura del encabezado del PDF
+ *    (`... JULIO 2026 ... CÓDIGO ...`) o un encabezado de sección.
  * Meterle un salto de línea a los encabezados de sección (SECTION_HEADER) deja el código real
  * arrancando la última línea, que es donde empieza la fila de verdad.
  *
  * Devuelve `{ code: null }` cuando el bloque no tiene código propio (ej. los colores de los
- * biblioratos, que heredan el de arriba).
+ * biblioratos, que heredan el de arriba); `codeLike: true` si igual arranca con algo que parece un
+ * código — esa fila NO debe heredar.
  */
 export function splitCodeAndDescription(chunk) {
-  const cleaned = chunk.replace(/^[\s*]+/, '').replace(SECTION_HEADER, '$1\n');
-  const lastLine = cleaned.slice(cleaned.lastIndexOf('\n') + 1).trim();
+  const stripped = chunk.replace(/^[\s*]+/, '');
+  let line = stripped;
+  if (!LEADING_CODE.test(stripped)) {
+    const cleaned = stripped.replace(SECTION_HEADER, '$1\n');
+    line = cleaned.slice(cleaned.lastIndexOf('\n') + 1).trim();
+  }
 
-  const leading = new RegExp(`^(${CODE.source})`).exec(lastLine);
-  if (!leading) return { code: null, description: lastLine };
+  const leading = LEADING_CODE.exec(line);
+  if (!leading) return { code: null, description: line.trim(), codeLike: CODE_LIKE.test(line) };
 
-  const code = leading[1].replace(/\s*([/\-])\s*/g, '$1').replace(/\s+/g, ' ').trim();
-  const description = lastLine.slice(leading[1].length).trim();
+  const code = canonicalCode(leading[1]);
+  const description = line.slice(leading[1].length).trim();
   return { code, description };
 }
 
@@ -95,20 +129,24 @@ export function parseSupplierList(text, opts = {}) {
     const unitPrice = parseArNumber(m[1]);
     const bulkQty = Number(m[2]);
     const bulkPrice = parseArNumber(m[3]);
-    // El `*` justo después del triplete significa "no se fracciona" (venta solo por pack).
-    const fractionable = text[lastEnd] !== '*';
+    // El `*` después del triplete significa "no se fracciona" (venta solo por pack). Según cómo se
+    // extraiga el PDF puede venir con un espacio antes (`$ 40.800,00 *`).
+    const fractionable = !/^\s*\*/.test(text.slice(lastEnd, lastEnd + 4));
 
-    let { code, description } = splitCodeAndDescription(chunk);
+    const split = splitCodeAndDescription(chunk);
+    let { code } = split;
+    const { description } = split;
     let inheritedCode = false;
-    if (!code && lastCode) {
-      // Filas sin código propio (los colores de los biblioratos): heredan el de arriba.
+    if (!code && lastCode && !split.codeLike) {
+      // Filas sin código propio (los colores de los biblioratos): heredan el de arriba. Una fila que
+      // arranca con algo parecido a un código que no se reconoce NO hereda: se marca.
       code = lastCode;
       inheritedCode = true;
     }
     if (code && !inheritedCode) lastCode = code;
 
     const issues = [];
-    if (!code) issues.push('sin código');
+    if (!code) issues.push(split.codeLike ? 'código no reconocido' : 'sin código');
     if (!(unitPrice > 0)) issues.push('precio unitario inválido');
     if (!(bulkQty > 0)) issues.push('cantidad por bulto inválida');
     if (!(bulkPrice > 0)) issues.push('precio por bulto inválido');

@@ -7,18 +7,20 @@
  * Escalones (de más a menos confiable):
  *   1. exact  — el SKU es igual al código.                          → se aplica solo
  *   2. saved  — ya lo confirmaste antes.                            → se aplica solo
- *   3. base   — tu `30700-ROSA` contra el `30700` de la lista.      → PROPONE
- *   4. group  — tu `39033` dentro de `39021/22/33/34/38/…`.         → PROPONE
+ *   3. base   — tu `39000-CORAZONES` contra el `39000` de la lista.  → se aplica solo
+ *   4. group  — tu `39033-AZUL` dentro de `39021/22/33/34/38/…`.    → se aplica solo
  *   5. text   — parecido de descripción, último recurso.            → PROPONE
  *
- * Del escalón 3 en adelante nunca se aplica solo: el costo de equivocarse es publicar un precio
- * mal en ML, así que el default es preguntar, no adivinar.
+ * `base` y `group` se aplican solos desde 2026-10-14: es la convención de la usuaria (el pack lleva
+ * el código de la lista y cada modelo `CODIGO-variante`), y el código base tiene que coincidir
+ * EXACTO con uno de la lista — no es un parecido. `text` sí es adivinar: el costo de equivocarse es
+ * publicar un precio mal en ML, así que ahí el default es preguntar.
  */
 
 /** Confianza de cada escalón, para ordenar y para decidir si se auto-aplica. */
-const SOURCE_SCORE = { exact: 1, saved: 1, base: 0.87, group: 0.8, text: 0 };
+const SOURCE_SCORE = { exact: 1, saved: 1, base: 0.95, group: 0.9, text: 0 };
 /** Los que se aplican solos; el resto queda "sugerido, a confirmar". */
-const AUTO_SOURCES = new Set(['exact', 'saved']);
+const AUTO_SOURCES = new Set(['exact', 'saved', 'base', 'group']);
 
 /** Normaliza para comparar: sin acentos, mayúsculas, sin separadores. */
 export function normalizeCode(raw) {
@@ -36,6 +38,7 @@ export function normalizeCode(raw) {
  *   `39021/22/33`            → 39021, 39022, 39033
  *   `39039/40/139/140/141`   → 39039, 39040, 39139, 39140, 39141
  *   `39024-39025`            → 39024, 39025
+ *   `BP3505-3507`            → BP3505, BP3507
  */
 export function expandCode(code) {
   const raw = String(code ?? '').trim();
@@ -44,19 +47,26 @@ export function expandCode(code) {
   if (parts.length <= 1) return [raw];
 
   const base = parts[0];
-  const baseDigits = base.replace(/\D/g, '');
+  // Prefijo de letras del código (`BP` de `BP3505-3507`): las partes siguientes lo heredan.
+  const [, prefix = '', baseDigits = ''] = /^([A-Za-z]*\s*)(\d+)/.exec(base) ?? [];
   const out = [base];
   for (const part of parts.slice(1)) {
     if (!/^\d+$/.test(part)) { out.push(part); continue; }
-    out.push(part.length >= baseDigits.length
+    out.push(prefix + (part.length >= baseDigits.length
       ? part
-      : baseDigits.slice(0, baseDigits.length - part.length) + part);
+      : baseDigits.slice(0, baseDigits.length - part.length) + part));
   }
   return out;
 }
 
-/** Quita sufijos que agregás vos al SKU: `30700-ROSA` → `30700`, `39001_A` → `39001`. */
+/**
+ * Quita el sufijo que agregás vos al SKU: `39000-CORAZONES` → `39000`, `39001_A` → `39001`,
+ * `BP700V-ROSA` → `BP700V`, `30700 ROSA` → `30700`. Primero corta en el primer separador; si no hay,
+ * prueba el sufijo pegado (`30700ROSA`).
+ */
 export function baseCodeOf(sku) {
+  const head = String(sku ?? '').trim().toUpperCase().split(/[\s\-_]+/)[0];
+  if (/^[A-Z]{0,4}\d{3,6}V?$/.test(head)) return normalizeCode(head);
   const m = normalizeCode(sku).match(/^([A-Z]*\d{3,6})(?:[^0-9A-Z].*|[A-Z]{2,}.*)?$/);
   return m ? m[1] : null;
 }
@@ -117,7 +127,7 @@ export function suggestMatch(product, codes, opts = {}) {
   if (base && base !== nSku) {
     for (const entry of codes) {
       if (normalizeCode(entry.code) === base) {
-        return { code: entry.code, matchSource: 'base', score: SOURCE_SCORE.base, auto: false };
+        return { code: entry.code, matchSource: 'base', score: SOURCE_SCORE.base, auto: true };
       }
     }
   }
@@ -126,7 +136,7 @@ export function suggestMatch(product, codes, opts = {}) {
   if (base) {
     for (const entry of codes) {
       if (expandCode(entry.code).some((c) => normalizeCode(c) === base)) {
-        return { code: entry.code, matchSource: 'group', score: SOURCE_SCORE.group, auto: false };
+        return { code: entry.code, matchSource: 'group', score: SOURCE_SCORE.group, auto: true };
       }
     }
   }
@@ -146,11 +156,21 @@ export function suggestMatch(product, codes, opts = {}) {
   return null;
 }
 
+/** Identidad de una entidad para el `savedMap`: `key` si la trae (`pack:<id>` / `sku:<sku>`), si no el sku. */
+export function entityKey(product) {
+  return product?.key ?? product?.sku;
+}
+
 /**
  * Sugerencias para una tanda de productos.
- * @param {Array<{ sku, label? }>} products
+ *
+ * El `savedMap` se indexa por `entityKey`, no por sku: los packs NO tienen SKU único (Viejos y
+ * Nuevos comparten `39000`), y con el sku como clave el mapeo de un pack se le pegaba al otro como
+ * "ya confirmado" — y como "confirmado" no se vuelve a guardar, el segundo nunca quedaba mapeado.
+ *
+ * @param {Array<{ sku, key?, label? }>} products
  * @param {Array<{ code, description? }>} codes
- * @param {Record<string,string>} savedMap sku → código ya confirmado
+ * @param {Record<string,string>} savedMap entityKey → código ya confirmado
  * @returns {{ auto: Array, review: Array, unmatched: Array }}
  */
 export function buildMappingSuggestions(products, codes, savedMap = {}) {
@@ -159,7 +179,7 @@ export function buildMappingSuggestions(products, codes, savedMap = {}) {
   const unmatched = [];
 
   for (const product of products) {
-    const suggestion = suggestMatch(product, codes, { savedCode: savedMap[product.sku] });
+    const suggestion = suggestMatch(product, codes, { savedCode: savedMap[entityKey(product)] });
     if (!suggestion) {
       unmatched.push({ ...product, suggestion: null });
     } else if (suggestion.auto) {

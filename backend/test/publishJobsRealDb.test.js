@@ -263,3 +263,42 @@ test(
     }
   }
 );
+
+test(
+  'deletePriceList poda los códigos huérfanos y el "sacado a mano" no aparece en los mapeos (Postgres real)',
+  { skip: hasDb ? false : 'requiere DATABASE_URL' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined
+    });
+    assert.equal(await db.initDb(), true);
+    const t = Date.now();
+    const [orphan, mapped, sku] = [`T-ORPHAN-${t}`, `T-MAPPED-${t}`, `T-SKU-${t}`];
+    try {
+      const listId = await db.savePriceList({
+        label: `t-borrar-${t}`,
+        items: [{ code: orphan, bulkQty: 1, bulkPrice: 1 }, { code: mapped, bulkQty: 1, bulkPrice: 1 }],
+      });
+      assert.ok(listId);
+      await db.upsertSkuCodeMap(sku, mapped, 'exact');
+
+      assert.equal(await db.deletePriceList(listId), true);
+      assert.equal(await db.deletePriceList(listId), false, 'ya no existe');
+      const codes = (await pool.query('SELECT code FROM supplier_codes WHERE code = ANY($1)', [[orphan, mapped]])).rows.map((r) => r.code);
+      assert.deepEqual(codes, [mapped], 'el código mapeado queda; el huérfano se poda');
+
+      await db.markSkuCodeRemoved(sku);
+      assert.equal((await db.getSkuCodeMap()).some((m) => m.sku === sku), false);
+      assert.ok((await db.getRemovedCodeMapKeys()).includes(`sku:${sku}`));
+      await db.upsertSkuCodeMap(sku, mapped, 'manual');
+      assert.equal((await db.getSkuCodeMap()).find((m) => m.sku === sku)?.code, mapped, 'mapear a mano pisa la marca');
+    } finally {
+      await pool.query('DELETE FROM sku_code_map WHERE sku = $1', [sku]);
+      await pool.query('DELETE FROM supplier_codes WHERE code = ANY($1)', [[orphan, mapped]]);
+      await pool.end();
+    }
+  }
+);

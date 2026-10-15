@@ -210,6 +210,25 @@ export interface MappingProduct {
   hasCost: boolean;
   mappedMl: boolean;
   mappedTn: boolean;
+  /** Pack con código propio: sus modelos, con el código del que sale el precio de cada uno. */
+  members?: MappingMember[];
+  /** En un modelo de pack: `pack` = toma el código del pack, `own` = tiene mapeo propio. */
+  codeSource?: 'pack' | 'own' | null;
+}
+
+/** Un modelo de un pack con código propio. */
+export interface MappingMember {
+  key: string;
+  sku: string;
+  name: string | null;
+  code: string | null;
+  codeDescription: string | null;
+  listLabel: string | null;
+  codeSource: 'pack' | 'own' | null;
+  matchSource: string | null;
+  hasCost: boolean;
+  mappedMl: boolean;
+  mappedTn: boolean;
 }
 
 export interface SupplierCode {
@@ -229,6 +248,8 @@ export interface MappingSaveResult {
 
 export interface MappingState {
   products: MappingProduct[];
+  /** Lo que el backend mapeó solo en esta lectura (código igual o `CODIGO-variante`). */
+  autoMapped?: { count: number; changedSkus: string[]; items: Array<{ key: string; sku: string; code: string; matchSource: string }> };
   codes: SupplierCode[];
   mapped: Array<{ sku: string; code: string; matchSource: string; confirmedAt: string | null }>;
   packMapped: Array<{ packId: number; code: string; matchSource: string; confirmedAt: string | null; packName: string | null; packSku: string | null; memberSkus: string[] }>;
@@ -311,6 +332,11 @@ export class PricingService {
 
   getLists() {
     return this.http.get<{ lists: ImportedList[] }>(`${this.api.baseUrl}/pricing/lists`);
+  }
+
+  /** Borra una lista importada (y los códigos que ya no estén en ninguna lista ni mapeo). */
+  deleteList(id: number) {
+    return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/lists/${id}`);
   }
 
   getMappingState() {
