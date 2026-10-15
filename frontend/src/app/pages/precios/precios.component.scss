@@ -34,6 +34,7 @@
   &.pri { background: var(--brand); color: var(--brand-contrast); border-color: transparent; }
   &.pri:hover { filter: brightness(1.08); }
   &:disabled { opacity: 0.45; cursor: default; }
+  &.danger { background: var(--err); color: var(--brand-contrast); border-color: transparent; }
 }
 .link {
   border: none; background: none; color: var(--brand); cursor: pointer;
@@ -84,7 +85,8 @@
   padding: 9px 12px; font-size: 12px; margin-bottom: 11px;
   &.inline { margin: 0; padding: 5px 9px; }
 }
-.pr-msg { color: var(--text-2); font-size: 13px; }
+.pr-msg { color: var(--text-2); font-size: 13px; &.err { color: var(--err); } }
+.list-del-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
 
 /* Empty */
 .pr-empty {

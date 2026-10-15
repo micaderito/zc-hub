@@ -13,10 +13,10 @@ import {
   getAllProductCosts, getProductCost, upsertProductCost, deleteProductCost,
   enqueueMlTask, insertPriceAudit, getPriceHistoryBySku,
   savePriceList, getPriceLists, getPriceListItems, getSupplierCodes,
-  getSkuCodeMap, upsertSkuCodeMap, deleteSkuCodeMap, upsertProductCost as upsertCost,
-  getPackCodeMap, upsertPackCodeMap, deletePackCodeMap, listPacks,
+  getSkuCodeMap, upsertSkuCodeMap, upsertProductCost as upsertCost,
+  getPackCodeMap, upsertPackCodeMap, listPacks,
   getPriceOverrides, upsertPriceOverride, deletePriceOverride, getLatestPriceListItems,
-  getActiveMlTasks,
+  getActiveMlTasks, markSkuCodeRemoved, markPackCodeRemoved, getRemovedCodeMapKeys, deletePriceList,
 } from '../db.js';
 import { patchTnPrice, readTnSnapshotRow, getCatalogRows } from './conflictsService.js';
 import { rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey } from '../lib/stockEcho.js';
@@ -248,6 +248,8 @@ export async function saveConfig(patch) {
  */
 export async function getPreview(currentBySku = null) {
   const { names, prices } = await loadCatalogContext();
+  // Lo que coincide con un código y todavía no está mapeado toma su costo antes de armar la planilla.
+  await autoMapFromLists(names, { throttle: true });
   const db = await getPricingSettings();
   const settings = buildSettings(db);
   const [costs, packs, overridesBySku, activeTasks] = await Promise.all([
@@ -447,28 +449,32 @@ async function buildMatchEntities(names = new Map()) {
   const packsWithCode = packs.filter((pk) => pk.sku);
   const packMemberSkus = new Set(packsWithCode.flatMap((pk) => pk.skus));
 
-  const packEntities = packsWithCode.map((pk) => ({
-    sku: pk.sku, label: pk.name, name: pk.name, isPack: true, packId: pk.id, memberSkus: pk.skus,
-  }));
+  const packEntities = packsWithCode.map(packEntity);
   const productEntities = getResolvedSkus()
     .filter((sku) => !packMemberSkus.has(sku))
-    .map((sku) => ({ sku, name: names.get(sku) ?? null, isPack: false }));
+    .map((sku) => skuEntity(sku, names));
 
   return { entities: [...packEntities, ...productEntities], packMemberSkus, packs };
 }
 
-/** sku_code_map + pack_code_map fundidos en un solo `Record<identidad, código>`, con la MISMA
- *  clave que usan las entidades de buildMatchEntities (el sku del producto, o el sku propio del
- *  pack). Sirve para que buildMappingSuggestions reconozca lo ya confirmado sin volver a preguntar. */
-async function buildSavedMap(packEntities) {
-  const savedSkuRows = await getSkuCodeMap();
-  const savedMap = Object.fromEntries(savedSkuRows.map((r) => [r.sku, r.code]));
-  const savedPackRows = await getPackCodeMap();
-  const savedPackByPackId = Object.fromEntries(savedPackRows.map((r) => [r.packId, r.code]));
-  for (const p of packEntities) {
-    if (savedPackByPackId[p.packId] != null) savedMap[p.sku] = savedPackByPackId[p.packId];
-  }
-  return savedMap;
+/** Entidad de matcheo de un pack con SKU propio. `key` la identifica: los packs NO tienen SKU único. */
+function packEntity(pk) {
+  return { key: `pack:${pk.id}`, sku: pk.sku, label: pk.name, name: pk.name, isPack: true, packId: pk.id, memberSkus: pk.skus };
+}
+
+function skuEntity(sku, names) {
+  return { key: `sku:${sku}`, sku, name: names.get(sku) ?? null, isPack: false };
+}
+
+/** sku_code_map + pack_code_map fundidos en un solo `Record<entityKey, código>` (`pack:<id>` /
+ *  `sku:<sku>`, la clave de las entidades de buildMatchEntities). Sirve para que
+ *  buildMappingSuggestions reconozca lo ya confirmado sin volver a preguntar. */
+async function buildSavedMap() {
+  const [skuRows, packRows] = await Promise.all([getSkuCodeMap(), getPackCodeMap()]);
+  return {
+    ...Object.fromEntries(skuRows.map((r) => [`sku:${r.sku}`, r.code])),
+    ...Object.fromEntries(packRows.map((r) => [`pack:${r.packId}`, r.code])),
+  };
 }
 
 /** Versión corta de una entidad para listarla en la UI (resumen del import). */
@@ -545,7 +551,7 @@ export async function previewImport(text, opts = {}) {
   // Códigos que trae esta lista, para sugerir el mapeo de los SKUs/packs que todavía no lo tienen.
   const codes = parsed.valid.map((r) => ({ code: r.code, description: r.description }));
   const { entities } = await buildMatchEntities(names);
-  const savedMap = await buildSavedMap(entities.filter((e) => e.isPack));
+  const savedMap = await buildSavedMap();
   const mappedCodes = new Set([...(await getSkuCodeMap()).map((m) => m.code), ...Object.values(savedMap)]);
   const split = splitMappingByList(buildMappingSuggestions(entities, codes, savedMap), codes, mappedCodes);
 
@@ -576,25 +582,17 @@ export async function confirmImport({ label, sourceFilename, discount1, discount
   const listId = await savePriceList({ label, sourceFilename, discount1, discount2, items });
   if (!listId) return { ok: false, error: 'No se pudo guardar la lista' };
 
-  // Mapeos que se aplican solos (exactos y ya confirmados).
+  // Mapeos que se aplican solos (código igual, o `CODIGO-variante`) contra TODAS las listas: la
+  // recién guardada ya es la más reciente.
   const codes = items.map((r) => ({ code: r.code, description: r.description }));
+  const { newMappings } = await autoMapFromLists(names);
   const { entities } = await buildMatchEntities(names);
-  const packEntities = entities.filter((e) => e.isPack);
-  const { auto } = buildMappingSuggestions(entities, codes, await buildSavedMap(packEntities));
-
-  let newMappings = 0;
-  for (const p of auto) {
-    if (p.suggestion.matchSource !== 'exact') continue;
-    if (p.isPack) await upsertPackCodeMap(p.packId, p.suggestion.code, 'exact');
-    else await upsertSkuCodeMap(p.sku, p.suggestion.code, 'exact');
-    newMappings++;
-  }
 
   const { updated, changedSkus } = await applyListCosts(listId, { discount1, discount2 });
 
   // Resumen con los mapeos YA guardados (incluye lo que se confirmó a mano antes de este POST):
   // lo pendiente que no se confirmó queda como "sin código".
-  const savedMap = await buildSavedMap(packEntities);
+  const savedMap = await buildSavedMap();
   const after = buildMappingSuggestions(entities, codes, savedMap);
   const confirmed = {
     auto: after.auto.filter((e) => e.suggestion.matchSource === 'saved'),
@@ -714,6 +712,88 @@ async function applyLatestCostForCode(skus, code, labelFallback = null) {
   return { costsUpdated, changedSkus, listLabel: item.listLabel ?? null };
 }
 
+const AUTO_MAP_THROTTLE_MS = 60_000;
+let lastAutoMapAt = 0;
+
+/**
+ * Mapea SOLO todo lo que coincide con un código de alguna lista importada y todavía no tiene
+ * mapeo: el pack cuyo SKU es el código (`39000`), o el producto `CODIGO-variante`
+ * (`39000-CORAZONES`). Le vuelca al momento el precio de la lista más reciente que trae ese código.
+ *
+ * Hasta 2026-10-14 esto pasaba SOLO al importar una lista: si el pack tomaba su SKU después (o la
+ * lista se había importado antes), quedaba "sin código" para siempre aunque el código estuviera tal
+ * cual en la lista. Ahora se recalcula al leer el mapeo y la planilla — solo escribe lo nuevo y
+ * nunca pisa un mapeo existente (tampoco uno hecho a mano).
+ *
+ * Se matchea contra los códigos de las listas (price_list_items), no contra supplier_codes: un
+ * código que ya no está en ninguna lista (p. ej. de una lista borrada) no tiene precio que dar.
+ *
+ * Los modelos de un pack con código propio no se mapean de a uno (el precio es el del pack), salvo
+ * que el pack no haya matcheado con nada: ahí se prueba con cada modelo, como si no tuviera código.
+ *
+ * @param {Map<string, string|null>} [names]
+ * @param {{ throttle?: boolean }} [opts] `throttle`: no repetir si corrió hace menos de 60 s (para
+ *   la planilla, que se refresca seguido)
+ * @returns {Promise<{ newMappings: number, costsUpdated: number, changedSkus: string[], mapped: Array }>}
+ */
+export async function autoMapFromLists(names = new Map(), { throttle = false } = {}) {
+  const none = { newMappings: 0, costsUpdated: 0, changedSkus: [], mapped: [] };
+  if (throttle && Date.now() - lastAutoMapAt < AUTO_MAP_THROTTLE_MS) return none;
+  lastAutoMapAt = Date.now();
+
+  const latest = await getLatestPriceListItems(null);
+  if (latest.length === 0) return none;
+  const codes = latest.map((i) => ({ code: i.code, description: i.description }));
+
+  const [{ entities: all, packs }, removedKeys] = await Promise.all([buildMatchEntities(names), getRemovedCodeMapKeys()]);
+  // Lo que la usuaria sacó a mano no se vuelve a mapear solo.
+  const removed = new Set(removedKeys);
+  const entities = all.filter((e) => !removed.has(e.key));
+  const savedMap = await buildSavedMap();
+  const first = buildMappingSuggestions(entities, codes, savedMap);
+
+  // Packs con código propio que no matchearon ni estaban mapeados: se prueba con sus modelos.
+  const mappedPackIds = new Set(first.auto.filter((e) => e.isPack).map((e) => e.packId));
+  const resolved = new Set(getResolvedSkus());
+  const orphanMembers = packs
+    .filter((pk) => pk.sku && !mappedPackIds.has(pk.id))
+    .flatMap((pk) => pk.skus)
+    .filter((sku, i, all) => resolved.has(sku) && all.indexOf(sku) === i)
+    .map((sku) => skuEntity(sku, names))
+    .filter((e) => !removed.has(e.key));
+  const second = buildMappingSuggestions(orphanMembers, codes, savedMap);
+
+  const fresh = [...first.auto, ...second.auto].filter((e) => e.suggestion.matchSource !== 'saved');
+  if (fresh.length === 0) return none;
+
+  const individual = new Set([
+    ...Object.keys(savedMap).filter((k) => k.startsWith('sku:')).map((k) => k.slice(4)),
+    ...fresh.filter((e) => !e.isPack).map((e) => e.sku),
+  ]);
+  const out = { ...none, mapped: [] };
+  for (const e of fresh) {
+    const { code, matchSource } = e.suggestion;
+    const ok = e.isPack
+      ? await upsertPackCodeMap(e.packId, code, matchSource)
+      : await upsertSkuCodeMap(e.sku, code, matchSource);
+    if (!ok) continue;
+    out.newMappings++;
+    out.mapped.push({ key: e.key, sku: e.sku, code, matchSource });
+    // Igual que confirmPackMapping: el precio del pack no pisa a un modelo con mapeo propio.
+    const skus = e.isPack ? e.memberSkus.filter((s) => !individual.has(s)) : [e.sku];
+    const r = await applyLatestCostForCode(skus, code, e.isPack ? e.name : null);
+    out.costsUpdated += r.costsUpdated;
+    out.changedSkus.push(...r.changedSkus);
+  }
+  if (out.newMappings > 0) console.log(`[Pricing] mapeo automático: ${out.mapped.map((m) => `${m.sku}→${m.code}`).join(', ')}`);
+  return out;
+}
+
+/** Olvida el throttle de autoMapFromLists (en los tests). */
+export function _resetAutoMapThrottle() {
+  lastAutoMapAt = 0;
+}
+
 /**
  * Estado del mapeo para la pestaña "Mapeo": TODOS los productos de la tienda (y los packs con
  * código propio) con el código del proveedor que tienen — o ninguno —, de qué lista sale su
@@ -723,6 +803,7 @@ async function applyLatestCostForCode(skus, code, labelFallback = null) {
  */
 export async function getMappingState() {
   const { names } = await loadCatalogContext();
+  const auto = await autoMapFromLists(names);
   const [codes, map, packMap, packs, latest, costs] = await Promise.all([
     getSupplierCodes(), getSkuCodeMap(), getPackCodeMap(), listPacks(),
     getLatestPriceListItems(null), getAllProductCosts(),
@@ -761,6 +842,22 @@ export async function getMappingState() {
         hasCost: pk.skus.length > 0 && pk.skus.every((s) => costBySku.has(s)),
         mappedMl: pk.skus.some((s) => !!getMlItemBySku(s)),
         mappedTn: pk.skus.some((s) => !!getTnVariantBySku(s)),
+        // Los modelos del pack, con el código del que sale su precio: el propio si tienen mapeo
+        // individual (pisa al del pack, ver applyListCosts), si no el del pack.
+        members: pk.skus.map((sku) => {
+          const own = mapBySku.get(sku);
+          return {
+            key: `sku:${sku}`,
+            sku,
+            name: names.get(sku) ?? null,
+            ...codeInfo(own?.code ?? m?.code),
+            codeSource: own ? 'own' : (m ? 'pack' : null),
+            matchSource: own?.matchSource ?? null,
+            hasCost: costBySku.has(sku),
+            mappedMl: !!getMlItemBySku(sku),
+            mappedTn: !!getTnVariantBySku(sku),
+          };
+        }),
       };
     }),
     ...skus.map((sku) => {
@@ -779,18 +876,23 @@ export async function getMappingState() {
         hasCost: costBySku.has(sku),
         mappedMl: !!getMlItemBySku(sku),
         mappedTn: !!getTnVariantBySku(sku),
+        members: [],
       };
     }),
   ];
 
   return {
     products,
+    // Lo que se acaba de mapear solo en esta lectura (para avisarlo y resaltar los costos que cambiaron).
+    autoMapped: { count: auto.newMappings, changedSkus: auto.changedSkus, items: auto.mapped },
     codes: codes.map((c) => ({
       code: c.code,
       description: c.description ?? latestByCode.get(c.code)?.description ?? null,
       listLabel: latestByCode.get(c.code)?.listLabel ?? null,
       mapped: mappedCodes.has(c.code),
-    })),
+    }))
+      // Un código que ya no está en ninguna lista (lista borrada) no da precio: no se ofrece.
+      .filter((c) => latestByCode.has(c.code) || c.mapped),
     mapped: map,
     packMapped: packMap.map((m) => ({
       ...m,
@@ -805,7 +907,7 @@ export async function getMappingState() {
       .filter((pk) => !packMapById.has(pk.id))
       .map((pk) => ({ id: pk.id, name: pk.name, sku: pk.sku })),
     // Códigos que el proveedor vende y el hub no tiene: candidatos a crear producto.
-    codesWithoutSku: codes.filter((c) => !mappedCodes.has(c.code)),
+    codesWithoutSku: codes.filter((c) => !mappedCodes.has(c.code) && latestByCode.has(c.code)),
     totals: {
       codes: codes.length,
       skus: skus.length + packsWithCode.length,
@@ -824,8 +926,12 @@ export async function confirmMapping(sku, code, matchSource = 'manual') {
   return { ok: true, ...(await applyLatestCostForCode([sku], code)) };
 }
 
+/**
+ * Saca el código de un SKU. Queda marcado como "sacado a mano" (no se borra la fila) para que el
+ * mapeo automático no se lo vuelva a poner; en un modelo de pack, vuelve a tomar el código del pack.
+ */
 export async function removeMapping(sku) {
-  return deleteSkuCodeMap(sku);
+  return markSkuCodeRemoved(sku);
 }
 
 /**
@@ -842,12 +948,20 @@ export async function confirmPackMapping(packId, code, matchSource = 'manual') {
   return { ok: true, ...(await applyLatestCostForCode(skus, code, pack.name)) };
 }
 
+/** Igual que removeMapping, para un pack. */
 export async function removePackMapping(packId) {
-  return deletePackCodeMap(packId);
+  return markPackCodeRemoved(packId);
 }
 
 export async function listImportedLists() {
   return getPriceLists();
+}
+
+/** Borra una lista importada (ver deletePriceList). Los costos ya volcados quedan. */
+export async function removeImportedList(listId) {
+  const ok = await deletePriceList(listId);
+  if (ok) _resetAutoMapThrottle();
+  return ok;
 }
 
 // ── Sincronización de comisiones desde la API de ML (fase 5) ──────────────────

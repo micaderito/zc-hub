@@ -136,6 +136,22 @@ pricingRoutes.get('/lists', async (_req, res) => {
   }
 });
 
+/**
+ * Borra una lista importada (sus ítems y los códigos que ya no estén en ninguna lista ni mapeo).
+ * Los costos que ya volcó quedan como están.
+ */
+pricingRoutes.delete('/lists/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+  try {
+    const ok = await pricing.removeImportedList(id);
+    if (!ok) return res.status(404).json({ error: 'La lista no existe' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Estado del mapeo: cada producto/pack de la tienda con su código (o sin), y los códigos del proveedor. */
 pricingRoutes.get('/mapping', async (_req, res) => {
   try {
@@ -160,7 +176,7 @@ pricingRoutes.put('/mapping/:sku', async (req, res) => {
   }
 });
 
-/** Borra el mapeo de un SKU (para rehacerlo). */
+/** Saca el código de un SKU (queda marcado para que el mapeo automático no lo vuelva a poner). */
 pricingRoutes.delete('/mapping/:sku', async (req, res) => {
   const sku = (req.params.sku || '').trim();
   if (!sku) return res.status(400).json({ error: 'sku requerido' });
@@ -186,7 +202,7 @@ pricingRoutes.put('/mapping/pack/:packId', async (req, res) => {
   }
 });
 
-/** Borra el mapeo de un pack (para rehacerlo). */
+/** Saca el código de un pack (ídem). */
 pricingRoutes.delete('/mapping/pack/:packId', async (req, res) => {
   const packId = Number(req.params.packId);
   if (!packId) return res.status(400).json({ error: 'packId requerido' });
