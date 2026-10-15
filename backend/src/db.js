@@ -2045,6 +2045,38 @@ export async function getPriceLists(limit = 20) {
   }
 }
 
+/**
+ * Borra una lista importada (sus ítems caen en cascada) y poda de `supplier_codes` los códigos que
+ * ya no aparecen en ninguna lista ni están mapeados: sirve para sacar una importación mal leída
+ * (p. ej. las de Be Positive / Escolar de antes de 2026-10-14, con códigos inventados) y que sus
+ * códigos basura no queden ofreciéndose en el mapeo. Los costos ya volcados NO se tocan.
+ * @returns {Promise<boolean>} `false` si la lista no existía o falló
+ */
+export async function deletePriceList(listId) {
+  const p = getPool();
+  if (!p || !listId) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query('DELETE FROM price_lists WHERE id = $1', [listId]);
+    if (r.rowCount === 0) { await client.query('ROLLBACK'); return false; }
+    await client.query(
+      `DELETE FROM supplier_codes c
+       WHERE NOT EXISTS (SELECT 1 FROM price_list_items i WHERE i.code = c.code)
+         AND NOT EXISTS (SELECT 1 FROM sku_code_map m WHERE m.code = c.code)
+         AND NOT EXISTS (SELECT 1 FROM pack_code_map m WHERE m.code = c.code)`
+    );
+    await client.query('COMMIT');
+    return true;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('deletePriceList:', e.message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
 /** Ítems de una lista (o de la más reciente si no se pasa id), indexados por código. */
 export async function getPriceListItems(listId = null) {
   const p = getPool();
@@ -2121,14 +2153,21 @@ export async function getSupplierCodes(supplier = 'punto_cero') {
   }
 }
 
-/** Todos los mapeos SKU→código confirmados. */
+/**
+ * `match_source` de una fila que la usuaria sacó a mano: queda como marca para que el mapeo
+ * automático (autoMapFromLists) no lo vuelva a poner en la próxima lectura. Los listados de mapeos
+ * (getSkuCodeMap/getPackCodeMap) la ignoran: para todo lo demás, ese SKU/pack no tiene código.
+ */
+export const CODE_MAP_REMOVED = 'removed';
+
+/** Todos los mapeos SKU→código confirmados (sin los sacados a mano). */
 export async function getSkuCodeMap(supplier = 'punto_cero') {
   const p = getPool();
   if (!p) return [];
   try {
     const r = await p.query(
       `SELECT sku, code, match_source AS "matchSource", confirmed_at AS "confirmedAt"
-       FROM sku_code_map WHERE supplier = $1`, [supplier]);
+       FROM sku_code_map WHERE supplier = $1 AND match_source <> '${CODE_MAP_REMOVED}'`, [supplier]);
     return r.rows.map((row) => ({
       ...row,
       confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
@@ -2171,14 +2210,14 @@ export async function deleteSkuCodeMap(sku) {
   }
 }
 
-/** Todos los mapeos PACK→código confirmados, gemelo de getSkuCodeMap. */
+/** Todos los mapeos PACK→código confirmados (sin los sacados a mano), gemelo de getSkuCodeMap. */
 export async function getPackCodeMap(supplier = 'punto_cero') {
   const p = getPool();
   if (!p) return [];
   try {
     const r = await p.query(
       `SELECT pack_id AS "packId", code, match_source AS "matchSource", confirmed_at AS "confirmedAt"
-       FROM pack_code_map WHERE supplier = $1`, [supplier]);
+       FROM pack_code_map WHERE supplier = $1 AND match_source <> '${CODE_MAP_REMOVED}'`, [supplier]);
     return r.rows.map((row) => ({
       ...row,
       confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
@@ -2218,6 +2257,60 @@ export async function deletePackCodeMap(packId) {
   } catch (e) {
     console.error('deletePackCodeMap:', e.message);
     return false;
+  }
+}
+
+/**
+ * Saca el código de un SKU / pack a mano dejando la marca CODE_MAP_REMOVED (código vacío), para que
+ * el mapeo automático no lo vuelva a mapear. Mapear a mano después pisa la marca (upsert).
+ */
+export async function markSkuCodeRemoved(sku, supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p || !sku) return false;
+  try {
+    await p.query(
+      `INSERT INTO sku_code_map (sku, code, supplier, match_source, confirmed_at)
+       VALUES ($1, '', $2, '${CODE_MAP_REMOVED}', NOW())
+       ON CONFLICT (sku) DO UPDATE SET code = '', match_source = '${CODE_MAP_REMOVED}', confirmed_at = NOW()`,
+      [sku, supplier]
+    );
+    return true;
+  } catch (e) {
+    console.error('markSkuCodeRemoved:', e.message);
+    return false;
+  }
+}
+
+export async function markPackCodeRemoved(packId, supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p || !packId) return false;
+  try {
+    await p.query(
+      `INSERT INTO pack_code_map (pack_id, code, supplier, match_source, confirmed_at)
+       VALUES ($1, '', $2, '${CODE_MAP_REMOVED}', NOW())
+       ON CONFLICT (pack_id) DO UPDATE SET code = '', match_source = '${CODE_MAP_REMOVED}', confirmed_at = NOW()`,
+      [packId, supplier]
+    );
+    return true;
+  } catch (e) {
+    console.error('markPackCodeRemoved:', e.message);
+    return false;
+  }
+}
+
+/** Claves (`sku:<sku>` / `pack:<id>`) de lo que la usuaria sacó a mano: el mapeo automático no lo toca. */
+export async function getRemovedCodeMapKeys(supplier = 'punto_cero') {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const [skus, packs] = await Promise.all([
+      p.query(`SELECT sku FROM sku_code_map WHERE supplier = $1 AND match_source = '${CODE_MAP_REMOVED}'`, [supplier]),
+      p.query(`SELECT pack_id FROM pack_code_map WHERE supplier = $1 AND match_source = '${CODE_MAP_REMOVED}'`, [supplier]),
+    ]);
+    return [...skus.rows.map((r) => `sku:${r.sku}`), ...packs.rows.map((r) => `pack:${r.pack_id}`)];
+  } catch (e) {
+    console.error('getRemovedCodeMapKeys:', e.message);
+    return [];
   }
 }
 

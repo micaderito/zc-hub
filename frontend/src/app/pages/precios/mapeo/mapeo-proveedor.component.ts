@@ -1,4 +1,5 @@
-import { Component, computed, inject, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, output, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { QueryClient, injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
@@ -6,10 +7,15 @@ import { MappingProduct, PricingService, SupplierCode } from '../../../core/serv
 
 type MappingFilter = 'all' | 'mapped' | 'unmapped';
 
-/** Un grupo de la lista: los modelos de un pack SIN código propio, o los sueltos (`pack: null`). */
+/**
+ * Un grupo de la lista: un pack CON código propio (`packRow`: el código se asigna al pack entero y
+ * `rows` son sus modelos), un pack SIN código propio (sus modelos se mapean de a uno), o los
+ * sueltos (`pack: null`).
+ */
 interface MappingGroup {
   key: string;
   pack: string | null;
+  packRow: MappingProduct | null;
   rows: MappingProduct[];
   unmapped: number;
 }
@@ -27,7 +33,7 @@ const NO_LIST = '__none__';
 @Component({
   selector: 'zc-mapeo-proveedor',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, NgTemplateOutlet],
   templateUrl: './mapeo-proveedor.component.html',
   styleUrl: './mapeo-proveedor.component.scss',
 })
@@ -47,7 +53,7 @@ export class MapeoProveedorComponent {
   readonly filter = signal<MappingFilter>('all');
   readonly listFilter = signal<string>('');
   readonly search = signal('');
-  /** Packs (sin código propio) desplegados. Arrancan plegados para que la lista no sea eterna. */
+  /** Packs desplegados (por clave de grupo). Arrancan plegados para que la lista no sea eterna. */
   readonly expanded = signal<Set<string>>(new Set());
 
   readonly editingKey = signal<string | null>(null);
@@ -71,7 +77,7 @@ export class MapeoProveedorComponent {
       if (list === NO_LIST && p.code) return false;
       if (list && list !== NO_LIST && p.listLabel !== list) return false;
       if (!q) return true;
-      return [p.sku, p.name, p.code, p.codeDescription, p.packName, ...p.memberSkus]
+      return [p.sku, p.name, p.code, p.codeDescription, p.packName, ...p.memberSkus, ...(p.members ?? []).map((m) => m.name)]
         .some((v) => v && normalize(v).includes(q));
     });
   });
@@ -89,8 +95,12 @@ export class MapeoProveedorComponent {
       .sort((a, b) => displayName(a).localeCompare(displayName(b), 'es'));
     const byPack = new Map<string, MappingProduct[]>();
     const loose: MappingProduct[] = [];
+    const groups: MappingGroup[] = [];
     for (const r of rows) {
-      if (r.packName) {
+      if (r.kind === 'pack') {
+        const members = membersOf(r);
+        groups.push({ key: r.key, pack: displayName(r), packRow: r, rows: members, unmapped: members.filter((m) => !m.code).length });
+      } else if (r.packName) {
         const list = byPack.get(r.packName) ?? [];
         list.push(r);
         byPack.set(r.packName, list);
@@ -98,10 +108,11 @@ export class MapeoProveedorComponent {
         loose.push(r);
       }
     }
-    const groups: MappingGroup[] = [...byPack.entries()]
-      .sort(([a], [b]) => a.localeCompare(b, 'es'))
-      .map(([pack, rs]) => ({ key: `pack:${pack}`, pack, rows: rs, unmapped: rs.filter((r) => !r.code).length }));
-    if (loose.length > 0) groups.push({ key: 'loose', pack: null, rows: loose, unmapped: loose.filter((r) => !r.code).length });
+    for (const [pack, rs] of byPack) {
+      groups.push({ key: `group:${pack}`, pack, packRow: null, rows: rs, unmapped: rs.filter((r) => !r.code).length });
+    }
+    groups.sort((a, b) => (a.pack ?? '').localeCompare(b.pack ?? '', 'es'));
+    if (loose.length > 0) groups.push({ key: 'loose', pack: null, packRow: null, rows: loose, unmapped: loose.filter((r) => !r.code).length });
     return groups;
   });
 
@@ -119,37 +130,63 @@ export class MapeoProveedorComponent {
 
   readonly noListValue = NO_LIST;
 
-  /** Con una búsqueda activa los packs se muestran abiertos: si no, el resultado quedaría escondido. */
-  isExpanded(pack: string): boolean {
-    return !!this.search().trim() || this.expanded().has(pack);
+  /** Último resultado del backend cuyo mapeo automático ya se avisó (no repetir el aviso). */
+  private notifiedAuto: object | null = null;
+
+  constructor() {
+    // El backend mapea solo lo que coincide con un código de las listas (código igual o
+    // `CODIGO-variante`) al leer el mapeo: se avisa y se resaltan los costos que cambiaron.
+    effect(() => {
+      const data = this.mappingQuery.data();
+      const auto = data?.autoMapped;
+      if (!data || data === this.notifiedAuto || !auto?.count) return;
+      this.notifiedAuto = data;
+      const n = auto.count;
+      this.message.set({ kind: 'ok', text: `Se ${n === 1 ? 'mapeó solo 1 producto' : `mapearon solos ${n} productos`} cuyo SKU coincide con un código de las listas (${auto.items.map((i) => i.code).filter((c, i, a) => a.indexOf(c) === i).join(', ')}).` });
+      if (auto.changedSkus.length > 0) this.costsChanged.emit(auto.changedSkus);
+      void this.queryClient.invalidateQueries({ queryKey: ['pricing', 'preview'] });
+    }, { allowSignalWrites: true });
   }
 
-  togglePack(pack: string): void {
+  /** Con una búsqueda activa los packs se muestran abiertos: si no, el resultado quedaría escondido. */
+  isExpanded(key: string): boolean {
+    return !!this.search().trim() || this.expanded().has(key);
+  }
+
+  togglePack(key: string): void {
     this.expanded.update((set) => {
       const next = new Set(set);
-      if (next.has(pack)) next.delete(pack); else next.add(pack);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   }
 
   setAllExpanded(open: boolean): void {
-    this.expanded.set(open ? new Set(this.groups().map((g) => g.pack).filter((p): p is string => !!p)) : new Set());
+    this.expanded.set(open ? new Set(this.groups().filter((g) => g.pack).map((g) => g.key)) : new Set());
   }
 
   displayName(p: MappingProduct): string {
     return displayName(p);
   }
 
-  matchLabel(source: string | null): string {
-    if (source === 'exact') return 'automático';
+  matchLabel(p: MappingProduct): string {
+    if (p.codeSource === 'pack') return 'del pack';
+    const source = p.matchSource;
+    if (source === 'exact' || source === 'base' || source === 'group') return 'automático';
     if (source === 'manual') return 'a mano';
-    if (source === 'base' || source === 'group' || source === 'text') return 'confirmado';
+    if (source === 'text') return 'confirmado';
     return '';
+  }
+
+  /** Texto del botón de editar: en un modelo que toma el código del pack, es ponerle uno propio. */
+  editLabel(p: MappingProduct): string {
+    if (!p.code) return 'Asignar código';
+    return p.codeSource === 'pack' ? 'Código propio' : 'Cambiar';
   }
 
   startEdit(p: MappingProduct): void {
     this.editingKey.set(p.key);
-    this.editCode.set(p.code ?? '');
+    this.editCode.set(p.codeSource === 'pack' ? '' : (p.code ?? ''));
     this.message.set(null);
   }
 
@@ -184,13 +221,19 @@ export class MapeoProveedorComponent {
     }
   }
 
-  /** Saca el código (el costo ya cargado queda: solo deja de actualizarse con las listas). */
+  /**
+   * Saca el código (el costo ya cargado queda: solo deja de actualizarse con las listas). En un
+   * modelo de pack con código propio, vuelve a tomar el del pack.
+   */
   async removeCode(p: MappingProduct): Promise<void> {
     this.message.set(null);
     try {
       if (p.kind === 'pack' && p.packId != null) await firstValueFrom(this.pricing.removePackMapping(p.packId));
       else await firstValueFrom(this.pricing.removeMapping(p.sku));
-      this.message.set({ kind: 'ok', text: `Se sacó el código de ${displayName(p)}. Su costo actual queda como está.` });
+      const text = p.codeSource === 'own'
+        ? `${displayName(p)} vuelve a tomar el código del pack.`
+        : `Se sacó el código de ${displayName(p)}. Su costo actual queda como está.`;
+      this.message.set({ kind: 'ok', text });
       await this.refresh();
     } catch (e) {
       this.message.set({ kind: 'err', text: `No se pudo sacar el código: ${(e as Error)?.message ?? e}` });
@@ -207,6 +250,17 @@ export class MapeoProveedorComponent {
 
 function displayName(p: MappingProduct): string {
   return p.name || p.sku;
+}
+
+/** Los modelos de un pack con código propio, como filas editables (el mapeo propio es por SKU). */
+function membersOf(pack: MappingProduct): MappingProduct[] {
+  return (pack.members ?? []).map((m) => ({
+    ...m,
+    kind: 'sku' as const,
+    packId: null,
+    memberSkus: [],
+    packName: pack.name,
+  }));
 }
 
 /** Minúsculas y sin acentos, para buscar. */

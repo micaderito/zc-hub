@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { injectQuery } from '@tanstack/angular-query-experimental';
+import { QueryClient, injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
 import {
   PricingService, PricingConfig, PreviewRow, PreviewRowPack, PricingSettings, MlFeeTier,
@@ -70,6 +70,7 @@ export class PreciosComponent {
   private readonly pdfText = inject(PdfTextService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly queryClient = inject(QueryClient);
 
   // ── Pestañas: planilla de precios / mapeo con el proveedor (vive en ?tab=mapeo) ──
   readonly tabs: TabDef[] = [
@@ -406,6 +407,32 @@ export class PreciosComponent {
 
   openLists(): void {
     this.showLists.set(true);
+  }
+
+  /** Lista con el "¿Borrar?" abierto (confirmación en línea). */
+  readonly confirmDeleteListId = signal<number | null>(null);
+  readonly deletingList = signal(false);
+  readonly listDeleteError = signal<string | null>(null);
+
+  /**
+   * Borra una lista importada: sus ítems y los códigos que ya no estén en ninguna lista. Sirve para
+   * sacar una importación mal leída antes de volver a importarla. Los costos ya cargados quedan.
+   */
+  async deleteList(list: ImportedList): Promise<void> {
+    this.deletingList.set(true);
+    this.listDeleteError.set(null);
+    try {
+      await firstValueFrom(this.pricing.deleteList(list.id));
+      this.confirmDeleteListId.set(null);
+      await Promise.all([
+        this.listsQuery.refetch(),
+        this.queryClient.invalidateQueries({ queryKey: ['pricing', 'mapping'] }),
+      ]);
+    } catch (e) {
+      this.listDeleteError.set(`No se pudo borrar "${list.label}": ${(e as Error)?.message ?? e}`);
+    } finally {
+      this.deletingList.set(false);
+    }
   }
 
   openHistory(sku: string): void {

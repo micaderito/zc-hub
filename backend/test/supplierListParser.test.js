@@ -158,3 +158,70 @@ test('CSV: también marca las filas que no cierran', () => {
   assert.equal(r.stats.flagged, 1);
   assert.match(r.rows[0].issues[0], /no cierra/);
 });
+
+// ── Las 3 listas de julio 2026 (texto extraído con pdfjs, igual que el front) ─────────────────
+// Be Positive y Escolar traen códigos con letras. Hasta 2026-10-14 `BP700V` se leía como `700` y
+// las filas siguientes lo heredaban: 46 productos con el mismo código, ninguno marcado.
+
+const bePositive = parseSupplierList(readFileSync(new URL('./pdfBePositive.fixture.txt', import.meta.url), 'utf8'));
+const escolar = parseSupplierList(readFileSync(new URL('./pdfEscolar.fixture.txt', import.meta.url), 'utf8'));
+const puntoCeroJulio = parseSupplierList(readFileSync(new URL('./pdfPuntoCeroJulio2026.fixture.txt', import.meta.url), 'utf8'));
+const codesOf = (p) => p.rows.map((r) => r.code);
+
+test('Be Positive: 46 filas, cada una con su código BP (sin heredar nada)', () => {
+  assert.equal(bePositive.stats.total, 46);
+  assert.equal(bePositive.stats.flagged, 0);
+  assert.equal(bePositive.rows.filter((r) => r.inheritedCode).length, 0);
+  assert.ok(bePositive.rows.every((r) => /^BP\d/.test(r.code)), `códigos: ${codesOf(bePositive)}`);
+  assert.equal(new Set(codesOf(bePositive)).size, 46, 'no puede haber códigos repetidos');
+});
+
+test('Be Positive: sufijo V, minúsculas y rangos', () => {
+  const codes = codesOf(bePositive);
+  assert.equal(codes[0], 'BP700V');
+  assert.ok(codes.includes('BP1000'), 'la C de "Cuaderno" no es sufijo');
+  assert.ok(codes.includes('BP1201'), 'bp1201 se guarda en mayúsculas');
+  assert.ok(codes.includes('BP1551V'));
+  assert.ok(codes.includes('BP3505-3507'));
+  const row = bePositive.rows.find((r) => r.code === 'BP1000');
+  assert.equal(row.bulkPrice, 40800);
+  assert.equal(row.fractionable, false, 'el * viene con un espacio antes');
+  assert.equal(bePositive.rows.find((r) => r.code === 'BP700V').fractionable, true);
+});
+
+test('Escolar: 63 filas, códigos V/R/LV con encabezados de sección pegados', () => {
+  assert.equal(escolar.stats.total, 63);
+  assert.equal(escolar.stats.flagged, 0);
+  assert.equal(escolar.rows.filter((r) => r.inheritedCode).length, 0);
+  const codes = codesOf(escolar);
+  for (const c of ['V4900', 'V100', 'V1550', 'V600', 'V8000', 'V15700', 'R15000', 'R15000V', 'LV010', '449/499', '100900', '4992']) {
+    assert.ok(codes.includes(c), `falta ${c}`);
+  }
+  assert.equal(codes.filter((c) => c === '100').length, 0, '"CARPETASV100" no puede dejar el código 100');
+  assert.equal(new Set(codes).size, 63);
+});
+
+test('Mi Punto Cero julio 2026: sigue igual (39000 y FULL 39000)', () => {
+  assert.equal(puntoCeroJulio.stats.total, 70);
+  assert.equal(puntoCeroJulio.stats.flagged, 0);
+  const row = puntoCeroJulio.rows.find((r) => r.code === '39000');
+  assert.equal(row.bulkPrice, 119200);
+  assert.ok(codesOf(puntoCeroJulio).includes('FULL 39000'));
+  assert.equal(puntoCeroJulio.rows.filter((r) => r.inheritedCode).length, 10); // colores de biblioratos
+});
+
+test('una fila que arranca con un código no reconocido se marca, no hereda el de arriba', () => {
+  const r = parseSupplierList('30700Cuaderno$ 1.000,008 $ 8.000,00*Kx12345 Algo raro$ 1.000,002 $ 2.000,00');
+  assert.equal(r.rows[1].code, null);
+  assert.equal(r.rows[1].inheritedCode, false);
+  assert.equal(r.rows[1].valid, false);
+  assert.match(r.rows[1].issues[0], /código no reconocido/);
+});
+
+test('splitCodeAndDescription: códigos con letras', () => {
+  assert.equal(splitCodeAndDescription('BULTOBP700V Cuaderno').code, 'BP700V');
+  assert.equal(splitCodeAndDescription('CARPETASV100 Carpeta').code, 'V100');
+  assert.equal(splitCodeAndDescription('CARTULINASv15700Cartulinas').code, 'V15700');
+  assert.equal(splitCodeAndDescription(' *LV010Libreta').code, 'LV010');
+  assert.equal(splitCodeAndDescription('BP1000Cuaderno').code, 'BP1000');
+});

@@ -369,6 +369,47 @@ invalida. En el front: "hoy $X +Y%" bajo cada precio, chip "pendiente de aplicar
 filtro **Solo pendientes** (abre los packs) y **Seleccionar pendientes**. Hasta acá la columna de
 delta existía pero nunca se mostraba: la ruta no le pasaba los precios actuales a `getPreview`.
 
+#### Códigos con letras y mapeo automático (2026-10-14)
+
+Incidente: la pestaña Mapeo mostraba packs "sin código" con el SKU (`39000`) tal cual en la lista.
+Las 3 listas reales (Mi Punto Cero, Escolar, Be Positive; fixtures `backend/test/pdf*.fixture.txt`,
+texto extraído con pdfjs igual que el front) destaparon cuatro problemas:
+
+1. **El parser solo entendía dígitos** (`supplierListParser.js`). `BP700V` salía `700` y las filas
+   siguientes, "sin código", lo **heredaban**: las 46 filas de Be Positive con código `700`, todas
+   "válidas". Escolar igual (`V100`→`100`, `CARPETASV100` se comía la `V`). Ahora `CODE` admite
+   prefijo (`BP`/`BPN`/`V`/`R`/`LV`/`REP`/`FULL `, también en minúscula), sufijo `V` y rangos
+   (`BP3505-3507`), y se guarda en mayúsculas (`canonicalCode`). El encabezado de sección pegado
+   se corta lo más corto posible y no puede arrancar donde arranca un código. **Solo hereda una
+   fila que no empieza con nada parecido a un código** (`CODE_LIKE`); si no, se marca "código no
+   reconocido". El `*` de "no se fracciona" puede venir con un espacio antes.
+2. **El mapeo solo se calculaba al importar.** `autoMapFromLists` (pricingService) corre en
+   `getMappingState`, en `getPreview` (con throttle de 60 s) y en `confirmImport`: mapea lo que
+   coincide con un código de alguna lista importada (`price_list_items`, no `supplier_codes`) y no
+   tiene mapeo, y le vuelca el costo de la lista más reciente. Nunca pisa un mapeo existente. Si un
+   pack con SKU propio no matchea, prueba con cada modelo.
+3. **`savedMap` indexado por SKU**: los packs no tienen SKU único (Viejos/Nuevos comparten `39000`)
+   y el mapeo de uno se le pegaba al otro como "ya confirmado" → nunca se guardaba. Ahora la clave
+   es `entityKey` (`pack:<id>` / `sku:<sku>`).
+4. **`CODIGO-variante` (`39000-CORAZONES`) es automático** (`base`, y `group` dentro de un código
+   múltiple): es la convención de la usuaria y el código base tiene que coincidir exacto. Solo el
+   parecido por descripción (`text`) queda como sugerencia.
+
+**Sacar un código a mano deja una marca** (`match_source = 'removed'`, código vacío;
+`markSkuCodeRemoved`/`markPackCodeRemoved`) para que el mapeo automático no lo vuelva a poner;
+`getSkuCodeMap`/`getPackCodeMap` la ignoran (Pedidos y Precios no la ven). Mapear a mano la pisa.
+En un modelo de pack, sacar su código propio lo devuelve al del pack.
+
+En la pestaña Mapeo un pack con código propio es un grupo plegable: el encabezado tiene el código
+del pack y adentro van sus modelos (`members` en `getMappingState`) con el código del que sale su
+precio — "del pack" o uno propio ("Código propio" lo asigna por SKU). Lo que se mapeó solo en esa
+lectura vuelve en `autoMapped` y la UI lo avisa.
+
+**Borrar una lista** (`DELETE /api/pricing/lists/:id`, ícono en Historial de listas): borra sus
+ítems y poda de `supplier_codes` los códigos que ya no están en ninguna lista ni mapeo. Los costos
+ya volcados no se tocan. Las importaciones de Be Positive / Escolar anteriores a este fix tienen
+códigos inventados: hay que borrarlas y volver a importar.
+
 ### Alertas de stock: sugerencia de reposición por pack, no por modelo
 
 En "Para reponer" (`backend/src/services/alertsService.js`, `frontend/.../pages/alertas/`), cuando
@@ -1196,6 +1237,15 @@ lista más reciente / sin lista guarda sin tocar costos / pack respeta mapeos in
 mapeo por producto, `buildSkuNames`, `buildSkuPrices`, pendiente/en cola en `getPreview`, invalidar la foto al aplicar) + `getLatestPriceListItems` contra Postgres real en
 `publishJobsRealDb.test.js`; en el front `precios.component.spec.ts` (packs plegados, rango de
 precios, selección por pack, resumen del import, Solo pendientes / en cola ML) y `mapeo-proveedor.component.spec.ts`.
+Códigos con letras y mapeo automático: `supplierListParser.test.js` (las 3 listas de julio 2026 —
+Be Positive 46 filas `BP…` sin heredar, Escolar con `V`/`R`/`LV` y encabezados pegados, Punto Cero
+igual que antes—, fila con código no reconocido marcada), `skuMatcher.test.js` (`base`/`group`
+automáticos, prefijos, dos packs con el mismo SKU), `pricingService.test.js` (`autoMapFromLists`:
+pack `39000` → se mapea y pasa el costo a sus modelos, `CODIGO-variante` suelto, no pisa manual,
+ignora códigos sin lista, modelos de un pack que no matcheó, lo sacado a mano no vuelve, throttle de
+`getPreview`), `deletePriceList` + la marca de "sacado" en `publishJobsRealDb.test.js`; en el front
+`mapeo-proveedor.component.spec.ts` (pack con sus modelos, código propio de un modelo, aviso del
+mapeo automático) y `precios.component.spec.ts` (borrar una lista).
 
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y
 Full, carrito = un paquete con un solo GET de envío, buckets atrasado/hoy/próximos con `now`

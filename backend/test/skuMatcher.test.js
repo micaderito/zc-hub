@@ -2,8 +2,8 @@
  * Tests de la escalera de coincidencia SKU ↔ código del proveedor (lib/skuMatcher.js).
  *
  * Lo importante que verifican: qué se aplica SOLO y qué solo se PROPONE. Equivocarse acá significa
- * publicar un precio mal en Mercado Libre, así que del escalón "base" en adelante nada puede
- * auto-aplicarse.
+ * publicar un precio mal en Mercado Libre: lo que coincide EXACTO con un código (el SKU entero o su
+ * base `CODIGO-variante`) se aplica solo; el parecido por descripción solo se propone.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -39,6 +39,13 @@ test('baseCodeOf: quita los sufijos que agregás vos al SKU', () => {
   assert.equal(baseCodeOf('39001_A'), '39001');
   assert.equal(baseCodeOf('30700'), '30700');
   assert.equal(baseCodeOf('LAPICERA-GEL'), null);
+  assert.equal(baseCodeOf('39000-corazones'), '39000');
+  assert.equal(baseCodeOf('BP700V-ROSA'), 'BP700V');
+  assert.equal(baseCodeOf('30700 ROSA'), '30700');
+});
+
+test('expandCode: un rango con prefijo de letras conserva el prefijo', () => {
+  assert.deepEqual(expandCode('BP3505-3507'), ['BP3505', 'BP3507']);
 });
 
 test('escalón 1 (exact): el SKU igual al código se aplica SOLO', () => {
@@ -62,18 +69,26 @@ test('escalón 2 (saved): un mapeo ya confirmado le gana a todo y se aplica SOLO
   assert.equal(m.auto, true);
 });
 
-test('escalón 3 (base): SKU con sufijo propio PROPONE, no aplica solo', () => {
+test('escalón 3 (base): CODIGO-variante se aplica SOLO (convención de la usuaria)', () => {
   const m = suggestMatch({ sku: '30700-ROSA' }, codes);
   assert.equal(m.code, '30700');
   assert.equal(m.matchSource, 'base');
-  assert.equal(m.auto, false, 'nunca debe auto-aplicarse');
+  assert.equal(m.auto, true);
+  const bp = suggestMatch({ sku: 'BP700V-LILA' }, [{ code: 'BP700V' }]);
+  assert.equal(bp.code, 'BP700V');
+  assert.equal(bp.auto, true);
 });
 
-test('escalón 4 (group): SKU con sufijo que cae en un código múltiple PROPONE', () => {
+test('escalón 4 (group): CODIGO-variante dentro de un código múltiple también se aplica solo', () => {
   const m = suggestMatch({ sku: '39134-AZUL' }, codes);
   assert.equal(m.code, '39021/22/33/34/38/134/135/136/137/138');
   assert.equal(m.matchSource, 'group');
-  assert.equal(m.auto, false);
+  assert.equal(m.auto, true);
+});
+
+test('un SKU de un rango con prefijo matchea exacto', () => {
+  const m = suggestMatch({ sku: 'BP3507' }, [{ code: 'BP3505-3507' }]);
+  assert.equal(m.matchSource, 'exact');
 });
 
 test('escalón 5 (text): sin código parecido, cae en similitud de descripción y PROPONE', () => {
@@ -99,21 +114,31 @@ test('buildMappingSuggestions: separa lo automático de lo que hay que confirmar
   const products = [
     { sku: '30700' },                                   // exact  → auto
     { sku: '39001', label: 'Repuesto A4' },             // exact  → auto
-    { sku: '30700-ROSA' },                              // base   → review
+    { sku: '30700-ROSA' },                              // base   → auto
     { sku: 'YA-MAPEADO' },                              // saved  → auto
+    { sku: 'X', label: 'Repuesto Rayado x80hjs de 90g' }, // text → review
     { sku: 'OTRA-MARCA', label: 'Washi tape' },         // nada   → unmatched
   ];
   const { auto, review, unmatched } = buildMappingSuggestions(products, codes, { 'YA-MAPEADO': '39001' });
 
-  assert.deepEqual(auto.map((p) => p.sku).sort(), ['30700', '39001', 'YA-MAPEADO']);
-  assert.deepEqual(review.map((p) => p.sku), ['30700-ROSA']);
+  assert.deepEqual(auto.map((p) => p.sku).sort(), ['30700', '30700-ROSA', '39001', 'YA-MAPEADO']);
+  assert.deepEqual(review.map((p) => p.sku), ['X']);
   assert.deepEqual(unmatched.map((p) => p.sku), ['OTRA-MARCA']);
 });
 
-test('ningún escalón dudoso queda marcado como automático', () => {
-  const products = [{ sku: '30700-ROSA' }, { sku: '39134-AZUL' }, { sku: 'X', label: 'Repuesto Rayado x80hjs de 90g' }];
-  const { auto, review } = buildMappingSuggestions(products, codes, {});
-  assert.equal(auto.length, 0, 'nada dudoso puede aplicarse solo');
-  assert.equal(review.length, 3);
-  for (const r of review) assert.equal(r.suggestion.auto, false);
+test('el parecido por descripción nunca queda marcado como automático', () => {
+  const { auto, review } = buildMappingSuggestions([{ sku: 'X', label: 'Repuesto Rayado x80hjs de 90g' }], codes, {});
+  assert.equal(auto.length, 0);
+  assert.equal(review[0].suggestion.auto, false);
+});
+
+test('buildMappingSuggestions: dos packs con el MISMO sku no se pisan el mapeo guardado', () => {
+  const products = [
+    { key: 'pack:1', sku: '39000', isPack: true },
+    { key: 'pack:2', sku: '39000', isPack: true },
+  ];
+  const { auto } = buildMappingSuggestions(products, [{ code: '39000' }], { 'pack:1': '39000' });
+  const byKey = Object.fromEntries(auto.map((e) => [e.key, e.suggestion.matchSource]));
+  assert.equal(byKey['pack:1'], 'saved');
+  assert.equal(byKey['pack:2'], 'exact', 'el segundo pack tiene que salir como nuevo, para guardarse');
 });

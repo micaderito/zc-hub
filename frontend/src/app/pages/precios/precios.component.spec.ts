@@ -59,6 +59,10 @@ class PricingMock {
   previewImport = jasmine.createSpy('previewImport').and.returnValue(of(PREVIEW));
   confirmImport = jasmine.createSpy('confirmImport').and.returnValue(of(RESULT));
   getMappingState = jasmine.createSpy('getMappingState').and.returnValue(of({ products: [], codes: [] }));
+  getLists = jasmine.createSpy('getLists').and.returnValue(of({ lists: [
+    { id: 3, label: 'LISTA BE POSITIVE', sourceFilename: null, discount1: 0, discount2: 0, importedAt: null, itemCount: 46 },
+  ] }));
+  deleteList = jasmine.createSpy('deleteList').and.returnValue(of({ ok: true }));
 }
 
 describe('PreciosComponent', () => {
@@ -195,5 +199,20 @@ describe('PreciosComponent', () => {
     component.onlyPending.set(true);
     fixture.detectChanges();
     expect(text()).toContain('No hay nada pendiente');
+  });
+
+  it('el historial de listas permite borrar una lista con confirmación', async () => {
+    fixture.detectChanges();
+    component.openLists();
+    await new Promise((r) => setTimeout(r, 20));
+    fixture.detectChanges();
+    expect(text()).toContain('LISTA BE POSITIVE');
+    component.confirmDeleteListId.set(3);
+    fixture.detectChanges();
+    expect(text()).toContain('¿Borrar esta lista?');
+    await component.deleteList(component.importedLists()[0]);
+    expect(pricing.deleteList).toHaveBeenCalledWith(3);
+    expect(component.confirmDeleteListId()).toBeNull();
+    expect(component.listDeleteError()).toBeNull();
   });
 });

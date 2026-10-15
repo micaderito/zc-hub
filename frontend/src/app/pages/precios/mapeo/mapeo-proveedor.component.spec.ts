@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
-import { MappingProduct, MappingState, PricingService } from '../../../core/services/pricing.service';
+import { MappingMember, MappingProduct, MappingState, PricingService } from '../../../core/services/pricing.service';
 import { MapeoProveedorComponent } from './mapeo-proveedor.component';
 
 const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -14,13 +14,26 @@ function product(over: Partial<MappingProduct> = {}): MappingProduct {
   };
 }
 
+function member(over: Partial<MappingMember> = {}): MappingMember {
+  return {
+    key: 'sku:A', sku: 'A', name: 'Modelo', code: '39001', codeDescription: 'Repuesto', listLabel: 'Repuestos',
+    codeSource: 'pack', matchSource: null, hasCost: true, mappedMl: true, mappedTn: false, ...over,
+  };
+}
+
 function state(): MappingState {
   return {
     products: [
       product(),
       product({ key: 'sku:LAP-1', sku: 'LAP-1', name: 'Lapicera', code: null, codeDescription: null, listLabel: null, matchSource: null, hasCost: false }),
       product({ key: 'sku:REP-ROJO', sku: 'REP-ROJO', name: 'Repuesto rojo', packName: 'Repuestos x8', code: null, codeDescription: null, listLabel: null, matchSource: null, hasCost: false }),
-      product({ key: 'pack:1', kind: 'pack', sku: '39001', packId: 1, name: 'Surtido', memberSkus: ['A', 'B'], code: '39001', listLabel: 'Repuestos' }),
+      product({
+        key: 'pack:1', kind: 'pack', sku: '39001', packId: 1, name: 'Surtido', memberSkus: ['A', 'B'], code: '39001', listLabel: 'Repuestos',
+        members: [
+          member({ key: 'sku:A', sku: 'A', name: 'Modelo corazones' }),
+          member({ key: 'sku:B', sku: 'B', name: 'Modelo luna', code: 'ESPECIAL', codeSource: 'own', matchSource: 'manual', listLabel: 'Otra' }),
+        ],
+      }),
     ],
     codes: [
       { code: '30700', description: 'Cuaderno', listLabel: 'Cuadernos', mapped: true },
@@ -81,7 +94,7 @@ describe('MapeoProveedorComponent', () => {
     expect(component.groups().flatMap((g) => g.rows).map((r) => r.sku).sort()).toEqual(['LAP-1', 'REP-ROJO']);
     component.filter.set('all');
     component.listFilter.set('Repuestos');
-    expect(component.groups().flatMap((g) => g.rows).map((r) => r.sku)).toEqual(['39001']);
+    expect(component.groups().map((g) => g.key)).toEqual(['pack:1']);
   });
 
   it('los modelos de un pack sin código propio van agrupados y plegados', async () => {
@@ -89,7 +102,7 @@ describe('MapeoProveedorComponent', () => {
     const group = component.groups().find((g) => g.pack === 'Repuestos x8')!;
     expect(group.unmapped).toBe(1);
     expect(text()).not.toContain('Repuesto rojo');
-    component.togglePack('Repuestos x8');
+    component.togglePack('group:Repuestos x8');
     fixture.detectChanges();
     expect(text()).toContain('Repuesto rojo');
   });
@@ -139,5 +152,47 @@ describe('MapeoProveedorComponent', () => {
   it('lista los códigos de las listas sin producto asignado', async () => {
     await render();
     expect(component.unusedCodes().map((c) => c.code)).toEqual(['50000']);
+  });
+
+  it('un pack con código propio se despliega y muestra sus modelos con el código del pack o el propio', async () => {
+    await render();
+    const group = component.groups().find((g) => g.key === 'pack:1')!;
+    expect(group.packRow?.code).toBe('39001');
+    expect(group.rows.map((r) => [r.sku, r.code, component.matchLabel(r)])).toEqual([
+      ['A', '39001', 'del pack'],
+      ['B', 'ESPECIAL', 'a mano'],
+    ]);
+    expect(text()).not.toContain('Modelo corazones');
+    component.togglePack('pack:1');
+    fixture.detectChanges();
+    expect(text()).toContain('Modelo corazones');
+    expect(text()).toContain('del pack');
+    expect(text()).toContain('Código propio');
+  });
+
+  it('a un modelo de pack se le pone un código propio por SKU, y al sacarlo vuelve al del pack', async () => {
+    await render();
+    const [a, b] = component.groups().find((g) => g.key === 'pack:1')!.rows;
+    component.startEdit(a);
+    expect(component.editCode()).toBe('', 'no precarga el código heredado del pack');
+    component.editCode.set('OTRO');
+    await component.saveEdit(a);
+    expect(pricing.confirmMapping).toHaveBeenCalledWith('A', 'OTRO', 'manual');
+    await component.removeCode(b);
+    expect(pricing.removeMapping).toHaveBeenCalledWith('B');
+    expect(component.message()?.text).toContain('vuelve a tomar el código del pack');
+  });
+
+  it('avisa lo que el backend mapeó solo y emite los costos que cambiaron', async () => {
+    pricing.getMappingState.and.callFake(() => of({
+      ...state(),
+      autoMapped: { count: 1, changedSkus: ['A', 'B'], items: [{ key: 'pack:1', sku: '39001', code: '39001', matchSource: 'exact' }] },
+    }));
+    const emitted: string[][] = [];
+    component.costsChanged.subscribe((s) => emitted.push(s));
+    await render();
+    expect(component.message()?.kind).toBe('ok');
+    expect(component.message()?.text).toContain('39001');
+    expect(emitted).toEqual([['A', 'B']]);
   });
 });

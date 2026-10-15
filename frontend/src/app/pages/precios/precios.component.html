@@ -647,10 +647,24 @@
                   }
                   <span class="why">{{ l.importedAt | date: 'dd/MM/yy HH:mm' }}</span>
                 </div>
+                @if (confirmDeleteListId() === l.id) {
+                  <span class="list-del-confirm">
+                    ¿Borrar esta lista?
+                    <button type="button" class="btn btn-s danger" [disabled]="deletingList()" (click)="deleteList(l)">
+                      {{ deletingList() ? 'Borrando…' : 'Sí, borrar' }}
+                    </button>
+                    <button type="button" class="btn btn-s" (click)="confirmDeleteListId.set(null)">No</button>
+                  </span>
+                } @else {
+                  <button type="button" class="icon-btn danger" title="Borrar la lista" (click)="confirmDeleteListId.set(l.id)">
+                    <i class="ti ti-trash"></i>
+                  </button>
+                }
               </li>
             }
           </ul>
-          <p class="modal-note"><i class="ti ti-info-circle"></i> Para cambiar precios de nuevo, importá otra lista (o la misma actualizada) desde "Importar lista".</p>
+          @if (listDeleteError()) { <p class="pr-msg err">{{ listDeleteError() }}</p> }
+          <p class="modal-note"><i class="ti ti-info-circle"></i> Para cambiar precios de nuevo, importá otra lista (o la misma actualizada) desde "Importar lista". Borrar una lista no cambia los costos que ya cargó: sirve para sacar una importación mal leída y volver a importarla.</p>
         }
       </div>
       <div class="modal-foot">
