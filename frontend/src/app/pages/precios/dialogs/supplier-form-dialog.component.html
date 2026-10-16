@@ -1,0 +1,30 @@
+<div class="modal-backdrop" (click)="store.close()">
+  <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h2>{{ supplier() ? 'Renombrar proveedor' : 'Nuevo proveedor' }}</h2>
+      <button type="button" class="icon-btn" (click)="store.close()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <label class="fld">Nombre
+        <input type="text" [ngModel]="name()" (ngModelChange)="name.set($event)" placeholder="Bic" />
+      </label>
+      @if (!supplier()) {
+        <p class="modal-note"><i class="ti ti-info-circle"></i> Descuento default: lo toma todo lo de este proveedor que no tenga una configuración propia. Después podés sumar más.</p>
+        <div class="grid2">
+          <label class="fld">Descuento 1 (%)
+            <input type="number" [ngModel]="discount1()" (ngModelChange)="discount1.set($event)" />
+          </label>
+          <label class="fld">Descuento 2 (%)
+            <input type="number" [ngModel]="discount2()" (ngModelChange)="discount2.set($event)" />
+          </label>
+        </div>
+      }
+    </div>
+    <div class="modal-foot">
+      @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+      <div class="spacer"></div>
+      <button type="button" class="btn" (click)="store.close()">Cancelar</button>
+      <button type="button" class="btn pri" [disabled]="saving()" (click)="save()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+    </div>
+  </div>
+</div>

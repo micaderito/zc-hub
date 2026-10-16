@@ -1,0 +1,134 @@
+:host { display: block; }
+
+/* Resumen de reglas (viven en Ajustes) */
+.pr-rules { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 11px; }
+.pr-rules-label {
+  font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.03em;
+  display: flex; align-items: center; gap: 4px; margin-right: 3px;
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: 8px;
+  padding: 5px 9px; font-size: 11.5px; color: var(--text-2);
+  b { color: var(--text); font-weight: 500; }
+  i { font-size: 13px; }
+}
+
+/* Toolbar */
+.pr-toolbar { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; margin-bottom: 11px; }
+.pr-pack-toggles { display: inline-flex; gap: 2px; }
+.pr-search {
+  position: relative;
+  i { position: absolute; left: 9px; top: 7px; font-size: 14px; color: var(--text-3); }
+  input {
+    font: inherit; font-size: 12.5px; width: 260px; padding: 7px 10px 7px 28px;
+    border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+  }
+}
+.pr-applied { font-size: 12px; color: var(--ok); display: inline-flex; align-items: center; gap: 5px; }
+.pr-changed-banner {
+  font-size: 12px; color: var(--brand); display: inline-flex; align-items: center; gap: 6px;
+  background: var(--brand-bg); border-radius: 8px; padding: 5px 10px;
+}
+.pend-chip {
+  font: inherit; font-size: 11.5px; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+  border: 0.5px solid var(--border); background: var(--surface); color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 5px;
+  b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  &.on { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); b { color: var(--warn); } }
+}
+
+/* Vacío */
+.pr-empty {
+  text-align: center; padding: 46px 20px; color: var(--text-2);
+  border: 1px dashed var(--border); border-radius: 12px; background: var(--surface);
+  i { font-size: 30px; color: var(--text-3); }
+  p { margin: 8px 0 0; font-size: 13px; }
+  .hint { font-size: 12px; color: var(--text-3); max-width: 420px; margin: 6px auto 14px; }
+}
+
+/* Tabla */
+.pr-table-wrap { border: 0.5px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); overflow-x: auto; }
+.pr-table {
+  width: 100%; border-collapse: collapse;
+  thead { background: var(--surface-2); }
+  th {
+    font-size: 10px; color: var(--text-3); font-weight: 500; text-align: left;
+    padding: 8px 10px; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+  }
+  td { font-size: 12px; padding: 9px 10px; border-top: 0.5px solid var(--border); vertical-align: middle; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.tn, td.tn { color: var(--tn-text); }
+  th.ml, td.ml { color: var(--ml-text); }
+  td.net { color: var(--ok); font-weight: 500; }
+  .col-check { width: 34px; padding-left: 12px; }
+  .col-actions { width: 84px; text-align: right; white-space: nowrap; }
+  tr.row-unmapped { opacity: 0.6; }
+  tr.row-changed { box-shadow: inset 3px 0 0 var(--brand); background: var(--brand-bg); }
+
+  // Igual criterio que la tabla de "Para reponer": el <td colspan> se queda como celda de tabla
+  // normal (el flex va en el <div> de adentro) para que el navegador mida bien el ancho combinado.
+  tr.group-row td { background: var(--surface-2); font-size: 0.76rem; padding: 8px 10px; i { color: var(--brand); } }
+  .group-row-inner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .group-total { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-2); }
+  .pack-sku { font-size: 10px; color: var(--text-3); }
+  td.group-price { font-size: 12px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tr.group-row.group-changed td { box-shadow: inset 0 -2px 0 var(--brand); }
+  tr.row-in-pack td:nth-child(2) { padding-left: 26px; }
+  td.pr-none { text-align: center; color: var(--text-2); padding: 22px 10px; i { color: var(--ok); } }
+}
+
+/* Encabezado de pack: todo el texto es el botón de plegar/desplegar */
+.group-toggle {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%;
+  font: inherit; color: var(--text); text-align: left; background: none; border: none; padding: 0; cursor: pointer;
+  > .ti { color: var(--brand); }
+  &:hover b { text-decoration: underline; }
+}
+
+.pr-prod { display: flex; flex-direction: column; gap: 2px; }
+.pr-prod-name { font-weight: 500; }
+.pr-prod-sub { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-3); }
+.sup { color: var(--text-2); b { font-weight: 500; } }
+.cell-main { display: block; }
+.cell-sub { display: block; font-size: 10px; color: var(--text-3); font-weight: 400; white-space: nowrap; }
+.disc-cell { white-space: nowrap; cursor: help; }
+
+.price-cell { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.price-input {
+  width: 88px; font: inherit; font-size: 12px; padding: 4px 7px;
+  border: 0.5px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.calc-ref { font-size: 9.5px; color: var(--text-3); white-space: nowrap; }
+
+/* Precio publicado hoy, debajo del input */
+.pub-ref {
+  display: block; margin-top: 3px; font-size: 10px; color: var(--text-3); white-space: nowrap;
+  i { font-size: 11px; vertical-align: -1px; }
+  &.pending { color: var(--warn); }
+  &.ok { color: var(--ok); }
+}
+.delta {
+  font-size: 10px; margin-left: 4px;
+  &.up { color: var(--ok); }
+  &.down { color: var(--err); }
+}
+
+/* Barra de acción fija */
+.pr-actionbar {
+  position: fixed; bottom: 0; left: var(--sidebar-w, 0); right: 0;
+  border-top: 0.5px solid var(--border); background: var(--surface);
+  padding: 11px 20px; display: flex; align-items: center; gap: 13px; z-index: 5;
+  .btn i { margin-right: 2px; }
+}
+.pr-sel { font-size: 12px; color: var(--text-2); b { color: var(--text); font-weight: 500; } }
+
+@media (max-width: 640px) {
+  .pr-search { flex: 1 1 100%; input { width: 100%; } }
+  .pr-actionbar {
+    flex-wrap: wrap; gap: 8px; padding: 9px 12px;
+    .spacer { display: none; }
+    .btn.pri { flex-basis: 100%; justify-content: center; }
+  }
+}

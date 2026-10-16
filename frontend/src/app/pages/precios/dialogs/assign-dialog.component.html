@@ -1,0 +1,52 @@
+<div class="modal-backdrop" (click)="closed.emit()">
+  <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h2>{{ mode() === 'discount' ? 'Asignar descuento' : 'Proveedor vigente' }}</h2>
+      <button type="button" class="icon-btn" (click)="closed.emit()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-note">
+        <i class="ti ti-list-check" aria-hidden="true"></i>
+        {{ selectedCount() }} producto{{ selectedCount() === 1 ? '' : 's' }} seleccionado{{ selectedCount() === 1 ? '' : 's' }}.
+        @if (mode() === 'discount') { Un pack seleccionado entero toma la configuración como pack. }
+      </p>
+      <label class="fld">Proveedor
+        <select [ngModel]="supplierKey()" (ngModelChange)="setSupplier($event)">
+          @for (s of store.suppliers(); track s.key) { <option [value]="s.key">{{ s.name }}</option> }
+        </select>
+      </label>
+      @if (mode() === 'discount') {
+        <div class="fld">
+          <span>Configuración</span>
+          <div class="radio-list">
+            @for (p of profiles(); track p.id) {
+              <label class="radio-row">
+                <input type="radio" name="assign-profile" [checked]="profileId() === p.id" (change)="profileId.set(p.id)" />
+                <b>{{ p.name }}</b> <span class="muted">{{ discountPcts(p) }}</span>
+                @if (p.isDefault) { <span class="badge brand">default</span> }
+              </label>
+            }
+          </div>
+        </div>
+        <p class="modal-note"><i class="ti ti-info-circle"></i> Solo cuenta cuando ese proveedor es el vigente del producto.</p>
+      } @else {
+        <p class="modal-note"><i class="ti ti-info-circle"></i> El costo pasa a salir de la última lista de este proveedor (con su código para cada producto). Si no hay precio de lista, queda el costo de ahora.</p>
+      }
+      @if (result()) {
+        <div class="pr-warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i> {{ result() }}</div>
+      }
+    </div>
+    <div class="modal-foot">
+      @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+      <div class="spacer"></div>
+      @if (result()) {
+        <button type="button" class="btn pri" (click)="closed.emit()">Listo</button>
+      } @else {
+        <button type="button" class="btn" (click)="closed.emit()">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="saving() || !supplierKey()" (click)="confirm()">
+          {{ saving() ? 'Guardando…' : (mode() === 'discount' ? 'Asignar' : 'Cambiar proveedor') }}
+        </button>
+      }
+    </div>
+  </div>
+</div>

@@ -1,0 +1,68 @@
+<div class="modal-backdrop" (click)="store.close()">
+  <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h2>Costo del producto</h2>
+      <button type="button" class="icon-btn" (click)="store.close()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <label class="fld">SKU
+        <input type="text" [ngModel]="form().sku" (ngModelChange)="update('sku', $event)" placeholder="El mismo SKU que en ML/TN" />
+      </label>
+      <label class="fld">Nombre (opcional)
+        <input type="text" [ngModel]="form().label" (ngModelChange)="update('label', $event)" />
+      </label>
+
+      <div class="seg">
+        <button type="button" [class.on]="form().mode === 'unit'" (click)="update('mode', 'unit')">Costo unitario</button>
+        <button type="button" [class.on]="form().mode === 'bulk'" (click)="update('mode', 'bulk')">Por bulto</button>
+      </div>
+
+      @if (form().mode === 'unit') {
+        <label class="fld">Costo unitario ($)
+          <input type="number" [ngModel]="form().unitCost" (ngModelChange)="update('unitCost', $event)" />
+        </label>
+      } @else {
+        <div class="grid2">
+          <label class="fld">Precio por bulto ($)
+            <input type="number" [ngModel]="form().bulkPrice" (ngModelChange)="update('bulkPrice', $event)" />
+          </label>
+          <label class="fld">Unidades por bulto
+            <input type="number" [ngModel]="form().bulkQty" (ngModelChange)="update('bulkQty', $event)" />
+          </label>
+        </div>
+      }
+
+      <div class="grid2">
+        <label class="fld">Proveedor
+          <select [ngModel]="form().supplierKey" (ngModelChange)="update('supplierKey', $event)">
+            <option value="">Sin proveedor</option>
+            @for (s of store.suppliers(); track s.key) { <option [value]="s.key">{{ s.name }}</option> }
+          </select>
+        </label>
+        @if (form().mode === 'bulk' && form().supplierKey) {
+          <label class="fld">Descuento
+            <select [ngModel]="form().profileId" (ngModelChange)="update('profileId', $event)">
+              <option [ngValue]="null">La del pack o la default</option>
+              @for (p of profiles(); track p.id) {
+                <option [ngValue]="p.id">{{ p.name }} · {{ discountPcts(p) }}</option>
+              }
+            </select>
+          </label>
+        }
+      </div>
+      @if (form().mode === 'bulk' && !form().supplierKey) {
+        <p class="modal-note"><i class="ti ti-info-circle"></i> Sin proveedor no se aplica ningún descuento.</p>
+      }
+
+      <label class="fld">Ganancia (%) <span class="fld-hint">vacío = usar la de Ajustes</span>
+        <input type="number" [ngModel]="form().marginOverride" (ngModelChange)="update('marginOverride', $event)" placeholder="por default" />
+      </label>
+    </div>
+    <div class="modal-foot">
+      @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+      <div class="spacer"></div>
+      <button type="button" class="btn" (click)="store.close()">Cancelar</button>
+      <button type="button" class="btn pri" [disabled]="saving()" (click)="save()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+    </div>
+  </div>
+</div>
