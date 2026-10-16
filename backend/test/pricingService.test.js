@@ -35,6 +35,12 @@ const saveState = { settings: [], tiers: [] };
 const catalogState = { mlRows: [], tnRows: [], calls: 0, resolutionCalls: 0 };
 // ítem más reciente por código (getLatestPriceListItems), con los datos de su lista.
 const latestState = { items: [] };
+// proveedores + configs de descuento + asignaciones pack/producto ↔ proveedor.
+const PC = 'punto_cero';
+const freshSuppliers = () => [{ key: PC, name: 'Punto Cero', profiles: [{ id: 1, name: 'General', discount1: 0, discount2: 0, isDefault: true }] }];
+const supplierState = { suppliers: freshSuppliers(), assignments: [], nextId: 10 };
+const withSupplier = (rows) => rows.map((m) => ({ supplier: PC, ...m }));
+const bySupplier = (sup) => (m) => sup == null || m.supplier === sup;
 
 let svc;
 before(async () => {
@@ -45,7 +51,13 @@ before(async () => {
       saveMlFeeTiers: async (tiers) => { saveState.tiers.push(tiers); return true; },
       getAllProductCosts: async () => Object.values(dbState.costs),
       getProductCost: async (sku) => dbState.costs[sku] || null,
-      upsertProductCost: async () => true,
+      upsertProductCost: async (sku, data) => {
+        if (dbState.storeCosts) {
+          const prev = dbState.costs[sku] || {};
+          dbState.costs[sku] = { ...prev, ...data, sku, supplierKey: data.supplierKey !== undefined ? data.supplierKey : prev.supplierKey };
+        }
+        return true;
+      },
       deleteProductCost: async () => true,
       enqueueMlTask: async (task) => { dbState.enqueued.push(task); return dbState.enqueued.length; },
       insertPriceAudit: async (row) => { auditState.priceRows.push(row); return true; },
@@ -54,16 +66,16 @@ before(async () => {
       savePriceList: async (list) => { listState.saved.push(list); return 1; },
       getPriceLists: async () => listState.saved.map((l, i) => ({ id: i + 1, ...l })),
       getPriceListItems: async () => listState.items,
-      getSupplierCodes: async () => listState.codes,
-      getSkuCodeMap: async () => listState.map,
-      upsertSkuCodeMap: async (sku, code, matchSource) => {
-        listState.map = listState.map.filter((m) => m.sku !== sku).concat({ sku, code, matchSource });
+      getSupplierCodes: async (sup) => withSupplier(listState.codes).filter(bySupplier(sup)),
+      getSkuCodeMap: async (sup = PC) => withSupplier(listState.map).filter(bySupplier(sup)),
+      upsertSkuCodeMap: async (sku, code, matchSource, supplier = PC) => {
+        listState.map = withSupplier(listState.map).filter((m) => !(m.sku === sku && m.supplier === supplier)).concat({ sku, code, matchSource, supplier });
         return true;
       },
       deleteSkuCodeMap: async (sku) => { listState.map = listState.map.filter((m) => m.sku !== sku); return true; },
-      getPackCodeMap: async () => listState.packMap,
-      upsertPackCodeMap: async (packId, code, matchSource) => {
-        listState.packMap = listState.packMap.filter((m) => m.packId !== packId).concat({ packId, code, matchSource });
+      getPackCodeMap: async (sup = PC) => withSupplier(listState.packMap).filter(bySupplier(sup)),
+      upsertPackCodeMap: async (packId, code, matchSource, supplier = PC) => {
+        listState.packMap = withSupplier(listState.packMap).filter((m) => !(m.packId === packId && m.supplier === supplier)).concat({ packId, code, matchSource, supplier });
         return true;
       },
       deletePackCodeMap: async (packId) => { listState.packMap = listState.packMap.filter((m) => m.packId !== packId); return true; },
@@ -79,14 +91,71 @@ before(async () => {
       },
       getActiveMlTasks: async () => dbState.activeTasks || [],
       // Lo más reciente primero: las listas guardadas en el test (última primero) y después latestState.
-      getLatestPriceListItems: async (codes) => {
+      getLatestPriceListItems: async (codes, supplier = null) => {
         const fromSaved = listState.saved.slice().reverse().flatMap((l) => (l.items || []).map((i) => ({
-          ...i, listLabel: l.label, discount1: l.discount1 ?? 0, discount2: l.discount2 ?? 0,
+          ...i, listLabel: l.label, supplier: l.supplier ?? PC, discount1: l.discount1 ?? 0, discount2: l.discount2 ?? 0,
         })));
         const seen = new Set();
-        return [...fromSaved, ...latestState.items]
-          .filter((i) => !seen.has(i.code) && seen.add(i.code))
-          .filter((i) => !codes || codes.includes(i.code));
+        return [...fromSaved, ...withSupplier(latestState.items)]
+          .filter((i) => !seen.has(`${i.supplier}|${i.code}`) && seen.add(`${i.supplier}|${i.code}`))
+          .filter((i) => !codes || codes.includes(i.code))
+          .filter(bySupplier(supplier));
+      },
+      listSuppliers: async () => supplierState.suppliers,
+      createSupplier: async ({ key, name, discount1, discount2, profileName }) => {
+        supplierState.suppliers.push({ key, name, profiles: [{ id: supplierState.nextId++, name: profileName, discount1, discount2, isDefault: true }] });
+        return key;
+      },
+      renameSupplier: async (key, name) => {
+        const s = supplierState.suppliers.find((x) => x.key === key);
+        if (s) s.name = name;
+        return !!s;
+      },
+      deleteSupplier: async (key) => {
+        const n = supplierState.suppliers.length;
+        supplierState.suppliers = supplierState.suppliers.filter((x) => x.key !== key);
+        return supplierState.suppliers.length < n;
+      },
+      getSupplierUsage: async (key) => ({
+        lists: listState.saved.filter((l) => (l.supplier ?? PC) === key).length,
+        products: Object.values(dbState.costs).filter((c) => c.supplierKey === key).length,
+      }),
+      createDiscountProfile: async (supplierKey, { name, discount1, discount2 }) => {
+        const id = supplierState.nextId++;
+        supplierState.suppliers.find((x) => x.key === supplierKey).profiles.push({ id, name, discount1, discount2, isDefault: false });
+        return id;
+      },
+      updateDiscountProfile: async (id, patch) => {
+        const pr = supplierState.suppliers.flatMap((x) => x.profiles).find((x) => x.id === id);
+        if (!pr) return false;
+        for (const k of ['name', 'discount1', 'discount2']) if (patch[k] != null) pr[k] = patch[k];
+        return true;
+      },
+      deleteDiscountProfile: async (id) => {
+        for (const x of supplierState.suppliers) x.profiles = x.profiles.filter((pr) => pr.id !== id || pr.isDefault);
+        supplierState.assignments = supplierState.assignments.map((a) => (a.profileId === id ? { ...a, profileId: null } : a));
+        return true;
+      },
+      listProductSuppliers: async () => supplierState.assignments,
+      upsertProductSuppliers: async (supplierKey, targets, profileId, { onlyIfMissing = false } = {}) => {
+        for (const t of targets) {
+          const cur = supplierState.assignments.find((a) => a.type === t.type && a.id === String(t.id) && a.supplierKey === supplierKey);
+          if (!cur) supplierState.assignments.push({ type: t.type, id: String(t.id), supplierKey, profileId });
+          else if (!onlyIfMissing || cur.profileId == null) cur.profileId = profileId;
+        }
+        return targets.length;
+      },
+      clearSkuProfiles: async (supplierKey, skus) => {
+        for (const a of supplierState.assignments) if (a.supplierKey === supplierKey && a.type === 'sku' && skus.includes(a.id)) a.profileId = null;
+        return true;
+      },
+      deleteProductSuppliers: async (supplierKey, targets) => {
+        supplierState.assignments = supplierState.assignments.filter((a) => !(a.supplierKey === supplierKey && targets.some((t) => t.type === a.type && String(t.id) === a.id)));
+        return true;
+      },
+      setCostSupplier: async (skus, supplierKey) => {
+        for (const sku of skus) if (dbState.costs[sku]) dbState.costs[sku].supplierKey = supplierKey;
+        return skus.length;
       },
       deletePriceOverride: async (sku, channel) => {
         overrideState.rows = overrideState.rows.filter((r) => !(r.sku === sku && r.channel === channel));
@@ -181,6 +250,10 @@ beforeEach(() => {
   catalogState.calls = 0;
   catalogState.resolutionCalls = 0;
   latestState.items = [];
+  supplierState.suppliers = freshSuppliers();
+  supplierState.assignments = [];
+  supplierState.nextId = 10;
+  dbState.storeCosts = false;
   svc._resetCatalogCache();
 });
 
@@ -388,10 +461,10 @@ test('previewImport: acepta CSV además del PDF', async () => {
 test('confirmImport: guarda la lista y aplica los mapeos que coinciden con un código (exacto y CODIGO-variante)', async () => {
   storeState.resolvedSkus = ['30700', '30700-ROSA'];
   const parsed = await svc.previewImport(PDF_SNIPPET);
+  supplierState.suppliers[0].profiles.push({ id: 2, name: 'Agendas', discount1: 25, discount2: 5, isDefault: false });
 
-  const res = await svc.confirmImport({
-    label: 'Marzo 2026', discount1: 25, discount2: 5, rows: parsed.rows,
-  });
+  // La lista guarda los % de la config con la que se importó (para el historial de listas).
+  const res = await svc.confirmImport({ label: 'Marzo 2026', profileId: 2, rows: parsed.rows });
 
   assert.equal(res.ok, true);
   assert.equal(listState.saved.length, 1);
@@ -420,7 +493,7 @@ test('applyListCosts: vuelca los precios de la lista a los SKUs mapeados', async
   listState.items = [{ code: '30700', description: 'Cuaderno', unitPrice: 8800, bulkQty: 8, bulkPrice: 70400 }];
   listState.map = [{ sku: '30700', code: '30700' }, { sku: 'SIN-ITEM', code: 'NOEXISTE' }];
 
-  const { updated, changedSkus } = await svc.applyListCosts(null, { discount1: 25, discount2: 5 });
+  const { updated, changedSkus } = await svc.applyListCosts(null);
 
   assert.equal(updated, 1, 'solo el SKU con ítem en la lista se actualiza');
   assert.deepEqual(changedSkus, ['30700'], 'sin costo previo, cuenta como cambiado');
@@ -442,7 +515,7 @@ test('getMappingState: separa SKUs sin código y códigos sin SKU', async () => 
 test('confirmMapping / removeMapping: se guarda una vez y se puede rehacer', async () => {
   const r = await svc.confirmMapping('30700-ROSA', '30700', 'base');
   assert.equal(r.ok, true);
-  assert.deepEqual(listState.map, [{ sku: '30700-ROSA', code: '30700', matchSource: 'base' }]);
+  assert.deepEqual(listState.map, [{ sku: '30700-ROSA', code: '30700', matchSource: 'base', supplier: PC }]);
 
   // Una vez confirmado, deja de pedir revisión: la siguiente importación lo aplica solo.
   storeState.resolvedSkus = ['30700-ROSA'];
@@ -496,7 +569,7 @@ test('applyListCosts: un código de pack vuelca el MISMO costo a todos sus SKUs 
   listState.packMap = [{ packId: 1, code: '39001' }];
   packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
 
-  const { updated, changedSkus } = await svc.applyListCosts(null, { discount1: 0, discount2: 0 });
+  const { updated, changedSkus } = await svc.applyListCosts(null);
 
   assert.equal(updated, 2, 'los dos miembros del pack se actualizan con la misma lista');
   assert.deepEqual(changedSkus.sort(), ['REP-AZUL', 'REP-ROJO']);
@@ -511,7 +584,7 @@ test('applyListCosts: un mapeo individual pisa el costo que dejó el pack (más 
   listState.map = [{ sku: 'REP-ROJO', code: 'ESPECIAL' }];
   packState.packs = [{ id: 1, name: 'Repuesto surtido', sku: '39001', unitCount: 8, mode: 'assorted', skus: ['REP-ROJO', 'REP-AZUL'] }];
 
-  const { updated, changedSkus } = await svc.applyListCosts(null, { discount1: 0, discount2: 0 });
+  const { updated, changedSkus } = await svc.applyListCosts(null);
 
   // 2 del pack (REP-ROJO, REP-AZUL) + 1 del mapeo individual (REP-ROJO otra vez, con otro código)
   assert.equal(updated, 3);
@@ -535,7 +608,7 @@ test('getMappingState: separa packs sin código de los SKUs sin código', async 
 
 test('confirmPackMapping / removePackMapping: se guarda una vez y se puede rehacer', async () => {
   await svc.confirmPackMapping(1, '39001', 'manual');
-  assert.deepEqual(listState.packMap, [{ packId: 1, code: '39001', matchSource: 'manual' }]);
+  assert.deepEqual(listState.packMap, [{ packId: 1, code: '39001', matchSource: 'manual', supplier: PC }]);
 
   await svc.removePackMapping(1);
   assert.equal(listState.packMap.length, 0);
@@ -740,7 +813,7 @@ test('confirmMapping: un código que no está en ninguna lista guarda el mapeo s
   const r = await svc.confirmMapping('REP-1', 'NUEVO');
   assert.equal(r.ok, true);
   assert.equal(r.costsUpdated, 0);
-  assert.deepEqual(listState.map, [{ sku: 'REP-1', code: 'NUEVO', matchSource: 'manual' }]);
+  assert.deepEqual(listState.map, [{ sku: 'REP-1', code: 'NUEVO', matchSource: 'manual', supplier: PC }]);
 });
 
 test('confirmPackMapping: vuelca el precio a los modelos del pack, salvo los que tienen mapeo propio', async () => {
@@ -792,7 +865,7 @@ test('getMappingState: un pack cuyo SKU está en una lista se mapea solo y le pa
 
   const state = await svc.getMappingState();
 
-  assert.deepEqual(listState.packMap, [{ packId: 7, code: '39000', matchSource: 'exact' }]);
+  assert.deepEqual(listState.packMap, [{ packId: 7, code: '39000', matchSource: 'exact', supplier: PC }]);
   assert.equal(listState.map.length, 0, 'los modelos toman el precio del pack, sin mapeo propio');
   const pack = state.products.find((p) => p.key === 'pack:7');
   assert.equal(pack.code, '39000');
@@ -821,7 +894,7 @@ test('autoMapFromLists: un producto suelto CODIGO-variante toma el código base'
 
   await svc.autoMapFromLists();
 
-  assert.deepEqual(listState.map, [{ sku: '39000-CORAZONES', code: '39000', matchSource: 'base' }]);
+  assert.deepEqual(listState.map, [{ sku: '39000-CORAZONES', code: '39000', matchSource: 'base', supplier: PC }]);
 });
 
 test('autoMapFromLists: nunca pisa un mapeo existente (tampoco uno a mano)', async () => {
@@ -976,4 +1049,167 @@ test('removeImportedList: borra la lista y avisa si no existía', async () => {
   assert.equal(await svc.removeImportedList(3), true);
   assert.equal(await svc.removeImportedList(404), false);
   assert.deepEqual(listState.deletedLists, [3, 404]);
+});
+
+// ── Proveedores y configuraciones de descuento ───────────────────────────────
+
+const AGENDAS = { id: 2, name: 'Agendas', discount1: 30, discount2: 5, isDefault: false };
+const AGENDA_PACK = { id: 7, name: 'Agendas 2027', sku: 'AG27', unitCount: 4, mode: 'assorted', skus: ['AG-ROSA', 'AG-AZUL'] };
+
+test('getPreview: el descuento sale de la config (pack > default), con precio del bulto y por unidad', async () => {
+  supplierState.suppliers[0].profiles[0] = { id: 1, name: 'General', discount1: 25, discount2: 5, isDefault: true };
+  supplierState.suppliers[0].profiles.push({ ...AGENDAS });
+  supplierState.assignments = [{ type: 'pack', id: '7', supplierKey: PC, profileId: 2 }];
+  packState.packs = [AGENDA_PACK];
+  dbState.costs['AG-ROSA'] = { sku: 'AG-ROSA', source: 'manual', bulkPrice: 40000, bulkQty: 4, supplierKey: PC };
+  dbState.costs['CUAD'] = { sku: 'CUAD', source: 'manual', bulkPrice: 40000, bulkQty: 4, supplierKey: PC };
+
+  const rows = await svc.getPreview();
+  const agenda = rows.find((r) => r.sku === 'AG-ROSA');
+  const cuaderno = rows.find((r) => r.sku === 'CUAD');
+
+  assert.equal(agenda.bulkPrice, 40000);
+  assert.equal(agenda.unitListPrice, 10000);
+  assert.deepEqual(
+    { name: agenda.discount.name, d1: agenda.discount.discount1, d2: agenda.discount.discount2, level: agenda.discount.level },
+    { name: 'Agendas', d1: 30, d2: 5, level: 'pack' },
+  );
+  assert.equal(agenda.unitCost, 6650); // 10000 × 0,70 × 0,95
+  assert.equal(cuaderno.discount.name, 'General');
+  assert.equal(cuaderno.unitCost, 7125); // 10000 × 0,75 × 0,95
+  assert.equal(agenda.supplierKey, PC);
+  assert.deepEqual(agenda.suppliers, [PC]);
+});
+
+test('getPreview: editar una config mueve el costo de todo lo que la usa y lo marca pendiente', async () => {
+  supplierState.suppliers[0].profiles.push({ ...AGENDAS });
+  supplierState.assignments = [{ type: 'pack', id: '7', supplierKey: PC, profileId: 2 }];
+  packState.packs = [AGENDA_PACK];
+  dbState.costs['AG-ROSA'] = { sku: 'AG-ROSA', source: 'manual', bulkPrice: 40000, bulkQty: 4, supplierKey: PC };
+  const before = (await svc.getPreview({ 'AG-ROSA': {} }))[0];
+
+  await svc.editDiscountProfile(2, { discount1: 40 });
+  const after = (await svc.getPreview({ 'AG-ROSA': { tn: before.tn.list } }))[0];
+
+  assert.equal(after.unitCost, 5700); // 10000 × 0,60 × 0,95
+  assert.ok(after.tn.list < before.tn.list);
+  assert.equal(after.pendingTn, true);
+});
+
+test('getPreview: costo unitario directo no lleva descuento ni precio de bulto', async () => {
+  dbState.costs['LAP'] = { sku: 'LAP', source: 'manual', unitCost: 300, supplierKey: PC };
+  const [row] = await svc.getPreview();
+  assert.equal(row.discount, null);
+  assert.equal(row.bulkPrice, null);
+  assert.equal(row.unitCost, 300);
+});
+
+test('assignDiscount: asignar a un pack entero saca la config propia de sus modelos', async () => {
+  supplierState.suppliers[0].profiles.push({ ...AGENDAS }, { id: 3, name: 'Liquidación', discount1: 40, discount2: 0, isDefault: false });
+  supplierState.assignments = [{ type: 'sku', id: 'AG-AZUL', supplierKey: PC, profileId: 3 }];
+  packState.packs = [AGENDA_PACK];
+
+  await svc.assignDiscount({ supplierKey: PC, targets: [{ type: 'pack', id: 7 }], profileId: 2 });
+
+  assert.deepEqual(
+    supplierState.assignments.map((a) => [a.type, a.id, a.profileId]).sort(),
+    [['pack', '7', 2], ['sku', 'AG-AZUL', null]],
+  );
+});
+
+test('assignDiscount: elegir la default guarda "sin config propia"; una config de otro proveedor es 400', async () => {
+  await svc.assignDiscount({ supplierKey: PC, targets: [{ type: 'sku', id: 'CUAD' }], profileId: 1 });
+  assert.deepEqual(supplierState.assignments, [{ type: 'sku', id: 'CUAD', supplierKey: PC, profileId: null }]);
+  await assert.rejects(svc.assignDiscount({ supplierKey: PC, targets: [{ type: 'sku', id: 'CUAD' }], profileId: 99 }), { status: 400 });
+});
+
+test('confirmImport: la config elegida va solo a lo que no tiene config propia', async () => {
+  supplierState.suppliers[0].profiles.push({ ...AGENDAS }, { id: 3, name: 'Especial', discount1: 10, discount2: 0, isDefault: false });
+  storeState.resolvedSkus = ['30700', '39001'];
+  supplierState.assignments = [{ type: 'sku', id: '39001', supplierKey: PC, profileId: 2 }];
+  const parsed = await svc.previewImport(PDF_SNIPPET);
+
+  const res = await svc.confirmImport({ label: 'Marzo', profileId: 3, rows: parsed.rows });
+
+  const bySku = Object.fromEntries(supplierState.assignments.map((a) => [a.id, a.profileId]));
+  assert.equal(bySku['30700'], 3); // no tenía config: toma la elegida
+  assert.equal(bySku['39001'], 2); // ya tenía "Agendas": la conserva
+  assert.equal(res.summary.profileName, 'Especial');
+  assert.equal(res.summary.withChosenProfile, 1);
+  assert.deepEqual(res.summary.withOwnProfile.map((e) => [e.sku, e.profileName]), [['39001', 'Agendas']]);
+});
+
+test('confirmImport: proveedor inexistente no guarda nada', async () => {
+  const res = await svc.confirmImport({ label: 'X', supplierKey: 'nadie', rows: [{ code: '1', bulkQty: 1, bulkPrice: 1 }] });
+  assert.equal(res.ok, false);
+  assert.equal(listState.saved.length, 0);
+});
+
+test('applyListCosts: la lista de un proveedor no pisa a un SKU cuyo vigente es otro', async () => {
+  dbState.storeCosts = true;
+  supplierState.suppliers.push({ key: 'filgo', name: 'Filgo', profiles: [{ id: 5, name: 'General', discount1: 0, discount2: 0, isDefault: true }] });
+  listState.items = [{ code: 'F1', bulkQty: 10, bulkPrice: 1000 }];
+  listState.map = [
+    { sku: 'LAP-AZUL', code: 'F1', matchSource: 'manual', supplier: 'filgo' },
+    { sku: 'LAP-ROJO', code: 'F1', matchSource: 'manual', supplier: 'filgo' },
+  ];
+  dbState.costs['LAP-AZUL'] = { sku: 'LAP-AZUL', source: 'list', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+
+  const { updated } = await svc.applyListCosts(null, 'filgo');
+
+  assert.equal(updated, 1);
+  assert.equal(dbState.costs['LAP-AZUL'].bulkPrice, 900); // sigue con Punto Cero (vigente)
+  assert.equal(dbState.costs['LAP-ROJO'].supplierKey, 'filgo'); // no tenía vigente: queda Filgo
+  assert.equal(dbState.costs['LAP-ROJO'].bulkPrice, 1000);
+});
+
+test('setVigenteSupplier: toma el costo de la última lista del nuevo proveedor; sin lista avisa', async () => {
+  dbState.storeCosts = true;
+  supplierState.suppliers.push({ key: 'filgo', name: 'Filgo', profiles: [{ id: 5, name: 'General', discount1: 0, discount2: 0, isDefault: true }] });
+  latestState.items = [{ code: 'F1', bulkQty: 10, bulkPrice: 1100, supplier: 'filgo', description: 'Lapicera' }];
+  listState.map = [{ sku: 'LAP-AZUL', code: 'F1', matchSource: 'manual', supplier: 'filgo' }];
+  dbState.costs['LAP-AZUL'] = { sku: 'LAP-AZUL', source: 'list', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+  dbState.costs['LAP-VERDE'] = { sku: 'LAP-VERDE', source: 'list', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+
+  const res = await svc.setVigenteSupplier({ supplierKey: 'filgo', targets: [{ type: 'sku', id: 'LAP-AZUL' }, { type: 'sku', id: 'LAP-VERDE' }] });
+
+  assert.equal(dbState.costs['LAP-AZUL'].supplierKey, 'filgo');
+  assert.equal(dbState.costs['LAP-AZUL'].bulkPrice, 1100);
+  assert.equal(dbState.costs['LAP-VERDE'].supplierKey, 'filgo');
+  assert.equal(dbState.costs['LAP-VERDE'].bulkPrice, 900); // sin precio de Filgo: queda el costo
+  assert.deepEqual(res.withoutPrice, ['LAP-VERDE']);
+});
+
+test('addSupplier / removeSupplier: clave desde el nombre sin repetir; no se borra uno en uso', async () => {
+  const a = await svc.addSupplier({ name: 'Punto Cero' });
+  assert.equal(a.key, 'punto_cero_2');
+  const b = await svc.addSupplier({ name: 'Bic', discount1: 0 });
+  assert.equal(b.key, 'bic');
+  assert.equal(supplierState.suppliers.find((s) => s.key === 'bic').profiles[0].isDefault, true);
+  await assert.rejects(svc.addSupplier({ name: '  ' }), { status: 400 });
+
+  dbState.costs['X'] = { sku: 'X', supplierKey: 'bic' };
+  await assert.rejects(svc.removeSupplier('bic'), { status: 409 });
+  delete dbState.costs['X'];
+  assert.deepEqual(await svc.removeSupplier('bic'), { ok: true });
+});
+
+test('removeDiscountProfile: la default no se borra', async () => {
+  await assert.rejects(svc.removeDiscountProfile(1), { status: 409 });
+  supplierState.suppliers[0].profiles.push({ ...AGENDAS });
+  assert.deepEqual(await svc.removeDiscountProfile(2), { ok: true });
+});
+
+test('getConfig: proveedores con sus configs y cuántos productos usa cada una', async () => {
+  supplierState.suppliers[0].profiles.push({ ...AGENDAS });
+  supplierState.assignments = [{ type: 'pack', id: '7', supplierKey: PC, profileId: 2 }];
+  packState.packs = [AGENDA_PACK];
+  dbState.costs['AG-ROSA'] = { sku: 'AG-ROSA', bulkPrice: 1, bulkQty: 1, supplierKey: PC };
+  dbState.costs['CUAD'] = { sku: 'CUAD', bulkPrice: 1, bulkQty: 1, supplierKey: PC };
+
+  const { suppliers } = await svc.getConfig();
+
+  assert.equal(suppliers[0].key, PC);
+  assert.equal(suppliers[0].productCount, 3); // AG-ROSA, AG-AZUL (por el pack) y CUAD
+  assert.deepEqual(suppliers[0].profiles.map((p) => [p.name, p.productCount]), [['General', 1], ['Agendas', 1]]);
 });

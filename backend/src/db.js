@@ -449,6 +449,107 @@ export async function initDb() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_pack_code_map_code ON pack_code_map (code);`);
 
+    // ── Proveedores y configuraciones de descuento ──────────────────────────────
+    // Hasta 2026-10-15 "proveedor" era el string fijo 'punto_cero' y el descuento venía de la lista
+    // importada (copiado a cada product_costs). Ahora cada proveedor tiene sus configuraciones de
+    // descuento (una default) y cada pack/producto puede tener la suya — las agendas llevan más
+    // descuento que el resto aunque sean del mismo proveedor. El descuento se resuelve EN VIVO al
+    // calcular (resolveDiscount en pricingService.js): editar una config mueve los precios de todo
+    // lo que la usa. `key` es un slug inmutable para que los 'punto_cero' ya guardados sigan valiendo.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS suppliers (
+        key VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(128) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS discount_profiles (
+        id SERIAL PRIMARY KEY,
+        supplier_key VARCHAR(64) NOT NULL REFERENCES suppliers(key) ON DELETE CASCADE,
+        name VARCHAR(128) NOT NULL,
+        discount_1 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        discount_2 NUMERIC(6,3) NOT NULL DEFAULT 0,
+        is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_discount_profiles_default ON discount_profiles (supplier_key) WHERE is_default;`);
+    // "Este pack/producto se compra a este proveedor, con esta config". `discount_profile_id` NULL
+    // = sin config propia (sigue la del pack, o la default del proveedor). Un producto puede tener
+    // varios proveedores (cada uno con su código en sku_code_map/pack_code_map); el que manda el
+    // costo es el VIGENTE, `product_costs.supplier_key`, que se elige a mano.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS product_suppliers (
+        target_type VARCHAR(8) NOT NULL CHECK (target_type IN ('sku', 'pack')),
+        target_id VARCHAR(128) NOT NULL,
+        supplier_key VARCHAR(64) NOT NULL REFERENCES suppliers(key) ON DELETE CASCADE,
+        discount_profile_id INTEGER REFERENCES discount_profiles(id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (target_type, target_id, supplier_key)
+      );
+    `);
+    await p.query(`ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS supplier_key VARCHAR(64);`);
+    await runOnceMigration(p, '2026-10-15_suppliers_discount_profiles', async (client) => {
+      await client.query(`INSERT INTO suppliers (key, name) VALUES ('punto_cero', 'Punto Cero') ON CONFLICT (key) DO NOTHING;`);
+      // Cada proveedor tiene su código para el mismo producto: la clave de los mapas pasa a incluirlo.
+      await client.query(`ALTER TABLE sku_code_map DROP CONSTRAINT IF EXISTS sku_code_map_pkey;`);
+      await client.query(`ALTER TABLE sku_code_map ADD PRIMARY KEY (sku, supplier);`);
+      await client.query(`ALTER TABLE pack_code_map DROP CONSTRAINT IF EXISTS pack_code_map_pkey;`);
+      await client.query(`ALTER TABLE pack_code_map ADD PRIMARY KEY (pack_id, supplier);`);
+      await client.query(`ALTER TABLE supplier_codes DROP CONSTRAINT IF EXISTS supplier_codes_pkey;`);
+      await client.query(`ALTER TABLE supplier_codes ADD PRIMARY KEY (supplier, code);`);
+
+      // Config default = el descuento default que había en Ajustes.
+      const s = await client.query(`SELECT default_discount_1 AS d1, default_discount_2 AS d2 FROM pricing_settings WHERE id = 1`);
+      const d1 = Number(s.rows[0]?.d1 ?? 25);
+      const d2 = Number(s.rows[0]?.d2 ?? 5);
+      const def = await client.query(
+        `INSERT INTO discount_profiles (supplier_key, name, discount_1, discount_2, is_default)
+         VALUES ('punto_cero', 'General', $1, $2, TRUE) RETURNING id`, [d1, d2]);
+      const profileByCombo = new Map([[`${d1}|${d2}`, def.rows[0].id]]);
+
+      // Los costos ya cargados conservan el descuento con el que se calcularon: una config por cada
+      // combinación distinta, asignada al pack entero si todos sus modelos la comparten (así una
+      // asignación por pack posterior no queda tapada por filas sueltas), si no a cada SKU.
+      const costs = await client.query(
+        `SELECT c.sku, c.discount_1 AS d1, c.discount_2 AS d2, ps.pack_id AS "packId"
+         FROM product_costs c LEFT JOIN pack_skus ps ON ps.sku = c.sku
+         WHERE c.unit_cost IS NULL OR c.bulk_qty IS NOT NULL`);
+      const profileFor = async (a, b) => {
+        const key = `${a}|${b}`;
+        if (!profileByCombo.has(key)) {
+          const name = a === 0 && b === 0 ? 'Sin descuento' : `Desc. ${a}%${b ? ` + ${b}%` : ''}`;
+          const r = await client.query(
+            `INSERT INTO discount_profiles (supplier_key, name, discount_1, discount_2) VALUES ('punto_cero', $1, $2, $3) RETURNING id`,
+            [name, a, b]);
+          profileByCombo.set(key, r.rows[0].id);
+        }
+        return profileByCombo.get(key);
+      };
+      const combosByPack = new Map();
+      for (const r of costs.rows) {
+        if (r.packId == null) continue;
+        if (!combosByPack.has(r.packId)) combosByPack.set(r.packId, new Set());
+        combosByPack.get(r.packId).add(`${Number(r.d1)}|${Number(r.d2)}`);
+      }
+      const assign = (type, id, profileId) => client.query(
+        `INSERT INTO product_suppliers (target_type, target_id, supplier_key, discount_profile_id)
+         VALUES ($1, $2, 'punto_cero', $3) ON CONFLICT DO NOTHING`, [type, String(id), profileId]);
+      for (const r of costs.rows) {
+        const a = Number(r.d1); const b = Number(r.d2);
+        const profileId = await profileFor(a, b);
+        const isDefault = profileId === def.rows[0].id;
+        if (r.packId != null && combosByPack.get(r.packId).size === 1) {
+          await assign('pack', r.packId, isDefault ? null : profileId);
+          await assign('sku', r.sku, null);
+        } else {
+          await assign('sku', r.sku, isDefault ? null : profileId);
+        }
+      }
+      await client.query(`UPDATE product_costs SET supplier_key = 'punto_cero' WHERE supplier_key IS NULL;`);
+    });
+
     // La sugerencia de "Para reponer" (computeSuggestedQty/computePackSuggestedQty en
     // alertsService.js) es un default editable, no un cálculo impuesto: la usuaria puede pisarlo a
     // mano por SKU (un producto suelto, o una cantidad extra puntual de un modelo dentro de un
@@ -1813,7 +1914,7 @@ export async function getAllProductCosts() {
 
 const PRODUCT_COST_SELECT = `SELECT sku, source, bulk_price AS "bulkPrice", bulk_qty AS "bulkQty",
   unit_cost AS "unitCost", discount_1 AS "discount1", discount_2 AS "discount2",
-  margin_override AS "marginOverride", label, updated_at AS "updatedAt" FROM product_costs`;
+  margin_override AS "marginOverride", label, supplier_key AS "supplierKey", updated_at AS "updatedAt" FROM product_costs`;
 
 function mapProductCost(row) {
   const num = (v) => (v == null ? null : Number(v));
@@ -1827,26 +1928,30 @@ function mapProductCost(row) {
     discount2: num(row.discount2),
     marginOverride: num(row.marginOverride),
     label: row.label,
+    supplierKey: row.supplierKey ?? null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
   };
 }
 
-/** Alta/edición del costo de un SKU (upsert). */
+/** Alta/edición del costo de un SKU (upsert). `supplierKey` (proveedor vigente) solo se toca si viene. */
 export async function upsertProductCost(sku, data = {}) {
   const p = getPool();
   if (!p || !sku) return false;
   const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
   try {
     await p.query(
-      `INSERT INTO product_costs (sku, source, bulk_price, bulk_qty, unit_cost, discount_1, discount_2, margin_override, label, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      `INSERT INTO product_costs (sku, source, bulk_price, bulk_qty, unit_cost, discount_1, discount_2, margin_override, label, supplier_key, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
        ON CONFLICT (sku) DO UPDATE SET
          source = EXCLUDED.source, bulk_price = EXCLUDED.bulk_price, bulk_qty = EXCLUDED.bulk_qty,
          unit_cost = EXCLUDED.unit_cost, discount_1 = EXCLUDED.discount_1, discount_2 = EXCLUDED.discount_2,
-         margin_override = EXCLUDED.margin_override, label = EXCLUDED.label, updated_at = NOW()`,
+         margin_override = EXCLUDED.margin_override, label = EXCLUDED.label,
+         supplier_key = CASE WHEN $11::boolean THEN EXCLUDED.supplier_key ELSE product_costs.supplier_key END,
+         updated_at = NOW()`,
       [
         sku, data.source || 'manual', num(data.bulkPrice), num(data.bulkQty), num(data.unitCost),
         num(data.discount1) ?? 0, num(data.discount2) ?? 0, num(data.marginOverride), data.label ?? null,
+        data.supplierKey ?? null, data.supplierKey !== undefined,
       ]
     );
     return true;
@@ -2005,7 +2110,7 @@ export async function savePriceList({ supplier = 'punto_cero', label, sourceFile
       await client.query(
         `INSERT INTO supplier_codes (code, supplier, description)
          VALUES ($1, $2, $3)
-         ON CONFLICT (code) DO UPDATE SET last_seen_at = NOW(),
+         ON CONFLICT (supplier, code) DO UPDATE SET last_seen_at = NOW(),
            description = COALESCE(EXCLUDED.description, supplier_codes.description)`,
         [it.code, supplier, it.description ?? null]
       );
@@ -2062,9 +2167,10 @@ export async function deletePriceList(listId) {
     if (r.rowCount === 0) { await client.query('ROLLBACK'); return false; }
     await client.query(
       `DELETE FROM supplier_codes c
-       WHERE NOT EXISTS (SELECT 1 FROM price_list_items i WHERE i.code = c.code)
-         AND NOT EXISTS (SELECT 1 FROM sku_code_map m WHERE m.code = c.code)
-         AND NOT EXISTS (SELECT 1 FROM pack_code_map m WHERE m.code = c.code)`
+       WHERE NOT EXISTS (SELECT 1 FROM price_list_items i JOIN price_lists l ON l.id = i.list_id
+                         WHERE i.code = c.code AND l.supplier = c.supplier)
+         AND NOT EXISTS (SELECT 1 FROM sku_code_map m WHERE m.code = c.code AND m.supplier = c.supplier)
+         AND NOT EXISTS (SELECT 1 FROM pack_code_map m WHERE m.code = c.code AND m.supplier = c.supplier)`
     );
     await client.query('COMMIT');
     return true;
@@ -2110,19 +2216,19 @@ export async function getPriceListItems(listId = null) {
  * @param {string[] | null} codes `null` = todos los códigos
  * @returns {Promise<Array<{ code, description, bulkQty, bulkPrice, listId, listLabel, discount1, discount2, importedAt }>>}
  */
-export async function getLatestPriceListItems(codes = null) {
+export async function getLatestPriceListItems(codes = null, supplier = null) {
   const p = getPool();
   if (!p) return [];
   if (Array.isArray(codes) && codes.length === 0) return [];
   try {
     const r = await p.query(
-      `SELECT DISTINCT ON (i.code) i.code, i.description, i.bulk_qty AS "bulkQty", i.bulk_price AS "bulkPrice",
-              l.id AS "listId", l.label AS "listLabel", l.discount_1 AS "discount1", l.discount_2 AS "discount2",
+      `SELECT DISTINCT ON (l.supplier, i.code) i.code, i.description, i.bulk_qty AS "bulkQty", i.bulk_price AS "bulkPrice",
+              l.id AS "listId", l.label AS "listLabel", l.supplier, l.discount_1 AS "discount1", l.discount_2 AS "discount2",
               l.imported_at AS "importedAt"
        FROM price_list_items i JOIN price_lists l ON l.id = i.list_id
-       WHERE ($1::text[] IS NULL OR i.code = ANY($1::text[]))
-       ORDER BY i.code, l.imported_at DESC, i.id DESC`,
-      [Array.isArray(codes) ? codes : null]
+       WHERE ($1::text[] IS NULL OR i.code = ANY($1::text[])) AND ($2::text IS NULL OR l.supplier = $2)
+       ORDER BY l.supplier, i.code, l.imported_at DESC, i.id DESC`,
+      [Array.isArray(codes) ? codes : null, supplier]
     );
     return r.rows.map((row) => ({
       ...row,
@@ -2144,12 +2250,248 @@ export async function getSupplierCodes(supplier = 'punto_cero') {
   if (!p) return [];
   try {
     const r = await p.query(
-      `SELECT code, description, first_seen_at AS "firstSeenAt", last_seen_at AS "lastSeenAt"
-       FROM supplier_codes WHERE supplier = $1 ORDER BY code`, [supplier]);
+      `SELECT code, supplier, description, first_seen_at AS "firstSeenAt", last_seen_at AS "lastSeenAt"
+       FROM supplier_codes WHERE ($1::text IS NULL OR supplier = $1) ORDER BY code`, [supplier]);
     return r.rows;
   } catch (e) {
     console.error('getSupplierCodes:', e.message);
     return [];
+  }
+}
+
+// ── Proveedores, configuraciones de descuento y asignaciones ──────────────────
+
+const num0 = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? 0 : Number(v));
+
+/** Proveedores con sus configuraciones de descuento (la default primero). */
+export async function listSuppliers() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const [sup, prof] = await Promise.all([
+      p.query(`SELECT key, name, created_at AS "createdAt" FROM suppliers ORDER BY created_at, name`),
+      p.query(`SELECT id, supplier_key AS "supplierKey", name, discount_1 AS d1, discount_2 AS d2, is_default AS "isDefault"
+               FROM discount_profiles ORDER BY is_default DESC, created_at, id`),
+    ]);
+    return sup.rows.map((s) => ({
+      key: s.key,
+      name: s.name,
+      profiles: prof.rows.filter((r) => r.supplierKey === s.key).map((r) => ({
+        id: r.id, supplierKey: r.supplierKey, name: r.name,
+        discount1: Number(r.d1), discount2: Number(r.d2), isDefault: !!r.isDefault,
+      })),
+    }));
+  } catch (e) {
+    console.error('listSuppliers:', e.message);
+    return [];
+  }
+}
+
+/** Alta de un proveedor con su config default (en una transacción). `null` si la clave ya existe. */
+export async function createSupplier({ key, name, discount1 = 0, discount2 = 0, profileName = 'General' }) {
+  const p = getPool();
+  if (!p || !key || !name) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(`INSERT INTO suppliers (key, name) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING RETURNING key`, [key, name]);
+    if (r.rowCount === 0) { await client.query('ROLLBACK'); return null; }
+    await client.query(
+      `INSERT INTO discount_profiles (supplier_key, name, discount_1, discount_2, is_default) VALUES ($1, $2, $3, $4, TRUE)`,
+      [key, profileName, num0(discount1), num0(discount2)]);
+    await client.query('COMMIT');
+    return key;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('createSupplier:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+export async function renameSupplier(key, name) {
+  const p = getPool();
+  if (!p || !key || !name) return false;
+  try {
+    const r = await p.query(`UPDATE suppliers SET name = $2 WHERE key = $1`, [key, name]);
+    return r.rowCount > 0;
+  } catch (e) {
+    console.error('renameSupplier:', e.message);
+    return false;
+  }
+}
+
+/** En uso = tiene listas importadas o es el vigente de algún costo (no se puede borrar). */
+export async function getSupplierUsage(key) {
+  const p = getPool();
+  if (!p) return { lists: 0, products: 0 };
+  const r = await p.query(
+    `SELECT (SELECT COUNT(*)::int FROM price_lists WHERE supplier = $1) AS lists,
+            (SELECT COUNT(*)::int FROM product_costs WHERE supplier_key = $1) AS products`, [key]);
+  return r.rows[0];
+}
+
+/** Borra un proveedor y, en cascada, sus configs, asignaciones y códigos mapeados. */
+export async function deleteSupplier(key) {
+  const p = getPool();
+  if (!p || !key) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM sku_code_map WHERE supplier = $1`, [key]);
+    await client.query(`DELETE FROM pack_code_map WHERE supplier = $1`, [key]);
+    await client.query(`DELETE FROM supplier_codes WHERE supplier = $1`, [key]);
+    const r = await client.query(`DELETE FROM suppliers WHERE key = $1`, [key]);
+    await client.query('COMMIT');
+    return r.rowCount > 0;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('deleteSupplier:', e.message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createDiscountProfile(supplierKey, { name, discount1 = 0, discount2 = 0 }) {
+  const p = getPool();
+  if (!p || !supplierKey || !name) return null;
+  try {
+    const r = await p.query(
+      `INSERT INTO discount_profiles (supplier_key, name, discount_1, discount_2) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [supplierKey, name, num0(discount1), num0(discount2)]);
+    return r.rows[0].id;
+  } catch (e) {
+    console.error('createDiscountProfile:', e.message);
+    return null;
+  }
+}
+
+/** Edita nombre/descuentos; `isDefault: true` la vuelve la default del proveedor (saca la marca a la anterior). */
+export async function updateDiscountProfile(id, { name, discount1, discount2, isDefault } = {}) {
+  const p = getPool();
+  if (!p || !id) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query(`SELECT supplier_key FROM discount_profiles WHERE id = $1`, [id]);
+    if (cur.rowCount === 0) { await client.query('ROLLBACK'); return false; }
+    if (isDefault === true) {
+      await client.query(`UPDATE discount_profiles SET is_default = FALSE WHERE supplier_key = $1 AND is_default`, [cur.rows[0].supplier_key]);
+      await client.query(`UPDATE discount_profiles SET is_default = TRUE WHERE id = $1`, [id]);
+      // La nueva default no puede quedar además asignada explícitamente: sería la misma config dos veces.
+      await client.query(`UPDATE product_suppliers SET discount_profile_id = NULL WHERE discount_profile_id = $1`, [id]);
+    }
+    if (name != null && String(name).trim()) await client.query(`UPDATE discount_profiles SET name = $2 WHERE id = $1`, [id, String(name).trim()]);
+    if (discount1 != null) await client.query(`UPDATE discount_profiles SET discount_1 = $2 WHERE id = $1`, [id, num0(discount1)]);
+    if (discount2 != null) await client.query(`UPDATE discount_profiles SET discount_2 = $2 WHERE id = $1`, [id, num0(discount2)]);
+    await client.query('COMMIT');
+    return true;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('updateDiscountProfile:', e.message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+/** Borra una config que no es la default; lo que la tenía asignada vuelve a la default (ON DELETE SET NULL). */
+export async function deleteDiscountProfile(id) {
+  const p = getPool();
+  if (!p || !id) return false;
+  try {
+    const r = await p.query(`DELETE FROM discount_profiles WHERE id = $1 AND NOT is_default`, [id]);
+    return r.rowCount > 0;
+  } catch (e) {
+    console.error('deleteDiscountProfile:', e.message);
+    return false;
+  }
+}
+
+/** Todas las asignaciones pack/producto ↔ proveedor (con su config, si tienen). */
+export async function listProductSuppliers() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT target_type AS "type", target_id AS "id", supplier_key AS "supplierKey", discount_profile_id AS "profileId"
+       FROM product_suppliers`);
+    return r.rows;
+  } catch (e) {
+    console.error('listProductSuppliers:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Asigna `profileId` (o `null` = la default) a cada target para ese proveedor, dándolo de alta en el
+ * proveedor si no estaba. Con `onlyIfMissing` no pisa una config propia ya asignada (import).
+ */
+export async function upsertProductSuppliers(supplierKey, targets = [], profileId = null, { onlyIfMissing = false } = {}) {
+  const p = getPool();
+  if (!p || !supplierKey || targets.length === 0) return 0;
+  let n = 0;
+  try {
+    for (const t of targets) {
+      const r = await p.query(
+        `INSERT INTO product_suppliers (target_type, target_id, supplier_key, discount_profile_id, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (target_type, target_id, supplier_key) DO UPDATE
+           SET discount_profile_id = EXCLUDED.discount_profile_id, updated_at = NOW()
+           WHERE NOT $5::boolean OR product_suppliers.discount_profile_id IS NULL`,
+        [t.type, String(t.id), supplierKey, profileId, onlyIfMissing]);
+      n += r.rowCount;
+    }
+    return n;
+  } catch (e) {
+    console.error('upsertProductSuppliers:', e.message);
+    return n;
+  }
+}
+
+/** Saca la config propia de los SKUs (para ese proveedor) sin darlos de baja: vuelven a la del pack. */
+export async function clearSkuProfiles(supplierKey, skus = []) {
+  const p = getPool();
+  if (!p || skus.length === 0) return false;
+  try {
+    await p.query(
+      `UPDATE product_suppliers SET discount_profile_id = NULL, updated_at = NOW()
+       WHERE supplier_key = $1 AND target_type = 'sku' AND target_id = ANY($2::text[])`, [supplierKey, skus]);
+    return true;
+  } catch (e) {
+    console.error('clearSkuProfiles:', e.message);
+    return false;
+  }
+}
+
+/** Da de baja un pack/producto de un proveedor (no toca su costo ni sus códigos). */
+export async function deleteProductSuppliers(supplierKey, targets = []) {
+  const p = getPool();
+  if (!p || targets.length === 0) return false;
+  try {
+    for (const t of targets) {
+      await p.query(`DELETE FROM product_suppliers WHERE target_type = $1 AND target_id = $2 AND supplier_key = $3`,
+        [t.type, String(t.id), supplierKey]);
+    }
+    return true;
+  } catch (e) {
+    console.error('deleteProductSuppliers:', e.message);
+    return false;
+  }
+}
+
+/** Fija el proveedor vigente de los SKUs que ya tienen costo. */
+export async function setCostSupplier(skus = [], supplierKey) {
+  const p = getPool();
+  if (!p || skus.length === 0) return 0;
+  try {
+    const r = await p.query(`UPDATE product_costs SET supplier_key = $2, updated_at = NOW() WHERE sku = ANY($1::text[])`, [skus, supplierKey]);
+    return r.rowCount;
+  } catch (e) {
+    console.error('setCostSupplier:', e.message);
+    return 0;
   }
 }
 
@@ -2160,14 +2502,14 @@ export async function getSupplierCodes(supplier = 'punto_cero') {
  */
 export const CODE_MAP_REMOVED = 'removed';
 
-/** Todos los mapeos SKU→código confirmados (sin los sacados a mano). */
+/** Todos los mapeos SKU→código confirmados (sin los sacados a mano) de un proveedor; `null` = de todos. */
 export async function getSkuCodeMap(supplier = 'punto_cero') {
   const p = getPool();
   if (!p) return [];
   try {
     const r = await p.query(
-      `SELECT sku, code, match_source AS "matchSource", confirmed_at AS "confirmedAt"
-       FROM sku_code_map WHERE supplier = $1 AND match_source <> '${CODE_MAP_REMOVED}'`, [supplier]);
+      `SELECT sku, code, supplier, match_source AS "matchSource", confirmed_at AS "confirmedAt"
+       FROM sku_code_map WHERE ($1::text IS NULL OR supplier = $1) AND match_source <> '${CODE_MAP_REMOVED}'`, [supplier]);
     return r.rows.map((row) => ({
       ...row,
       confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
@@ -2186,7 +2528,7 @@ export async function upsertSkuCodeMap(sku, code, matchSource = 'manual', suppli
     await p.query(
       `INSERT INTO sku_code_map (sku, code, supplier, match_source, confirmed_at)
        VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (sku) DO UPDATE SET code = EXCLUDED.code, supplier = EXCLUDED.supplier,
+       ON CONFLICT (sku, supplier) DO UPDATE SET code = EXCLUDED.code,
          match_source = EXCLUDED.match_source, confirmed_at = NOW()`,
       [sku, code, supplier, matchSource]
     );
@@ -2216,8 +2558,8 @@ export async function getPackCodeMap(supplier = 'punto_cero') {
   if (!p) return [];
   try {
     const r = await p.query(
-      `SELECT pack_id AS "packId", code, match_source AS "matchSource", confirmed_at AS "confirmedAt"
-       FROM pack_code_map WHERE supplier = $1 AND match_source <> '${CODE_MAP_REMOVED}'`, [supplier]);
+      `SELECT pack_id AS "packId", code, supplier, match_source AS "matchSource", confirmed_at AS "confirmedAt"
+       FROM pack_code_map WHERE ($1::text IS NULL OR supplier = $1) AND match_source <> '${CODE_MAP_REMOVED}'`, [supplier]);
     return r.rows.map((row) => ({
       ...row,
       confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
@@ -2236,7 +2578,7 @@ export async function upsertPackCodeMap(packId, code, matchSource = 'manual', su
     await p.query(
       `INSERT INTO pack_code_map (pack_id, code, supplier, match_source, confirmed_at)
        VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (pack_id) DO UPDATE SET code = EXCLUDED.code, supplier = EXCLUDED.supplier,
+       ON CONFLICT (pack_id, supplier) DO UPDATE SET code = EXCLUDED.code,
          match_source = EXCLUDED.match_source, confirmed_at = NOW()`,
       [packId, code, supplier, matchSource]
     );
@@ -2271,7 +2613,7 @@ export async function markSkuCodeRemoved(sku, supplier = 'punto_cero') {
     await p.query(
       `INSERT INTO sku_code_map (sku, code, supplier, match_source, confirmed_at)
        VALUES ($1, '', $2, '${CODE_MAP_REMOVED}', NOW())
-       ON CONFLICT (sku) DO UPDATE SET code = '', match_source = '${CODE_MAP_REMOVED}', confirmed_at = NOW()`,
+       ON CONFLICT (sku, supplier) DO UPDATE SET code = '', match_source = '${CODE_MAP_REMOVED}', confirmed_at = NOW()`,
       [sku, supplier]
     );
     return true;
@@ -2288,7 +2630,7 @@ export async function markPackCodeRemoved(packId, supplier = 'punto_cero') {
     await p.query(
       `INSERT INTO pack_code_map (pack_id, code, supplier, match_source, confirmed_at)
        VALUES ($1, '', $2, '${CODE_MAP_REMOVED}', NOW())
-       ON CONFLICT (pack_id) DO UPDATE SET code = '', match_source = '${CODE_MAP_REMOVED}', confirmed_at = NOW()`,
+       ON CONFLICT (pack_id, supplier) DO UPDATE SET code = '', match_source = '${CODE_MAP_REMOVED}', confirmed_at = NOW()`,
       [packId, supplier]
     );
     return true;

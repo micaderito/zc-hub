@@ -20,12 +20,70 @@
     </div>
   </header>
 
-  <div class="pr-tabs">
+  <!-- Una pestaña por proveedor: filtra la planilla y el mapeo -->
+  <div class="pr-tabs pr-supplier-tabs">
+    <zc-tabs [tabs]="supplierTabs()" [activeKey]="activeSupplierTab()" (tabChange)="setSupplierTab($event)" />
+    <button type="button" class="btn btn-s" (click)="openNewSupplier()" [disabled]="!config()">
+      <i class="ti ti-plus"></i> Proveedor
+    </button>
+  </div>
+
+  @if (currentSupplier(); as sup) {
+    <!-- Configuraciones de descuento del proveedor -->
+    <section class="pr-supplier" aria-label="Configuraciones de descuento">
+      <div class="pr-supplier-head">
+        <span class="pr-supplier-name"><i class="ti ti-building-store" aria-hidden="true"></i> {{ sup.name }}</span>
+        <span class="muted">{{ sup.productCount }} producto{{ sup.productCount === 1 ? '' : 's' }}</span>
+        <span class="spacer"></span>
+        <button type="button" class="link" (click)="openRenameSupplier(sup)">Renombrar</button>
+        @if (confirmDeleteSupplier()) {
+          <span class="confirm-inline">
+            ¿Borrar {{ sup.name }}?
+            <button type="button" class="link danger" (click)="deleteSupplier(sup)">Sí, borrar</button>
+            <button type="button" class="link" (click)="confirmDeleteSupplier.set(false)">No</button>
+          </span>
+        } @else {
+          <button type="button" class="link danger" (click)="confirmDeleteSupplier.set(true)">Borrar</button>
+        }
+      </div>
+      <div class="pr-profiles">
+        @for (p of sup.profiles; track p.id) {
+          <div class="pr-profile" [class.is-default]="p.isDefault">
+            <div class="pr-profile-top">
+              <b>{{ p.name }}</b>
+              @if (p.isDefault) { <span class="badge brand">default</span> }
+            </div>
+            <span class="pr-profile-pct">{{ discountPcts(p) }}</span>
+            <span class="muted">{{ p.productCount }} producto{{ p.productCount === 1 ? '' : 's' }}</span>
+            <div class="pr-profile-actions">
+              <button type="button" class="icon-btn" (click)="openProfileForm(sup.key, p)" title="Editar" aria-label="Editar configuración"><i class="ti ti-pencil"></i></button>
+              @if (!p.isDefault) {
+                <button type="button" class="link" (click)="makeDefaultProfile(p)" title="Lo que no tiene config propia pasa a usar esta">Hacer default</button>
+                @if (confirmDeleteProfileId() === p.id) {
+                  <button type="button" class="link danger" (click)="deleteProfile(p)">¿Borrar?</button>
+                } @else {
+                  <button type="button" class="icon-btn danger" (click)="confirmDeleteProfileId.set(p.id)" title="Borrar" aria-label="Borrar configuración"><i class="ti ti-trash"></i></button>
+                }
+              }
+            </div>
+          </div>
+        }
+        <button type="button" class="pr-profile pr-profile-new" (click)="openProfileForm(sup.key)">
+          <i class="ti ti-plus" aria-hidden="true"></i> Nueva configuración
+        </button>
+      </div>
+      @if (supplierError() && !supplierForm() && !profileForm()) {
+        <div class="pr-error">{{ supplierError() }}</div>
+      }
+    </section>
+  }
+
+  <div class="pr-view-tabs">
     <zc-tabs [tabs]="tabs" [activeKey]="tab()" (tabChange)="setTab($event)" />
   </div>
 
   @if (tab() === 'mapeo') {
-    <zc-mapeo-proveedor (costsChanged)="onMappingCostsChanged($event)" />
+    <zc-mapeo-proveedor [supplierKey]="currentSupplier()?.key ?? null" (costsChanged)="onMappingCostsChanged($event)" />
   } @else {
     <!-- Resumen de valores fijos (viven en Ajustes) -->
     @if (config(); as c) {
@@ -83,6 +141,13 @@
     <!-- Tabla -->
     @if (previewQuery.isLoading()) {
       <p class="pr-msg">Cargando…</p>
+    } @else if (rows().length === 0 && currentSupplier() && allRows().length > 0) {
+      <div class="pr-empty">
+        <i class="ti ti-building-store"></i>
+        <p>Todavía no hay productos de {{ currentSupplier()!.name }}.</p>
+        <p class="hint">En "Todos", seleccioná los productos que le comprás y usá "Proveedor vigente…", o importá su lista. También podés cargar un costo a mano.</p>
+        <button type="button" class="btn pri" (click)="openCostForm()"><i class="ti ti-plus"></i> Agregar costo</button>
+      </div>
     } @else if (rows().length === 0) {
       <div class="pr-empty">
         <i class="ti ti-tag"></i>
@@ -98,8 +163,8 @@
               <th class="col-check"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th>
               <th>Producto</th>
               <th class="num">Bulto</th>
-              <th class="num">Costo u.</th>
-              <th class="num">Valor final</th>
+              <th>Descuento</th>
+              <th class="num" title="En cuánto te queda cada unidad, con el descuento">Costo u.</th>
               <th class="num tn">Tienda Nube ↑</th>
               <th class="num ml">Mercado Libre ↑</th>
               <th class="num">Te queda</th>
@@ -137,6 +202,7 @@
                     @if (group.pending > 0) {
                       <span class="badge pend">{{ group.pending }} pendiente{{ group.pending === 1 ? '' : 's' }}</span>
                     }
+                    @if (group.discountLabel) { <span class="badge disc" title="Configuración de descuento">{{ group.discountLabel }}</span> }
                     @if (groupChanged(group)) { <span class="badge brand"><i class="ti ti-sparkles"></i> cambió</span> }
                   </button>
                 </td>
@@ -199,6 +265,13 @@
                 <span class="badge warn" title="Este SKU no aparece en Mercado Libre ni en Tienda Nube: no hay dónde aplicar el precio">no publicado</span>
               }
               @if (row.source === 'manual') { <span class="badge neu"><i class="ti ti-pencil"></i> manual</span> }
+              @if (!currentSupplier()) {
+                <span class="sup" [attr.title]="row.suppliers.length > 1 ? 'Proveedores: ' + row.suppliers.map(supplierName.bind(this)).join(', ') + ' (vigente: ' + supplierName(row.supplierKey) + ')' : null">
+                  {{ supplierName(row.supplierKey) }}@if (row.suppliers.length > 1) { <b> +{{ row.suppliers.length - 1 }}</b> }
+                </span>
+              } @else if (row.supplierKey && row.supplierKey !== currentSupplier()!.key) {
+                <span class="badge warn" title="El costo sale de otro proveedor: cambialo con 'Proveedor vigente'">vigente: {{ supplierName(row.supplierKey) }}</span>
+              }
               @if (isPending(row)) {
                 <span class="badge pend" title="El precio a aplicar no coincide con el publicado hoy">pendiente de aplicar</span>
               } @else if (row.mlQueued) {
@@ -207,9 +280,28 @@
             </span>
           </div>
         </td>
-        <td class="num">{{ row.bulkQty ?? '—' }}</td>
-        <td class="num">{{ row.unitCost | currency:'ARS':'symbol':'1.0-0' }}</td>
-        <td class="num">{{ row.valorFinal | currency:'ARS':'symbol':'1.0-0' }}</td>
+        <td class="num">
+          @if (row.bulkPrice != null) {
+            <span class="cell-main">{{ row.bulkPrice | currency:'ARS':'symbol':'1.0-0' }}</span>
+            <span class="cell-sub">{{ row.bulkQty }} u. · {{ row.unitListPrice | currency:'ARS':'symbol':'1.0-0' }} c/u</span>
+          } @else {
+            <span class="muted">{{ row.bulkQty ?? '—' }}</span>
+          }
+        </td>
+        <td class="disc-cell" [attr.title]="discountChain(row) || null">
+          @if (row.discount; as d) {
+            <span class="badge disc" [class.own]="d.level === 'sku'" [class.none]="d.level === 'none'">
+              @if (d.level === 'pack') { <i class="ti ti-stack-2" aria-hidden="true"></i> }
+              {{ d.name ?? 'Sin proveedor' }}
+            </span>
+            <span class="cell-sub">{{ discountPcts(d) }}</span>
+          } @else {
+            <span class="muted" title="Costo unitario cargado directo: ya es neto">—</span>
+          }
+        </td>
+        <td class="num">
+          <span class="cell-main">{{ row.unitCost | currency:'ARS':'symbol':'1.0-0' }}</span>
+        </td>
         <td class="num tn">
           <div class="price-cell">
             <input
@@ -241,7 +333,10 @@
           @if (row.freeShipping) { <i class="ti ti-truck" title="En zona de envío gratis"></i> }
           <ng-container *ngTemplateOutlet="publishedTpl; context: { current: row.currentMl, next: row.mlEffective, pending: row.pendingMl, queued: row.mlQueued }" />
         </td>
-        <td class="num net">{{ row.mlNet | currency:'ARS':'symbol':'1.0-0' }}</td>
+        <td class="num net">
+          <span class="cell-main">{{ row.mlNet | currency:'ARS':'symbol':'1.0-0' }}</span>
+          <span class="cell-sub" title="Valor final: lo que querés netear (costo + ganancia)">v. final {{ row.valorFinal | currency:'ARS':'symbol':'1.0-0' }}</span>
+        </td>
         <td class="col-actions">
           <button type="button" class="icon-btn" (click)="openHistory(row.sku)" title="Ver historial"><i class="ti ti-history"></i></button>
           <button type="button" class="icon-btn" (click)="openCostForm(row)" title="Editar costo"><i class="ti ti-pencil"></i></button>
@@ -254,6 +349,12 @@
     @if (rows().length > 0) {
       <div class="pr-actionbar">
         <div class="pr-sel"><b>{{ selectedCount() }}</b> seleccionados</div>
+        <button type="button" class="btn" [disabled]="selectedCount() === 0 || suppliers().length === 0" (click)="openAssign('discount')">
+          <i class="ti ti-discount"></i> Asignar descuento…
+        </button>
+        <button type="button" class="btn" [disabled]="selectedCount() === 0 || suppliers().length === 0" (click)="openAssign('vigente')">
+          <i class="ti ti-building-store"></i> Proveedor vigente…
+        </button>
         <div class="spacer"></div>
         <button type="button" class="btn pri" [disabled]="selectedCount() === 0 || applying()" (click)="apply()">
           <i class="ti ti-rocket"></i>
@@ -372,6 +473,25 @@
                 · {{ res.changedSkus.length }} con precio distinto al anterior.</span>
             </div>
           </div>
+          @if (res.summary.profileName) {
+            <p class="modal-note">
+              <i class="ti ti-discount" aria-hidden="true"></i>
+              {{ res.summary.withChosenProfile ?? 0 }} producto{{ res.summary.withChosenProfile === 1 ? '' : 's' }} con "{{ res.summary.profileName }}"
+              @if (res.summary.withOwnProfile?.length) {
+                · {{ res.summary.withOwnProfile!.length }} conserva{{ res.summary.withOwnProfile!.length === 1 ? '' : 'n' }} su configuración propia
+              }
+            </p>
+            @if (res.summary.withOwnProfile?.length) {
+              <details class="import-breakdown">
+                <summary class="muted">Ver los que conservan su configuración</summary>
+                <ul class="brief-list">
+                  @for (b of res.summary.withOwnProfile!; track b.sku) {
+                    <li><span>{{ briefName(b) }}</span> <span class="badge disc">{{ b.profileName }}</span></li>
+                  }
+                </ul>
+              </details>
+            }
+          }
           <div class="import-breakdown">
             <details [open]="res.summary.inList.length > 0 && res.summary.inList.length <= 15">
               <summary>
@@ -421,7 +541,7 @@
               <span><b>{{ importFileName() }}</b> · {{ importFormat() === 'pdf' ? 'PDF' : 'CSV' }}</span>
               <span class="hint">Clic para elegir otro</span>
             } @else {
-              <span>Elegí el PDF de Punto Cero (o un CSV)</span>
+              <span>Elegí el PDF de {{ supplierName(importSupplier()) }} (o un CSV)</span>
               <span class="hint">El archivo se lee en tu navegador; al servidor solo va el texto.</span>
             }
           </label>
@@ -432,25 +552,20 @@
               <label class="fld">Nombre de la lista
                 <input type="text" [ngModel]="importLabel()" (ngModelChange)="importLabel.set($event)" placeholder="Ej: Marzo 2026" />
               </label>
-              <div class="fld">
-                <span>Descuentos de esta compra</span>
-                <label class="chk">
-                  <input type="checkbox" [ngModel]="noDiscounts()" (ngModelChange)="noDiscounts.set($event)" />
-                  Sin descuentos
-                </label>
-              </div>
+              <label class="fld">Proveedor
+                <select [ngModel]="importSupplier()" (ngModelChange)="setImportSupplier($event)">
+                  @for (s of suppliers(); track s.key) { <option [value]="s.key">{{ s.name }}</option> }
+                </select>
+              </label>
             </div>
-            @if (!noDiscounts()) {
-              <div class="grid2">
-                <label class="fld">Descuento 1 (%)
-                  <input type="number" [ngModel]="importDiscount1()" (ngModelChange)="importDiscount1.set($event)" />
-                </label>
-                <label class="fld">Descuento 2 (%)
-                  <input type="number" [ngModel]="importDiscount2()" (ngModelChange)="importDiscount2.set($event)" />
-                </label>
-              </div>
-            }
-            <p class="modal-note"><i class="ti ti-info-circle"></i> Los descuentos se guardan con la lista: cambian según cuándo compres.</p>
+            <label class="fld">Configuración de descuento
+              <select [ngModel]="importProfileId()" (ngModelChange)="importProfileId.set($event)">
+                @for (p of importProfiles(); track p.id) {
+                  <option [ngValue]="p.id">{{ p.name }} · {{ discountPcts(p) }}{{ p.isDefault ? ' (default)' : '' }}</option>
+                }
+              </select>
+            </label>
+            <p class="modal-note"><i class="ti ti-info-circle"></i> Se aplica a lo de esta lista que no tiene una configuración propia. Lo que ya tiene una (por ejemplo, un pack de agendas) la conserva.</p>
 
             <!-- 3. Resultado del parseo y del mapeo contra ESTA lista -->
             <div class="import-stats">
@@ -599,13 +714,29 @@
             <label class="fld">Unidades por bulto
               <input type="number" [ngModel]="costForm().bulkQty" (ngModelChange)="updateCostForm('bulkQty', $event)" />
             </label>
-            <label class="fld">Descuento 1 (%)
-              <input type="number" [ngModel]="costForm().discount1" (ngModelChange)="updateCostForm('discount1', $event)" />
-            </label>
-            <label class="fld">Descuento 2 (%)
-              <input type="number" [ngModel]="costForm().discount2" (ngModelChange)="updateCostForm('discount2', $event)" />
-            </label>
           </div>
+        }
+
+        <div class="grid2">
+          <label class="fld">Proveedor
+            <select [ngModel]="costForm().supplierKey" (ngModelChange)="updateCostForm('supplierKey', $event)">
+              <option value="">Sin proveedor</option>
+              @for (s of suppliers(); track s.key) { <option [value]="s.key">{{ s.name }}</option> }
+            </select>
+          </label>
+          @if (costForm().mode === 'bulk' && costForm().supplierKey) {
+            <label class="fld">Descuento
+              <select [ngModel]="costForm().profileId" (ngModelChange)="updateCostForm('profileId', $event)">
+                <option [ngValue]="null">La del pack o la default</option>
+                @for (p of costFormProfiles(); track p.id) {
+                  <option [ngValue]="p.id">{{ p.name }} · {{ discountPcts(p) }}</option>
+                }
+              </select>
+            </label>
+          }
+        </div>
+        @if (costForm().mode === 'bulk' && !costForm().supplierKey) {
+          <p class="modal-note"><i class="ti ti-info-circle"></i> Sin proveedor no se aplica ningún descuento.</p>
         }
 
         <label class="fld">Ganancia (%) <span class="fld-hint">vacío = usar la de Ajustes</span>
@@ -641,9 +772,10 @@
               <li class="mapping-row">
                 <div class="mapping-info">
                   <code>{{ l.label }}</code>
+                  @if (l.supplierName) { <span class="badge neu">{{ l.supplierName }}</span> }
                   <span class="why">{{ l.itemCount }} ítems</span>
                   @if (l.discount1 || l.discount2) {
-                    <span class="why">desc. {{ l.discount1 }}% + {{ l.discount2 }}%</span>
+                    <span class="why" title="Configuración con la que se importó">desc. {{ l.discount1 }}% + {{ l.discount2 }}%</span>
                   }
                   <span class="why">{{ l.importedAt | date: 'dd/MM/yy HH:mm' }}</span>
                 </div>
@@ -715,3 +847,127 @@
     }
   }
 </ng-template>
+
+<!-- ══════════════ Modal: proveedor (alta / renombrar) ══════════════ -->
+@if (supplierForm(); as f) {
+  <div class="modal-backdrop" (click)="supplierForm.set(null)">
+    <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>{{ f.key ? 'Renombrar proveedor' : 'Nuevo proveedor' }}</h2>
+        <button type="button" class="icon-btn" (click)="supplierForm.set(null)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label class="fld">Nombre
+          <input type="text" [ngModel]="f.name" (ngModelChange)="updateSupplierForm('name', $event)" placeholder="Bic" />
+        </label>
+        @if (!f.key) {
+          <p class="modal-note"><i class="ti ti-info-circle"></i> Descuento default: lo toma todo lo de este proveedor que no tenga una configuración propia. Después podés sumar más.</p>
+          <div class="grid2">
+            <label class="fld">Descuento 1 (%)
+              <input type="number" [ngModel]="f.discount1" (ngModelChange)="updateSupplierForm('discount1', $event)" />
+            </label>
+            <label class="fld">Descuento 2 (%)
+              <input type="number" [ngModel]="f.discount2" (ngModelChange)="updateSupplierForm('discount2', $event)" />
+            </label>
+          </div>
+        }
+      </div>
+      <div class="modal-foot">
+        @if (supplierError()) { <span class="pr-error inline">{{ supplierError() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="supplierForm.set(null)">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="saving()" (click)="saveSupplier()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══════════════ Modal: configuración de descuento ══════════════ -->
+@if (profileForm(); as f) {
+  <div class="modal-backdrop" (click)="profileForm.set(null)">
+    <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>{{ f.id ? 'Editar configuración' : 'Nueva configuración' }} · {{ supplierName(f.supplierKey) }}</h2>
+        <button type="button" class="icon-btn" (click)="profileForm.set(null)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label class="fld">Nombre
+          <input type="text" [ngModel]="f.name" (ngModelChange)="updateProfileForm('name', $event)" placeholder="Agendas" />
+        </label>
+        <div class="grid2">
+          <label class="fld">Descuento 1 (%)
+            <input type="number" [ngModel]="f.discount1" (ngModelChange)="updateProfileForm('discount1', $event)" />
+          </label>
+          <label class="fld">Descuento 2 (%, sobre lo que queda)
+            <input type="number" [ngModel]="f.discount2" (ngModelChange)="updateProfileForm('discount2', $event)" />
+          </label>
+        </div>
+        @if (f.id) {
+          <p class="modal-note"><i class="ti ti-info-circle"></i> Cambia el costo de todo lo que usa esta configuración. Los precios quedan "pendientes de aplicar".</p>
+        }
+      </div>
+      <div class="modal-foot">
+        @if (supplierError()) { <span class="pr-error inline">{{ supplierError() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="profileForm.set(null)">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="saving()" (click)="saveProfile()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══════════════ Modal: asignar descuento / proveedor vigente ══════════════ -->
+@if (assignMode(); as mode) {
+  <div class="modal-backdrop" (click)="assignMode.set(null)">
+    <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>{{ mode === 'discount' ? 'Asignar descuento' : 'Proveedor vigente' }}</h2>
+        <button type="button" class="icon-btn" (click)="assignMode.set(null)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-note">
+          <i class="ti ti-list-check" aria-hidden="true"></i>
+          {{ selectedCount() }} producto{{ selectedCount() === 1 ? '' : 's' }} seleccionado{{ selectedCount() === 1 ? '' : 's' }}.
+          @if (mode === 'discount') { Un pack seleccionado entero toma la configuración como pack. }
+        </p>
+        <label class="fld">Proveedor
+          <select [ngModel]="assignSupplier()" (ngModelChange)="setAssignSupplier($event)">
+            @for (s of suppliers(); track s.key) { <option [value]="s.key">{{ s.name }}</option> }
+          </select>
+        </label>
+        @if (mode === 'discount') {
+          <div class="fld">
+            <span>Configuración</span>
+            <div class="radio-list">
+              @for (p of assignProfiles(); track p.id) {
+                <label class="radio-row">
+                  <input type="radio" name="assign-profile" [checked]="assignProfileId() === p.id" (change)="assignProfileId.set(p.id)" />
+                  <b>{{ p.name }}</b> <span class="muted">{{ discountPcts(p) }}</span>
+                  @if (p.isDefault) { <span class="badge brand">default</span> }
+                </label>
+              }
+            </div>
+          </div>
+          <p class="modal-note"><i class="ti ti-info-circle"></i> Solo cuenta cuando ese proveedor es el vigente del producto.</p>
+        } @else {
+          <p class="modal-note"><i class="ti ti-info-circle"></i> El costo pasa a salir de la última lista de este proveedor (con su código para cada producto). Si no hay precio de lista, queda el costo de ahora.</p>
+        }
+        @if (assignResult()) {
+          <div class="pr-warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i> {{ assignResult() }}</div>
+        }
+      </div>
+      <div class="modal-foot">
+        @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+        <div class="spacer"></div>
+        @if (assignResult()) {
+          <button type="button" class="btn pri" (click)="assignMode.set(null)">Listo</button>
+        } @else {
+          <button type="button" class="btn" (click)="assignMode.set(null)">Cancelar</button>
+          <button type="button" class="btn pri" [disabled]="saving() || !assignSupplier()" (click)="confirmAssign()">
+            {{ saving() ? 'Guardando…' : (mode === 'discount' ? 'Asignar' : 'Cambiar proveedor') }}
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+}

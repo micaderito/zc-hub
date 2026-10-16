@@ -13,6 +13,9 @@ const PACK = { packId: 1, name: 'Repuestos x8', sku: '39001', unitCount: 8, mode
 function row(over: Partial<PreviewRow> = {}): PreviewRow {
   return {
     sku: '30700', label: 'Descr. de la lista', source: 'list', bulkQty: 8, unitCost: 1000, valorFinal: 2000,
+    bulkPrice: 11228, unitListPrice: 1403.5,
+    discount: { profileId: 1, name: 'General', discount1: 25, discount2: 5, level: 'default' },
+    supplierKey: 'punto_cero', suppliers: ['punto_cero'],
     tn: { transfer: 2000, list: 2500, override: null, effective: 2500 }, ml: 3000, mlOverride: null, mlEffective: 3000,
     mlNet: 2200, currentMl: null, currentTn: null, pendingMl: false, pendingTn: false, mlQueued: false,
     freeShipping: false, mappedMl: true, mappedTn: true,
@@ -54,7 +57,22 @@ class PricingMock {
   getConfig = jasmine.createSpy('getConfig').and.returnValue(of({
     settings: { commissionPct: 14, taxes: 0, shippingCost: 0, freeShippingThreshold: 33000, cardMultiplier: 1.1, roundStep: 100, defaultMarginPct: 100, defaultDiscount1: 25, defaultDiscount2: 5 },
     tiers: [], updatedAt: null,
+    suppliers: [
+      { key: 'punto_cero', name: 'Punto Cero', productCount: 3, profiles: [
+        { id: 1, supplierKey: 'punto_cero', name: 'General', discount1: 25, discount2: 5, isDefault: true, productCount: 3 },
+        { id: 2, supplierKey: 'punto_cero', name: 'Agendas', discount1: 30, discount2: 5, isDefault: false, productCount: 0 },
+      ] },
+      { key: 'bic', name: 'Bic', productCount: 1, profiles: [
+        { id: 9, supplierKey: 'bic', name: 'Sin descuento', discount1: 0, discount2: 0, isDefault: true, productCount: 1 },
+      ] },
+    ],
   }));
+  assignDiscount = jasmine.createSpy('assignDiscount').and.returnValue(of({ ok: true, assigned: 1 }));
+  setVigente = jasmine.createSpy('setVigente').and.returnValue(of({ ok: true, changedSkus: [], withoutPrice: ['30700'] }));
+  createProfile = jasmine.createSpy('createProfile').and.returnValue(of({ id: 3 }));
+  updateProfile = jasmine.createSpy('updateProfile').and.returnValue(of({ ok: true }));
+  deleteProfile = jasmine.createSpy('deleteProfile').and.returnValue(of({ ok: true }));
+  createSupplier = jasmine.createSpy('createSupplier').and.returnValue(of({ key: 'filgo' }));
   getPreview = jasmine.createSpy('getPreview').and.callFake(() => of({ rows: rows() }));
   previewImport = jasmine.createSpy('previewImport').and.returnValue(of(PREVIEW));
   confirmImport = jasmine.createSpy('confirmImport').and.returnValue(of(RESULT));
@@ -214,5 +232,102 @@ describe('PreciosComponent', () => {
     expect(pricing.deleteList).toHaveBeenCalledWith(3);
     expect(component.confirmDeleteListId()).toBeNull();
     expect(component.listDeleteError()).toBeNull();
+  });
+
+  // ── Proveedores y configuraciones de descuento ──
+
+  function withBic() {
+    pricing.getPreview.and.callFake(() => of({ rows: [
+      ...rows(),
+      row({ sku: 'BIC-50', name: 'Bolígrafo x50', supplierKey: 'bic', suppliers: ['bic'], bulkPrice: 15500, bulkQty: 50, unitListPrice: 310,
+        discount: { profileId: 9, name: 'Sin descuento', discount1: 0, discount2: 0, level: 'default' } }),
+    ] }));
+  }
+
+  it('la columna Bulto muestra el precio del bulto y la de Descuento la config con sus %', async () => {
+    await render();
+    const t = text();
+    expect(t).toMatch(/11[.,]228/);
+    expect(t).toContain('8 u.');
+    expect(t).toContain('General');
+    expect(t).toContain('−25% −5%');
+    expect(component.discountChain(component.rows()[0])).toContain('−25%');
+    expect(component.discountChain(component.rows()[0])).toContain('default del proveedor');
+  });
+
+  it('una pestaña por proveedor filtra la planilla y muestra sus configuraciones', async () => {
+    withBic();
+    await render();
+    expect(component.supplierTabs().map((t) => [t.label, t.count])).toEqual([['Todos', 4], ['Punto Cero', 3], ['Bic', 1]]);
+
+    component.setSupplierTab('bic');
+    fixture.detectChanges();
+    expect(component.rows().map((r) => r.sku)).toEqual(['BIC-50']);
+    expect(text()).toContain('Sin descuento');
+    expect(text()).toContain('Nueva configuración');
+
+    component.setSupplierTab('punto_cero');
+    fixture.detectChanges();
+    expect(component.rows().length).toBe(3);
+    expect(text()).toContain('Agendas');
+    expect(text()).toContain('−30% −5%');
+  });
+
+  it('asignar descuento manda el pack entero como pack y el resto por SKU', async () => {
+    await render();
+    component.toggleGroup(component.priceGroups().groups[0]);
+    component.toggleRow('30700');
+    expect(component.selectionTargets()).toEqual([{ type: 'pack', id: 1 }, { type: 'sku', id: '30700' }]);
+
+    component.openAssign('discount');
+    expect(component.assignSupplier()).toBe('punto_cero');
+    expect(component.assignProfileId()).toBe(1);
+    component.assignProfileId.set(2);
+    await component.confirmAssign();
+    expect(pricing.assignDiscount).toHaveBeenCalledWith('punto_cero', [{ type: 'pack', id: 1 }, { type: 'sku', id: '30700' }], 2);
+    expect(component.assignMode()).toBeNull();
+  });
+
+  it('cambiar el proveedor vigente avisa lo que quedó sin precio de ese proveedor', async () => {
+    await render();
+    component.toggleRow('30700');
+    component.openAssign('vigente');
+    component.setAssignSupplier('bic');
+    await component.confirmAssign();
+    expect(pricing.setVigente).toHaveBeenCalledWith('bic', [{ type: 'sku', id: '30700' }]);
+    expect(component.assignResult()).toContain('sin precio de Bic');
+    expect(component.assignMode()).toBe('vigente');
+  });
+
+  it('el import manda el proveedor y la config elegida (precargada con la default)', async () => {
+    await render();
+    component.setSupplierTab('punto_cero');
+    component.openImport();
+    expect(component.importSupplier()).toBe('punto_cero');
+    expect(component.importProfileId()).toBe(1);
+    component.importPreview.set(PREVIEW);
+    component.importLabel.set('Agendas 2027');
+    component.importProfileId.set(2);
+    await component.confirmImport();
+    expect(pricing.confirmImport).toHaveBeenCalledWith(jasmine.objectContaining({ supplierKey: 'punto_cero', profileId: 2 }));
+  });
+
+  it('cambiar el proveedor del import precarga su default y rehace el preview con sus códigos', async () => {
+    await render();
+    component.openImport();
+    await component.onFileSelected({ target: { files: [new File(['x'], 'bic.pdf')], value: '' } } as unknown as Event);
+    await component.setImportSupplier('bic');
+    expect(component.importProfileId()).toBe(9);
+    expect(pricing.previewImport).toHaveBeenCalledWith('x', 'pdf', 'bic');
+  });
+
+  it('crear una configuración la guarda en el proveedor de la pestaña', async () => {
+    await render();
+    component.openProfileForm('punto_cero');
+    component.updateProfileForm('name', 'Liquidación');
+    component.updateProfileForm('discount1', 40);
+    await component.saveProfile();
+    expect(pricing.createProfile).toHaveBeenCalledWith('punto_cero', { name: 'Liquidación', discount1: 40, discount2: 0 });
+    expect(component.profileForm()).toBeNull();
   });
 });

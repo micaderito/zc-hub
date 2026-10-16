@@ -1,7 +1,11 @@
 <p class="mp-intro">
   <i class="ti ti-info-circle"></i>
-  Cada producto de la tienda con el código de la lista del proveedor que le corresponde. Los que no tienen código no
-  toman precio de ninguna lista: asignáselo a mano (el precio se toma al momento, de la lista más reciente que lo trae).
+  @if (readOnly()) {
+    Cada producto con su código en cada proveedor. Para asignar o cambiar un código, elegí el proveedor en las pestañas de arriba.
+  } @else {
+    Cada producto de la tienda con su código en la lista de {{ supplierName(supplierKey()) }}. Los que no tienen código no
+    toman precio de sus listas: asignáselo a mano (el precio se toma al momento, de la lista más reciente que lo trae).
+  }
 </p>
 
 <div class="mp-toolbar">
@@ -37,7 +41,7 @@
 }
 
 <datalist id="mp-supplier-codes">
-  @for (c of codes(); track c.code) {
+  @for (c of codes(); track c.code + '|' + c.supplierKey) {
     <option [value]="c.code">{{ c.description || '' }}{{ c.listLabel ? ' · ' + c.listLabel : '' }}{{ c.mapped ? ' (ya asignado)' : '' }}</option>
   }
 </datalist>
@@ -149,6 +153,14 @@
         </button>
         <button type="button" class="btn btn-s" (click)="cancelEdit()">Cancelar</button>
       </form>
+    } @else if (showSupplierCodes(p)) {
+      <div class="mp-code">
+        @for (c of p.codesBySupplier; track c.supplierKey) {
+          <span class="mp-sup-code" [class.vigente]="c.supplierKey === p.vigente" [attr.title]="c.supplierKey === p.vigente ? 'Proveedor vigente' : null">
+            <span class="why">{{ c.supplierName }}</span> <code>{{ c.code }}</code>
+          </span>
+        }
+      </div>
     } @else if (p.code) {
       <div class="mp-code">
         <code>{{ p.code }}</code>
@@ -169,7 +181,7 @@
     @else { <span class="mp-cost muted">sin costo</span> }
   </td>
   <td class="col-actions">
-    @if (editingKey() !== p.key) {
+    @if (!readOnly() && editingKey() !== p.key) {
       <button type="button" class="btn btn-s" (click)="startEdit(p)">{{ editLabel(p) }}</button>
       @if (p.code && p.codeSource !== 'pack') {
         <button
@@ -191,7 +203,7 @@
     </summary>
     <p class="hint">Son productos del proveedor que la tienda no tiene, o que tienen otro SKU: si es lo segundo, asignale el código desde la fila del producto.</p>
     <ul>
-      @for (c of unusedCodes(); track c.code) {
+      @for (c of unusedCodes(); track c.code + '|' + c.supplierKey) {
         <li><code>{{ c.code }}</code> {{ c.description }} @if (c.listLabel) { <span class="why">{{ c.listLabel }}</span> }</li>
       }
     </ul>

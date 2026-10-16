@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { QueryClient, injectQuery } from '@tanstack/angular-query-experimental';
@@ -29,6 +29,9 @@ const NO_LIST = '__none__';
  * ninguno —, de qué lista sale su precio y si ya tienen costo. Es lo que permite ver qué no mapeó
  * después de importar las listas y asignarlo a mano: al guardar, el precio se toma en el momento
  * de la lista más reciente que trae ese código (sin volver a importar).
+ *
+ * Los códigos son de cada proveedor: con un proveedor elegido (`supplierKey`) se editan los de ese
+ * proveedor; en "Todos" (`null`) la vista es de solo lectura y muestra el código de cada proveedor.
  */
 @Component({
   selector: 'zc-mapeo-proveedor',
@@ -41,12 +44,16 @@ export class MapeoProveedorComponent {
   private readonly pricing = inject(PricingService);
   private readonly queryClient = inject(QueryClient);
 
+  /** Proveedor de la pestaña; `null` = "Todos" (solo lectura). */
+  readonly supplierKey = input<string | null>(null);
+  readonly readOnly = computed(() => this.supplierKey() == null);
+
   /** Avisa al padre qué SKUs cambiaron de costo, para resaltarlos en la planilla de precios. */
   readonly costsChanged = output<string[]>();
 
   readonly mappingQuery = injectQuery(() => ({
-    queryKey: ['pricing', 'mapping'],
-    queryFn: () => firstValueFrom(this.pricing.getMappingState()),
+    queryKey: ['pricing', 'mapping', this.supplierKey() ?? 'all'],
+    queryFn: () => firstValueFrom(this.pricing.getMappingState(this.supplierKey())),
     staleTime: 15_000,
   }));
 
@@ -169,6 +176,15 @@ export class MapeoProveedorComponent {
     return displayName(p);
   }
 
+  /** En "Todos": el código de cada proveedor, en vez del de uno solo. */
+  showSupplierCodes(p: MappingProduct): boolean {
+    return this.readOnly() && (p.codesBySupplier?.length ?? 0) > 0;
+  }
+
+  supplierName(key: string | null | undefined): string {
+    return (key && this.mappingQuery.data()?.supplierNames?.[key]) || key || '';
+  }
+
   matchLabel(p: MappingProduct): string {
     if (p.codeSource === 'pack') return 'del pack';
     const source = p.matchSource;
@@ -201,14 +217,17 @@ export class MapeoProveedorComponent {
     this.saving.set(true);
     this.message.set(null);
     try {
+      const sup = this.supplierKey() ?? undefined;
       const res = p.kind === 'pack' && p.packId != null
-        ? await firstValueFrom(this.pricing.confirmPackMapping(p.packId, code, 'manual'))
-        : await firstValueFrom(this.pricing.confirmMapping(p.sku, code, 'manual'));
+        ? await firstValueFrom(this.pricing.confirmPackMapping(p.packId, code, 'manual', sup))
+        : await firstValueFrom(this.pricing.confirmMapping(p.sku, code, 'manual', sup));
       const who = displayName(p);
       if (res.costsUpdated > 0) {
         this.message.set({ kind: 'ok', text: `${who} → ${code}: precio tomado de "${res.listLabel ?? 'la última lista'}".` });
       } else {
-        const why = this.codeSet().has(code) ? 'el código no tiene precio por bulto en la lista' : 'el código no está en ninguna lista importada';
+        const why = this.codeSet().has(code)
+          ? 'el código no tiene precio por bulto en la lista, o el producto tiene otro proveedor vigente'
+          : 'el código no está en ninguna lista importada de este proveedor';
         this.message.set({ kind: 'warn', text: `${who} → ${code} guardado, pero ${why}: el costo se va a tomar cuando importes una lista que lo traiga.` });
       }
       if (res.changedSkus.length > 0) this.costsChanged.emit(res.changedSkus);
@@ -228,8 +247,9 @@ export class MapeoProveedorComponent {
   async removeCode(p: MappingProduct): Promise<void> {
     this.message.set(null);
     try {
-      if (p.kind === 'pack' && p.packId != null) await firstValueFrom(this.pricing.removePackMapping(p.packId));
-      else await firstValueFrom(this.pricing.removeMapping(p.sku));
+      const sup = this.supplierKey() ?? undefined;
+      if (p.kind === 'pack' && p.packId != null) await firstValueFrom(this.pricing.removePackMapping(p.packId, sup));
+      else await firstValueFrom(this.pricing.removeMapping(p.sku, sup));
       const text = p.codeSource === 'own'
         ? `${displayName(p)} vuelve a tomar el código del pack.`
         : `Se sacó el código de ${displayName(p)}. Su costo actual queda como está.`;
