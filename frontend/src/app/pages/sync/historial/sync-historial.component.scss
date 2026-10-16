@@ -1,0 +1,283 @@
+// Lo propio del Historial. La base (botones, alertas, inputs, estado vacío) viene de sync.component.scss.
+
+@keyframes zc-spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: zc-spin 0.7s linear infinite;
+}
+
+// ── Search card ───────────────────────────────────────────────────
+.search-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+// Filtro por origen del cambio (Todos / Ventas / Manuales / Devoluciones).
+.source-filter {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.source-chip {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+
+  &.active {
+    background: var(--brand-bg);
+    border-color: var(--brand);
+    color: var(--brand);
+  }
+}
+
+.search-bar-wrap {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+// ── List progress (refetch indicator) ────────────────────────────
+.list-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--brand-bg);
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.list-progress-bar {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--brand);
+  animation: list-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes list-progress-slide {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+
+// ── Reprocess card (reintentar sincronización de una venta) ──────
+.reprocess-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.85rem 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.reprocess-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--brand-bg);
+  color: var(--brand);
+  flex-shrink: 0;
+
+  .ti { font-size: 17px; }
+}
+
+.reprocess-info {
+  flex: 1 1 240px;
+  min-width: 200px;
+
+  .reprocess-title {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .hint { margin-top: 0.15rem; }
+}
+
+.reprocess-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+
+  .reprocess-input {
+    font-size: 0.78rem;
+    max-width: 180px;
+  }
+}
+
+// ── Audit list ──────────────────────────────────────────────────
+.audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: opacity 0.15s ease;
+
+  &.is-fetching {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+}
+
+.audit-row {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  padding: 9px 14px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+  align-items: center;
+  transition: border-color 0.12s;
+
+  &:hover { border-color: var(--border-strong); }
+  &.audit-ml { border-left-color: var(--ml); }
+  &.audit-tn { border-left-color: var(--tn); }
+
+  &.audit-reverted {
+    opacity: 0.6;
+    background: var(--surface-2);
+  }
+}
+
+.audit-title {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-meta {
+  font-size: 0.7rem;
+  color: var(--text-2);
+  margin-top: 2px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+
+  code {
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.66rem;
+    color: var(--text);
+  }
+
+  // Origen del cambio. Los manuales se destacan porque son la excepción: el resto del
+  // historial lo genera la sincronización automática.
+  .source-tag {
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    background: var(--surface-2);
+    color: var(--text-2);
+
+    &.manual {
+      background: var(--brand-bg);
+      color: var(--brand);
+    }
+
+    // Cambio hecho desde el panel de ML/TN, sin pasar por el hub.
+    &.externo {
+      background: var(--warn-bg);
+      color: var(--warn);
+    }
+  }
+
+  .meta-date { color: var(--text-3); }
+}
+
+.audit-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+// ── State chips (audit) ─────────────────────────────────────────
+.state-chip {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.66rem;
+  font-weight: 500;
+  border-radius: 20px;
+  white-space: nowrap;
+
+  &.vml { background: var(--ok-bg);    color: var(--ok);      border: 0.5px solid var(--ok);    }
+  &.vtn { background: var(--tn-bg);    color: var(--tn-text); border: 0.5px solid var(--tn);    }
+  &.can { background: var(--warn-bg);  color: var(--warn);    border: 0.5px solid var(--warn);  }
+  &.dev { background: var(--brand-bg); color: var(--brand);   border: 0.5px solid var(--brand); }
+  &.n   { background: var(--surface-2); color: var(--text-2); border: 0.5px solid var(--border); }
+}
+
+.stock-diff {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+
+  .ti { font-size: 10px; color: var(--text-3); }
+  .stock-before { color: var(--text-3); text-decoration: line-through; }
+  .stock-after  { font-weight: 600; color: var(--text-2); &.down { color: var(--err); } &.up { color: var(--ok); } }
+  .stock-delta  { font-size: 0.66rem; color: var(--text-3); }
+}
+
+.btn-revert {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.25rem 0.6rem;
+  border: 0.5px solid var(--err);
+  background: var(--err-bg);
+  color: var(--err);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.12s;
+
+  .ti { font-size: 12px; }
+  &:hover:not(:disabled) { opacity: 0.8; }
+  &:disabled { opacity: 0.5; cursor: default; }
+}
+
+.reverted-badge {
+  font-size: 0.7rem;
+  color: var(--text-3);
+  font-style: italic;
+}

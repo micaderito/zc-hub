@@ -1,0 +1,78 @@
+<div class="section-toolbar">
+  @if (fetchResult(); as result) {
+    <span class="fetch-result">{{ result }}</span>
+  }
+  <button type="button" class="btn-secondary" (click)="refreshReturns()" [disabled]="fetchingReturns()">
+    <i class="ti ti-refresh" aria-hidden="true"></i>
+    {{ fetchingReturns() ? 'Actualizando…' : 'Actualizar' }}
+  </button>
+</div>
+
+@if (returnsError(); as error) {
+  <div class="alert error">{{ error }}</div>
+}
+
+@if (returnsLoading()) {
+  <p class="loading-text">Cargando devoluciones…</p>
+} @else if (returnsRows().length === 0) {
+  <div class="empty-state">
+    <i class="ti ti-check-circle" aria-hidden="true"></i>
+    <p>No hay devoluciones pendientes.</p>
+    <p class="hint">Usá «Actualizar» para revisar de nuevo en ML o agregá una orden por número.</p>
+  </div>
+} @else {
+  <div class="returns-list">
+    @for (row of returnsRows(); track row.id) {
+      <div class="return-card">
+        <div class="return-card-main">
+          <div class="return-product">{{ row.productLabel || '—' }}</div>
+          <div class="return-meta">
+            @if (row.sku) {
+              <code>{{ row.sku }}</code>
+            }
+            <span>Orden <code>{{ row.orderId }}</code></span>
+            @if (row.buyerNickname) {
+              <span class="meta-buyer"><i class="ti ti-user" aria-hidden="true"></i>{{ row.buyerNickname }}</span>
+            }
+            @if (row.reason) {
+              <span class="meta-reason"><i class="ti ti-message-circle" aria-hidden="true"></i>{{ row.reason }}</span>
+            }
+            <span class="meta-date">{{ formatDate(row.claimDate || row.createdAt) }}</span>
+          </div>
+        </div>
+        <div class="return-card-right">
+          <span class="qty-badge">× {{ row.quantity }} u.</span>
+          <ng-container *zcCanWrite><button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId() === row.id || dismissingId() === row.id">
+            <i class="ti ti-check" aria-hidden="true"></i>
+            {{ approvingId() === row.id ? 'Restaurando…' : 'Restaurar stock' }}
+          </button>
+          <button
+            type="button"
+            class="btn-dismiss"
+            title="Sacar de la lista sin tocar stock (la unidad no volvió)"
+            (click)="dismissReturn(row)"
+            [disabled]="approvingId() === row.id || dismissingId() === row.id"
+          >
+            <i class="ti ti-x" aria-hidden="true"></i>
+            {{ dismissingId() === row.id ? 'Descartando…' : 'Descartar' }}
+          </button></ng-container>
+        </div>
+      </div>
+    }
+  </div>
+  <zc-pagination
+    [currentPage]="store.returnsCurrentPage()"
+    [totalPages]="store.returnsTotalPages()"
+    [total]="store.returnsTotal()"
+    (prev)="store.goToReturnsPage(store.returnsCurrentPage() - 1)"
+    (next)="store.goToReturnsPage(store.returnsCurrentPage() + 1)"
+  />
+}
+
+<div class="add-return-row" *zcCanWrite>
+  <span class="add-return-label"><i class="ti ti-plus" aria-hidden="true"></i>Agregar por nro de venta:</span>
+  <input type="text" [(ngModel)]="returnOrderId" placeholder="Ej. 2000011838697695" class="zc-input" />
+  <button type="button" class="btn-secondary" (click)="addReturnsByOrder()" [disabled]="!returnOrderId().trim() || addingReturn()">
+    {{ addingReturn() ? 'Cargando…' : 'Agregar' }}
+  </button>
+</div>

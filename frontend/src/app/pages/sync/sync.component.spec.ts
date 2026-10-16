@@ -1,35 +1,15 @@
 import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
-import { QueryClient, provideTanStackQuery } from '@tanstack/angular-query-experimental';
-import { provideRouter } from '@angular/router';
-import { of, throwError, Subject } from 'rxjs';
+import { QueryClient } from '@tanstack/angular-query-experimental';
+import { By } from '@angular/platform-browser';
+import { of, throwError } from 'rxjs';
 import { SyncComponent } from './sync.component';
+import { SyncService } from '../../core/services/sync.service';
+import { SyncHistorialComponent } from './historial/sync-historial.component';
+import { SyncDevolucionesComponent } from './devoluciones/sync-devoluciones.component';
+import { SyncColaComponent } from './cola/sync-cola.component';
 import {
-  SyncService,
-  SyncConfig,
-  SyncAuditRow,
-  SyncAuditResponse,
-  PendingReturnRow,
-  SyncReturnsResponse,
-  PendingMlTask,
-  PendingMlTasksResponse
-} from '../../core/services/sync.service';
-
-/**
- * `pendingTasksQuery` tiene un `refetchInterval` que se reprograma solo tras cada fetch
- * exitoso, así que la zona de Angular nunca queda "estable" mientras el componente esté vivo
- * (siempre hay un timer de 4s/20s pendiente). Por eso NO se puede usar `fixture.whenStable()`
- * en este spec — esperaría ese timer real y haría que Jasmine mate el test por timeout.
- * En su lugar, esperamos un macrotask propio (ajeno a la estabilidad de la zona) para darle
- * tiempo a la promesa del queryFn (mockeada con `of(...)`) a resolver y propagarse a los signals.
- */
-async function flushQuery(): Promise<void> {
-  // Varias vueltas de macrotask/microtask: TanStack Query notifica sus cambios de estado
-  // de forma asíncrona (batching interno), así que un solo tick no alcanza siempre.
-  for (let i = 0; i < 3; i++) {
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await Promise.resolve();
-  }
-}
+  auditRow, configConDb, configSinDb, createSyncServiceSpy, failedTask, flushQuery, returnRow, syncTestProviders
+} from './sync.testing';
 
 describe('SyncComponent', () => {
   let fixture: ComponentFixture<SyncComponent>;
@@ -37,123 +17,11 @@ describe('SyncComponent', () => {
   let syncServiceSpy: jasmine.SpyObj<SyncService>;
   let queryClient: QueryClient;
 
-  const configConDb: SyncConfig = { enabled: true, hasDatabase: true };
-  const configSinDb: SyncConfig = { enabled: false, hasDatabase: false };
-
-  const auditVacio: SyncAuditResponse = { rows: [], total: 0 };
-  const returnsVacio: SyncReturnsResponse = { rows: [], total: 0 };
-  const tasksVacio: PendingMlTasksResponse = { tasks: [], total: 0, activeCount: 0, failedCount: 0 };
-  const fetchVacio = { ok: true, claimsChecked: 0, created: 0, skipped: 0 };
-
-  const auditRow: SyncAuditRow = {
-    id: 1,
-    source: 'venta',
-    channelSale: 'mercadolibre',
-    orderId: 'ORD-1',
-    packId: 'PACK-1',
-    saleItemId: 'MLA123',
-    sku: 'SKU-1',
-    productLabel: 'Venta ML',
-    productDisplay: 'Cuaderno A4 - Tapa dura',
-    quantity: 2,
-    updatedChannel: 'tiendanube',
-    stockBefore: 10,
-    stockAfter: 8,
-    createdAt: '2026-01-01T10:00:00Z',
-    revertedAt: null
-  };
-
-  /** Cambio hecho a mano: sin venta detrás, por eso channelSale/orderId/quantity van en null. */
-  const auditRowManual: SyncAuditRow = {
-    id: 2,
-    source: 'manual',
-    channelSale: null,
-    orderId: null,
-    packId: null,
-    saleItemId: null,
-    sku: 'SKU-2',
-    productLabel: 'Cambio manual',
-    productDisplay: null,
-    quantity: null,
-    updatedChannel: 'mercadolibre',
-    stockBefore: 5,
-    stockAfter: 2,
-    createdAt: '2026-01-02T10:00:00Z',
-    revertedAt: null
-  };
-
-  const returnRow: PendingReturnRow = {
-    id: 5,
-    orderId: 'ORD-99',
-    saleOrderId: null,
-    itemId: 'MLA456',
-    variationId: null,
-    sku: 'SKU-2',
-    quantity: 1,
-    productLabel: 'Cuaderno tapa dura',
-    reason: 'Producto dañado',
-    buyerNickname: 'comprador1',
-    claimDate: '2026-01-02T12:00:00Z',
-    status: 'pending',
-    createdAt: '2026-01-02T12:00:00Z'
-  };
-
-  const failedTask: PendingMlTask = {
-    id: 7,
-    kind: 'stock_ml',
-    itemId: 'MLA456',
-    variationId: null,
-    targetQty: -3,
-    targetSku: null,
-    targetPrice: null,
-    status: 'failed',
-    stuck: false,
-    attempts: 2,
-    lastError: 'timeout',
-    createdAt: '2026-01-03T10:00:00Z',
-    updatedAt: '2026-01-03T10:05:00Z',
-    nextRunAt: '2026-01-03T10:10:00Z'
-  };
-
   beforeEach(() => {
-    syncServiceSpy = jasmine.createSpyObj<SyncService>('SyncService', [
-      'getConfig',
-      'setSyncEnabled',
-      'getAudit',
-      'revertAudit',
-      'reprocessOrder',
-      'getReturns',
-      'fetchReturnsFromMl',
-      'addReturnsFromOrder',
-      'approveReturn',
-      'dismissReturn',
-      'getPendingTasks',
-      'retryTask',
-      'registerWebhooks'
-    ]);
-
-    // Valores por defecto "seguros" para que cualquier test que no los pise no rompa.
-    syncServiceSpy.getConfig.and.returnValue(of(configSinDb));
-    syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
-    syncServiceSpy.getReturns.and.returnValue(of(returnsVacio));
-    syncServiceSpy.fetchReturnsFromMl.and.returnValue(of(fetchVacio));
-    syncServiceSpy.getPendingTasks.and.returnValue(of(tasksVacio));
-    syncServiceSpy.setSyncEnabled.and.returnValue(of({ enabled: true }));
-    syncServiceSpy.revertAudit.and.returnValue(of({ ok: true }));
-    syncServiceSpy.reprocessOrder.and.returnValue(of({ ok: true, orderId: 'ORD-1', itemsSynced: 1 }));
-    syncServiceSpy.addReturnsFromOrder.and.returnValue(of({ created: 0, rows: [] }));
-    syncServiceSpy.approveReturn.and.returnValue(of({ ok: true, mlRestored: true, tnRestored: true }));
-    syncServiceSpy.dismissReturn.and.returnValue(of({ ok: true }));
-    syncServiceSpy.retryTask.and.returnValue(of({ ok: true }));
-    syncServiceSpy.registerWebhooks.and.returnValue(of({ ok: true, registered: 0, created: [] }));
-
+    syncServiceSpy = createSyncServiceSpy();
     TestBed.configureTestingModule({
       imports: [SyncComponent],
-      providers: [
-        provideRouter([]),
-        provideTanStackQuery(new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })),
-        { provide: SyncService, useValue: syncServiceSpy }
-      ]
+      providers: syncTestProviders(syncServiceSpy)
     });
 
     fixture = TestBed.createComponent(SyncComponent);
@@ -170,26 +38,34 @@ describe('SyncComponent', () => {
       syncServiceSpy.getConfig.and.returnValue(of(configSinDb));
       fixture.detectChanges();
 
-      expect(component.loading).toBeFalse();
-      expect(component.config).toEqual(configSinDb);
-      expect(component.hasDatabaseForReturns()).toBeFalse();
-      expect(component.error).toBeNull();
+      expect(component.loading()).toBeFalse();
+      expect(component.config()).toEqual(configSinDb);
+      expect(component.store.hasDatabase()).toBeFalse();
+      expect(component.error()).toBeNull();
     });
 
-    it('con base de datos activa hasDatabaseForReturns pero NO crawlea devoluciones al iniciar (tab por defecto: historial)', fakeAsync(() => {
+    it('carga el historial al iniciar', () => {
+      syncServiceSpy.getAudit.and.returnValue(of({ rows: [auditRow], total: 1 }));
+      fixture.detectChanges();
+
+      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined, '');
+      expect(component.store.auditRows()).toEqual([auditRow]);
+    });
+
+    it('con base de datos habilita las queries pero NO crawlea devoluciones al iniciar (tab por defecto: historial)', fakeAsync(() => {
       // Antes el crawl a ML se disparaba en cada montaje sin importar la tab, alimentando la
       // tormenta de 429. Ahora la tab por defecto es Historial y el crawl no debe correr.
       syncServiceSpy.getConfig.and.returnValue(of(configConDb));
 
       fixture.detectChanges();
-      expect(component.hasDatabaseForReturns()).toBeTrue();
+      expect(component.store.hasDatabase()).toBeTrue();
 
       tick();
       fixture.detectChanges();
 
       expect(syncServiceSpy.fetchReturnsFromMl).not.toHaveBeenCalled();
 
-      // returnsQuery/pendingTasksQuery (habilitadas por hasDatabaseForReturns) dejan timers de
+      // returnsQuery/pendingTasksQuery (habilitadas por hasDatabase) dejan timers de
       // refetchInterval/gcTime pendientes; se limpian igual que en el resto del spec.
       fixture.destroy();
       queryClient.clear();
@@ -200,22 +76,86 @@ describe('SyncComponent', () => {
       syncServiceSpy.getConfig.and.returnValue(throwError(() => ({ error: { error: 'Config inválida' } })));
       fixture.detectChanges();
 
-      expect(component.loading).toBeFalse();
-      expect(component.error).toBe('Config inválida');
+      expect(component.loading()).toBeFalse();
+      expect(component.error()).toBe('Config inválida');
     });
 
     it('maneja el error de getConfig usando e.message cuando no hay error.error', () => {
       syncServiceSpy.getConfig.and.returnValue(throwError(() => ({ message: 'Network fail' })));
       fixture.detectChanges();
 
-      expect(component.error).toBe('Network fail');
+      expect(component.error()).toBe('Network fail');
     });
 
     it('usa el mensaje por defecto si el error no trae info', () => {
       syncServiceSpy.getConfig.and.returnValue(throwError(() => ({})));
       fixture.detectChanges();
 
-      expect(component.error).toBe('Error al cargar.');
+      expect(component.error()).toBe('Error al cargar.');
+    });
+  });
+
+  describe('pestañas', () => {
+    it('monta solo el componente de la pestaña activa', async () => {
+      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
+      fixture.detectChanges();
+      await flushQuery();
+      fixture.detectChanges();
+
+      expect(fixture.debugElement.query(By.directive(SyncHistorialComponent))).not.toBeNull();
+      expect(fixture.debugElement.query(By.directive(SyncColaComponent))).toBeNull();
+
+      component.onTabChange('cola');
+      fixture.detectChanges();
+      expect(fixture.debugElement.query(By.directive(SyncHistorialComponent))).toBeNull();
+      expect(fixture.debugElement.query(By.directive(SyncColaComponent))).not.toBeNull();
+    });
+
+    it('sin base de datos no monta las pestañas (muestra el aviso)', () => {
+      syncServiceSpy.getConfig.and.returnValue(of(configSinDb));
+      fixture.detectChanges();
+
+      expect(fixture.debugElement.query(By.directive(SyncHistorialComponent))).toBeNull();
+      expect(fixture.nativeElement.textContent).toContain('El historial se guarda cuando hay una base de datos configurada.');
+    });
+
+    it('abrir Devoluciones dispara el crawl a ML; abrir otras tabs no', async () => {
+      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
+      fixture.detectChanges();
+      await flushQuery();
+      syncServiceSpy.fetchReturnsFromMl.calls.reset();
+
+      // Abrir Cola ML no debe gatillar un crawl de reclamos.
+      component.onTabChange('cola');
+      fixture.detectChanges();
+      await flushQuery();
+      expect(syncServiceSpy.fetchReturnsFromMl).not.toHaveBeenCalled();
+
+      // Abrir Devoluciones sí (mutate corre async → esperamos).
+      component.onTabChange('devoluciones');
+      fixture.detectChanges();
+      await flushQuery();
+      expect(fixture.debugElement.query(By.directive(SyncDevolucionesComponent))).not.toBeNull();
+      expect(syncServiceSpy.fetchReturnsFromMl).toHaveBeenCalledTimes(1);
+
+      // Reentrar a la misma tab (sin haber salido) no re-dispara.
+      component.onTabChange('devoluciones');
+      fixture.detectChanges();
+      await flushQuery();
+      expect(syncServiceSpy.fetchReturnsFromMl).toHaveBeenCalledTimes(1);
+    });
+
+    it('abrir Devoluciones sin base de datos no crawlea', async () => {
+      syncServiceSpy.getConfig.and.returnValue(of(configSinDb));
+      fixture.detectChanges();
+      await flushQuery();
+      syncServiceSpy.fetchReturnsFromMl.calls.reset();
+
+      component.onTabChange('devoluciones');
+      fixture.detectChanges();
+      await flushQuery();
+
+      expect(syncServiceSpy.fetchReturnsFromMl).not.toHaveBeenCalled();
     });
   });
 
@@ -237,8 +177,8 @@ describe('SyncComponent', () => {
       component.toggleSync(false);
 
       expect(syncServiceSpy.setSyncEnabled).toHaveBeenCalledWith(false);
-      expect(component.config?.enabled).toBeFalse();
-      expect(component.savingToggle).toBeFalse();
+      expect(component.config()?.enabled).toBeFalse();
+      expect(component.savingToggle()).toBeFalse();
     });
 
     it('maneja el error al actualizar la sync', () => {
@@ -248,647 +188,8 @@ describe('SyncComponent', () => {
 
       component.toggleSync(true);
 
-      expect(component.error).toBe('No se pudo');
-      expect(component.savingToggle).toBeFalse();
-    });
-  });
-
-  describe('historial de sincronización (auditoría)', () => {
-    it('carga el historial en ngOnInit', () => {
-      syncServiceSpy.getAudit.and.returnValue(of({ rows: [auditRow], total: 1 }));
-      fixture.detectChanges();
-
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined, '');
-      expect(component.auditRows).toEqual([auditRow]);
-      expect(component.auditTotal).toBe(1);
-      expect(component.auditLoading).toBeFalse();
-    });
-
-    it('maneja el error al cargar el historial', () => {
-      syncServiceSpy.getAudit.and.returnValue(throwError(() => ({ error: { error: 'Error de auditoría' } })));
-      fixture.detectChanges();
-
-      expect(component.auditError).toBe('Error de auditoría');
-      expect(component.auditLoading).toBeFalse();
-    });
-
-    it('refreshAudit() vuelve a la página 1 y recarga', () => {
-      syncServiceSpy.getAudit.and.returnValue(of({ rows: [auditRow], total: 100 }));
-      fixture.detectChanges();
-      component.goToAuditPage(3);
-      syncServiceSpy.getAudit.calls.reset();
-
-      component.refreshAudit();
-
-      expect(component.auditCurrentPage()).toBe(1);
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined, '');
-    });
-
-    it('goToAuditPage() pagina correctamente y respeta los límites', () => {
-      syncServiceSpy.getAudit.and.returnValue(of({ rows: [auditRow], total: 100 }));
-      fixture.detectChanges();
-      expect(component.auditTotalPages()).toBe(4);
-      syncServiceSpy.getAudit.calls.reset();
-
-      component.goToAuditPage(2);
-      expect(component.auditCurrentPage()).toBe(2);
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 25, undefined, '');
-
-      syncServiceSpy.getAudit.calls.reset();
-      component.goToAuditPage(0);
-      component.goToAuditPage(10);
-
-      expect(component.auditCurrentPage()).toBe(2);
-      expect(syncServiceSpy.getAudit).not.toHaveBeenCalled();
-    });
-
-    it('busca por término luego del debounce y vuelve a la página 1', fakeAsync(() => {
-      syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
-      fixture.detectChanges();
-      component.goToAuditPage(1);
-      syncServiceSpy.getAudit.calls.reset();
-
-      component.auditSearchQuery.set('2000011838697695');
-      tick(350);
-
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, '2000011838697695', '');
-      expect(component.auditCurrentPage()).toBe(1);
-    }));
-
-    it('setAuditSource() filtra por origen y vuelve a la página 1', () => {
-      syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
-      fixture.detectChanges();
-      component.goToAuditPage(2);
-      syncServiceSpy.getAudit.calls.reset();
-
-      component.setAuditSource('manual');
-
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledWith(25, 0, undefined, 'manual');
-      expect(component.auditCurrentPage()).toBe(1);
-      expect(component.auditSource()).toBe('manual');
-    });
-
-    it('setAuditSource() con el origen ya activo no recarga de gusto', () => {
-      syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
-      fixture.detectChanges();
-      syncServiceSpy.getAudit.calls.reset();
-
-      component.setAuditSource('');
-
-      expect(syncServiceSpy.getAudit).not.toHaveBeenCalled();
-    });
-
-    it('un cambio manual no ofrece revertir: no hay venta que deshacer', () => {
-      expect(component.canRevert(auditRowManual)).toBeFalse();
-      expect(component.canRevert(auditRow)).toBeTrue();
-    });
-
-    it('etiqueta el origen de cada fila del historial', () => {
-      expect(component.auditSourceLabel('manual')).toBe('Manual');
-      expect(component.auditSourceLabel('devolucion')).toBe('Devolución');
-      expect(component.auditSourceLabel('venta')).toBe('Venta');
-    });
-
-    it('descarta una respuesta de auditoría obsoleta si llegó tras una carga más nueva', () => {
-      const first$ = new Subject<SyncAuditResponse>();
-      const second$ = new Subject<SyncAuditResponse>();
-      syncServiceSpy.getAudit.and.returnValues(first$.asObservable(), second$.asObservable());
-      fixture.detectChanges(); // dispara la carga inicial (usa first$)
-
-      component.loadAudit(); // dispara una segunda carga (usa second$); auditRequestId avanza
-
-      second$.next({ rows: [auditRow], total: 1 });
-      first$.next({ rows: [], total: 0 }); // respuesta tardía de la carga vieja: se descarta
-
-      expect(component.auditRows).toEqual([auditRow]);
-      expect(component.auditTotal).toBe(1);
-    });
-
-    it('descarta un error de auditoría obsoleto si llegó tras una carga más nueva', () => {
-      const first$ = new Subject<SyncAuditResponse>();
-      const second$ = new Subject<SyncAuditResponse>();
-      syncServiceSpy.getAudit.and.returnValues(first$.asObservable(), second$.asObservable());
-      fixture.detectChanges();
-
-      component.loadAudit();
-
-      second$.next({ rows: [auditRow], total: 1 });
-      first$.error({ error: { error: 'obsoleto' } }); // error tardío de la carga vieja: se descarta
-
-      expect(component.auditError).toBeNull();
-      expect(component.auditRows).toEqual([auditRow]);
-    });
-
-    describe('revertAudit', () => {
-      it('no hace nada si la fila ya fue revertida', () => {
-        fixture.detectChanges();
-        component.revertAudit({ ...auditRow, revertedAt: '2026-01-05T00:00:00Z' });
-
-        expect(syncServiceSpy.revertAudit).not.toHaveBeenCalled();
-      });
-
-      it('revierte exitosamente y recarga el historial', () => {
-        syncServiceSpy.getAudit.and.returnValue(of({ rows: [auditRow], total: 1 }));
-        fixture.detectChanges();
-        syncServiceSpy.getAudit.calls.reset();
-
-        component.revertAudit(auditRow);
-
-        expect(syncServiceSpy.revertAudit).toHaveBeenCalledWith(auditRow.id);
-        expect(component.revertingAuditId).toBeNull();
-        expect(syncServiceSpy.getAudit).toHaveBeenCalled();
-      });
-
-      it('maneja el error al revertir', () => {
-        syncServiceSpy.revertAudit.and.returnValue(throwError(() => ({ error: { error: 'No se pudo revertir esto' } })));
-        fixture.detectChanges();
-
-        component.revertAudit(auditRow);
-
-        expect(component.revertError).toBe('No se pudo revertir esto');
-        expect(component.revertingAuditId).toBeNull();
-      });
-    });
-  });
-
-  describe('reintentar sincronización de una venta (reprocessOrder)', () => {
-    it('no hace nada si el id está vacío', () => {
-      fixture.detectChanges();
-      component.reprocessOrderId = '   ';
-
-      component.reprocessOrder();
-
-      expect(syncServiceSpy.getAudit).toHaveBeenCalledTimes(1); // solo la carga inicial de ngOnInit
-    });
-
-    it('confirmReprocess() no hace nada si no hay una confirmación pendiente', () => {
-      fixture.detectChanges();
-      expect(component.confirmReprocessId()).toBeNull();
-
-      component.confirmReprocess();
-
-      expect(syncServiceSpy.reprocessOrder).not.toHaveBeenCalled();
-    });
-
-    it('pide confirmación si la orden ya estaba sincronizada (sin revertir)', () => {
-      syncServiceSpy.getAudit.and.callFake((limit: number) => {
-        if (limit === 50) {
-          return of({ rows: [{ ...auditRow, orderId: 'ORD-1', revertedAt: null }], total: 1 });
-        }
-        return of(auditVacio);
-      });
-      fixture.detectChanges();
-      component.reprocessOrderId = 'ORD-1';
-
-      component.reprocessOrder();
-
-      expect(component.confirmReprocessId()).toBe('ORD-1');
-      expect(component.reprocessingOrder).toBeFalse();
-      expect(syncServiceSpy.reprocessOrder).not.toHaveBeenCalled();
-    });
-
-    it('confirmReprocess() somete el reproceso tras la confirmación', () => {
-      syncServiceSpy.getAudit.and.callFake((limit: number) => {
-        if (limit === 50) return of({ rows: [{ ...auditRow, orderId: 'ORD-1', revertedAt: null }], total: 1 });
-        return of(auditVacio);
-      });
-      syncServiceSpy.reprocessOrder.and.returnValue(of({ ok: true, orderId: 'ORD-1', itemsSynced: 3 }));
-      fixture.detectChanges();
-      component.reprocessOrderId = 'ORD-1';
-      component.reprocessOrder();
-
-      component.confirmReprocess();
-
-      expect(component.confirmReprocessId()).toBeNull();
-      expect(syncServiceSpy.reprocessOrder).toHaveBeenCalledWith('ORD-1');
-      expect(component.reprocessResult).toBe('Orden ORD-1 sincronizada: 3 ítem(s) descontados.');
-      expect(component.reprocessOrderId).toBe('');
-    });
-
-    it('cancelReprocess() descarta la confirmación pendiente', () => {
-      syncServiceSpy.getAudit.and.callFake((limit: number) => {
-        if (limit === 50) return of({ rows: [{ ...auditRow, orderId: 'ORD-1', revertedAt: null }], total: 1 });
-        return of(auditVacio);
-      });
-      fixture.detectChanges();
-      component.reprocessOrderId = 'ORD-1';
-      component.reprocessOrder();
-
-      component.cancelReprocess();
-
-      expect(component.confirmReprocessId()).toBeNull();
-    });
-
-    it('somete directamente el reproceso si la orden no estaba ya sincronizada', () => {
-      syncServiceSpy.getAudit.and.callFake((limit: number) => {
-        if (limit === 50) return of(auditVacio);
-        return of(auditVacio);
-      });
-      syncServiceSpy.reprocessOrder.and.returnValue(of({ ok: true, orderId: 'ORD-2', itemsSynced: 1 }));
-      fixture.detectChanges();
-      component.reprocessOrderId = 'ORD-2';
-
-      component.reprocessOrder();
-
-      expect(syncServiceSpy.reprocessOrder).toHaveBeenCalledWith('ORD-2');
-      expect(component.reprocessResult).toBe('Orden ORD-2 sincronizada: 1 ítem(s) descontados.');
-    });
-
-    it('si falla la consulta previa de auditoría, igual somete el reproceso', () => {
-      syncServiceSpy.getAudit.and.callFake((limit: number) => {
-        if (limit === 50) return throwError(() => ({ error: { error: 'boom' } }));
-        return of(auditVacio);
-      });
-      syncServiceSpy.reprocessOrder.and.returnValue(of({ ok: true, orderId: 'ORD-3', itemsSynced: 1 }));
-      fixture.detectChanges();
-      component.reprocessOrderId = 'ORD-3';
-
-      component.reprocessOrder();
-
-      expect(syncServiceSpy.reprocessOrder).toHaveBeenCalledWith('ORD-3');
-    });
-
-    it('cuando el backend responde ok:false no fija reprocessResult y no limpia el input', () => {
-      syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
-      syncServiceSpy.reprocessOrder.and.returnValue(of({ ok: false, orderId: 'ORD-4', itemsSynced: 0 }));
-      fixture.detectChanges();
-      component.reprocessOrderId = 'ORD-4';
-
-      component.reprocessOrder();
-
-      expect(component.reprocessResult).toBeNull();
-      expect(component.reprocessOrderId).toBe('ORD-4');
-    });
-
-    it('maneja el error al reintentar la sincronización', () => {
-      syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
-      syncServiceSpy.reprocessOrder.and.returnValue(throwError(() => ({ error: { error: 'Error feo' } })));
-      fixture.detectChanges();
-      component.reprocessOrderId = 'ORD-5';
-
-      component.reprocessOrder();
-
-      expect(component.reprocessResult).toBe('Error feo');
-      expect(component.reprocessingOrder).toBeFalse();
-    });
-  });
-
-  describe('devoluciones', () => {
-    it('returnsQuery no se dispara si no hay base de datos', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configSinDb));
-      fixture.detectChanges();
-      await flushQuery();
-
-      expect(syncServiceSpy.getReturns).not.toHaveBeenCalled();
-      expect(component.returnsRows).toEqual([]);
-    });
-
-    it('carga las devoluciones cuando hay base de datos', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.getReturns.and.returnValue(of({ rows: [returnRow], total: 1 }));
-      fixture.detectChanges();
-
-      await flushQuery();
-      fixture.detectChanges();
-
-      expect(syncServiceSpy.getReturns).toHaveBeenCalledWith(20, 0);
-      expect(component.returnsRows).toEqual([returnRow]);
-      expect(component.returnsLoading).toBeFalse();
-      expect(component.returnsTotal()).toBe(1);
-      expect(component.returnsError).toBeNull();
-    });
-
-    it('onTabChange("devoluciones") dispara el crawl a ML; abrir otras tabs no', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      fixture.detectChanges();
-      await flushQuery();
-      syncServiceSpy.fetchReturnsFromMl.calls.reset();
-
-      // Abrir Cola ML no debe gatillar un crawl de reclamos.
-      component.onTabChange('cola');
-      await flushQuery();
-      expect(syncServiceSpy.fetchReturnsFromMl).not.toHaveBeenCalled();
-
-      // Abrir Devoluciones sí (mutate corre async → esperamos).
-      component.onTabChange('devoluciones');
-      await flushQuery();
-      expect(syncServiceSpy.fetchReturnsFromMl).toHaveBeenCalledTimes(1);
-
-      // Reentrar a la misma tab (sin haber salido) no re-dispara.
-      component.onTabChange('devoluciones');
-      await flushQuery();
-      expect(syncServiceSpy.fetchReturnsFromMl).toHaveBeenCalledTimes(1);
-    });
-
-    it('onTabChange("devoluciones") sin base de datos no crawlea', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configSinDb));
-      fixture.detectChanges();
-      await flushQuery();
-      syncServiceSpy.fetchReturnsFromMl.calls.reset();
-
-      component.onTabChange('devoluciones');
-
-      expect(syncServiceSpy.fetchReturnsFromMl).not.toHaveBeenCalled();
-    });
-
-    it('expone el error de returnsQuery formateado', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.getReturns.and.returnValue(throwError(() => ({ error: { error: 'Error devoluciones' } })));
-      fixture.detectChanges();
-
-      await flushQuery();
-      fixture.detectChanges();
-
-      expect(component.returnsError).toBe('Error devoluciones');
-    });
-
-    it('goToReturnsPage() respeta los límites de página', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.getReturns.and.returnValue(of({ rows: [returnRow], total: 50 }));
-      fixture.detectChanges();
-      await flushQuery();
-      fixture.detectChanges();
-
-      expect(component.returnsTotalPages()).toBe(3);
-
-      component.goToReturnsPage(2);
-      expect(component.returnsCurrentPage()).toBe(2);
-
-      component.goToReturnsPage(99);
-      component.goToReturnsPage(0);
-      expect(component.returnsCurrentPage()).toBe(2);
-    });
-
-    it('refreshReturns() dispara la mutación y arma el mensaje cuando se crean/saltean ítems', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.fetchReturnsFromMl.and.returnValue(of({ ok: true, claimsChecked: 5, created: 2, skipped: 1 }));
-      fixture.detectChanges();
-      await flushQuery();
-
-      component.refreshReturns();
-      await flushQuery();
-
-      expect(component.fetchResult).toBe('Se revisaron 5 reclamos. Se agregaron 2 ítems (1 ya estaban).');
-      expect(component.returnsCurrentPage()).toBe(1);
-    });
-
-    it('refreshReturns() informa cuando no hay reclamos recientes', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.fetchReturnsFromMl.and.returnValue(of({ ok: true, claimsChecked: 0, created: 0, skipped: 0 }));
-      fixture.detectChanges();
-      await flushQuery();
-
-      component.refreshReturns();
-      await flushQuery();
-
-      expect(component.fetchResult).toBe('No hay reclamos recientes con devolución en ML.');
-    });
-
-    it('refreshReturns() informa "Lista actualizada" cuando hubo reclamos pero nada nuevo', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.fetchReturnsFromMl.and.returnValue(of({ ok: true, claimsChecked: 4, created: 0, skipped: 0 }));
-      fixture.detectChanges();
-      await flushQuery();
-
-      component.refreshReturns();
-      await flushQuery();
-
-      expect(component.fetchResult).toBe('Lista actualizada.');
-    });
-
-    it('refreshReturns() avisa honestamente cuando ML está saturado (mlBusy) en vez de "no hay reclamos"', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.fetchReturnsFromMl.and.returnValue(
-        of({ ok: true, claimsChecked: 0, created: 0, skipped: 0, mlBusy: true, skippedCrawl: true })
-      );
-      fixture.detectChanges();
-      await flushQuery();
-
-      component.refreshReturns();
-      await flushQuery();
-
-      expect(component.fetchResult).toContain('saturado');
-    });
-
-    it('refreshReturns() maneja el error de la mutación', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      fixture.detectChanges();
-      await flushQuery();
-
-      // El crawl ya no corre en el init: el único disparo es el refresh manual, que acá falla.
-      syncServiceSpy.fetchReturnsFromMl.and.returnValue(throwError(() => ({ error: { error: 'Error al buscar' } })));
-      component.refreshReturns();
-      await flushQuery();
-
-      expect(component.fetchResult).toBe('Error al buscar');
-    });
-
-    it('addReturnsByOrder() no hace nada si el input está vacío', () => {
-      fixture.detectChanges();
-      component.returnOrderId = '  ';
-
-      component.addReturnsByOrder();
-
-      expect(syncServiceSpy.addReturnsFromOrder).not.toHaveBeenCalled();
-    });
-
-    it('addReturnsByOrder() agrega devoluciones e invalida la query', () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.addReturnsFromOrder.and.returnValue(of({ created: 2, rows: [returnRow] }));
-      fixture.detectChanges();
-      spyOn(queryClient, 'invalidateQueries').and.callThrough();
-      component.returnOrderId = 'ORD-99';
-
-      component.addReturnsByOrder();
-
-      expect(syncServiceSpy.addReturnsFromOrder).toHaveBeenCalledWith('ORD-99');
-      expect(component.returnOrderId).toBe('');
-      expect(component.addingReturn).toBeFalse();
-      expect(component.returnsCurrentPage()).toBe(1);
-      expect(component.fetchResult).toBe('Se agregaron 2 ítems de la orden.');
-      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['sync', 'returns'] });
-    });
-
-    it('addReturnsByOrder() no fija mensaje si no se creó ningún ítem', () => {
-      syncServiceSpy.addReturnsFromOrder.and.returnValue(of({ created: 0, rows: [] }));
-      fixture.detectChanges();
-      component.returnOrderId = 'ORD-100';
-
-      component.addReturnsByOrder();
-
-      expect(component.fetchResult).toBeNull();
-    });
-
-    it('addReturnsByOrder() maneja el error', () => {
-      syncServiceSpy.addReturnsFromOrder.and.returnValue(throwError(() => ({ error: { error: 'Orden inválida' } })));
-      fixture.detectChanges();
-      component.returnOrderId = 'ORD-BAD';
-
-      component.addReturnsByOrder();
-
-      expect(component.fetchResult).toBe('Orden inválida');
-      expect(component.addingReturn).toBeFalse();
-    });
-
-    it('approveReturn() restaura stock, invalida la query y recarga el historial', () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.getAudit.and.returnValue(of(auditVacio));
-      fixture.detectChanges();
-      spyOn(queryClient, 'invalidateQueries').and.callThrough();
-      syncServiceSpy.getAudit.calls.reset();
-
-      component.approveReturn(returnRow);
-
-      expect(syncServiceSpy.approveReturn).toHaveBeenCalledWith(returnRow.id);
-      expect(component.approvingId).toBeNull();
-      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['sync', 'returns'] });
-      expect(syncServiceSpy.getAudit).toHaveBeenCalled();
-    });
-
-    it('dismissReturn() saca la fila de la lista sin tocar el historial de stock', () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      fixture.detectChanges();
-      spyOn(queryClient, 'invalidateQueries').and.callThrough();
-      syncServiceSpy.getAudit.calls.reset();
-
-      component.dismissReturn(returnRow);
-
-      expect(syncServiceSpy.dismissReturn).toHaveBeenCalledWith(returnRow.id);
-      expect(component.dismissingId).toBeNull();
-      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['sync', 'returns'] });
-      expect(syncServiceSpy.getAudit).not.toHaveBeenCalled();
-    });
-
-    it('dismissReturn() maneja el error', () => {
-      syncServiceSpy.dismissReturn.and.returnValue(throwError(() => ({ error: { error: 'No se pudo descartar' } })));
-      fixture.detectChanges();
-
-      component.dismissReturn(returnRow);
-
-      expect(component.fetchResult).toBe('No se pudo descartar');
-      expect(component.dismissingId).toBeNull();
-    });
-
-    it('approveReturn() maneja el error', () => {
-      syncServiceSpy.approveReturn.and.returnValue(throwError(() => ({ error: { error: 'No se pudo restaurar' } })));
-      fixture.detectChanges();
-
-      component.approveReturn(returnRow);
-
-      expect(component.fetchResult).toBe('No se pudo restaurar');
-      expect(component.approvingId).toBeNull();
-    });
-  });
-
-  describe('tareas pendientes de ML', () => {
-    it('pendingTasksQuery no se dispara sin base de datos', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configSinDb));
-      fixture.detectChanges();
-      await flushQuery();
-
-      expect(syncServiceSpy.getPendingTasks).not.toHaveBeenCalled();
-      expect(component.pendingTasks).toEqual([]);
-    });
-
-    it('carga las tareas pendientes cuando hay base de datos', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.getPendingTasks.and.returnValue(of({ tasks: [failedTask], total: 1, activeCount: 0, failedCount: 1 }));
-      fixture.detectChanges();
-
-      await flushQuery();
-      fixture.detectChanges();
-
-      expect(syncServiceSpy.getPendingTasks).toHaveBeenCalledWith(20, 0);
-      expect(component.pendingTasks).toEqual([failedTask]);
-      expect(component.pendingTasksLoading).toBeFalse();
-      expect(component.activeTasksCount).toBe(0);
-      expect(component.failedTasksCount).toBe(1);
-      expect(component.pendingTasksQueryError).toBeNull();
-    });
-
-    it('expone el error de pendingTasksQuery formateado', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.getPendingTasks.and.returnValue(throwError(() => ({ error: { error: 'Error tareas' } })));
-      fixture.detectChanges();
-
-      await flushQuery();
-      fixture.detectChanges();
-
-      expect(component.pendingTasksQueryError).toBe('Error tareas');
-    });
-
-    it('goToTasksPage() respeta los límites de página', async () => {
-      syncServiceSpy.getConfig.and.returnValue(of(configConDb));
-      syncServiceSpy.getPendingTasks.and.returnValue(of({ tasks: [failedTask], total: 50, activeCount: 0, failedCount: 1 }));
-      fixture.detectChanges();
-      await flushQuery();
-      fixture.detectChanges();
-
-      expect(component.tasksTotalPages()).toBe(3);
-
-      component.goToTasksPage(2);
-      expect(component.tasksCurrentPage()).toBe(2);
-
-      component.goToTasksPage(0);
-      component.goToTasksPage(99);
-      expect(component.tasksCurrentPage()).toBe(2);
-    });
-
-    it('refreshPendingTasks() limpia el error e invalida la query', () => {
-      fixture.detectChanges();
-      spyOn(queryClient, 'invalidateQueries').and.callThrough();
-      component.pendingTasksError = 'algo';
-
-      component.refreshPendingTasks();
-
-      expect(component.pendingTasksError).toBeNull();
-      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['sync', 'pendingTasks'] });
-    });
-
-    describe('retryTask', () => {
-      it('no reintenta tareas que no están fallidas ni trabadas', () => {
-        fixture.detectChanges();
-        component.retryTask({ ...failedTask, status: 'pending' });
-
-        expect(syncServiceSpy.retryTask).not.toHaveBeenCalled();
-      });
-
-      it('no reintenta una tarea "processing" con el lock vivo (está corriendo de verdad)', () => {
-        fixture.detectChanges();
-        component.retryTask({ ...failedTask, status: 'processing', stuck: false });
-
-        expect(syncServiceSpy.retryTask).not.toHaveBeenCalled();
-      });
-
-      // Una tarea trabada quedó en 'processing' porque el worker murió a mitad de camino (deploy):
-      // el worker la recupera solo al vencer el lock, pero el botón evita esperar.
-      it('reintenta una tarea trabada aunque siga en estado "processing"', () => {
-        fixture.detectChanges();
-        component.retryTask({ ...failedTask, status: 'processing', stuck: true });
-
-        expect(syncServiceSpy.retryTask).toHaveBeenCalledWith(failedTask.id);
-      });
-
-      it('reintenta una tarea fallida exitosamente e invalida la query', () => {
-        fixture.detectChanges();
-        spyOn(queryClient, 'invalidateQueries').and.callThrough();
-
-        component.retryTask(failedTask);
-
-        expect(syncServiceSpy.retryTask).toHaveBeenCalledWith(failedTask.id);
-        expect(component.retryingTaskId).toBeNull();
-        expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['sync', 'pendingTasks'] });
-      });
-
-      it('maneja el error al reintentar una tarea', () => {
-        syncServiceSpy.retryTask.and.returnValue(throwError(() => ({ error: { error: 'No se pudo reintentar' } })));
-        fixture.detectChanges();
-
-        component.retryTask(failedTask);
-
-        expect(component.pendingTasksError).toBe('No se pudo reintentar');
-        expect(component.retryingTaskId).toBeNull();
-      });
+      expect(component.error()).toBe('No se pudo');
+      expect(component.savingToggle()).toBeFalse();
     });
   });
 
@@ -899,8 +200,8 @@ describe('SyncComponent', () => {
 
       component.registerWebhooks();
 
-      expect(component.webhooksResult).toBe('Webhooks registrados: 3.');
-      expect(component.registeringWebhooks).toBeFalse();
+      expect(component.webhooksResult()).toBe('Webhooks registrados: 3.');
+      expect(component.registeringWebhooks()).toBeFalse();
     });
 
     it('informa que ya estaban registrados si registered es 0', () => {
@@ -909,7 +210,7 @@ describe('SyncComponent', () => {
 
       component.registerWebhooks();
 
-      expect(component.webhooksResult).toBe('Ya estaban registrados con la URL actual.');
+      expect(component.webhooksResult()).toBe('Ya estaban registrados con la URL actual.');
     });
 
     it('maneja el error al registrar webhooks', () => {
@@ -918,8 +219,8 @@ describe('SyncComponent', () => {
 
       component.registerWebhooks();
 
-      expect(component.webhooksResult).toBe('Error webhooks');
-      expect(component.registeringWebhooks).toBeFalse();
+      expect(component.webhooksResult()).toBe('Error webhooks');
+      expect(component.registeringWebhooks()).toBeFalse();
     });
   });
 
@@ -967,76 +268,6 @@ describe('SyncComponent', () => {
       const colaTab = component.tabs().find(t => t.key === 'cola');
       expect(colaTab?.count).toBe(2);
       expect(colaTab?.countVariant).toBe('err');
-    });
-  });
-
-  describe('helpers de formato', () => {
-    beforeEach(() => fixture.detectChanges());
-
-    it('channelLabel() traduce los canales', () => {
-      expect(component.channelLabel('mercadolibre')).toBe('Mercado Libre');
-      expect(component.channelLabel('tiendanube')).toBe('Tienda Nube');
-    });
-
-    it('revertTitle() dice "Sumar" cuando el movimiento original restó stock (venta)', () => {
-      const venta: SyncAuditRow = { ...auditRow, quantity: 2, stockBefore: 10, stockAfter: 8, updatedChannel: 'tiendanube' };
-      expect(component.revertTitle(venta)).toBe('Sumar 2 de nuevo en Tienda Nube');
-    });
-
-    it('revertTitle() dice "Descontar" cuando el movimiento original sumó stock (cancelación)', () => {
-      const cancelacion: SyncAuditRow = { ...auditRow, quantity: 2, stockBefore: 8, stockAfter: 10, updatedChannel: 'mercadolibre' };
-      expect(component.revertTitle(cancelacion)).toBe('Descontar 2 de nuevo en Mercado Libre');
-    });
-
-    it('stateChipClass() cubre todas las variantes de estado', () => {
-      expect(component.stateChipClass(null)).toBe('state-chip n');
-      expect(component.stateChipClass(undefined)).toBe('state-chip n');
-      expect(component.stateChipClass('Venta ML')).toBe('state-chip vml');
-      expect(component.stateChipClass('Venta TN')).toBe('state-chip vtn');
-      expect(component.stateChipClass('Cancelación')).toBe('state-chip can');
-      expect(component.stateChipClass('Devolución')).toBe('state-chip dev');
-      expect(component.stateChipClass('Otro estado')).toBe('state-chip n');
-    });
-
-    it('formatDate() formatea o devuelve "—" si no hay fecha', () => {
-      expect(component.formatDate(null)).toBe('—');
-      expect(component.formatDate(undefined)).toBe('—');
-      expect(component.formatDate('2026-01-01T10:00:00Z')).not.toBe('—');
-    });
-
-    it('taskKindLabel() traduce todos los tipos de tarea', () => {
-      expect(component.taskKindLabel('stock_ml')).toBe('Stock ML');
-      expect(component.taskKindLabel('stock_ml_set')).toBe('Stock ML');
-      expect(component.taskKindLabel('sku_ml')).toBe('SKU ML');
-      expect(component.taskKindLabel('sku_tn')).toBe('SKU TN');
-      expect(component.taskKindLabel('price_ml')).toBe('Precio ML');
-    });
-
-    it('taskStatusLabel() y taskStatusChipClass() traducen todos los estados', () => {
-      expect(component.taskStatusLabel({ ...failedTask, status: 'pending' })).toBe('Pendiente');
-      expect(component.taskStatusLabel({ ...failedTask, status: 'processing' })).toBe('En proceso');
-      expect(component.taskStatusLabel({ ...failedTask, status: 'failed' })).toBe('Falló');
-
-      expect(component.taskStatusChipClass({ ...failedTask, status: 'pending' })).toBe('task-chip pending');
-      expect(component.taskStatusChipClass({ ...failedTask, status: 'processing' })).toBe('task-chip processing');
-      expect(component.taskStatusChipClass({ ...failedTask, status: 'failed' })).toBe('task-chip failed');
-    });
-
-    it('una tarea trabada se muestra como "Trabada" y no como "En proceso"', () => {
-      const stuck: PendingMlTask = { ...failedTask, status: 'processing', stuck: true };
-
-      expect(component.taskStatusLabel(stuck)).toBe('Trabada');
-      expect(component.taskStatusChipClass(stuck)).toBe('task-chip failed');
-    });
-
-    it('taskChangeLabel() arma la etiqueta según el tipo de tarea', () => {
-      expect(component.taskChangeLabel({ ...failedTask, kind: 'stock_ml', targetQty: null })).toBe('—');
-      expect(component.taskChangeLabel({ ...failedTask, kind: 'stock_ml', targetQty: 5 })).toBe('+5 u.');
-      expect(component.taskChangeLabel({ ...failedTask, kind: 'stock_ml', targetQty: -5 })).toBe('-5 u.');
-      expect(component.taskChangeLabel({ ...failedTask, kind: 'price_ml', targetPrice: null })).toBe('—');
-      expect(component.taskChangeLabel({ ...failedTask, kind: 'price_ml', targetPrice: 1500 })).toBe(`$${(1500).toLocaleString('es-AR')}`);
-      expect(component.taskChangeLabel({ ...failedTask, kind: 'sku_ml', targetSku: null })).toBe('—');
-      expect(component.taskChangeLabel({ ...failedTask, kind: 'sku_ml', targetSku: 'SKU-9' })).toBe('SKU → SKU-9');
     });
   });
 });
