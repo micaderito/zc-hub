@@ -302,3 +302,68 @@ test(
     }
   }
 );
+
+test(
+  'proveedores, configs de descuento, asignaciones y códigos por proveedor contra Postgres real',
+  { skip: hasDb ? false : 'requiere DATABASE_URL' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined,
+    });
+    assert.equal(await db.initDb(), true);
+    const suffix = Date.now();
+    const sup = `t_sup_${suffix}`;
+    const sku = `t-sku-${suffix}`;
+    try {
+      assert.equal(await db.createSupplier({ key: sup, name: 'Test', discount1: 10, discount2: 0 }), sup);
+      assert.equal(await db.createSupplier({ key: sup, name: 'Otra vez' }), null, 'la clave no se repite');
+      const agendas = await db.createDiscountProfile(sup, { name: 'Agendas', discount1: 30, discount2: 5 });
+      let mine = (await db.listSuppliers()).find((s) => s.key === sup);
+      assert.deepEqual(mine.profiles.map((p) => [p.name, p.discount1, p.isDefault]), [['General', 10, true], ['Agendas', 30, false]]);
+
+      // onlyIfMissing no pisa una config propia; sin el flag, sí.
+      await db.upsertProductSuppliers(sup, [{ type: 'sku', id: sku }], agendas);
+      await db.upsertProductSuppliers(sup, [{ type: 'sku', id: sku }], null, { onlyIfMissing: true });
+      let rows = (await db.listProductSuppliers()).filter((a) => a.supplierKey === sup);
+      assert.deepEqual(rows, [{ type: 'sku', id: sku, supplierKey: sup, profileId: agendas }]);
+
+      // Volverla default: deja de estar asignada explícitamente (sería la misma config dos veces).
+      assert.equal(await db.updateDiscountProfile(agendas, { isDefault: true }), true);
+      mine = (await db.listSuppliers()).find((s) => s.key === sup);
+      assert.deepEqual(mine.profiles.filter((p) => p.isDefault).map((p) => p.id), [agendas]);
+      rows = (await db.listProductSuppliers()).filter((a) => a.supplierKey === sup);
+      assert.equal(rows[0].profileId, null);
+
+      // Un mismo SKU con un código por proveedor (PK compuesta).
+      assert.equal(await db.upsertSkuCodeMap(sku, 'PC-1', 'manual', 'punto_cero'), true);
+      assert.equal(await db.upsertSkuCodeMap(sku, 'T-1', 'manual', sup), true);
+      assert.equal(await db.upsertSkuCodeMap(sku, 'T-2', 'manual', sup), true);
+      const codes = (await db.getSkuCodeMap(null)).filter((m) => m.sku === sku).map((m) => [m.supplier, m.code]).sort();
+      assert.deepEqual(codes, [['punto_cero', 'PC-1'], [sup, 'T-2']]);
+
+      // La última lista de cada proveedor por código.
+      const listId = await db.savePriceList({ supplier: sup, label: 't', items: [{ code: 'T-2', bulkQty: 2, bulkPrice: 100 }] });
+      const latest = await db.getLatestPriceListItems(['T-2'], sup);
+      assert.equal(latest.length, 1);
+      assert.equal(latest[0].supplier, sup);
+      assert.deepEqual(await db.getLatestPriceListItems(['T-2'], 'punto_cero'), []);
+      assert.equal((await db.getSupplierUsage(sup)).lists, 1);
+      assert.equal(await db.deletePriceList(listId), true);
+
+      // Vigente en product_costs: solo se toca si viene.
+      await db.upsertProductCost(sku, { source: 'list', bulkPrice: 100, bulkQty: 2, supplierKey: sup });
+      await db.upsertProductCost(sku, { source: 'list', bulkPrice: 120, bulkQty: 2 });
+      assert.equal((await db.getProductCost(sku)).supplierKey, sup);
+    } finally {
+      await pool.query('DELETE FROM product_costs WHERE sku = $1', [sku]);
+      await pool.query(`DELETE FROM sku_code_map WHERE sku = $1 AND supplier = 'punto_cero'`, [sku]);
+      await db.deleteSupplier(sup);
+      const left = await pool.query('SELECT COUNT(*)::int AS n FROM product_suppliers WHERE supplier_key = $1', [sup]);
+      assert.equal(left.rows[0].n, 0, 'borrar el proveedor limpia sus asignaciones en cascada');
+      await pool.end();
+    }
+  },
+);

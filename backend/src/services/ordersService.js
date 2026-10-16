@@ -58,6 +58,29 @@ export function resolvePackCode(pack, packCodeById, skuCodeBySku) {
     ?? null;
 }
 
+/**
+ * Un producto puede tener un código por proveedor: a la fábrica va el del proveedor VIGENTE
+ * (`product_costs.supplier_key`; en un pack, el del primer modelo que tenga uno). Sin vigente, o si
+ * el vigente no tiene código, el primero que haya. Puro y testeable.
+ */
+export function pickVigenteCodes({ skuCodeMap = [], packCodeMap = [], costs = [], packs = [] }) {
+  const vigenteBySku = new Map(costs.filter((c) => c.supplierKey).map((c) => [c.sku, c.supplierKey]));
+  const pick = (rows, keyOf, vigenteOf) => {
+    const byKey = new Map();
+    for (const r of rows) {
+      const k = keyOf(r);
+      const cur = byKey.get(k);
+      if (!cur || (r.supplier === vigenteOf(k) && cur.supplier !== vigenteOf(k))) byKey.set(k, r);
+    }
+    return [...byKey.values()];
+  };
+  const packVigente = new Map(packs.map((pk) => [pk.id, (pk.skus || []).map((s) => vigenteBySku.get(s)).find(Boolean) ?? null]));
+  return {
+    skuCodeMap: pick(skuCodeMap, (r) => r.sku, (sku) => vigenteBySku.get(sku) ?? null),
+    packCodeMap: pick(packCodeMap, (r) => r.packId, (id) => packVigente.get(id) ?? null),
+  };
+}
+
 /** Nombre legible de un SKU a partir del snapshot (título de ML con variante, si no el de TN). */
 function buildLabelBySku(snapshotData) {
   const map = new Map();
@@ -300,10 +323,12 @@ export function sanitizeOrderInput(body) {
 export async function getCatalog() {
   const [packs, snap, restock, rules, costs, skuCodeMap, packCodeMap, codeDescriptions, depositoBySku, orders] = await Promise.all([
     listPacks(), getAnalysisSnapshot(), getRestockList({ period: 'last-order' }), listStockAlerts(), getAllProductCosts(),
-    getSkuCodeMap(), getPackCodeMap(), getSupplierCodeDescriptions(), getDepositoStockBySku(), listSupplierOrders(),
+    getSkuCodeMap(null), getPackCodeMap(null), getSupplierCodeDescriptions(null), getDepositoStockBySku(), listSupplierOrders(),
   ]);
+  const vigente = pickVigenteCodes({ skuCodeMap, packCodeMap, costs, packs });
   return buildCatalog({
-    packs, snapshotData: snap?.data, restockRows: restock.rows, rules, costs, skuCodeMap, packCodeMap,
+    packs, snapshotData: snap?.data, restockRows: restock.rows, rules, costs,
+    skuCodeMap: vigente.skuCodeMap, packCodeMap: vigente.packCodeMap,
     codeDescriptions, depositoBySku, orders,
   });
 }
