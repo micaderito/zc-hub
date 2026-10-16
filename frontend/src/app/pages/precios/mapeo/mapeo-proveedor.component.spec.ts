@@ -69,6 +69,8 @@ describe('MapeoProveedorComponent', () => {
     }).compileComponents();
     fixture = TestBed.createComponent(MapeoProveedorComponent);
     component = fixture.componentInstance;
+    // Los códigos se editan dentro de la pestaña de un proveedor ("Todos" es de solo lectura).
+    fixture.componentRef.setInput('supplierKey', 'punto_cero');
   });
 
   async function render() {
@@ -122,7 +124,7 @@ describe('MapeoProveedorComponent', () => {
     component.startEdit(lap);
     component.editCode.set('50000');
     await component.saveEdit(lap);
-    expect(pricing.confirmMapping).toHaveBeenCalledWith('LAP-1', '50000', 'manual');
+    expect(pricing.confirmMapping).toHaveBeenCalledWith('LAP-1', '50000', 'manual', 'punto_cero');
     expect(component.message()?.kind).toBe('ok');
     expect(component.message()?.text).toContain('Agendas');
     expect(emitted).toEqual([['LAP-1']]);
@@ -135,7 +137,7 @@ describe('MapeoProveedorComponent', () => {
     component.startEdit(pack);
     component.editCode.set('39001');
     await component.saveEdit(pack);
-    expect(pricing.confirmPackMapping).toHaveBeenCalledWith(1, '39001', 'manual');
+    expect(pricing.confirmPackMapping).toHaveBeenCalledWith(1, '39001', 'manual', 'punto_cero');
   });
 
   it('un código que no está en ninguna lista se guarda con aviso', async () => {
@@ -177,9 +179,9 @@ describe('MapeoProveedorComponent', () => {
     expect(component.editCode()).toBe('', 'no precarga el código heredado del pack');
     component.editCode.set('OTRO');
     await component.saveEdit(a);
-    expect(pricing.confirmMapping).toHaveBeenCalledWith('A', 'OTRO', 'manual');
+    expect(pricing.confirmMapping).toHaveBeenCalledWith('A', 'OTRO', 'manual', 'punto_cero');
     await component.removeCode(b);
-    expect(pricing.removeMapping).toHaveBeenCalledWith('B');
+    expect(pricing.removeMapping).toHaveBeenCalledWith('B', 'punto_cero');
     expect(component.message()?.text).toContain('vuelve a tomar el código del pack');
   });
 
@@ -194,5 +196,29 @@ describe('MapeoProveedorComponent', () => {
     expect(component.message()?.kind).toBe('ok');
     expect(component.message()?.text).toContain('39001');
     expect(emitted).toEqual([['A', 'B']]);
+  });
+
+  it('en "Todos" es de solo lectura y muestra el código de cada proveedor', async () => {
+    fixture.componentRef.setInput('supplierKey', null);
+    pricing.getMappingState.and.returnValue(of({
+      ...state(),
+      supplierNames: { punto_cero: 'Punto Cero', filgo: 'Filgo' },
+      products: [{
+        key: 'sku:LAP-1', kind: 'sku', sku: 'LAP-1', packId: null, name: 'Lapicera', memberSkus: [], packName: null,
+        code: 'F-1', codeDescription: null, listLabel: null, matchSource: 'manual', hasCost: true, mappedMl: true, mappedTn: true,
+        vigente: 'filgo', codeSupplier: 'filgo', members: [],
+        codesBySupplier: [{ supplierKey: 'punto_cero', supplierName: 'Punto Cero', code: '40100' }, { supplierKey: 'filgo', supplierName: 'Filgo', code: 'F-1' }],
+      }],
+    }));
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r, 20));
+    fixture.detectChanges();
+    const t = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(pricing.getMappingState).toHaveBeenCalledWith(null);
+    expect(t).toContain('Punto Cero');
+    expect(t).toContain('40100');
+    expect(t).toContain('F-1');
+    expect(t).not.toContain('Asignar código');
+    expect(t).not.toContain('Cambiar');
   });
 });

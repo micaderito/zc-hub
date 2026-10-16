@@ -247,7 +247,7 @@
 .fld {
   display: flex; flex-direction: column; gap: 5px;
   font-size: 11px; color: var(--text-2); font-weight: 500; margin-bottom: 11px;
-  input {
+  input, select {
     font: inherit; font-size: 12.5px; padding: 7px 10px;
     border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
   }
@@ -485,4 +485,65 @@
   .pr-toolbar { flex-wrap: wrap; }
   .pr-search input { width: 100%; }
   .grid2 { grid-template-columns: 1fr; }
+}
+
+// ── Proveedores y configuraciones de descuento ──
+.pr-supplier-tabs {
+  display: flex; align-items: flex-end; gap: 10px;
+  zc-tabs { flex: 1; min-width: 0; overflow-x: auto; }
+  .btn { margin-bottom: 6px; flex-shrink: 0; }
+}
+.pr-view-tabs { margin-bottom: 12px; }
+.pr-supplier {
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg);
+  padding: 10px 12px; margin-bottom: 12px;
+}
+.pr-supplier-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; margin-bottom: 8px;
+  .spacer { flex: 1; }
+  .link.danger { color: var(--err); }
+}
+.pr-supplier-name { font-weight: 500; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; i { color: var(--brand); } }
+.confirm-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); .link.danger { color: var(--err); } }
+.muted { color: var(--text-3); }
+.pr-profiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.pr-profile {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  background: var(--surface-2); border: 0.5px solid transparent; border-radius: var(--radius-sm);
+  padding: 8px 10px; font-size: 11.5px; color: var(--text);
+  &.is-default { border-color: var(--brand); }
+  .pr-profile-top { display: flex; align-items: center; gap: 6px; }
+  .pr-profile-pct { font-variant-numeric: tabular-nums; color: var(--text-2); }
+  .pr-profile-actions { display: flex; align-items: center; gap: 4px; margin-top: 2px; .link { font-size: 11px; } .link.danger { color: var(--err); } }
+}
+.pr-profile-new {
+  align-items: center; justify-content: center; flex-direction: row; gap: 6px; cursor: pointer;
+  background: none; border: 1px dashed var(--border-strong); color: var(--text-2); font: inherit; font-size: 11.5px;
+  &:hover { color: var(--brand); border-color: var(--brand); }
+}
+.cell-main { display: block; }
+.cell-sub { display: block; font-size: 10px; color: var(--text-3); font-weight: 400; white-space: nowrap; }
+.disc-cell { white-space: nowrap; cursor: help; }
+.badge.disc {
+  background: var(--brand-bg); color: var(--brand);
+  &.own { box-shadow: inset 0 0 0 0.5px var(--brand); }
+  &.none { background: var(--surface-2); color: var(--text-3); }
+  i { font-size: 11px; }
+}
+.sup { color: var(--text-2); b { font-weight: 500; } }
+.pr-warn {
+  background: var(--warn-bg); color: var(--warn); border-radius: var(--radius-sm);
+  padding: 8px 10px; font-size: 12px; display: flex; gap: 6px; align-items: flex-start;
+}
+.radio-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.radio-row { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+.pr-actionbar .btn i { margin-right: 2px; }
+@media (max-width: 640px) {
+  .pr-actionbar {
+    flex-wrap: wrap; gap: 8px; padding: 9px 12px;
+    .spacer { display: none; }
+    .btn.pri { flex-basis: 100%; justify-content: center; }
+  }
+  .pr-supplier-head .spacer { display: none; }
+  :host { padding-bottom: 150px; }
 }
