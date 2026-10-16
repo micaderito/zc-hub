@@ -1,0 +1,143 @@
+<div class="search-card">
+  <zc-search-bar
+    [value]="store.auditSearchQuery()"
+    (valueChange)="store.auditSearchQuery.set($event)"
+    placeholder="Buscar por nro de venta, orden o SKU…"
+    ariaLabel="Buscar en historial de stock"
+    class="search-bar-wrap"
+  />
+  <button type="button" class="btn-secondary" (click)="store.refreshAudit()" [disabled]="store.auditLoading()">
+    <i class="ti ti-refresh" [class.spin]="store.auditFetching()" aria-hidden="true"></i>
+    {{ store.auditFetching() ? 'Actualizando…' : 'Actualizar' }}
+  </button>
+</div>
+
+<div class="source-filter" role="group" aria-label="Filtrar historial por origen del cambio">
+  @for (opt of auditSourceOptions; track opt.key) {
+    <button type="button" class="source-chip" [class.active]="store.auditSource() === opt.key"
+            [attr.aria-pressed]="store.auditSource() === opt.key" (click)="store.setAuditSource(opt.key)">
+      {{ opt.label }}
+    </button>
+  }
+</div>
+
+<div class="reprocess-card" *zcCanWrite>
+  <div class="reprocess-icon"><i class="ti ti-refresh-alert" aria-hidden="true"></i></div>
+  <div class="reprocess-info">
+    <div class="reprocess-title">Reintentar sincronización de una venta</div>
+    <p class="hint">Volvé a procesar una venta si el webhook no descontó el stock automáticamente.</p>
+  </div>
+  <div class="reprocess-form">
+    <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta" class="zc-input reprocess-input" (keyup.enter)="reprocessOrder()" />
+    <button type="button" class="btn-secondary" (click)="reprocessOrder()" [disabled]="!reprocessOrderId().trim() || reprocessingOrder()">
+      @if (reprocessingOrder()) {
+        <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
+      }
+      {{ reprocessingOrder() ? 'Reintentando…' : 'Reintentar venta' }}
+    </button>
+  </div>
+  @if (reprocessResult(); as result) {
+    <span class="inline-result" [class.err]="result.startsWith('Error')">{{ result }}</span>
+  }
+</div>
+
+@if (store.revertError(); as revertError) {
+  <div class="alert error">{{ revertError }}</div>
+}
+
+@if (store.auditFetching()) {
+  <div class="list-progress" role="status" aria-label="Actualizando historial">
+    <span class="list-progress-bar" aria-hidden="true"></span>
+  </div>
+}
+
+@if (store.auditLoading()) {
+  <p class="loading-text">Cargando historial…</p>
+} @else if (store.auditError()) {
+  <div class="alert error">{{ store.auditError() }}</div>
+} @else if (store.auditRows().length === 0) {
+  <div class="empty-state">
+    @if (store.auditSearchQuery().trim()) {
+      <i class="ti ti-search" aria-hidden="true"></i>
+      <p>Sin resultados para la búsqueda.</p>
+      <p class="hint">Probá otro término o borrá la búsqueda para ver todo el historial.</p>
+    } @else {
+      <i class="ti ti-history" aria-hidden="true"></i>
+      <p>Aún no hay registros.</p>
+      <p class="hint">Acá aparece cada cambio de stock: los que hace una venta, los que hacés a mano desde Precio y stock y los que detectamos en ML o TN.</p>
+    }
+  </div>
+} @else {
+  <div class="audit-list" [class.is-fetching]="store.auditFetching()">
+    @for (row of store.auditRows(); track row.id) {
+      <div class="audit-row" [class.audit-ml]="row.channelSale === 'mercadolibre'" [class.audit-tn]="row.channelSale === 'tiendanube'" [class.audit-reverted]="row.revertedAt">
+        <div class="audit-main">
+          <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
+          <div class="audit-meta">
+            <span class="source-tag" [class.manual]="row.source === 'manual'" [class.externo]="row.source === 'externo'">{{ auditSourceLabel(row.source) }}</span>
+            <code>{{ row.sku }}</code>
+            @if (row.packId || row.orderId) {
+              <span>Pack <code>{{ row.packId || row.orderId }}</code></span>
+            }
+            @if (row.orderId) {
+              <span>Product ID <code>{{ row.orderId }}</code></span>
+            }
+            @if (row.saleItemId) {
+              <span>Ítem <code>{{ row.saleItemId }}</code></span>
+            }
+            <span class="meta-date">{{ formatDate(row.createdAt) }}</span>
+          </div>
+        </div>
+        <div class="audit-right">
+          @if (row.productLabel) {
+            <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
+          }
+          <!-- Una venta deja DOS filas: la del canal donde se vendió y la del espejo que
+               escribe el hub. Sin este badge las dos dirían "Venta ML" sin decir dónde
+               se movió el stock. -->
+          <span class="zc-badge" [class.ml]="row.updatedChannel === 'mercadolibre'"
+                [class.tn]="row.updatedChannel === 'tiendanube'"
+                [title]="row.actor === 'plataforma' ? 'Movimiento hecho por la plataforma' : 'Escrito por el hub'">
+            {{ row.updatedChannel === 'mercadolibre' ? 'ML' : 'TN' }}
+            @if (row.actor === 'plataforma') {
+              <i class="ti ti-cloud-down" aria-hidden="true"></i>
+            }
+          </span>
+          <div class="stock-diff">
+            <span class="stock-before">{{ row.stockBefore }}</span>
+            <i class="ti ti-arrow-right" aria-hidden="true"></i>
+            <span class="stock-after" [class.down]="row.stockAfter < row.stockBefore" [class.up]="row.stockAfter > row.stockBefore">{{ row.stockAfter }}</span>
+            <span class="stock-delta">{{ row.stockAfter - row.stockBefore > 0 ? '+' : '' }}{{ row.stockAfter - row.stockBefore }} u.</span>
+          </div>
+          @if (row.revertedAt) {
+            <span class="reverted-badge">Revertido</span>
+          } @else if (canRevert(row) && session.isAdmin()) {
+            <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId() === row.id" [title]="revertTitle(row)">
+              @if (revertingAuditId() === row.id) {
+                <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
+              }
+              {{ revertingAuditId() === row.id ? 'Revirtiendo…' : 'Revertir' }}
+            </button>
+          }
+        </div>
+      </div>
+    }
+  </div>
+  <zc-pagination
+    [currentPage]="store.auditCurrentPage()"
+    [totalPages]="store.auditTotalPages()"
+    [total]="store.auditTotal()"
+    (prev)="store.goToAuditPage(store.auditCurrentPage() - 1)"
+    (next)="store.goToAuditPage(store.auditCurrentPage() + 1)"
+  />
+}
+
+@if (confirmReprocessId(); as id) {
+  <zc-confirm-dialog
+    title="Venta ya sincronizada"
+    [message]="'La venta ' + id + ' ya fue descontada antes. ¿Querés volver a descontarla de todas formas?'"
+    confirmLabel="Descontar de nuevo"
+    (confirmed)="confirmReprocess()"
+    (cancelled)="cancelReprocess()"
+  />
+}

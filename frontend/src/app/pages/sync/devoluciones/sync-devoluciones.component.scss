@@ -1,0 +1,129 @@
+// Lo propio de Devoluciones. La base (botones, alertas, inputs, estado vacío) viene de sync.component.scss.
+
+// ── Returns ─────────────────────────────────────────────────────
+.returns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.return-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-left: 3px solid var(--ml);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 12px;
+  align-items: center;
+  transition: border-color 0.12s;
+
+  &:hover { border-color: var(--border-strong); border-left-color: var(--ml); }
+}
+
+.return-product {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.return-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 3px;
+  font-size: 0.7rem;
+  color: var(--text-2);
+
+  code {
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    color: var(--text);
+  }
+
+  .meta-date { color: var(--text-3); }
+
+  .meta-buyer, .meta-reason {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    .ti { font-size: 11px; }
+  }
+}
+
+.return-card-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.qty-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 0.5px solid var(--warn);
+  white-space: nowrap;
+}
+
+// Aprobar (restaurar stock) y descartar (sacar de la lista sin tocar nada): mismo botón,
+// distinta jerarquía — el color es lo único que cambia.
+.btn-approve,
+.btn-dismiss {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.3rem 0.65rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  transition: opacity 0.12s;
+
+  .ti { font-size: 12px; }
+  &:hover:not(:disabled) { opacity: 0.85; }
+  &:disabled { opacity: 0.5; cursor: default; }
+}
+
+.btn-approve {
+  border: 0.5px solid var(--ok);
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.btn-dismiss {
+  border: 0.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.add-return-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--border);
+  margin-top: 4px;
+
+  .add-return-label {
+    font-size: 0.72rem;
+    color: var(--text-3);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    .ti { font-size: 11px; }
+  }
+
+  .zc-input { max-width: 220px; }
+}

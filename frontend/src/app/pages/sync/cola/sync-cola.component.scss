@@ -1,0 +1,56 @@
+// Lo propio de la Cola ML. La base (botones, alertas, estado vacío) viene de sync.component.scss.
+
+// ── Task chips ──────────────────────────────────────────────────
+.task-chip {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  border-radius: 20px;
+  white-space: nowrap;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 0.5px solid var(--border);
+
+  &.pending    { background: var(--warn-bg);  color: var(--warn); border-color: var(--warn); }
+  &.processing { background: var(--brand-bg); color: var(--brand); border-color: var(--brand); }
+  &.failed     { background: var(--err-bg);   color: var(--err);  border-color: var(--err); }
+}
+
+.zc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+
+  th, td {
+    padding: 0.45rem 0.6rem;
+    text-align: left;
+    border-bottom: 0.5px solid var(--border);
+    color: var(--text);
+  }
+
+  th {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-2);
+    background: var(--surface-2);
+  }
+
+  code {
+    background: var(--surface-2);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.72rem;
+  }
+
+  tr.row-failed { background: var(--err-bg); }
+
+  .cell-error {
+    max-width: 240px;
+    word-break: break-word;
+    color: var(--err);
+    font-size: 0.72rem;
+  }
+}

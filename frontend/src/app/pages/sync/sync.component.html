@@ -5,8 +5,8 @@
       <h1>Historial y cola</h1>
       <p class="page-desc">Cada venta en ML o TN descuenta el stock en la otra plataforma según el SKU vinculado.</p>
     </div>
-    @if (config && !loading) {
-      @if (config.hasDatabase) {
+    @if (config(); as config) {
+      @if (config.hasDatabase && !loading()) {
         <span class="sync-status-badge" [class.active]="config.enabled" [class.inactive]="!config.enabled">
           <span class="status-dot"></span>
           {{ config.enabled ? 'Sync activa' : 'Sync inactiva' }}
@@ -15,13 +15,14 @@
     }
   </div>
 
-  @if (error) {
+  @if (error(); as error) {
     <div class="alert error">{{ error }}</div>
   }
 
-  @if (loading) {
+  @if (loading()) {
     <p class="loading-text">Cargando…</p>
-  } @else if (config) {
+  } @else {
+  @if (config(); as config) {
 
     @if (!config.hasDatabase) {
       <div class="alert warn">
@@ -35,382 +36,74 @@
       (tabChange)="onTabChange($event)"
     />
 
-    @if (activeTab() === 'estado') {
-      <div class="tab-panel">
+    @switch (activeTab()) {
+      @case ('estado') {
+        <div class="tab-panel">
 
-        <div class="card">
-          <div class="card-section-label">Sincronización automática</div>
-          @if (!config.hasDatabase) {
-            <p class="hint">Configurá la base de datos para activar la sincronización.</p>
-          } @else {
-            <div class="toggle-row">
-              <label class="switch">
-                <input type="checkbox" [checked]="config.enabled" (change)="toggleSync($any($event.target).checked)" [disabled]="savingToggle || session.isReadOnly()" />
-                <span class="slider"></span>
-              </label>
+          <div class="card">
+            <div class="card-section-label">Sincronización automática</div>
+            @if (!config.hasDatabase) {
+              <p class="hint">Configurá la base de datos para activar la sincronización.</p>
+            } @else {
+              <div class="toggle-row">
+                <label class="switch">
+                  <input type="checkbox" [checked]="config.enabled" (change)="toggleSync($any($event.target).checked)" [disabled]="savingToggle() || session.isReadOnly()" />
+                  <span class="slider"></span>
+                </label>
+                <div>
+                  <span class="toggle-label">Sincronización de stock</span>
+                  <p class="hint">{{ config.enabled ? 'Las ventas descuentan stock en el otro canal automáticamente.' : 'La sincronización está desactivada.' }}</p>
+                </div>
+              </div>
+            }
+          </div>
+
+          <div class="card card-secondary" *zcCanWrite>
+            <div class="card-row">
               <div>
-                <span class="toggle-label">Sincronización de stock</span>
-                <p class="hint">{{ config.enabled ? 'Las ventas descuentan stock en el otro canal automáticamente.' : 'La sincronización está desactivada.' }}</p>
+                <span class="card-row-label">Webhooks de Tienda Nube</span>
+                <p class="hint">Re-registrá si cambiaste la URL del servidor (ngrok u otro).</p>
+              </div>
+              <div class="card-row-actions">
+                <button type="button" class="btn-secondary" (click)="registerWebhooks()" [disabled]="registeringWebhooks()">
+                  <i class="ti ti-webhook" aria-hidden="true"></i>
+                  {{ registeringWebhooks() ? 'Registrando…' : 'Registrar webhooks' }}
+                </button>
+                @if (webhooksResult(); as result) {
+                  <span class="inline-result" [class.err]="result.startsWith('Error')">{{ result }}</span>
+                }
               </div>
             </div>
-          }
+          </div>
+
         </div>
+      }
 
-        <div class="card card-secondary" *zcCanWrite>
-          <div class="card-row">
-            <div>
-              <span class="card-row-label">Webhooks de Tienda Nube</span>
-              <p class="hint">Re-registrá si cambiaste la URL del servidor (ngrok u otro).</p>
-            </div>
-            <div class="card-row-actions">
-              <button type="button" class="btn-secondary" (click)="registerWebhooks()" [disabled]="registeringWebhooks">
-                <i class="ti ti-webhook" aria-hidden="true"></i>
-                {{ registeringWebhooks ? 'Registrando…' : 'Registrar webhooks' }}
-              </button>
-              @if (webhooksResult) {
-                <span class="inline-result" [class.err]="webhooksResult.startsWith('Error')">{{ webhooksResult }}</span>
-              }
-            </div>
-          </div>
-        </div>
-
-      </div>
-    }
-
-    @if (activeTab() === 'devoluciones') {
-      <div class="tab-panel">
-
-        @if (!config.hasDatabase) {
-          <p class="muted">Configurá la base de datos para gestionar devoluciones.</p>
+      @case ('devoluciones') {
+        @if (config.hasDatabase) {
+          <zc-sync-devoluciones />
         } @else {
-
-          <div class="section-toolbar">
-            @if (fetchResult) {
-              <span class="fetch-result">{{ fetchResult }}</span>
-            }
-            <button type="button" class="btn-secondary" (click)="refreshReturns()" [disabled]="fetchingReturns">
-              <i class="ti ti-refresh" aria-hidden="true"></i>
-              {{ fetchingReturns ? 'Actualizando…' : 'Actualizar' }}
-            </button>
-          </div>
-
-          @if (returnsError) {
-            <div class="alert error">{{ returnsError }}</div>
-          }
-
-          @if (returnsLoading) {
-            <p class="loading-text">Cargando devoluciones…</p>
-          } @else if (returnsRows.length === 0) {
-            <div class="empty-state">
-              <i class="ti ti-check-circle" aria-hidden="true"></i>
-              <p>No hay devoluciones pendientes.</p>
-              <p class="hint">Usá «Actualizar» para revisar de nuevo en ML o agregá una orden por número.</p>
-            </div>
-          } @else {
-            <div class="returns-list">
-              @for (row of returnsRows; track row.id) {
-                <div class="return-card">
-                  <div class="return-card-main">
-                    <div class="return-product">{{ row.productLabel || '—' }}</div>
-                    <div class="return-meta">
-                      @if (row.sku) {
-                        <code>{{ row.sku }}</code>
-                      }
-                      <span>Orden <code>{{ row.orderId }}</code></span>
-                      @if (row.buyerNickname) {
-                        <span class="meta-buyer"><i class="ti ti-user" aria-hidden="true"></i>{{ row.buyerNickname }}</span>
-                      }
-                      @if (row.reason) {
-                        <span class="meta-reason"><i class="ti ti-message-circle" aria-hidden="true"></i>{{ row.reason }}</span>
-                      }
-                      <span class="meta-date">{{ formatDate(row.claimDate || row.createdAt) }}</span>
-                    </div>
-                  </div>
-                  <div class="return-card-right">
-                    <span class="qty-badge">× {{ row.quantity }} u.</span>
-                    <ng-container *zcCanWrite><button type="button" class="btn-approve" (click)="approveReturn(row)" [disabled]="approvingId === row.id || dismissingId === row.id">
-                      <i class="ti ti-check" aria-hidden="true"></i>
-                      {{ approvingId === row.id ? 'Restaurando…' : 'Restaurar stock' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-dismiss"
-                      title="Sacar de la lista sin tocar stock (la unidad no volvió)"
-                      (click)="dismissReturn(row)"
-                      [disabled]="approvingId === row.id || dismissingId === row.id"
-                    >
-                      <i class="ti ti-x" aria-hidden="true"></i>
-                      {{ dismissingId === row.id ? 'Descartando…' : 'Descartar' }}
-                    </button></ng-container>
-                  </div>
-                </div>
-              }
-            </div>
-            <zc-pagination
-              [currentPage]="returnsCurrentPage()"
-              [totalPages]="returnsTotalPages()"
-              [total]="returnsTotal()"
-              (prev)="goToReturnsPage(returnsCurrentPage() - 1)"
-              (next)="goToReturnsPage(returnsCurrentPage() + 1)"
-            />
-          }
-
-          <div class="add-return-row" *zcCanWrite>
-            <span class="add-return-label"><i class="ti ti-plus" aria-hidden="true"></i>Agregar por nro de venta:</span>
-            <input type="text" [(ngModel)]="returnOrderId" placeholder="Ej. 2000011838697695" class="zc-input" />
-            <button type="button" class="btn-secondary" (click)="addReturnsByOrder()" [disabled]="!returnOrderId.trim() || addingReturn">
-              {{ addingReturn ? 'Cargando…' : 'Agregar' }}
-            </button>
-          </div>
-
+          <div class="tab-panel"><p class="muted">Configurá la base de datos para gestionar devoluciones.</p></div>
         }
-      </div>
-    }
+      }
 
-    @if (activeTab() === 'cola') {
-      <div class="tab-panel">
-
-        @if (!config.hasDatabase) {
-          <p class="muted">Configurá la base de datos para ver la cola de actualizaciones.</p>
+      @case ('cola') {
+        @if (config.hasDatabase) {
+          <zc-sync-cola />
         } @else {
-
-          <div class="section-toolbar">
-            @if (activeTasksCount > 0 || failedTasksCount > 0) {
-              <div class="tasks-summary">
-                @if (activeTasksCount > 0) {
-                  <span class="task-chip processing">{{ activeTasksCount }} activa(s)</span>
-                }
-                @if (failedTasksCount > 0) {
-                  <span class="task-chip failed">{{ failedTasksCount }} con error</span>
-                }
-              </div>
-            }
-            <button type="button" class="btn-secondary" (click)="refreshPendingTasks()" [disabled]="pendingTasksFetching">
-              <i class="ti ti-refresh" aria-hidden="true"></i>
-              {{ pendingTasksFetching ? 'Actualizando…' : 'Actualizar' }}
-            </button>
-          </div>
-
-          @if (pendingTasksError) {
-            <div class="alert error">{{ pendingTasksError }}</div>
-          }
-          @if (pendingTasksQueryError) {
-            <div class="alert error">{{ pendingTasksQueryError }}</div>
-          }
-
-          @if (pendingTasksLoading) {
-            <p class="loading-text">Cargando tareas…</p>
-          } @else if (pendingTasks.length === 0) {
-            <div class="empty-state">
-              <i class="ti ti-check-circle" aria-hidden="true"></i>
-              <p>No hay actualizaciones en cola.</p>
-              <p class="hint">Cuando editás un SKU o hay una venta que descuenta stock en ML, las verás acá hasta que se completen.</p>
-            </div>
-          } @else {
-            <div class="table-scroll">
-              <table class="zc-table">
-                <thead>
-                  <tr>
-                    <th>Estado</th>
-                    <th>Tipo</th>
-                    <th>Ítem ML</th>
-                    <th>Variación</th>
-                    <th>Cambio</th>
-                    <th>Intentos</th>
-                    <th>Error</th>
-                    <th>Actualizado</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (task of pendingTasks; track task.id) {
-                    <tr [class.row-failed]="task.status === 'failed' || task.stuck">
-                      <td><span [class]="taskStatusChipClass(task)">{{ taskStatusLabel(task) }}</span></td>
-                      <td>{{ taskKindLabel(task.kind) }}</td>
-                      <td><code>{{ task.itemId || '—' }}</code></td>
-                      <td><code>{{ task.variationId || '—' }}</code></td>
-                      <td>{{ taskChangeLabel(task) }}</td>
-                      <td>{{ task.attempts }}</td>
-                      <td class="cell-error">{{ task.lastError || '—' }}</td>
-                      <td>{{ formatDate(task.updatedAt) }}</td>
-                      <td>
-                        @if (canRetryTask(task) && session.isAdmin()) {
-                          <button type="button" class="btn-secondary btn-sm" (click)="retryTask(task)" [disabled]="retryingTaskId === task.id">
-                            {{ retryingTaskId === task.id ? '…' : 'Reintentar' }}
-                          </button>
-                        }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-            <zc-pagination
-              [currentPage]="tasksCurrentPage()"
-              [totalPages]="tasksTotalPages()"
-              [total]="tasksTotal()"
-              (prev)="goToTasksPage(tasksCurrentPage() - 1)"
-              (next)="goToTasksPage(tasksCurrentPage() + 1)"
-            />
-          }
+          <div class="tab-panel"><p class="muted">Configurá la base de datos para ver la cola de actualizaciones.</p></div>
         }
-      </div>
-    }
+      }
 
-    @if (activeTab() === 'historial') {
-      <div class="tab-panel">
-
-        @if (!config.hasDatabase) {
-          <p class="muted">El historial se guarda cuando hay una base de datos configurada.</p>
+      @case ('historial') {
+        @if (config.hasDatabase) {
+          <zc-sync-historial />
         } @else {
-
-          <div class="search-card">
-            <zc-search-bar
-              [value]="auditSearchQuery()"
-              (valueChange)="auditSearchQuery.set($event)"
-              placeholder="Buscar por nro de venta, orden o SKU…"
-              ariaLabel="Buscar en historial de stock"
-              class="search-bar-wrap"
-            />
-            <button type="button" class="btn-secondary" (click)="refreshAudit()" [disabled]="auditLoading">
-              <i class="ti ti-refresh" [class.spin]="auditFetching" aria-hidden="true"></i>
-              {{ auditFetching ? 'Actualizando…' : 'Actualizar' }}
-            </button>
-          </div>
-
-          <div class="source-filter" role="group" aria-label="Filtrar historial por origen del cambio">
-            @for (opt of auditSourceOptions; track opt.key) {
-              <button type="button" class="source-chip" [class.active]="auditSource() === opt.key"
-                      [attr.aria-pressed]="auditSource() === opt.key" (click)="setAuditSource(opt.key)">
-                {{ opt.label }}
-              </button>
-            }
-          </div>
-
-          <div class="reprocess-card" *zcCanWrite>
-            <div class="reprocess-icon"><i class="ti ti-refresh-alert" aria-hidden="true"></i></div>
-            <div class="reprocess-info">
-              <div class="reprocess-title">Reintentar sincronización de una venta</div>
-              <p class="hint">Volvé a procesar una venta si el webhook no descontó el stock automáticamente.</p>
-            </div>
-            <div class="reprocess-form">
-              <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta" class="zc-input reprocess-input" (keyup.enter)="reprocessOrder()" />
-              <button type="button" class="btn-secondary" (click)="reprocessOrder()" [disabled]="!reprocessOrderId.trim() || reprocessingOrder">
-                @if (reprocessingOrder) {
-                  <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
-                }
-                {{ reprocessingOrder ? 'Reintentando…' : 'Reintentar venta' }}
-              </button>
-            </div>
-            @if (reprocessResult) {
-              <span class="inline-result" [class.err]="reprocessResult.startsWith('Error')">{{ reprocessResult }}</span>
-            }
-          </div>
-
-          @if (revertError) {
-            <div class="alert error">{{ revertError }}</div>
-          }
-
-          @if (auditFetching) {
-            <div class="list-progress" role="status" aria-label="Actualizando historial">
-              <span class="list-progress-bar" aria-hidden="true"></span>
-            </div>
-          }
-
-          @if (auditLoading) {
-            <p class="loading-text">Cargando historial…</p>
-          } @else if (auditError) {
-            <div class="alert error">{{ auditError }}</div>
-          } @else if (auditRows.length === 0) {
-            <div class="empty-state">
-              @if (auditSearchQuery().trim()) {
-                <i class="ti ti-search" aria-hidden="true"></i>
-                <p>Sin resultados para la búsqueda.</p>
-                <p class="hint">Probá otro término o borrá la búsqueda para ver todo el historial.</p>
-              } @else {
-                <i class="ti ti-history" aria-hidden="true"></i>
-                <p>Aún no hay registros.</p>
-                <p class="hint">Acá aparece cada cambio de stock: los que hace una venta, los que hacés a mano desde Precio y stock y los que detectamos en ML o TN.</p>
-              }
-            </div>
-          } @else {
-            <div class="audit-list" [class.is-fetching]="auditFetching">
-              @for (row of auditRows; track row.id) {
-                <div class="audit-row" [class.audit-ml]="row.channelSale === 'mercadolibre'" [class.audit-tn]="row.channelSale === 'tiendanube'" [class.audit-reverted]="row.revertedAt">
-                  <div class="audit-main">
-                    <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
-                    <div class="audit-meta">
-                      <span class="source-tag" [class.manual]="row.source === 'manual'" [class.externo]="row.source === 'externo'">{{ auditSourceLabel(row.source) }}</span>
-                      <code>{{ row.sku }}</code>
-                      @if (row.packId || row.orderId) {
-                        <span>Pack <code>{{ row.packId || row.orderId }}</code></span>
-                      }
-                      @if (row.orderId) {
-                        <span>Product ID <code>{{ row.orderId }}</code></span>
-                      }
-                      @if (row.saleItemId) {
-                        <span>Ítem <code>{{ row.saleItemId }}</code></span>
-                      }
-                      <span class="meta-date">{{ formatDate(row.createdAt) }}</span>
-                    </div>
-                  </div>
-                  <div class="audit-right">
-                    @if (row.productLabel) {
-                      <span [class]="stateChipClass(row.productLabel)">{{ row.productLabel }}</span>
-                    }
-                    <!-- Una venta deja DOS filas: la del canal donde se vendió y la del espejo que
-                         escribe el hub. Sin este badge las dos dirían "Venta ML" sin decir dónde
-                         se movió el stock. -->
-                    <span class="zc-badge" [class.ml]="row.updatedChannel === 'mercadolibre'"
-                          [class.tn]="row.updatedChannel === 'tiendanube'"
-                          [title]="row.actor === 'plataforma' ? 'Movimiento hecho por la plataforma' : 'Escrito por el hub'">
-                      {{ row.updatedChannel === 'mercadolibre' ? 'ML' : 'TN' }}
-                      @if (row.actor === 'plataforma') {
-                        <i class="ti ti-cloud-down" aria-hidden="true"></i>
-                      }
-                    </span>
-                    <div class="stock-diff">
-                      <span class="stock-before">{{ row.stockBefore }}</span>
-                      <i class="ti ti-arrow-right" aria-hidden="true"></i>
-                      <span class="stock-after" [class.down]="row.stockAfter < row.stockBefore" [class.up]="row.stockAfter > row.stockBefore">{{ row.stockAfter }}</span>
-                      <span class="stock-delta">{{ row.stockAfter - row.stockBefore > 0 ? '+' : '' }}{{ row.stockAfter - row.stockBefore }} u.</span>
-                    </div>
-                    @if (row.revertedAt) {
-                      <span class="reverted-badge">Revertido</span>
-                    } @else if (canRevert(row) && session.isAdmin()) {
-                      <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId === row.id" [title]="revertTitle(row)">
-                        @if (revertingAuditId === row.id) {
-                          <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
-                        }
-                        {{ revertingAuditId === row.id ? 'Revirtiendo…' : 'Revertir' }}
-                      </button>
-                    }
-                  </div>
-                </div>
-              }
-            </div>
-            <zc-pagination
-              [currentPage]="auditCurrentPage()"
-              [totalPages]="auditTotalPages()"
-              [total]="auditTotal"
-              (prev)="goToAuditPage(auditCurrentPage() - 1)"
-              (next)="goToAuditPage(auditCurrentPage() + 1)"
-            />
-          }
-
+          <div class="tab-panel"><p class="muted">El historial se guarda cuando hay una base de datos configurada.</p></div>
         }
-      </div>
+      }
     }
 
   }
-
-  @if (confirmReprocessId(); as id) {
-    <zc-confirm-dialog
-      title="Venta ya sincronizada"
-      [message]="'La venta ' + id + ' ya fue descontada antes. ¿Querés volver a descontarla de todas formas?'"
-      confirmLabel="Descontar de nuevo"
-      (confirmed)="confirmReprocess()"
-      (cancelled)="cancelReprocess()"
-    />
   }
 </div>

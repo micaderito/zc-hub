@@ -327,6 +327,17 @@ El modal de historial del producto tiene dos pestañas, **Stock** y **Precio** (
 Precios abre en Precio). Las filas de ML y TN de un mismo "aplicar" (mismo `source`, < 60 s) se
 muestran como un solo evento; las externas van sueltas.
 
+#### Estructura de la página "Historial y cola" (`/sincronizacion`, `pages/sync/`)
+
+2026-10-16: el `.scss` único pasó el tope de 16 kB por hoja y el build de prod fallaba (mismo caso que
+Precios). `sync.component` quedó como página contenedora (encabezado, pestañas con `?tab=`, pestaña
+Estado) y provee `SyncStore` (`sync.store.ts`: el historial —filtros, página, filas—, que sobrevive a
+cambiar de pestaña y que recarga "Restaurar stock" desde Devoluciones, y las queries de devoluciones y
+Cola ML, que alimentan los contadores). `historial/`, `devoluciones/` y `cola/` son `OnPush` y se montan
+solo mientras se ven: Devoluciones crawlea ML al montarse (una vez por apertura, igual que antes). La
+base de estilos va sin encapsulación bajo `:where(.sync-page)`; cada pestaña trae lo suyo. Fixtures de
+los specs en `sync.testing.ts`.
+
 ### Actualizar precios: varias listas del proveedor + pestaña "Mapeo con el proveedor"
 
 Incidente 2026-10-13: al importar una lista, "34 mapeos automáticos · 0 costos actualizados", y la
