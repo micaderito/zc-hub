@@ -37,11 +37,14 @@ export class PairCardComponent {
   readonly syncError = input<string | null>(null);
   /** Ya existe una regla de alerta para este SKU (ver Alertas → Reglas): pinta la campanita. */
   readonly hasAlert = input(false);
+  /** Proveedor vigente + config ("Punto Cero · General"); `null` = sin proveedor. */
+  readonly supplierLabel = input<string | null>(null);
 
   readonly toggleCollapse = output<void>();
   readonly updatePrices = output<void>();
   readonly syncStock = output<void>();
   readonly showHistory = output<void>();
+  readonly editSupplier = output<void>();
 
   protected mlLabel = mlLabel;
   protected tnLabel = tnLabel;

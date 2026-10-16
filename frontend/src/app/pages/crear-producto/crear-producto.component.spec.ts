@@ -40,7 +40,14 @@ const PRICING_CONFIG: PricingConfig = {
     { maxPrice: 33000, fixedFee: 2810 },
     { maxPrice: null, fixedFee: 0 }
   ],
-  suppliers: [],
+  suppliers: [
+    {
+      key: 'punto_cero', name: 'Punto Cero', productCount: 0, profiles: [
+        { id: 1, supplierKey: 'punto_cero', name: 'General', discount1: 25, discount2: 5, isDefault: true, productCount: 0 },
+        { id: 2, supplierKey: 'punto_cero', name: 'Agendas', discount1: 30, discount2: 5, isDefault: false, productCount: 0 },
+      ],
+    },
+  ],
   updatedAt: null
 };
 
@@ -675,6 +682,49 @@ describe('CrearProductoComponent', () => {
     });
   });
 
+  describe('proveedor y descuento (se guarda en Precios)', () => {
+    beforeEach(() => component.store.suppliers.set(PRICING_CONFIG.suppliers));
+
+    it('el descuento sale de la config elegida, no de % sueltos; sin proveedor no hay descuento', () => {
+      const d = component.draft();
+      d.cost = { mode: 'bulk', bulkPrice: 10000, bulkQty: 10, discount1: 50, discount2: 50, unitCost: null, marginPct: 100, supplierKey: 'punto_cero', profileId: null };
+      component.touch();
+      expect(component.costPreview()!.unitCost).toBe(712.5); // 1000 × 0,75 × 0,95 (General)
+      component.store.setCostProfile(2);
+      expect(component.draft().cost.profileId).toBe(2);
+      expect(component.costPreview()!.unitCost).toBe(665); // 1000 × 0,70 × 0,95 (Agendas)
+      component.store.setCostSupplier(null);
+      expect(component.costPreview()!.unitCost).toBe(1000);
+    });
+
+    it('elegir la default guarda "sin config propia" (null)', () => {
+      component.draft().cost.supplierKey = 'punto_cero';
+      component.store.setCostProfile(1);
+      expect(component.draft().cost.profileId).toBeNull();
+    });
+
+    it('buildPayloads() manda proveedor + config + costo con los SKUs del producto', () => {
+      const d = component.draft();
+      d.common.baseName = 'Agenda 2027';
+      d.common.sku = 'AG27';
+      d.cost = { mode: 'bulk', bulkPrice: 12000, bulkQty: 12, discount1: 0, discount2: 0, unitCost: null, marginPct: 100, supplierKey: 'punto_cero', profileId: 2 };
+      component.touch();
+      expect(component.buildPayloads().supplier).toEqual({
+        skus: ['AG27'], supplierKey: 'punto_cero', profileId: 2,
+        cost: { mode: 'bulk', bulkPrice: 12000, bulkQty: 12, unitCost: null, marginPct: 100 },
+        label: 'Agenda 2027',
+      });
+    });
+
+    it('buildPayloads() sin proveedor ni costo no manda nada', () => {
+      const d = component.draft();
+      d.common.sku = 'AG27';
+      d.cost.supplierKey = null;
+      component.touch();
+      expect(component.buildPayloads().supplier).toBeUndefined();
+    });
+  });
+
   describe('rentabilidad: costPreview() / mlBreakdown() / tnBreakdown()', () => {
     it('sin costo cargado, no hay preview ni desglose', () => {
       expect(component.hasCost()).toBeFalse();
@@ -683,8 +733,9 @@ describe('CrearProductoComponent', () => {
     });
 
     it('con costo por bulto, calcula lo mismo que el motor de /precios (fila 30700 de Punto Cero)', () => {
+      component.store.suppliers.set(PRICING_CONFIG.suppliers);
       const d = component.draft();
-      d.cost = { mode: 'bulk', bulkPrice: 70400, bulkQty: 8, discount1: 25, discount2: 5, unitCost: null, marginPct: 100 };
+      d.cost = { mode: 'bulk', bulkPrice: 70400, bulkQty: 8, discount1: 0, discount2: 0, unitCost: null, marginPct: 100, supplierKey: 'punto_cero', profileId: null };
       component.touch();
 
       const cp = component.costPreview();

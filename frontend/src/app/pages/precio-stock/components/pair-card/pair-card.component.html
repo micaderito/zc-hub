@@ -9,6 +9,12 @@
           <i class="ti ti-box" aria-hidden="true"></i><span class="pack-chip-name">{{ packName() }}</span>
         </span>
       }
+      <!-- Proveedor (vigente + config de descuento). Click abre el selector; lectura solo lo ve. -->
+      <button type="button" class="supplier-chip" [class.empty]="!supplierLabel()" [disabled]="session.isReadOnly()"
+              (click)="$event.stopPropagation(); editSupplier.emit()"
+              [title]="supplierLabel() ? 'Proveedor: ' + supplierLabel() : 'Sin proveedor'">
+        <i class="ti ti-building-store" aria-hidden="true"></i><span class="pack-chip-name">{{ supplierLabel() || 'sin proveedor' }}</span>
+      </button>
     </div>
     <div class="pair-header-right">
       <span class="zc-badge"

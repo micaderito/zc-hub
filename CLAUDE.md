@@ -451,6 +451,17 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   valor final pasó como línea secundaria de "Te queda". Barra: "Asignar descuento…" y "Proveedor
   vigente…". Mapeo: en un proveedor edita sus códigos; en "Todos" es de solo lectura y muestra el
   código de cada proveedor. Borrar un proveedor con listas o productos vigentes da 409.
+- **Fuera de Precios** (2026-10-16): el proveedor + config también se eligen en **Crear/Editar
+  producto** ("Precios y ganancia": selects Proveedor y Descuento en vez de los % sueltos, que quedan
+  sin uso en `DraftCost`) y en **Productos** (chip en cada tarjeta y en cada pack de la pestaña
+  Packs → `zc-product-supplier-dialog`). Todo pasa por `setProductSupplier` (`PUT
+  /api/pricing/product-supplier`): se asigna al pack si el producto es un pack o todos sus SKUs son
+  de uno (`supplierTargets`, `discountResolver.js`), si no a cada SKU; con costo lo guarda con ese
+  proveedor como vigente, sin costo solo mueve el vigente de lo que ya tenía costo de otro. Se lee
+  con `GET /api/pricing/product-suppliers` (`getProductSupplierOverview`). Al crear viaja en
+  `payload.supplier` y lo aplica el publish worker (`publishSupplier.js`) después de la alerta (que
+  puede crear el pack), solo con alguna unidad `ok`. En la edición NO es una operación de ML/TN: se
+  carga desde Precios al abrir y tiene su propio botón "Guardar en Precios".
 - `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
   usar `track a + '|' + b`.
 - **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de

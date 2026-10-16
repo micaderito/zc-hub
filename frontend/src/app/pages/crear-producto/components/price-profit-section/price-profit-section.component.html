@@ -5,6 +5,40 @@
     <span class="block-note">— mismo cálculo que la sección Precios; sirve para elegir el precio de cada canal</span>
   </div>
 
+  <div class="grid-2 field supplier-row">
+    <label>
+      <span class="lbl">Proveedor</span>
+      <select class="zc-select" [ngModel]="store.draft().cost.supplierKey ?? null" (ngModelChange)="store.setCostSupplier($event)">
+        @for (s of store.suppliers(); track s.key) {
+          <option [ngValue]="s.key">{{ s.name }}</option>
+        }
+        <option [ngValue]="null">Sin proveedor</option>
+      </select>
+    </label>
+    <label>
+      <span class="lbl">Descuento</span>
+      @if (store.selectedSupplier(); as sup) {
+        <select class="zc-select" [ngModel]="store.selectedProfile()?.id ?? null" (ngModelChange)="store.setCostProfile($event)">
+          @for (p of sup.profiles; track p.id) {
+            <option [ngValue]="p.id">{{ p.name }} · {{ pcts(p) }}{{ p.isDefault ? ' (default)' : '' }}</option>
+          }
+        </select>
+      } @else {
+        <span class="zc-input readonly-box">sin descuento</span>
+      }
+    </label>
+  </div>
+  <span class="hint supplier-hint">
+    <i class="ti ti-building-store"></i>
+    @if (store.isEdit()) {
+      Se guarda en Precios con el botón de abajo (no cambia nada en ML ni TN).
+    } @else {
+      Se guarda en Precios al publicar (proveedor, descuento y costo).
+    }
+    Si el producto es un pack, se asigna al pack entero.
+    @if (store.draft().cost.mode === 'unit' && store.selectedSupplier()) { El costo unitario directo no lleva descuento. }
+  </span>
+
   <div class="field">
     <span class="lbl">Costo</span>
     <div class="mode-toggle cost-mode">
@@ -18,7 +52,7 @@
   </div>
 
   @if (store.draft().cost.mode === 'bulk') {
-    <div class="grid-4 field">
+    <div class="grid-2 field">
       <label>
         <span class="lbl">Precio por bulto</span>
         <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().cost.bulkPrice" (ngModelChange)="store.touch()" />
@@ -26,14 +60,6 @@
       <label>
         <span class="lbl">Unidades por bulto</span>
         <input class="zc-input" type="number" min="1" [(ngModel)]="store.draft().cost.bulkQty" (ngModelChange)="store.touch()" />
-      </label>
-      <label>
-        <span class="lbl">Descuento 1 (%)</span>
-        <input class="zc-input" type="number" min="0" max="100" [(ngModel)]="store.draft().cost.discount1" (ngModelChange)="store.touch()" />
-      </label>
-      <label>
-        <span class="lbl">Descuento 2 (%)</span>
-        <input class="zc-input" type="number" min="0" max="100" [(ngModel)]="store.draft().cost.discount2" (ngModelChange)="store.touch()" />
       </label>
     </div>
   } @else {
@@ -66,5 +92,15 @@
     </div>
   } @else {
     <span class="hint muted"><i class="ti ti-info-circle"></i> cargá el costo para ver el precio sugerido y cuánto te queda en cada canal</span>
+  }
+
+  @if (store.isEdit()) {
+    <div class="supplier-save" *zcCanWrite>
+      <button type="button" class="zc-btn" [disabled]="store.supplierSave() === 'saving' || !store.supplierInput()" (click)="store.saveSupplierToPrecios()">
+        <i class="ti ti-device-floppy"></i> {{ store.supplierSave() === 'saving' ? 'Guardando…' : 'Guardar en Precios' }}
+      </button>
+      @if (store.supplierSave() === 'saved') { <span class="hint ok"><i class="ti ti-check"></i> Guardado en Precios</span> }
+      @if (store.supplierSave() === 'error') { <span class="hint error">{{ store.supplierSaveError() }}</span> }
+    </div>
   }
 </section>

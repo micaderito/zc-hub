@@ -847,10 +847,13 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     ml: unknown;
     tn: unknown;
     alert?: unknown;
+    supplier?: unknown;
   } {
     const d = this.draft();
     return {
       alert: this.alertPayload(),
+      // Proveedor + config + costo: lo guarda el publish worker en Precios (publishSupplier.js).
+      supplier: this.store.supplierInput() ?? undefined,
       common: d.common,
       axes: d.axes,
       // Variantes con las referencias de imagen que espera el backend (snake_case).
