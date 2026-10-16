@@ -383,7 +383,8 @@ export async function getCatalog({ supplierKey = null } = {}) {
 
 /**
  * Proveedores para elegir al crear un pedido, cada uno con el descuento de su config default (el
- * que se precarga en el pedido).
+ * que se precarga en el pedido) y todas sus configs (`profiles`, la default primero), para que el
+ * editor del pedido deje elegir otra.
  */
 export async function listOrderSuppliers() {
   return (await listSuppliers()).map((s) => {
@@ -394,6 +395,9 @@ export async function listOrderSuppliers() {
       profileName: def?.name ?? null,
       discount1: def ? def.discount1 : null,
       discount2: def ? def.discount2 : null,
+      profiles: s.profiles.map((p) => ({
+        id: p.id, name: p.name, discount1: p.discount1, discount2: p.discount2, isDefault: p.isDefault,
+      })),
     };
   });
 }

@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import {
-  OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY, CatalogUnit, CatalogMember, OrderLine, SupplierOrder,
+  OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY, CatalogUnit, CatalogMember, OrderDiscountProfile, OrderLine, SupplierOrder,
   computeOrderTotals, lineFromCatalogUnit, lineKey, orderStatusLabel,
 } from '../../core/services/orders.service';
 import { matchSearchByTokens } from '../../core/services/conflicts.service';
@@ -137,6 +137,33 @@ export class PedidoEditorComponent implements OnDestroy {
     this.edit((o) => ({ ...o, [field]: n }));
   }
 
+  /** Configs de descuento del proveedor del pedido (las de Precios). */
+  readonly discountProfiles = computed<OrderDiscountProfile[]>(() => {
+    const key = this.supplierKey();
+    return this.suppliersQuery.data()?.suppliers.find((s) => s.key === key)?.profiles ?? [];
+  });
+
+  /**
+   * La config que coincide con los descuentos del pedido. No se guarda en el pedido: si se tocan
+   * los % a mano y no coinciden con ninguna, el pedido queda "personalizado".
+   */
+  readonly selectedProfile = computed<OrderDiscountProfile | null>(() => {
+    const o = this.order();
+    if (!o) return null;
+    return this.discountProfiles().find((p) => p.discount1 === o.discount1 && p.discount2 === o.discount2) ?? null;
+  });
+
+  /** Elegir una config pisa los dos descuentos del pedido con los de esa config. */
+  applyProfile(id: number | string): void {
+    const profile = this.discountProfiles().find((p) => p.id === Number(id));
+    if (!profile) return;
+    this.edit((o) => ({ ...o, discount1: profile.discount1, discount2: profile.discount2 }));
+  }
+
+  profileLabel(p: OrderDiscountProfile): string {
+    return `${p.name} · −${p.discount1}%${p.discount2 ? ` −${p.discount2}%` : ''}`;
+  }
+
   setLineText(index: number, field: 'code' | 'description' | 'detail', value: string): void {
     this.editLine(index, { [field]: value });
   }
@@ -184,7 +211,8 @@ export class PedidoEditorComponent implements OnDestroy {
   readonly suppliersQuery = injectQuery(() => ({
     queryKey: ORDERS_SUPPLIERS_QUERY_KEY,
     queryFn: () => this.orders.suppliers(),
-    staleTime: 5 * 60_000,
+    // Trae las configs de descuento, que se editan en Precios: no tan vieja.
+    staleTime: 30_000,
   }));
 
   supplierName(key: string | null): string {

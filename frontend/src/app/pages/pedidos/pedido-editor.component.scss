@@ -323,6 +323,17 @@ $cell-h: 30px;
 
   .v { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+  &.profile-row {
+    flex-wrap: wrap;
+
+    .zc-select {
+      flex: 1 1 10rem;
+      min-width: 0;
+      padding: 0.25rem 0.4rem;
+      font-size: 0.76rem;
+    }
+  }
+
   &.total {
     font-size: 0.95rem;
     font-weight: 600;

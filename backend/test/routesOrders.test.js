@@ -26,7 +26,10 @@ function reset() {
 }
 
 const SUPPLIERS = [
-  { key: 'punto_cero', name: 'Punto Cero', profiles: [{ id: 1, name: 'General', discount1: 25, discount2: 5, isDefault: true }] },
+  { key: 'punto_cero', name: 'Punto Cero', profiles: [
+    { id: 1, name: 'General', discount1: 25, discount2: 5, isDefault: true },
+    { id: 3, name: 'Agendas', discount1: 30, discount2: 5, isDefault: false },
+  ] },
   { key: 'filgo', name: 'Filgo', profiles: [{ id: 2, name: 'Sin descuento', discount1: 0, discount2: 0, isDefault: true }] },
 ];
 
@@ -242,10 +245,14 @@ test('POST /: con proveedor precarga los descuentos de su config default; 400 si
   assert.equal((await call('POST', '/', { supplierKey: 'nadie' })).status, 400);
 });
 
-test('GET /suppliers: proveedores con el descuento de su config default', async () => {
+test('GET /suppliers: proveedores con el descuento de su config default y todas sus configs', async () => {
   db.suppliers = SUPPLIERS;
   const { body } = await call('GET', '/suppliers');
-  assert.deepEqual(body.suppliers[1], { key: 'filgo', name: 'Filgo', profileName: 'Sin descuento', discount1: 0, discount2: 0 });
+  assert.deepEqual(body.suppliers[1], {
+    key: 'filgo', name: 'Filgo', profileName: 'Sin descuento', discount1: 0, discount2: 0,
+    profiles: [{ id: 2, name: 'Sin descuento', discount1: 0, discount2: 0, isDefault: true }],
+  });
+  assert.deepEqual(body.suppliers[0].profiles.map((p) => [p.name, p.discount1, p.discount2]), [['General', 25, 5], ['Agendas', 30, 5]]);
 });
 
 test('GET /?supplier= filtra por proveedor y duplicar conserva el proveedor', async () => {

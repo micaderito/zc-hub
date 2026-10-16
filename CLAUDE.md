@@ -555,7 +555,11 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
   - **Descuentos**: el pedido nuevo arranca con la config **default del proveedor** (misma cadena:
     el 1.º sobre la lista, el 2.º sobre lo que queda); `supplier_order_defaults` es solo el fallback
     de un proveedor sin config, y la lista ya no muestra su editor. `GET /api/orders/suppliers`
-    devuelve cada proveedor con su descuento default.
+    devuelve cada proveedor con su descuento default y todas sus configs (`profiles`). En el editor
+    del pedido (borrador) un selector **Config de descuento** ofrece las configs de ese proveedor:
+    elegir una pisa los dos %. Los % siguen editables a mano para un pedido especial. La config NO se
+    guarda en el pedido (sin migración): el selector muestra la que coincide con los % del pedido, o
+    "Personalizado" si ninguna coincide.
   - **Catálogo** (`GET /api/orders/catalog?supplier=`): solo las unidades que se le compran a ese
     proveedor según `buildDiscountContext`/`suppliersOf` (asignación en Precios, código mapeado o
     vigente; en un pack, la unión de sus modelos — `unitSuppliers`) **más las que no tienen ningún
