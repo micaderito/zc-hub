@@ -410,6 +410,60 @@ lectura vuelve en `autoMapped` y la UI lo avisa.
 ya volcados no se tocan. Las importaciones de Be Positive / Escolar anteriores a este fix tienen
 códigos inventados: hay que borrarlas y volver a importar.
 
+#### Proveedores y configuraciones de descuento (2026-10-15)
+
+Hasta acá "proveedor" era el string fijo `'punto_cero'` y el descuento venía de la lista importada
+(copiado a cada `product_costs`): no había forma de tener agendas al 30+5 y el resto al 25+5 del
+mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada producto. Diseño:
+`docs/plans/2026-10-15-precios-proveedores-descuentos.md`.
+
+- **Tablas** (`initDb()`, migración `2026-10-15_suppliers_discount_profiles`): `suppliers` (`key`
+  slug inmutable — los `'punto_cero'` ya guardados siguen valiendo), `discount_profiles` (configs de
+  CADA proveedor, una `is_default`), `product_suppliers` (pack o SKU ↔ proveedor, con su config o
+  `NULL` = sin config propia) y `product_costs.supplier_key` = **proveedor vigente**, el que manda el
+  costo. La migración crea "General" con el default viejo de Ajustes y una config por cada combinación
+  de % que ya tenían los costos (asignada al pack entero si todos sus modelos la comparten), así
+  ningún costo se movió.
+- **El descuento se resuelve en vivo** (`lib/discountResolver.js`, puro): config del SKU para su
+  proveedor vigente → la del pack → la default del proveedor → sin proveedor = 0. No se copia al
+  costo: editar una config mueve el precio de todo lo que la usa (y queda "pendiente de aplicar").
+  `product_costs.discount_1/2` y `pricing_settings.default_discount_*` quedan sin uso. Un costo
+  unitario directo no lleva descuento (ya es neto).
+- **Un código por proveedor**: `sku_code_map` / `pack_code_map` / `supplier_codes` pasaron a PK
+  compuesta con `supplier`. Importar, el mapeo automático (`autoMapFromLists`, ahora un pase por
+  proveedor), `applyListCosts` y mapear a mano trabajan con los mapas de ESE proveedor, y solo
+  vuelcan costo a un SKU cuyo vigente es ese proveedor o que todavía no tiene (y pasa a serlo): con
+  dos proveedores, la lista del que no es vigente no pisa nada. **El vigente se elige a mano**
+  (`PUT /api/pricing/vigente`): toma el precio de la última lista de ese proveedor con su código;
+  sin precio de lista, deja el costo y lo devuelve en `withoutPrice`. A la fábrica (Pedidos) va el
+  código del proveedor DEL PEDIDO (ver "Pedidos al proveedor"); `pickVigenteCodes` solo queda para
+  el catálogo pedido sin proveedor.
+- **Importar**: el modal pide proveedor + config (precargada con la default). La elegida va **solo**
+  a lo de la lista sin config propia (`onlyIfMissing`); lo que ya tiene una (los packs de agendas)
+  la conserva, y el resumen lo dice.
+- **Asignación masiva** (`PUT /api/pricing/assignments`): un pack seleccionado entero se asigna como
+  pack y eso limpia la config propia de sus modelos para ese proveedor (si no, una fila suelta
+  vieja taparía la del pack). Elegir la default guarda `NULL`.
+- **UI** (`pages/precios/`): una pestaña por proveedor (`?proveedor=`, "Todos" = todo) con tarjetas de
+  sus configs (editar, hacer default, borrar — la default no se borra; borrar una deja lo que la usaba
+  en la del pack/default). La tabla muestra **precio del bulto** ("12 u. · $X c/u"), columna
+  **Descuento** (chip de la config + "−25% −5%", tooltip con la cadena hasta el costo unitario) y el
+  valor final pasó como línea secundaria de "Te queda". Barra: "Asignar descuento…" y "Proveedor
+  vigente…". Mapeo: en un proveedor edita sus códigos; en "Todos" es de solo lectura y muestra el
+  código de cada proveedor. Borrar un proveedor con listas o productos vigentes da 409.
+- `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
+  usar `track a + '|' + b`.
+- **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de
+  `angular.json` y el build de producción fallaba): `precios.component` es solo la página contenedora
+  (encabezado, pestañas, qué diálogo está abierto) y provee `PreciosStore` (`precios.store.ts`: las
+  queries de config y planilla, pestaña de proveedor / vista en la URL, `changedSkus`, `notice`,
+  `dialog`). Adentro, todos `OnPush`: `planilla/` (tabla, selección, aplicar, `zc-assign-dialog`),
+  `proveedor/` (tarjetas de configs) y `dialogs/` (Ajustes, Importar, Costo, Historial de listas,
+  Proveedor, Configuración), cada diálogo solo existe mientras está abierto. Helpers puros en
+  `precios.utils.ts`. Los estilos de base (botones, badges, modales, campos) van una sola vez en
+  `precios.component.scss` sin encapsulación y bajo `:where(.pr-page)` — especificidad cero, así el
+  estilo propio de cada componente (y los de Mapeo) los pisa; cada componente trae solo lo suyo.
+
 ### Alertas de stock: sugerencia de reposición por pack, no por modelo
 
 En "Para reponer" (`backend/src/services/alertsService.js`, `frontend/.../pages/alertas/`), cuando
@@ -493,6 +547,23 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
 - **Vista para la fábrica** (`factory-sheet.ts`): hoja con código · descripción · cantidad · detalle,
   siempre en fondo blanco (sin tokens, es lo que se manda afuera). "Descargar imagen" la dibuja en
   canvas (sin dependencias) y "Copiar como tabla" pone HTML + TSV en el portapapeles.
+- **Proveedor del pedido** (`supplier_orders.supplier_key`, 2026-10-15; los anteriores quedaron
+  `'punto_cero'` — el `UPDATE … WHERE supplier_key IS NULL` corre en cada `initDb()` a propósito, por
+  si un backend viejo sigue creando pedidos). Se elige al crear ("Nuevo pedido" abre un modal con los
+  proveedores; con uno solo crea directo) y no se cambia después; duplicar/repetir lo conserva. Sin FK
+  (el pedido es historial): borrar un proveedor con pedidos da 409 (`getSupplierUsage().orders`).
+  - **Descuentos**: el pedido nuevo arranca con la config **default del proveedor** (misma cadena:
+    el 1.º sobre la lista, el 2.º sobre lo que queda); `supplier_order_defaults` es solo el fallback
+    de un proveedor sin config, y la lista ya no muestra su editor. `GET /api/orders/suppliers`
+    devuelve cada proveedor con su descuento default.
+  - **Catálogo** (`GET /api/orders/catalog?supplier=`): solo las unidades que se le compran a ese
+    proveedor según `buildDiscountContext`/`suppliersOf` (asignación en Precios, código mapeado o
+    vigente; en un pack, la unión de sus modelos — `unitSuppliers`) **más las que no tienen ningún
+    proveedor** (`suppliers: []`), que el editor esconde detrás del tilde "Sin proveedor". El código y
+    la descripción son los de ESE proveedor (`codesForSupplier`); el SKU propio del pack
+    (`product_packs.sku`) solo se usa si el pack no tiene otro proveedor vigente. El precio sigue
+    siendo el de Precios (= del vigente): si el vigente es otro, la fila dice "precio de X".
+  - Lista: filtro por proveedor (los chips de estado cuentan sobre él) y el proveedor en cada fila.
 - `createSupplierOrder` calcula `ordered_at` en JS: reusar un `$n` como valor de columna y en un
   `CASE` hace que Postgres deduzca dos tipos (mismo bug que tuvo `finishPublishJob`).
 
@@ -1155,7 +1226,13 @@ faltantes, validación) y `backend/test/routesOrders.test.js` (ciclo borrador �
 incompleto, 409 fuera de estado, repetir como pendiente, descuentos por defecto) + el SQL real en
 `backend/test/publishJobsRealDb.test.js` (mismo archivo a propósito: dos archivos con `initDb()` en
 paralelo chocan creando tablas); en el front
-`orders.service.spec.ts`, `factory-sheet.spec.ts` y `pedido-editor.component.spec.ts`.
+`orders.service.spec.ts`, `factory-sheet.spec.ts`, `pedido-editor.component.spec.ts` y
+`pedidos-list.component.spec.ts`. Proveedor del pedido: `ordersService.test.js` (`codesForSupplier`,
+`unitSuppliers`, catálogo filtrado con lo sin proveedor y el SKU propio del pack de otro vigente),
+`routesOrders.test.js` (descuentos de la config default, 400 con proveedor inexistente, filtro de la
+lista, duplicar conserva el proveedor, catálogo por proveedor con su código), el SQL real en
+`publishJobsRealDb.test.js`; en el front el catálogo por proveedor, "Sin proveedor" y "precio de X"
+en `pedido-editor.component.spec.ts` y el modal/filtro en `pedidos-list.component.spec.ts`.
 `backend/test/salesService.test.js` (clasificación, armado de la fila, período anterior,
 agregación por provincia con comparativa y excluidas, y que un pack de varios productos cuente
 como 1 venta y no una por línea de orden), `backend/test/routesSales.test.js`
@@ -1246,6 +1323,14 @@ ignora códigos sin lista, modelos de un pack que no matcheó, lo sacado a mano 
 `getPreview`), `deletePriceList` + la marca de "sacado" en `publishJobsRealDb.test.js`; en el front
 `mapeo-proveedor.component.spec.ts` (pack con sus modelos, código propio de un modelo, aviso del
 mapeo automático) y `precios.component.spec.ts` (borrar una lista).
+Proveedores y descuentos: `discountResolver.test.js` (SKU > pack > default, una fila sin config no
+tapa la del pack, solo cuenta el proveedor vigente, a qué proveedores pertenece un SKU),
+`pricingService.test.js` (descuento y precio del bulto en el preview, editar una config mueve el costo
+y marca pendiente, asignar a un pack limpia sus modelos, el import aplica la config solo a lo sin config
+propia, la lista de otro proveedor no pisa al vigente, cambiar el vigente toma su lista, ABM con 409) y
+el SQL real en `publishJobsRealDb.test.js` (configs, `onlyIfMissing`, default que se desasigna, código por
+proveedor, borrado en cascada); en el front `precios.component.spec.ts` (pestañas, columnas, asignación,
+import con proveedor/config) y `mapeo-proveedor.component.spec.ts` ("Todos" de solo lectura).
 
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y
 Full, carrito = un paquete con un solo GET de envío, buckets atrasado/hoy/próximos con `now`

@@ -1,0 +1,86 @@
+@if (settingsDraft(); as s) {
+  <div class="modal-backdrop" (click)="store.close()">
+    <div class="modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2>Ajustes de precios</h2>
+        <button type="button" class="icon-btn" (click)="store.close()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-note"><i class="ti ti-world"></i> Valores globales, iguales para todos los proveedores. Precargados con los del Excel.</p>
+
+        <div class="grid2">
+          <label class="fld">Comisión por vender (%)
+            <input type="number" [ngModel]="s.commissionPct" (ngModelChange)="updateSettingsDraft('commissionPct', $event)" />
+          </label>
+          <label class="fld">Impuestos por venta ($)
+            <input type="number" [ngModel]="s.taxes" (ngModelChange)="updateSettingsDraft('taxes', $event)" />
+          </label>
+          <label class="fld">Costo de envío ($)
+            <input type="number" [ngModel]="s.shippingCost" (ngModelChange)="updateSettingsDraft('shippingCost', $event)" />
+          </label>
+          <label class="fld">Umbral de envío gratis ($)
+            <input type="number" [ngModel]="s.freeShippingThreshold" (ngModelChange)="updateSettingsDraft('freeShippingThreshold', $event)" />
+          </label>
+          <label class="fld">Recargo tarjeta (×)
+            <input type="number" step="0.01" [ngModel]="s.cardMultiplier" (ngModelChange)="updateSettingsDraft('cardMultiplier', $event)" />
+          </label>
+          <label class="fld">Redondeo (múltiplo)
+            <input type="number" [ngModel]="s.roundStep" (ngModelChange)="updateSettingsDraft('roundStep', $event)" />
+          </label>
+          <label class="fld">Ganancia por default (%)
+            <input type="number" [ngModel]="s.defaultMarginPct" (ngModelChange)="updateSettingsDraft('defaultMarginPct', $event)" />
+          </label>
+        </div>
+
+        <div class="fees-head">
+          <h3 class="modal-sub"><i class="ti ti-stairs"></i> Comisión fija por tramo de ML</h3>
+          <button type="button" class="btn btn-s" [disabled]="syncingFees()" (click)="fetchMlFees()">
+            <i class="ti ti-cloud-download"></i> {{ syncingFees() ? 'Consultando…' : 'Traer de ML' }}
+          </button>
+        </div>
+        <p class="modal-note">La fija depende del precio publicado, no del producto.</p>
+
+        @if (feesSync(); as sync) {
+          <div class="fees-compare">
+            <div class="fees-row">
+              <span>Comisión</span>
+              <span class="fees-vals">
+                <span class="cur">{{ sync.current.commissionPct }}%</span>
+                <i class="ti ti-arrow-right"></i>
+                <span class="rem">{{ sync.remote.commissionPct }}%</span>
+              </span>
+            </div>
+            <div class="fees-tiers">
+              <span>ML dice:</span>
+              @for (t of sync.remote.tiers; track $index) {
+                <span class="tier-pill">{{ t.maxPrice ? ('hasta ' + t.maxPrice) : 'sin tope' }} · {{ t.fixedFee }}</span>
+              }
+            </div>
+            <p class="fees-warn"><i class="ti ti-info-circle"></i> Los tramos son aproximados (sondeo de precios) y el cargo fijo en Argentina varía según el peso. Revisá antes de aplicar.</p>
+            <button type="button" class="btn btn-s pri" (click)="applyMlFeesToDraft()"><i class="ti ti-arrow-down"></i> Usar estos valores</button>
+          </div>
+        }
+        <table class="tiers">
+          <thead><tr><th>Hasta ($)</th><th class="num">Comisión fija ($)</th></tr></thead>
+          <tbody>
+            @for (t of tiersDraft(); track $index) {
+              <tr>
+                <td>
+                  @if (t.maxPrice == null) { <span class="tier-top">sin tope</span> }
+                  @else { <input type="number" [ngModel]="t.maxPrice" (ngModelChange)="updateTier($index, 'maxPrice', $event)" /> }
+                </td>
+                <td class="num"><input type="number" [ngModel]="t.fixedFee" (ngModelChange)="updateTier($index, 'fixedFee', $event)" /></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-foot">
+        @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+        <div class="spacer"></div>
+        <button type="button" class="btn" (click)="store.close()">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="saving()" (click)="save()">{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+      </div>
+    </div>
+  </div>
+}

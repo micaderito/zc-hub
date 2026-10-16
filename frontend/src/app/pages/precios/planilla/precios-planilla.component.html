@@ -1,0 +1,308 @@
+<!-- Resumen de valores fijos (viven en Ajustes) -->
+@if (store.config(); as c) {
+  <div class="pr-rules">
+    <span class="pr-rules-label"><i class="ti ti-lock"></i> Ajustes</span>
+    <span class="chip"><i class="ti ti-percentage"></i> Comisión ML <b>{{ c.settings.commissionPct }}%</b></span>
+    <span class="chip"><i class="ti ti-stairs"></i> Comisión fija <b>por tramo</b></span>
+    <span class="chip"><i class="ti ti-receipt-tax"></i> Impuestos <b>{{ c.settings.taxes | currency:'ARS':'symbol':'1.0-0' }}</b></span>
+    <span class="chip"><i class="ti ti-truck"></i> Envío gratis <b>&gt; {{ c.settings.freeShippingThreshold | currency:'ARS':'symbol':'1.0-0' }}</b></span>
+    <span class="chip"><i class="ti ti-credit-card"></i> Tarjeta <b>×{{ c.settings.cardMultiplier }}</b></span>
+    <span class="chip"><i class="ti ti-arrow-bar-to-up"></i> Redondeo <b>↑ {{ c.settings.roundStep }}</b></span>
+    <button type="button" class="link" (click)="store.open({ kind: 'settings' })">editar</button>
+  </div>
+}
+
+<div class="pr-toolbar">
+  <div class="pr-search">
+    <i class="ti ti-search"></i>
+    <input type="text" placeholder="Buscar SKU o producto…" [ngModel]="search()" (ngModelChange)="search.set($event)" />
+  </div>
+  <button
+    type="button"
+    class="pend-chip"
+    [class.on]="onlyPending()"
+    (click)="onlyPending.set(!onlyPending())"
+    [attr.aria-pressed]="onlyPending()"
+    title="Productos cuyo precio a aplicar no coincide con el publicado hoy en ML o TN"
+  >
+    <i class="ti ti-clock-exclamation"></i> Solo pendientes <b>{{ pendingCount() }}</b>
+  </button>
+  @if (pendingCount() > 0) {
+    <button type="button" class="link" (click)="selectPending()">Seleccionar pendientes</button>
+  }
+  @if (priceGroups().groups.length > 0) {
+    <span class="pr-pack-toggles">
+      <button type="button" class="link" (click)="setAllPacksExpanded(true)">Desplegar packs</button>
+      <button type="button" class="link" (click)="setAllPacksExpanded(false)">Plegar packs</button>
+    </span>
+  }
+  @if (store.notice()) {
+    <span class="pr-applied"><i class="ti ti-circle-check"></i> {{ store.notice() }}</span>
+  }
+  @if (store.changedSkus().size > 0) {
+    <span class="pr-changed-banner">
+      <i class="ti ti-sparkles"></i> {{ store.changedSkus().size }} producto{{ store.changedSkus().size === 1 ? '' : 's' }} con precio afectado por el último cambio
+      <button type="button" class="link" (click)="store.markChanged([])">ocultar</button>
+    </span>
+  }
+</div>
+
+@if (errorMsg()) {
+  <div class="pr-error">{{ errorMsg() }}</div>
+}
+
+<!-- Tabla -->
+@if (store.previewQuery.isLoading()) {
+  <p class="pr-msg">Cargando…</p>
+} @else if (store.rows().length === 0 && store.currentSupplier() && store.allRows().length > 0) {
+  <div class="pr-empty">
+    <i class="ti ti-building-store"></i>
+    <p>Todavía no hay productos de {{ store.currentSupplier()!.name }}.</p>
+    <p class="hint">En "Todos", seleccioná los productos que le comprás y usá "Proveedor vigente…", o importá su lista. También podés cargar un costo a mano.</p>
+    <button type="button" class="btn pri" (click)="store.open({ kind: 'cost', row: null })"><i class="ti ti-plus"></i> Agregar costo</button>
+  </div>
+} @else if (store.rows().length === 0) {
+  <div class="pr-empty">
+    <i class="ti ti-tag"></i>
+    <p>Todavía no cargaste ningún costo.</p>
+    <p class="hint">Agregá un costo manual (por bulto o por unidad) y la app calcula los precios de Tienda Nube y Mercado Libre.</p>
+    <button type="button" class="btn pri" (click)="store.open({ kind: 'cost', row: null })"><i class="ti ti-plus"></i> Agregar el primero</button>
+  </div>
+} @else {
+  <div class="pr-table-wrap">
+    <table class="pr-table">
+      <thead>
+        <tr>
+          <th class="col-check"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th>
+          <th>Producto</th>
+          <th class="num">Bulto</th>
+          <th>Descuento</th>
+          <th class="num" title="En cuánto te queda cada unidad, con el descuento">Costo u.</th>
+          <th class="num tn">Tienda Nube ↑</th>
+          <th class="num ml">Mercado Libre ↑</th>
+          <th class="num">Te queda</th>
+          <th class="col-actions"></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (group of priceGroups().groups; track group.pack.packId) {
+          <tr class="group-row" [class.group-changed]="groupChanged(group)">
+            <td class="col-check">
+              <input
+                type="checkbox"
+                [checked]="groupSelection(group) === 'all'"
+                [indeterminate]="groupSelection(group) === 'some'"
+                (change)="toggleGroup(group)"
+                [attr.aria-label]="'Seleccionar todo el pack ' + group.pack.name"
+              />
+            </td>
+            <td [attr.colspan]="4">
+              <button
+                type="button"
+                class="group-toggle"
+                (click)="togglePack(group.pack.packId)"
+                [attr.aria-expanded]="isPackExpanded(group.pack.packId)"
+              >
+                <i class="ti" [class.ti-chevron-down]="isPackExpanded(group.pack.packId)" [class.ti-chevron-right]="!isPackExpanded(group.pack.packId)" aria-hidden="true"></i>
+                <i class="ti ti-stack-2" aria-hidden="true"></i>
+                <b>{{ group.pack.name }}</b>
+                @if (group.pack.sku) { <span class="pack-sku">{{ group.pack.sku }}</span> }
+                <span class="zc-badge">pack de {{ group.pack.unitCount }} u.</span>
+                <span class="group-total">{{ group.rows.length }} modelo{{ group.rows.length === 1 ? '' : 's' }}</span>
+                @if (group.unpublished > 0) {
+                  <span class="badge warn" title="Modelos cuyo SKU no aparece en ML ni en TN">{{ group.unpublished }} no publicado{{ group.unpublished === 1 ? '' : 's' }}</span>
+                }
+                @if (group.pending > 0) {
+                  <span class="badge pend">{{ group.pending }} pendiente{{ group.pending === 1 ? '' : 's' }}</span>
+                }
+                @if (group.discountLabel) { <span class="badge disc" title="Configuración de descuento">{{ group.discountLabel }}</span> }
+                @if (groupChanged(group)) { <span class="badge brand"><i class="ti ti-sparkles"></i> cambió</span> }
+              </button>
+            </td>
+            <td class="num tn group-price">
+              {{ group.tn.min | currency:'ARS':'symbol':'1.0-0' }}@if (group.tn.max !== group.tn.min) { – {{ group.tn.max | currency:'ARS':'symbol':'1.0-0' }} }
+            </td>
+            <td class="num ml group-price">
+              {{ group.ml.min | currency:'ARS':'symbol':'1.0-0' }}@if (group.ml.max !== group.ml.min) { – {{ group.ml.max | currency:'ARS':'symbol':'1.0-0' }} }
+            </td>
+            <td colspan="2"></td>
+          </tr>
+          @if (isPackExpanded(group.pack.packId)) {
+            @for (row of group.rows; track row.sku) {
+              <ng-container *ngTemplateOutlet="priceRowTpl; context: { $implicit: row, inPack: true }" />
+            }
+          }
+        }
+        @if (priceGroups().noPack.length > 0) {
+          @if (priceGroups().groups.length > 0) {
+            <tr class="group-row">
+              <td [attr.colspan]="9">
+                <div class="group-row-inner group-static"><i class="ti ti-package-off" aria-hidden="true"></i> <b>Sin pack</b></div>
+              </td>
+            </tr>
+          }
+          @for (row of priceGroups().noPack; track row.sku) {
+            <ng-container *ngTemplateOutlet="priceRowTpl; context: { $implicit: row }" />
+          }
+        }
+        @if (filteredRows().length === 0) {
+          <tr>
+            <td colspan="9" class="pr-none">
+              @if (onlyPending() && !search().trim()) {
+                <i class="ti ti-circle-check"></i> No hay nada pendiente: lo publicado en ML y TN coincide con lo calculado.
+              } @else {
+                No hay productos que coincidan con la búsqueda.
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}
+
+<!-- Fila de producto, reutilizada agrupada o suelta -->
+<ng-template #priceRowTpl let-row let-inPack="inPack">
+  <tr [class.row-unmapped]="!row.mappedMl && !row.mappedTn" [class.row-changed]="store.changedSkus().has(row.sku)" [class.row-in-pack]="inPack">
+    <td class="col-check">
+      <input type="checkbox" [checked]="selected().has(row.sku)" (change)="toggleRow(row.sku)" />
+    </td>
+    <td>
+      <div class="pr-prod">
+        <span class="pr-prod-name" [attr.title]="row.label && row.name ? 'En la lista: ' + row.label : null">{{ row.name || row.label || row.sku }}</span>
+        <span class="pr-prod-sub">
+          <span class="sku">{{ row.sku }}</span>
+          @if (row.mappedMl) { <span class="badge ml">ML</span> }
+          @if (row.mappedTn) { <span class="badge tn">TN</span> }
+          @if (!row.mappedMl && !row.mappedTn) {
+            <span class="badge warn" title="Este SKU no aparece en Mercado Libre ni en Tienda Nube: no hay dónde aplicar el precio">no publicado</span>
+          }
+          @if (row.source === 'manual') { <span class="badge neu"><i class="ti ti-pencil"></i> manual</span> }
+          @if (!store.currentSupplier()) {
+            <span class="sup" [attr.title]="row.suppliers.length > 1 ? suppliersTitle(row) : null">
+              {{ store.supplierName(row.supplierKey) }}@if (row.suppliers.length > 1) { <b> +{{ row.suppliers.length - 1 }}</b> }
+            </span>
+          } @else if (row.supplierKey && row.supplierKey !== store.currentSupplier()!.key) {
+            <span class="badge warn" title="El costo sale de otro proveedor: cambialo con 'Proveedor vigente'">vigente: {{ store.supplierName(row.supplierKey) }}</span>
+          }
+          @if (isPending(row)) {
+            <span class="badge pend" title="El precio a aplicar no coincide con el publicado hoy">pendiente de aplicar</span>
+          } @else if (row.mlQueued) {
+            <span class="badge neu" title="Se aplicó y la cola de ML todavía lo está escribiendo"><i class="ti ti-clock"></i> en cola ML</span>
+          }
+        </span>
+      </div>
+    </td>
+    <td class="num">
+      @if (row.bulkPrice != null) {
+        <span class="cell-main">{{ row.bulkPrice | currency:'ARS':'symbol':'1.0-0' }}</span>
+        <span class="cell-sub">{{ row.bulkQty }} u. · {{ row.unitListPrice | currency:'ARS':'symbol':'1.0-0' }} c/u</span>
+      } @else {
+        <span class="muted">{{ row.bulkQty ?? '—' }}</span>
+      }
+    </td>
+    <td class="disc-cell" [attr.title]="discountChain(row) || null">
+      @if (row.discount; as d) {
+        <span class="badge disc" [class.own]="d.level === 'sku'" [class.none]="d.level === 'none'">
+          @if (d.level === 'pack') { <i class="ti ti-stack-2" aria-hidden="true"></i> }
+          {{ d.name ?? 'Sin proveedor' }}
+        </span>
+        <span class="cell-sub">{{ discountPcts(d) }}</span>
+      } @else {
+        <span class="muted" title="Costo unitario cargado directo: ya es neto">—</span>
+      }
+    </td>
+    <td class="num">
+      <span class="cell-main">{{ row.unitCost | currency:'ARS':'symbol':'1.0-0' }}</span>
+    </td>
+    <td class="num tn">
+      <div class="price-cell">
+        <input
+          class="zc-input price-input"
+          type="number"
+          [ngModel]="row.tn.effective"
+          [ngModelOptions]="{ updateOn: 'blur' }"
+          (ngModelChange)="updateOverride(row, 'tn', $event)"
+        />
+        @if (row.tn.override != null) {
+          <span class="calc-ref" title="Precio calculado">calc. {{ row.tn.list | currency:'ARS':'symbol':'1.0-0' }}</span>
+        }
+      </div>
+      <ng-container *ngTemplateOutlet="publishedTpl; context: { current: row.currentTn, next: row.tn.effective, pending: row.pendingTn, queued: false }" />
+    </td>
+    <td class="num ml">
+      <div class="price-cell">
+        <input
+          class="zc-input price-input"
+          type="number"
+          [ngModel]="row.mlEffective"
+          [ngModelOptions]="{ updateOn: 'blur' }"
+          (ngModelChange)="updateOverride(row, 'ml', $event)"
+        />
+        @if (row.mlOverride != null) {
+          <span class="calc-ref" title="Precio calculado">calc. {{ row.ml | currency:'ARS':'symbol':'1.0-0' }}</span>
+        }
+      </div>
+      @if (row.freeShipping) { <i class="ti ti-truck" title="En zona de envío gratis"></i> }
+      <ng-container *ngTemplateOutlet="publishedTpl; context: { current: row.currentMl, next: row.mlEffective, pending: row.pendingMl, queued: row.mlQueued }" />
+    </td>
+    <td class="num net">
+      <span class="cell-main">{{ row.mlNet | currency:'ARS':'symbol':'1.0-0' }}</span>
+      <span class="cell-sub" title="Valor final: lo que querés netear (costo + ganancia)">v. final {{ row.valorFinal | currency:'ARS':'symbol':'1.0-0' }}</span>
+    </td>
+    <td class="col-actions">
+      <button type="button" class="icon-btn" (click)="historySku.set(row.sku)" title="Ver historial"><i class="ti ti-history"></i></button>
+      <button type="button" class="icon-btn" (click)="store.open({ kind: 'cost', row })" title="Editar costo"><i class="ti ti-pencil"></i></button>
+      <button type="button" class="icon-btn danger" (click)="removeCost(row.sku)" title="Borrar"><i class="ti ti-trash"></i></button>
+    </td>
+  </tr>
+</ng-template>
+
+<!-- Barra de acción -->
+@if (store.rows().length > 0) {
+  <div class="pr-actionbar">
+    <div class="pr-sel"><b>{{ selectedCount() }}</b> seleccionados</div>
+    <button type="button" class="btn" [disabled]="selectedCount() === 0 || store.suppliers().length === 0" (click)="assignMode.set('discount')">
+      <i class="ti ti-discount"></i> Asignar descuento…
+    </button>
+    <button type="button" class="btn" [disabled]="selectedCount() === 0 || store.suppliers().length === 0" (click)="assignMode.set('vigente')">
+      <i class="ti ti-building-store"></i> Proveedor vigente…
+    </button>
+    <div class="spacer"></div>
+    <button type="button" class="btn pri" [disabled]="selectedCount() === 0 || applying()" (click)="apply()">
+      <i class="ti ti-rocket"></i>
+      {{ applying() ? 'Encolando…' : 'Aplicar a ML y TN' }}
+    </button>
+  </div>
+}
+<!-- Precio publicado hoy en un canal, debajo del precio a aplicar -->
+<ng-template #publishedTpl let-current="current" let-next="next" let-pending="pending" let-queued="queued">
+  @if (current != null) {
+    @if (pending && queued) {
+      <span class="pub-ref" title="Se aplicó; la cola de ML todavía lo está escribiendo"><i class="ti ti-clock"></i> en cola · hoy {{ current | currency:'ARS':'symbol':'1.0-0' }}</span>
+    } @else if (pending) {
+      <span class="pub-ref pending" title="Precio publicado hoy">
+        hoy {{ current | currency:'ARS':'symbol':'1.0-0' }}
+        @if (delta(current, next); as d) {
+          <span class="delta" [class.up]="d.dir === 'up'" [class.down]="d.dir === 'down'">{{ d.pct > 0 ? '+' : '' }}{{ d.pct }}%</span>
+        }
+      </span>
+    } @else {
+      <span class="pub-ref ok" title="Lo publicado coincide"><i class="ti ti-check"></i> publicado</span>
+    }
+  }
+</ng-template>
+
+@if (assignMode(); as mode) {
+  <zc-assign-dialog
+    [mode]="mode"
+    [targets]="selectionTargets()"
+    [selectedCount]="selectedCount()"
+    [defaultSupplier]="assignDefaultSupplier()"
+    (closed)="assignMode.set(null)"
+  />
+}
+
+@if (historySku(); as sku) {
+  <zc-product-history-dialog [sku]="sku" initialTab="price" (closed)="historySku.set(null)" />
+}

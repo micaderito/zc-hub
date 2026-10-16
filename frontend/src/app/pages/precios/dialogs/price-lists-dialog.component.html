@@ -1,0 +1,50 @@
+<div class="modal-backdrop" (click)="store.close()">
+  <div class="modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h2>Historial de listas</h2>
+      <button type="button" class="icon-btn" (click)="store.close()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      @if (listsQuery.isLoading()) {
+        <p class="pr-msg">Cargando…</p>
+      } @else if (lists().length === 0) {
+        <p class="pr-msg">Todavía no importaste ninguna lista del proveedor.</p>
+      } @else {
+        <ul class="mapping-list">
+          @for (l of lists(); track l.id) {
+            <li class="mapping-row">
+              <div class="mapping-info">
+                <code>{{ l.label }}</code>
+                @if (l.supplierName) { <span class="badge neu">{{ l.supplierName }}</span> }
+                <span class="why">{{ l.itemCount }} ítems</span>
+                @if (l.discount1 || l.discount2) {
+                  <span class="why" title="Configuración con la que se importó">desc. {{ l.discount1 }}% + {{ l.discount2 }}%</span>
+                }
+                <span class="why">{{ l.importedAt | date: 'dd/MM/yy HH:mm' }}</span>
+              </div>
+              @if (confirmDeleteId() === l.id) {
+                <span class="list-del-confirm">
+                  ¿Borrar esta lista?
+                  <button type="button" class="btn btn-s danger" [disabled]="deleting()" (click)="deleteList(l)">
+                    {{ deleting() ? 'Borrando…' : 'Sí, borrar' }}
+                  </button>
+                  <button type="button" class="btn btn-s" (click)="confirmDeleteId.set(null)">No</button>
+                </span>
+              } @else {
+                <button type="button" class="icon-btn danger" title="Borrar la lista" (click)="confirmDeleteId.set(l.id)">
+                  <i class="ti ti-trash"></i>
+                </button>
+              }
+            </li>
+          }
+        </ul>
+        @if (deleteError()) { <p class="pr-msg err">{{ deleteError() }}</p> }
+        <p class="modal-note"><i class="ti ti-info-circle"></i> Para cambiar precios de nuevo, importá otra lista (o la misma actualizada) desde "Importar lista". Borrar una lista no cambia los costos que ya cargó: sirve para sacar una importación mal leída y volver a importarla.</p>
+      }
+    </div>
+    <div class="modal-foot">
+      <div class="spacer"></div>
+      <button type="button" class="btn" (click)="store.close()">Cerrar</button>
+    </div>
+  </div>
+</div>

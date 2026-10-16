@@ -8,6 +8,7 @@ import { ApiService } from './api.service';
 export const ORDERS_LIST_QUERY_KEY = ['orders', 'list'] as const;
 export const ORDERS_CATALOG_QUERY_KEY = ['orders', 'catalog'] as const;
 export const ORDERS_SETTINGS_QUERY_KEY = ['orders', 'settings'] as const;
+export const ORDERS_SUPPLIERS_QUERY_KEY = ['orders', 'suppliers'] as const;
 
 export type OrderStatus = 'borrador' | 'pendiente' | 'recibido';
 export type OrderLineKind = 'pack' | 'sku' | 'free';
@@ -56,6 +57,8 @@ export interface SupplierOrder {
   discount2: number;
   note: string;
   basedOnId: number | null;
+  /** Proveedor al que se le hace el pedido (`suppliers.key`). */
+  supplierKey: string | null;
   createdAt: string | null;
   updatedAt: string | null;
   orderedAt: string | null;
@@ -96,6 +99,19 @@ export interface CatalogUnit {
   depositoStock: number | null;
   lastOrder: { orderId: number; orderName: string; date: string | null; qty: number } | null;
   pendingOrder: { orderId: number; orderName: string } | null;
+  /** Proveedores a los que se le compra (el vigente primero). Vacío = no tiene ninguno en Precios. */
+  suppliers: string[];
+  /** Proveedor vigente: el que puso el precio de Precios. */
+  priceSupplier: string | null;
+}
+
+/** Un proveedor para elegir al crear un pedido, con el descuento de su config default. */
+export interface OrderSupplier {
+  key: string;
+  name: string;
+  profileName: string | null;
+  discount1: number | null;
+  discount2: number | null;
 }
 
 export interface OrderDefaults {
@@ -127,8 +143,15 @@ export class OrdersService {
     return lastValueFrom(this.http.get<{ orders: SupplierOrder[] }>(this.base, { params }));
   }
 
-  catalog(): Promise<{ units: CatalogUnit[] }> {
-    return lastValueFrom(this.http.get<{ units: CatalogUnit[] }>(`${this.base}/catalog`));
+  /** Con `supplierKey`: solo lo que se le compra a ese proveedor (+ lo sin proveedor), con su código. */
+  catalog(supplierKey?: string | null): Promise<{ units: CatalogUnit[] }> {
+    let params = new HttpParams();
+    if (supplierKey) params = params.set('supplier', supplierKey);
+    return lastValueFrom(this.http.get<{ units: CatalogUnit[] }>(`${this.base}/catalog`, { params }));
+  }
+
+  suppliers(): Promise<{ suppliers: OrderSupplier[] }> {
+    return lastValueFrom(this.http.get<{ suppliers: OrderSupplier[] }>(`${this.base}/suppliers`));
   }
 
   getSettings(): Promise<OrderDefaults> {
@@ -145,8 +168,9 @@ export class OrdersService {
     return (await lastValueFrom(this.http.get<{ order: SupplierOrder }>(`${this.base}/${id}`))).order;
   }
 
-  async create(name?: string): Promise<SupplierOrder> {
-    const r = await lastValueFrom(this.http.post<{ order: SupplierOrder }>(this.base, { name }));
+  /** Los descuentos del pedido nuevo salen de la config default del proveedor. */
+  async create(opts: { name?: string; supplierKey?: string } = {}): Promise<SupplierOrder> {
+    const r = await lastValueFrom(this.http.post<{ order: SupplierOrder }>(this.base, opts));
     this.invalidate();
     return r.order;
   }

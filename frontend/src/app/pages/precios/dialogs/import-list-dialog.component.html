@@ -1,0 +1,242 @@
+<div class="modal-backdrop" (click)="store.close()">
+  <div class="modal wide" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h2>Importar lista del proveedor</h2>
+      <button type="button" class="icon-btn" (click)="store.close()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+    </div>
+
+    <div class="modal-body">
+      @if (importResult(); as res) {
+        <!-- Resumen de lo importado: qué tomó precio de esta lista y qué quedó afuera -->
+        <div class="import-done">
+          <i class="ti ti-circle-check"></i>
+          <div>
+            <b>Lista "{{ importLabel() }}" importada.</b>
+            <span>{{ res.costsUpdated }} costo{{ res.costsUpdated === 1 ? '' : 's' }} actualizado{{ res.costsUpdated === 1 ? '' : 's' }}
+              · {{ res.changedSkus.length }} con precio distinto al anterior.</span>
+          </div>
+        </div>
+        @if (res.summary.profileName) {
+          <p class="modal-note">
+            <i class="ti ti-discount" aria-hidden="true"></i>
+            {{ res.summary.withChosenProfile ?? 0 }} producto{{ res.summary.withChosenProfile === 1 ? '' : 's' }} con "{{ res.summary.profileName }}"
+            @if (res.summary.withOwnProfile?.length) {
+              · {{ res.summary.withOwnProfile!.length }} conserva{{ res.summary.withOwnProfile!.length === 1 ? '' : 'n' }} su configuración propia
+            }
+          </p>
+          @if (res.summary.withOwnProfile?.length) {
+            <details class="import-breakdown">
+              <summary class="muted">Ver los que conservan su configuración</summary>
+              <ul class="brief-list">
+                @for (b of res.summary.withOwnProfile!; track b.sku) {
+                  <li><span>{{ briefName(b) }}</span> <span class="badge disc">{{ b.profileName }}</span></li>
+                }
+              </ul>
+            </details>
+          }
+        }
+        <div class="import-breakdown">
+          <details [open]="res.summary.inList.length > 0 && res.summary.inList.length <= 15">
+            <summary>
+              <i class="ti ti-link"></i>
+              <b>{{ res.summary.inList.length }}</b> producto{{ res.summary.inList.length === 1 ? '' : 's' }} con precio de esta lista
+            </summary>
+            <ng-container *ngTemplateOutlet="briefList; context: { $implicit: res.summary.inList, showCode: true }" />
+          </details>
+          @if (res.summary.otherLists > 0) {
+            <div class="bd-line muted">
+              <i class="ti ti-files"></i>
+              <b>{{ res.summary.otherLists }}</b> con código de otra lista (no se tocaron)
+            </div>
+          }
+          @if (res.summary.unmatched.length > 0) {
+            <details>
+              <summary class="warn">
+                <i class="ti ti-link-off"></i>
+                <b>{{ res.summary.unmatched.length }}</b> producto{{ res.summary.unmatched.length === 1 ? '' : 's' }} de la tienda sin código
+              </summary>
+              <ng-container *ngTemplateOutlet="briefList; context: { $implicit: res.summary.unmatched, showCode: false }" />
+            </details>
+          }
+          @if (res.summary.codesWithoutProduct.length > 0) {
+            <details>
+              <summary class="muted">
+                <i class="ti ti-file-unknown"></i>
+                <b>{{ res.summary.codesWithoutProduct.length }}</b> código{{ res.summary.codesWithoutProduct.length === 1 ? '' : 's' }} de la lista sin producto en la tienda
+              </summary>
+              <ul class="brief-list">
+                @for (c of res.summary.codesWithoutProduct; track c.code) {
+                  <li><code>{{ c.code }}</code> {{ c.description }}</li>
+                }
+              </ul>
+            </details>
+          }
+        </div>
+        <p class="modal-note"><i class="ti ti-info-circle"></i> Si tenés otras listas, importalas también: cada una actualiza solo sus productos.</p>
+      } @else {
+        <!-- 1. Archivo -->
+        <label class="dropzone">
+          <input type="file" accept=".pdf,.csv,.txt" (change)="onFileSelected($event)" hidden />
+          <i class="ti ti-file-upload"></i>
+          @if (importing()) {
+            <span>Leyendo el archivo…</span>
+          } @else if (importFileName()) {
+            <span><b>{{ importFileName() }}</b> · {{ importFormat() === 'pdf' ? 'PDF' : 'CSV' }}</span>
+            <span class="hint">Clic para elegir otro</span>
+          } @else {
+            <span>Elegí el PDF de {{ store.supplierName(importSupplier()) }} (o un CSV)</span>
+            <span class="hint">El archivo se lee en tu navegador; al servidor solo va el texto.</span>
+          }
+        </label>
+
+        @if (importPreview(); as prev) {
+          <!-- 2. Datos de la compra -->
+          <div class="grid2" style="margin-top:14px">
+            <label class="fld">Nombre de la lista
+              <input type="text" [ngModel]="importLabel()" (ngModelChange)="importLabel.set($event)" placeholder="Ej: Marzo 2026" />
+            </label>
+            <label class="fld">Proveedor
+              <select [ngModel]="importSupplier()" (ngModelChange)="setImportSupplier($event)">
+                @for (s of store.suppliers(); track s.key) { <option [value]="s.key">{{ s.name }}</option> }
+              </select>
+            </label>
+          </div>
+          <label class="fld">Configuración de descuento
+            <select [ngModel]="importProfileId()" (ngModelChange)="importProfileId.set($event)">
+              @for (p of importProfiles(); track p.id) {
+                <option [ngValue]="p.id">{{ p.name }} · {{ discountPcts(p) }}{{ p.isDefault ? ' (default)' : '' }}</option>
+              }
+            </select>
+          </label>
+          <p class="modal-note"><i class="ti ti-info-circle"></i> Se aplica a lo de esta lista que no tiene una configuración propia. Lo que ya tiene una (por ejemplo, un pack de agendas) la conserva.</p>
+
+          <!-- 3. Resultado del parseo y del mapeo contra ESTA lista -->
+          <div class="import-stats">
+            <span class="stat ok"><b>{{ prev.stats.valid }}</b> filas leídas</span>
+            @if (prev.stats.flagged > 0) {
+              <span class="stat warn"><b>{{ prev.stats.flagged }}</b> a revisar</span>
+            }
+          </div>
+          <div class="import-breakdown">
+            <details>
+              <summary>
+                <i class="ti ti-link"></i>
+                <b>{{ prev.mapping.auto }}</b> producto{{ prev.mapping.auto === 1 ? '' : 's' }} toma{{ prev.mapping.auto === 1 ? '' : 'n' }} precio de esta lista
+              </summary>
+              <ng-container *ngTemplateOutlet="briefList; context: { $implicit: prev.mapping.inListItems, showCode: true }" />
+            </details>
+            @if (prev.mapping.otherLists > 0) {
+              <div class="bd-line muted">
+                <i class="ti ti-files"></i>
+                <b>{{ prev.mapping.otherLists }}</b> ya tienen código de otra lista (esta no los toca)
+              </div>
+            }
+            @if (prev.mapping.unmatched > 0) {
+              <details>
+                <summary class="warn">
+                  <i class="ti ti-link-off"></i>
+                  <b>{{ prev.mapping.unmatched }}</b> producto{{ prev.mapping.unmatched === 1 ? '' : 's' }} de la tienda sin código
+                  <span class="hint">(de otra marca, de otra lista, o hay que asignarlo a mano)</span>
+                </summary>
+                <ng-container *ngTemplateOutlet="briefList; context: { $implicit: prev.mapping.unmatchedItems, showCode: false }" />
+              </details>
+            }
+            @if (prev.mapping.codesWithoutProduct.length > 0) {
+              <details>
+                <summary class="muted">
+                  <i class="ti ti-file-unknown"></i>
+                  <b>{{ prev.mapping.codesWithoutProduct.length }}</b> código{{ prev.mapping.codesWithoutProduct.length === 1 ? '' : 's' }} de la lista sin producto en la tienda
+                </summary>
+                <ul class="brief-list">
+                  @for (c of prev.mapping.codesWithoutProduct; track c.code) {
+                    <li><code>{{ c.code }}</code> {{ c.description }}</li>
+                  }
+                </ul>
+              </details>
+            }
+          </div>
+
+          @if (prev.flagged.length > 0) {
+            <details class="flagged">
+              <summary><i class="ti ti-alert-triangle"></i> {{ prev.flagged.length }} filas no cierran y no se van a usar</summary>
+              <ul>
+                @for (row of prev.flagged; track $index) {
+                  <li><code>{{ row.code || '—' }}</code> {{ row.description }} <span class="issue">{{ row.issues.join(' · ') }}</span></li>
+                }
+              </ul>
+            </details>
+          }
+
+          <!-- 4. Mapeos a confirmar: lo único que no se aplica solo -->
+          @if (pendingMappings().length > 0) {
+            <h3 class="modal-sub"><i class="ti ti-help-circle"></i> Confirmá estos mapeos ({{ confirmedCount() }}/{{ pendingMappings().length }})</h3>
+            <p class="modal-note">Se adivinaron pero no se aplican solos. Lo que confirmes queda guardado y no se vuelve a preguntar.</p>
+            <ul class="mapping-list">
+              @for (m of pendingMappings(); track m.sku) {
+                <li class="mapping-row" [class.done]="mappingChoices()[m.sku]">
+                  <div class="mapping-info">
+                    @if (m.isPack) {
+                      <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> pack</span>
+                    }
+                    <code>{{ m.label || m.name || m.sku }}</code>
+                    <i class="ti ti-arrow-right"></i>
+                    <code class="suggested">{{ m.suggestion?.code }}</code>
+                    <span class="why">{{ matchSourceLabel(m.suggestion?.matchSource || '') }}</span>
+                    @if (m.isPack && m.memberSkus?.length) {
+                      <span class="why">aplica a {{ m.memberSkus?.length }} producto{{ m.memberSkus?.length === 1 ? '' : 's' }}</span>
+                    }
+                  </div>
+                  <div class="mapping-actions">
+                    @if (mappingChoices()[m.sku]) {
+                      <span class="confirmed"><i class="ti ti-check"></i> confirmado</span>
+                      <button type="button" class="icon-btn" (click)="chooseMapping(m.sku, null)" title="Deshacer"><i class="ti ti-x"></i></button>
+                    } @else {
+                      <button type="button" class="btn btn-s" (click)="chooseMapping(m.sku, m.suggestion!.code)">
+                        <i class="ti ti-check"></i> Es este
+                      </button>
+                    }
+                  </div>
+                </li>
+              }
+            </ul>
+          }
+        }
+      }
+    </div>
+
+    <div class="modal-foot">
+      @if (errorMsg()) { <span class="pr-error inline">{{ errorMsg() }}</span> }
+      <div class="spacer"></div>
+      @if (importResult(); as res) {
+        @if (res.summary.unmatched.length > 0) {
+          <button type="button" class="btn" (click)="goToMapping()"><i class="ti ti-link"></i> Asignar códigos a mano</button>
+        }
+        <button type="button" class="btn" (click)="reset()"><i class="ti ti-file-import"></i> Importar otra lista</button>
+        <button type="button" class="btn pri" (click)="store.close()">Listo</button>
+      } @else {
+        <button type="button" class="btn" (click)="store.close()">Cancelar</button>
+        <button type="button" class="btn pri" [disabled]="!importPreview() || saving()" (click)="confirmImport()">
+          {{ saving() ? 'Importando…' : 'Importar y actualizar costos' }}
+        </button>
+      }
+    </div>
+  </div>
+</div>
+
+<!-- Lista corta de productos/packs para los resúmenes del import -->
+<ng-template #briefList let-items let-showCode="showCode">
+  @if (items.length === 0) {
+    <p class="brief-empty">Ninguno.</p>
+  } @else {
+    <ul class="brief-list">
+      @for (b of items; track b.sku) {
+        <li>
+          @if (b.isPack) { <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> pack · {{ b.memberCount }}</span> }
+          <span>{{ briefName(b) }}</span>
+          <span class="sku">{{ b.sku }}</span>
+          @if (showCode && b.code) { <i class="ti ti-arrow-right"></i> <code>{{ b.code }}</code> }
+        </li>
+      }
+    </ul>
+  }
+</ng-template>

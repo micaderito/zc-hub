@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import {
   getCatalog, listOrders, getOrder, createOrder, saveDraft, placeOrder, receiveOrder,
-  duplicateOrder, deleteDraft, getSettings, saveSettings, sanitizeOrderInput,
+  duplicateOrder, deleteDraft, getSettings, saveSettings, sanitizeOrderInput, listOrderSuppliers,
 } from '../services/ordersService.js';
 
 export const ordersRoutes = Router();
@@ -15,19 +15,32 @@ const parseId = (req) => {
   return Number.isInteger(id) && id > 0 ? id : null;
 };
 
-/** Pedidos (más nuevos primero) con sus totales. ?status=borrador|pendiente|recibido */
+/** Pedidos (más nuevos primero) con sus totales. ?status=borrador|pendiente|recibido &supplier=<key> */
 ordersRoutes.get('/', async (req, res) => {
   try {
-    res.json({ orders: await listOrders({ status: req.query.status }) });
+    res.json({ orders: await listOrders({ status: req.query.status, supplierKey: req.query.supplier }) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-/** Unidades de compra para agregar a un pedido (packs + SKUs sueltos), con stock, alerta, precio y código. */
-ordersRoutes.get('/catalog', async (_req, res) => {
+/**
+ * Unidades de compra para agregar a un pedido (packs + SKUs sueltos), con stock, alerta, precio y
+ * código. ?supplier=<key>: solo lo de ese proveedor (+ lo sin proveedor), con su código.
+ */
+ordersRoutes.get('/catalog', async (req, res) => {
   try {
-    res.json({ units: await getCatalog() });
+    const supplierKey = typeof req.query.supplier === 'string' && req.query.supplier ? req.query.supplier : null;
+    res.json({ units: await getCatalog({ supplierKey }) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Proveedores para elegir al crear un pedido, con el descuento de su config default. */
+ordersRoutes.get('/suppliers', async (_req, res) => {
+  try {
+    res.json({ suppliers: await listOrderSuppliers() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -52,10 +65,11 @@ ordersRoutes.put('/settings', async (req, res) => {
   }
 });
 
-/** Crea un borrador vacío. Body opcional: { name }. */
+/** Crea un borrador vacío. Body opcional: { name, supplierKey } (sin proveedor: Punto Cero). */
 ordersRoutes.post('/', async (req, res) => {
   try {
-    const order = await createOrder({ name: req.body?.name });
+    const order = await createOrder({ name: req.body?.name, supplierKey: req.body?.supplierKey });
+    if (order === 'unknown_supplier') return res.status(400).json({ error: 'El proveedor no existe' });
     if (!order) return res.status(500).json({ error: 'No se pudo crear el pedido' });
     res.status(201).json({ order });
   } catch (e) {

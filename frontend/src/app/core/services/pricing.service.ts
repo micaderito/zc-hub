@@ -21,10 +21,39 @@ export interface MlFeeTier {
   fixedFee: number;
 }
 
+/** Una configuración de descuento de un proveedor (ej. "Agendas −30% −5%"). */
+export interface DiscountProfile {
+  id: number;
+  supplierKey: string;
+  name: string;
+  discount1: number;
+  discount2: number;
+  /** La que toma todo lo del proveedor que no tiene una config propia. */
+  isDefault: boolean;
+  /** Productos con costo que hoy calculan con esta config. */
+  productCount: number;
+}
+
+export interface Supplier {
+  key: string;
+  name: string;
+  /** Productos que se le compran (vigente o no). */
+  productCount: number;
+  /** La default primero. */
+  profiles: DiscountProfile[];
+}
+
 export interface PricingConfig {
   settings: PricingSettings;
   tiers: MlFeeTier[];
   updatedAt: string | null;
+  suppliers: Supplier[];
+}
+
+/** Un pack (`id` = packId) o un producto suelto (`id` = SKU), destino de una asignación. */
+export interface PricingTarget {
+  type: 'sku' | 'pack';
+  id: string | number;
 }
 
 /** Resultado de sincronizar comisiones con la API de ML. */
@@ -46,7 +75,19 @@ export interface ProductCost {
   discount2: number | null;
   marginOverride: number | null;
   label: string | null;
+  /** Proveedor vigente (el que manda el costo). */
+  supplierKey?: string | null;
   updatedAt: string | null;
+}
+
+/** Descuento resuelto de una fila: de qué config sale y a qué nivel está asignada. */
+export interface RowDiscount {
+  profileId: number | null;
+  name: string | null;
+  discount1: number;
+  discount2: number;
+  /** sku = config propia · pack = la del pack · default = la del proveedor · none = sin proveedor. */
+  level: 'sku' | 'pack' | 'default' | 'none';
 }
 
 /** El pack al que pertenece un SKU (si tiene), para agrupar la planilla. */
@@ -66,6 +107,15 @@ export interface PreviewRow {
   source: 'manual' | 'list';
   /** Unidades por bulto (de la lista del proveedor), para ver cómo se llegó al costo unitario. */
   bulkQty: number | null;
+  /** Precio del bulto tal cual la lista (bruto); null si el costo se cargó por unidad. */
+  bulkPrice: number | null;
+  /** Precio por unidad antes del descuento (bulto ÷ unidades). */
+  unitListPrice: number | null;
+  /** Descuento aplicado (null si el costo es unitario directo). */
+  discount: RowDiscount | null;
+  /** Proveedor vigente y todos a los que se le compra (el vigente primero). */
+  supplierKey: string | null;
+  suppliers: string[];
   unitCost: number;
   valorFinal: number;
   /** `list` es el calculado; `override` el ajuste manual (null = no hay); `effective` es lo que se aplica. */
@@ -189,7 +239,18 @@ export interface ImportResult {
     otherLists: number;
     unmatched: MappingBrief[];
     codesWithoutProduct: SupplierCodeBrief[];
+    /** Config elegida al importar y a cuántos les tocó; los que ya tenían una propia la conservan. */
+    profileName?: string | null;
+    withChosenProfile?: number;
+    withOwnProfile?: Array<MappingBrief & { profileName: string | null }>;
   };
+}
+
+/** Código de un producto en cada proveedor (pestaña Mapeo, vista "Todos"). */
+export interface SupplierCodeRef {
+  supplierKey: string;
+  supplierName: string;
+  code: string;
 }
 
 /** Un producto (o pack con código propio) de la tienda, con su código del proveedor. */
@@ -210,6 +271,10 @@ export interface MappingProduct {
   hasCost: boolean;
   mappedMl: boolean;
   mappedTn: boolean;
+  /** Proveedor del código que se muestra, el vigente del producto y los códigos de cada proveedor. */
+  codeSupplier?: string | null;
+  vigente?: string | null;
+  codesBySupplier?: SupplierCodeRef[];
   /** Pack con código propio: sus modelos, con el código del que sale el precio de cada uno. */
   members?: MappingMember[];
   /** En un modelo de pack: `pack` = toma el código del pack, `own` = tiene mapeo propio. */
@@ -229,10 +294,14 @@ export interface MappingMember {
   hasCost: boolean;
   mappedMl: boolean;
   mappedTn: boolean;
+  codeSupplier?: string | null;
+  vigente?: string | null;
+  codesBySupplier?: SupplierCodeRef[];
 }
 
 export interface SupplierCode {
   code: string;
+  supplierKey?: string | null;
   description: string | null;
   listLabel: string | null;
   mapped: boolean;
@@ -247,6 +316,9 @@ export interface MappingSaveResult {
 }
 
 export interface MappingState {
+  /** Proveedor del mapeo (`null` = vista "Todos", solo lectura). */
+  supplierKey?: string | null;
+  supplierNames?: Record<string, string>;
   products: MappingProduct[];
   /** Lo que el backend mapeó solo en esta lectura (código igual o `CODIGO-variante`). */
   autoMapped?: { count: number; changedSkus: string[]; items: Array<{ key: string; sku: string; code: string; matchSource: string }> };
@@ -261,6 +333,8 @@ export interface MappingState {
 
 export interface ImportedList {
   id: number;
+  supplier?: string;
+  supplierName?: string;
   label: string;
   sourceFilename: string | null;
   discount1: number;
@@ -302,7 +376,7 @@ export class PricingService {
     return this.http.get<{ rows: PreviewRow[] }>(`${this.api.baseUrl}/pricing/preview`);
   }
 
-  saveCost(sku: string, data: Partial<ProductCost>) {
+  saveCost(sku: string, data: Partial<ProductCost> & { profileId?: number | null }) {
     return this.http.put<{ ok: boolean; cost: ProductCost }>(`${this.api.baseUrl}/pricing/cost/${encodeURIComponent(sku)}`, data);
   }
 
@@ -315,16 +389,19 @@ export class PricingService {
   }
 
   /** Preview de una importación: parsea y sugiere mapeos, sin guardar nada. */
-  previewImport(text: string, format: 'pdf' | 'csv' = 'pdf') {
-    return this.http.post<ImportPreview>(`${this.api.baseUrl}/pricing/lists/preview`, { text, format });
+  previewImport(text: string, format: 'pdf' | 'csv' = 'pdf', supplierKey?: string) {
+    return this.http.post<ImportPreview>(`${this.api.baseUrl}/pricing/lists/preview`, { text, format, supplierKey });
   }
 
-  /** Confirma la importación: guarda lista, códigos, mapeos automáticos y costos. */
+  /**
+   * Confirma la importación: guarda lista, códigos, mapeos automáticos y costos. `profileId` = la
+   * config de descuento para lo de esta lista que no tiene una propia (`null` = la default).
+   */
   confirmImport(body: {
     label: string;
     sourceFilename?: string | null;
-    discount1: number;
-    discount2: number;
+    supplierKey: string;
+    profileId: number | null;
     rows: ParsedListRow[];
   }) {
     return this.http.post<ImportResult>(`${this.api.baseUrl}/pricing/lists`, body);
@@ -339,29 +416,73 @@ export class PricingService {
     return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/lists/${id}`);
   }
 
-  getMappingState() {
-    return this.http.get<MappingState>(`${this.api.baseUrl}/pricing/mapping`);
+  /** Mapeo de un proveedor (`null` = vista "Todos", solo lectura). */
+  getMappingState(supplierKey: string | null = null) {
+    const params: Record<string, string> = supplierKey ? { supplier: supplierKey } : {};
+    return this.http.get<MappingState>(`${this.api.baseUrl}/pricing/mapping`, { params });
   }
 
-  confirmMapping(sku: string, code: string, matchSource = 'manual') {
+  confirmMapping(sku: string, code: string, matchSource = 'manual', supplierKey?: string) {
     return this.http.put<MappingSaveResult>(
-      `${this.api.baseUrl}/pricing/mapping/${encodeURIComponent(sku)}`, { code, matchSource },
+      `${this.api.baseUrl}/pricing/mapping/${encodeURIComponent(sku)}`, { code, matchSource, supplierKey },
     );
   }
 
-  removeMapping(sku: string) {
-    return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/mapping/${encodeURIComponent(sku)}`);
+  removeMapping(sku: string, supplierKey?: string) {
+    return this.http.delete<{ ok: boolean }>(
+      `${this.api.baseUrl}/pricing/mapping/${encodeURIComponent(sku)}`, { params: supplierKey ? { supplier: supplierKey } : {} },
+    );
   }
 
   /** Confirma (o corrige) el mapeo de un PACK: el costo se aplica a TODOS sus SKUs miembro. */
-  confirmPackMapping(packId: number, code: string, matchSource = 'manual') {
+  confirmPackMapping(packId: number, code: string, matchSource = 'manual', supplierKey?: string) {
     return this.http.put<MappingSaveResult>(
-      `${this.api.baseUrl}/pricing/mapping/pack/${packId}`, { code, matchSource },
+      `${this.api.baseUrl}/pricing/mapping/pack/${packId}`, { code, matchSource, supplierKey },
     );
   }
 
-  removePackMapping(packId: number) {
-    return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/mapping/pack/${packId}`);
+  removePackMapping(packId: number, supplierKey?: string) {
+    return this.http.delete<{ ok: boolean }>(
+      `${this.api.baseUrl}/pricing/mapping/pack/${packId}`, { params: supplierKey ? { supplier: supplierKey } : {} },
+    );
+  }
+
+  // ── Proveedores y configuraciones de descuento ──
+
+  createSupplier(body: { name: string; discount1?: number; discount2?: number; profileName?: string }) {
+    return this.http.post<{ key: string }>(`${this.api.baseUrl}/pricing/suppliers`, body);
+  }
+
+  renameSupplier(key: string, name: string) {
+    return this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/pricing/suppliers/${encodeURIComponent(key)}`, { name });
+  }
+
+  deleteSupplier(key: string) {
+    return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/suppliers/${encodeURIComponent(key)}`);
+  }
+
+  createProfile(supplierKey: string, body: { name: string; discount1: number; discount2: number }) {
+    return this.http.post<{ id: number }>(`${this.api.baseUrl}/pricing/suppliers/${encodeURIComponent(supplierKey)}/profiles`, body);
+  }
+
+  updateProfile(id: number, patch: { name?: string; discount1?: number; discount2?: number; isDefault?: true }) {
+    return this.http.put<{ ok: boolean }>(`${this.api.baseUrl}/pricing/profiles/${id}`, patch);
+  }
+
+  deleteProfile(id: number) {
+    return this.http.delete<{ ok: boolean }>(`${this.api.baseUrl}/pricing/profiles/${id}`);
+  }
+
+  /** Asignación masiva de una config (`null` = la default) a packs/productos de un proveedor. */
+  assignDiscount(supplierKey: string, targets: PricingTarget[], profileId: number | null) {
+    return this.http.put<{ ok: boolean; assigned: number }>(`${this.api.baseUrl}/pricing/assignments`, { supplierKey, targets, profileId });
+  }
+
+  /** Cambia el proveedor vigente: el costo pasa a salir de la última lista de ese proveedor. */
+  setVigente(supplierKey: string, targets: PricingTarget[]) {
+    return this.http.put<{ ok: boolean; changedSkus: string[]; withoutPrice: string[] }>(
+      `${this.api.baseUrl}/pricing/vigente`, { supplierKey, targets },
+    );
   }
 
   /** Ajuste manual del precio publicado de un SKU en un canal. `value: null` lo saca (vuelve al calculado). */

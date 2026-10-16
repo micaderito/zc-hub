@@ -1,0 +1,47 @@
+@let sup = supplier();
+<section class="pr-supplier" aria-label="Configuraciones de descuento">
+  <div class="pr-supplier-head">
+    <span class="pr-supplier-name"><i class="ti ti-building-store" aria-hidden="true"></i> {{ sup.name }}</span>
+    <span class="muted">{{ sup.productCount }} producto{{ sup.productCount === 1 ? '' : 's' }}</span>
+    <span class="spacer"></span>
+    <button type="button" class="link" (click)="store.open({ kind: 'supplier', supplier: sup })">Renombrar</button>
+    @if (confirmDelete()) {
+      <span class="confirm-inline">
+        ¿Borrar {{ sup.name }}?
+        <button type="button" class="link danger" (click)="deleteSupplier()">Sí, borrar</button>
+        <button type="button" class="link" (click)="confirmDelete.set(false)">No</button>
+      </span>
+    } @else {
+      <button type="button" class="link danger" (click)="confirmDelete.set(true)">Borrar</button>
+    }
+  </div>
+  <div class="pr-profiles">
+    @for (p of sup.profiles; track p.id) {
+      <div class="pr-profile" [class.is-default]="p.isDefault">
+        <div class="pr-profile-top">
+          <b>{{ p.name }}</b>
+          @if (p.isDefault) { <span class="badge brand">default</span> }
+        </div>
+        <span class="pr-profile-pct">{{ discountPcts(p) }}</span>
+        <span class="muted">{{ p.productCount }} producto{{ p.productCount === 1 ? '' : 's' }}</span>
+        <div class="pr-profile-actions">
+          <button type="button" class="icon-btn" (click)="openProfile(p)" title="Editar" aria-label="Editar configuración"><i class="ti ti-pencil"></i></button>
+          @if (!p.isDefault) {
+            <button type="button" class="link" (click)="makeDefault(p)" title="Lo que no tiene config propia pasa a usar esta">Hacer default</button>
+            @if (confirmDeleteProfileId() === p.id) {
+              <button type="button" class="link danger" (click)="deleteProfile(p)">¿Borrar?</button>
+            } @else {
+              <button type="button" class="icon-btn danger" (click)="confirmDeleteProfileId.set(p.id)" title="Borrar" aria-label="Borrar configuración"><i class="ti ti-trash"></i></button>
+            }
+          }
+        </div>
+      </div>
+    }
+    <button type="button" class="pr-profile pr-profile-new" (click)="openProfile()">
+      <i class="ti ti-plus" aria-hidden="true"></i> Nueva configuración
+    </button>
+  </div>
+  @if (errorMsg()) {
+    <div class="pr-error">{{ errorMsg() }}</div>
+  }
+</section>

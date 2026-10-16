@@ -5,7 +5,7 @@ import {
 
 const order = (over: Partial<SupplierOrder> = {}): SupplierOrder => ({
   id: 17, name: 'Pedido octubre', status: 'borrador', partial: false, discount1: 25, discount2: 5, note: 'Entregar martes',
-  basedOnId: null, createdAt: '2026-10-08T12:00:00.000Z', updatedAt: null, orderedAt: null, receivedAt: null,
+  basedOnId: null, supplierKey: 'punto_cero', createdAt: '2026-10-08T12:00:00.000Z', updatedAt: null, orderedAt: null, receivedAt: null,
   totals: { lineCount: 2, packs: 3, subtotal: 0, discount1Amount: 0, discount2Amount: 0, total: 0, missingPrices: 0 },
   lines: [
     { kind: 'pack', packId: 1, sku: null, code: '4410-SUR', description: 'CUADERNO <SURTIDO>', detail: 'todo A5\trayado', qty: 2, unitPrice: 96000, priceSource: 'precios', unitsPerPack: 8, origin: 'alerta', receivedQty: null },

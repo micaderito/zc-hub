@@ -30,6 +30,9 @@
         @if (o.receivedAt) { · recibido {{ o.receivedAt | date: 'dd/MM/yy' }} }
         @if (o.basedOnId) { · copia del <a [routerLink]="['/pedidos', o.basedOnId]">#{{ o.basedOnId }}</a> }
       </span>
+      @if (o.supplierKey) {
+        <span class="zc-badge neutral supplier-chip"><i class="ti ti-building-factory-2" aria-hidden="true"></i> {{ supplierName(o.supplierKey) }}</span>
+      }
       @if (canEdit()) {
         <span class="save-state" [class.err]="saveState() === 'error'">
           @switch (saveState()) {
@@ -195,8 +198,15 @@
         @if (canEdit()) {
           <div class="catalog">
             <div class="toolbar">
-              <h2><i class="ti ti-plus" aria-hidden="true"></i> Agregar productos</h2>
+              <h2><i class="ti ti-plus" aria-hidden="true"></i> Agregar productos
+                @if (o.supplierKey) { <span class="hint">de {{ supplierName(o.supplierKey) }}</span> }</h2>
               <span class="spacer"></span>
+              @if (unassignedCount()) {
+                <label class="check" title="Productos que en Precios no tienen ningún proveedor asignado">
+                  <input type="checkbox" [ngModel]="showUnassigned()" (ngModelChange)="showUnassigned.set($event)" />
+                  Sin proveedor <span class="count">{{ unassignedCount() }}</span>
+                </label>
+              }
               <div class="seg" role="group" aria-label="Qué productos mostrar">
                 <button type="button" [class.on]="catalogFilter() === 'alert'" (click)="catalogFilter.set('alert')">
                   <i class="ti ti-bell-ringing" aria-hidden="true"></i> Con alerta <span class="count">{{ alertedCount() }}</span>
@@ -282,7 +292,10 @@
                         </td>
                         <td class="num">
                           @if (u.price == null) { <span class="hint">sin precio</span> }
-                          @else { {{ u.price | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }} }
+                          @else {
+                            {{ u.price | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}
+                            @if (otherPriceSupplier(u); as other) { <div class="hint" title="El precio de Precios es el del proveedor vigente">precio de {{ other }}</div> }
+                          }
                         </td>
                         <td class="num add-cell">
                           @if (inOrder) {
@@ -318,6 +331,7 @@
                       <tr><td colspan="7">
                         <p class="empty">
                           @if (catalogFilter() === 'alert' && !catalogSearch()) { No hay alertas activas desde el último pedido. Mirá <b>Todos</b> para pedir algo igual. }
+                          @else if (!catalogUnits().length && o.supplierKey) { Ningún producto tiene a {{ supplierName(o.supplierKey) }} como proveedor en Precios. }
                           @else { Sin coincidencias. }
                         </p>
                       </td></tr>
@@ -327,7 +341,8 @@
               </div>
               <p class="footnote">
                 <i class="ti ti-info-circle" aria-hidden="true"></i>
-                Todo se pide por pack (o por el bulto cargado en Precios, si el producto no tiene pack). Un pack surtido muestra
+                Solo aparecen los productos que en Precios se le compran a este proveedor (asignados, con su código o como
+                vigente), con <b>su</b> código. Todo se pide por pack (o por el bulto cargado en Precios, si el producto no tiene pack). Un pack surtido muestra
                 <b>todos</b> sus modelos aunque haya avisado uno solo — los diseños que querés van en la columna <b>Detalle</b>.
               </p>
             }

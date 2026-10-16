@@ -40,6 +40,7 @@ const PRICING_CONFIG: PricingConfig = {
     { maxPrice: 33000, fixedFee: 2810 },
     { maxPrice: null, fixedFee: 0 }
   ],
+  suppliers: [],
   updatedAt: null
 };
 
