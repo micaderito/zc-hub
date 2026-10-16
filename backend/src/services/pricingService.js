@@ -21,7 +21,7 @@ import {
   createDiscountProfile, updateDiscountProfile, deleteDiscountProfile,
   listProductSuppliers, upsertProductSuppliers, clearSkuProfiles, deleteProductSuppliers, setCostSupplier,
 } from '../db.js';
-import { buildDiscountContext, resolveDiscount, suppliersOf, supplierKeyFromName } from '../lib/discountResolver.js';
+import { buildDiscountContext, resolveDiscount, suppliersOf, supplierKeyFromName, supplierTargets } from '../lib/discountResolver.js';
 import { patchTnPrice, readTnSnapshotRow, getCatalogRows } from './conflictsService.js';
 import { rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey } from '../lib/stockEcho.js';
 import {
@@ -1242,6 +1242,112 @@ export async function unassignSupplier({ supplierKey, targets } = {}) {
   if (!supplierKey || list.length === 0) throw httpError(400, 'Faltan el proveedor o los productos');
   await deleteProductSuppliers(supplierKey, list);
   return { ok: true };
+}
+
+/** Costo de un SKU tal como lo muestra el form de un producto (sin descuentos: salen de la config). */
+function costSummary(c) {
+  if (!c) return null;
+  const unit = c.unitCost != null && !(c.bulkPrice > 0);
+  return {
+    mode: unit ? 'unit' : 'bulk',
+    bulkPrice: c.bulkPrice ?? null, bulkQty: c.bulkQty ?? null, unitCost: c.unitCost ?? null,
+    marginOverride: c.marginOverride ?? null,
+  };
+}
+
+/**
+ * Proveedor de cada producto para mostrar/editar fuera de Precios (Productos, Crear/Editar): su
+ * vigente, todos a los que se le compra, la config de descuento que le toca (para el vigente o, sin
+ * costo todavía, para el primero) y su costo. `byPack` = asignaciones a nivel pack. Sin `skus`
+ * devuelve todos los SKUs que tienen proveedor o costo. No le pega a ML/TN.
+ */
+export async function getProductSupplierOverview({ skus = null } = {}) {
+  const [costs, packs, suppliers, assignments] = await Promise.all([
+    getAllProductCosts(), listPacks(), listSuppliers(), listProductSuppliers(),
+  ]);
+  const ctx = await loadDiscountContext({ costs, packs });
+  const costBySku = new Map(costs.map((c) => [c.sku, c]));
+  const wanted = skus?.length
+    ? [...new Set(skus.map((s) => String(s).trim()).filter(Boolean))]
+    : [...new Set([...ctx.suppliersBySku.keys(), ...costs.map((c) => c.sku)])];
+  const bySku = {};
+  for (const sku of wanted) {
+    const all = suppliersOf(sku, ctx);
+    const vigente = ctx.vigenteBySku.get(sku) ?? null;
+    bySku[sku] = {
+      vigente,
+      suppliers: all,
+      discount: resolveDiscount(sku, ctx, vigente ?? all[0] ?? null),
+      cost: costSummary(costBySku.get(sku)),
+    };
+  }
+  const byPack = {};
+  for (const a of assignments) {
+    if (a.type !== 'pack') continue;
+    (byPack[a.id] ||= []).push({ supplierKey: a.supplierKey, profileId: a.profileId ?? null });
+  }
+  return {
+    suppliers: suppliers.map((s) => ({ key: s.key, name: s.name, profiles: s.profiles })),
+    bySku,
+    byPack,
+  };
+}
+
+const positive = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+
+/**
+ * Proveedor (+ config de descuento y, opcional, costo) de UN producto, desde Crear/Editar producto o
+ * Productos. Se asigna al pack si el producto es un pack (o todos sus SKUs son de uno), si no a cada
+ * SKU (`supplierTargets`). Con `cost` válido lo guarda en cada SKU con ese proveedor como vigente;
+ * sin costo, si un SKU ya tenía costo de otro proveedor, pasa a este (el vigente). `supplierKey: null`
+ * = "sin proveedor": solo deja el costo sin vigente (sin descuento). Idempotente: todo es upsert.
+ *
+ * @param {{ skus: string[], packId?: number|null, supplierKey: string|null, profileId?: number|null,
+ *   cost?: { mode: 'bulk'|'unit', bulkPrice?, bulkQty?, unitCost?, marginPct? } | null, label?: string|null }} input
+ * @returns {Promise<{ ok: true, targets, changedSkus: string[] }>}
+ */
+export async function setProductSupplier({ skus, packId = null, supplierKey = null, profileId = null, cost = null, label = null } = {}) {
+  const packs = await listPacks();
+  let list = [...new Set((Array.isArray(skus) ? skus : []).map((s) => String(s ?? '').trim()).filter(Boolean))];
+  if (packId != null && list.length === 0) list = packs.find((pk) => String(pk.id) === String(packId))?.skus ?? [];
+  if (list.length === 0) throw httpError(400, 'Faltan los productos');
+  const targets = supplierTargets(list, packs, packId);
+  if (supplierKey) await assignDiscount({ supplierKey, targets, profileId });
+
+  const changedSkus = [];
+  const validCost = cost && (cost.mode === 'unit'
+    ? positive(cost.unitCost)
+    : positive(cost.bulkPrice) && positive(cost.bulkQty));
+  if (validCost) {
+    const db = await getPricingSettings();
+    const defaultMargin = db?.defaultMarginPct ?? DEFAULT_SETTINGS.defaultMarginPct ?? 100;
+    const margin = cost.marginPct == null || cost.marginPct === '' || !Number.isFinite(Number(cost.marginPct)) ? null : Number(cost.marginPct);
+    for (const sku of list) {
+      const prev = await getProductCost(sku);
+      await upsertCost(sku, {
+        source: 'manual',
+        bulkPrice: cost.mode === 'unit' ? null : Number(cost.bulkPrice),
+        bulkQty: cost.mode === 'unit' ? null : Number(cost.bulkQty),
+        unitCost: cost.mode === 'unit' ? Number(cost.unitCost) : null,
+        marginOverride: margin != null && margin !== defaultMargin ? margin : null,
+        label: prev?.label ?? label ?? null,
+        supplierKey: supplierKey ?? null,
+      });
+      changedSkus.push(sku);
+    }
+  } else {
+    const moved = [];
+    for (const sku of list) {
+      const prev = await getProductCost(sku);
+      if (prev && (prev.supplierKey ?? null) !== (supplierKey ?? null)) moved.push(sku);
+    }
+    if (moved.length) { await setCostSupplier(moved, supplierKey ?? null); changedSkus.push(...moved); }
+  }
+  // Cambiar la config mueve el precio de todo lo que tiene costo con ese proveedor.
+  if (supplierKey) {
+    for (const sku of list) if (!changedSkus.includes(sku) && (await getProductCost(sku))?.supplierKey === supplierKey) changedSkus.push(sku);
+  }
+  return { ok: true, targets, changedSkus };
 }
 
 /**

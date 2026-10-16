@@ -355,6 +355,21 @@
         <h2><i class="ti ti-receipt" aria-hidden="true"></i> Estimado</h2>
         <div class="sum-row muted">{{ t.lineCount }} línea{{ t.lineCount === 1 ? '' : 's' }} · {{ t.packs }} pack{{ t.packs === 1 ? '' : 's' }}</div>
         <div class="sum-row"><span>Subtotal de lista</span><span class="v">{{ t.subtotal | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
+        @if (discountProfiles().length) {
+          <label class="sum-row profile-row">
+            <span>Config de descuento</span>
+            @if (canEdit()) {
+              <select class="zc-select" [ngModel]="selectedProfile()?.id ?? ''" (ngModelChange)="applyProfile($event)" aria-label="Config de descuento del proveedor">
+                @for (p of discountProfiles(); track p.id) {
+                  <option [ngValue]="p.id">{{ profileLabel(p) }}</option>
+                }
+                @if (!selectedProfile()) { <option value="" disabled>Personalizado</option> }
+              </select>
+            } @else {
+              <span class="v">{{ selectedProfile()?.name ?? 'Personalizado' }}</span>
+            }
+          </label>
+        }
         <div class="sum-row">
           <span class="pct">Descuento
             <input class="zc-input" type="number" min="0" max="100" [disabled]="!canEdit()" [ngModel]="o.discount1" (ngModelChange)="setDiscount('discount1', $event)" aria-label="Descuento sobre los productos" />%</span>
@@ -371,7 +386,8 @@
             {{ t.missingPrices }} línea{{ t.missingPrices === 1 ? '' : 's' }} sin precio no suma{{ t.missingPrices === 1 ? '' : 'n' }}.</p>
         }
         <p class="hint">El precio de lista sale de <b>Precios</b>@if (canEdit()) { y se puede pisar en cada línea (solo para este pedido) }. El
-          primer descuento va sobre los productos y el segundo sobre el total.</p>
+          primer descuento va sobre los productos y el segundo sobre el total.@if (canEdit() && discountProfiles().length) { Elegí una config
+          del proveedor (las de <b>Precios</b>) o tocá los % a mano para un pedido especial. }</p>
 
         <textarea class="zc-textarea note" rows="2" placeholder="Nota del pedido…" [disabled]="!canEdit()"
                   [ngModel]="o.note" (ngModelChange)="setNote($event)" aria-label="Nota del pedido"></textarea>

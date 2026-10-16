@@ -93,6 +93,7 @@
                   [pair]="pair"
                   [packName]="getPairPackName(pair)"
                   [hasAlert]="pairHasAlert(pair)"
+                  [supplierLabel]="pairSupplierLabel(pair)"
                   [prices]="getPairPrices(pair)"
                   [displayStockML]="getDisplayStock(pair, 'ml')"
                   [displayStockTN]="getDisplayStock(pair, 'tn')"
@@ -104,6 +105,7 @@
                   (updatePrices)="updatePrices(pair)"
                   (syncStock)="syncStock(pair)"
                   (showHistory)="openHistory(pair)"
+                  (editSupplier)="openSupplier(pair)"
                 />
               }
             </div>
@@ -156,5 +158,11 @@
   @if (historySku(); as sku) {
     <zc-product-history-dialog [sku]="sku" [mlStock]="historyStock().ml" [tnStock]="historyStock().tn"
                                 (closed)="historySku.set(null)" />
+  }
+
+  @if (supplierEdit(); as se) {
+    <zc-product-supplier-dialog [title]="'Proveedor de ' + se.sku" [skus]="[se.sku]" [info]="se.info" [note]="se.note"
+                                [suppliers]="suppliersQuery.data()?.suppliers ?? []"
+                                (closed)="supplierEdit.set(null)" />
   }
 </div>

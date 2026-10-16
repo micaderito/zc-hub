@@ -10,6 +10,9 @@ import { SearchBarComponent } from '../../../../shared/components/search-bar/sea
 import { ConfirmDialogComponent } from '../../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { PaginationComponent } from '../../../../shared/components/pagination/pagination.component';
 import { CanWriteDirective } from '../../../../shared/directives/can-write.directive';
+import { firstValueFrom } from 'rxjs';
+import { PRODUCT_SUPPLIERS_QUERY_KEY, PricingService, SkuSupplierInfo } from '../../../../core/services/pricing.service';
+import { ProductSupplierDialogComponent, supplierChipLabel } from '../../../../shared/components/product-supplier-dialog/product-supplier-dialog.component';
 
 /** Resultado del buscador de productos (para agregar al pack). */
 interface ProductOption {
@@ -32,7 +35,7 @@ const NEW_PACK_ID = -1;
 @Component({
   selector: 'zc-packs-tab',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent],
+  imports: [CanWriteDirective, CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent, ProductSupplierDialogComponent],
   templateUrl: './packs-tab.component.html',
   styleUrl: './packs-tab.component.scss',
 })
@@ -46,6 +49,35 @@ export class PacksTabComponent {
     refetchOnWindowFocus: false,
     staleTime: 60 * 1000,
   }));
+
+  /** Proveedor de cada modelo (mismo dato que Precios); el del pack = el de su primer modelo. */
+  private readonly pricingSvc = inject(PricingService);
+  readonly suppliersQuery = injectQuery(() => ({
+    queryKey: PRODUCT_SUPPLIERS_QUERY_KEY,
+    queryFn: () => firstValueFrom(this.pricingSvc.getProductSuppliers()),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  }));
+
+  private packSupplierInfo(pack: Pack): SkuSupplierInfo | null {
+    const bySku = this.suppliersQuery.data()?.bySku ?? {};
+    return pack.products.map((p) => bySku[p.sku]).find((i) => i && (i.vigente || i.suppliers.length)) ?? null;
+  }
+
+  packSupplierLabel(pack: Pack): string | null {
+    return supplierChipLabel(this.packSupplierInfo(pack), this.suppliersQuery.data()?.suppliers ?? []);
+  }
+
+  /** Pack cuyo proveedor se está eligiendo (diálogo abierto). */
+  readonly supplierPack = signal<{ pack: Pack; info: SkuSupplierInfo | null } | null>(null);
+
+  skusOf(pack: Pack): string[] {
+    return pack.products.map((p) => p.sku);
+  }
+
+  openSupplier(pack: Pack): void {
+    this.supplierPack.set({ pack, info: this.packSupplierInfo(pack) });
+  }
 
   readonly loading = computed(() => this.packsQuery.isLoading());
   readonly packs = computed(() => this.packsQuery.data()?.packs ?? []);

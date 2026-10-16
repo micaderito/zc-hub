@@ -108,9 +108,19 @@ export interface DraftCost {
   mode: 'bulk' | 'unit';
   bulkPrice: number | null;
   bulkQty: number | null;
-  /** Descuentos de ESTA compra, en cadena (%). */
+  /**
+   * Sin uso desde 2026-10-16: el descuento sale de la config del proveedor (`profileId`). Quedan
+   * para leer borradores viejos sin romperlos.
+   */
   discount1: number;
   discount2: number;
+  /**
+   * Proveedor al que se le compra (se guarda en Precios al publicar / al guardar en la edición).
+   * `undefined` = todavía no se eligió (se precarga el primero); `null` = "Sin proveedor".
+   */
+  supplierKey?: string | null;
+  /** Config de descuento de ese proveedor; `null` = su default. */
+  profileId?: number | null;
   /** Costo unitario directo (modo 'unit'). */
   unitCost: number | null;
   /** Ganancia deseada (%) sobre el costo unitario. */

@@ -451,6 +451,17 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   valor final pasó como línea secundaria de "Te queda". Barra: "Asignar descuento…" y "Proveedor
   vigente…". Mapeo: en un proveedor edita sus códigos; en "Todos" es de solo lectura y muestra el
   código de cada proveedor. Borrar un proveedor con listas o productos vigentes da 409.
+- **Fuera de Precios** (2026-10-16): el proveedor + config también se eligen en **Crear/Editar
+  producto** ("Precios y ganancia": selects Proveedor y Descuento en vez de los % sueltos, que quedan
+  sin uso en `DraftCost`) y en **Productos** (chip en cada tarjeta y en cada pack de la pestaña
+  Packs → `zc-product-supplier-dialog`). Todo pasa por `setProductSupplier` (`PUT
+  /api/pricing/product-supplier`): se asigna al pack si el producto es un pack o todos sus SKUs son
+  de uno (`supplierTargets`, `discountResolver.js`), si no a cada SKU; con costo lo guarda con ese
+  proveedor como vigente, sin costo solo mueve el vigente de lo que ya tenía costo de otro. Se lee
+  con `GET /api/pricing/product-suppliers` (`getProductSupplierOverview`). Al crear viaja en
+  `payload.supplier` y lo aplica el publish worker (`publishSupplier.js`) después de la alerta (que
+  puede crear el pack), solo con alguna unidad `ok`. En la edición NO es una operación de ML/TN: se
+  carga desde Precios al abrir y tiene su propio botón "Guardar en Precios".
 - `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
   usar `track a + '|' + b`.
 - **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de
@@ -555,7 +566,11 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
   - **Descuentos**: el pedido nuevo arranca con la config **default del proveedor** (misma cadena:
     el 1.º sobre la lista, el 2.º sobre lo que queda); `supplier_order_defaults` es solo el fallback
     de un proveedor sin config, y la lista ya no muestra su editor. `GET /api/orders/suppliers`
-    devuelve cada proveedor con su descuento default.
+    devuelve cada proveedor con su descuento default y todas sus configs (`profiles`). En el editor
+    del pedido (borrador) un selector **Config de descuento** ofrece las configs de ese proveedor:
+    elegir una pisa los dos %. Los % siguen editables a mano para un pedido especial. La config NO se
+    guarda en el pedido (sin migración): el selector muestra la que coincide con los % del pedido, o
+    "Personalizado" si ninguna coincide.
   - **Catálogo** (`GET /api/orders/catalog?supplier=`): solo las unidades que se le compran a ese
     proveedor según `buildDiscountContext`/`suppliersOf` (asignación en Precios, código mapeado o
     vigente; en un pack, la unión de sus modelos — `unitSuppliers`) **más las que no tienen ningún

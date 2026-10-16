@@ -105,13 +105,23 @@ export interface CatalogUnit {
   priceSupplier: string | null;
 }
 
-/** Un proveedor para elegir al crear un pedido, con el descuento de su config default. */
+/** Una config de descuento del proveedor (las de Precios), para elegirla en el pedido. */
+export interface OrderDiscountProfile {
+  id: number;
+  name: string;
+  discount1: number;
+  discount2: number;
+  isDefault: boolean;
+}
+
+/** Un proveedor para elegir al crear un pedido, con el descuento de su config default y todas sus configs. */
 export interface OrderSupplier {
   key: string;
   name: string;
   profileName: string | null;
   discount1: number | null;
   discount2: number | null;
+  profiles?: OrderDiscountProfile[];
 }
 
 export interface OrderDefaults {

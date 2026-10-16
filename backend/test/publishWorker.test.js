@@ -30,7 +30,8 @@ const publishState = {
   mlCallCount: 0,
   mlFailOnCall: null // si se setea, publishMlUnit tira en esa llamada N (1-based)
 };
-const alertState = { calls: [] };
+const alertState = { calls: [], packId: null };
+const supplierState = { calls: [] };
 const editState = { failKeys: new Set(), refreshed: null };
 const storeState = { mlToken: 'ml-tok', tokens: { tiendanube: { access_token: 'tn-tok', store_id: '9' } } };
 
@@ -131,7 +132,15 @@ before(async () => {
     exports: {
       applyPublishAlert: async (alert) => {
         alertState.calls.push(alert);
-        return { applied: true, rules: 1, packId: null };
+        return { applied: true, rules: 1, packId: alertState.packId };
+      }
+    }
+  });
+  mock.module('../src/services/publishSupplier.js', {
+    exports: {
+      applyPublishSupplier: async (supplier, opts) => {
+        supplierState.calls.push({ supplier, opts });
+        return { applied: true, targets: [], changedSkus: [] };
       }
     }
   });
@@ -140,6 +149,8 @@ before(async () => {
 
 beforeEach(() => {
   alertState.calls = [];
+  alertState.packId = null;
+  supplierState.calls = [];
   editState.failKeys = new Set();
   editState.refreshed = null;
   dbState.editStatus = null;
@@ -398,6 +409,27 @@ test('processJob: si no se publicó nada en ningún canal, NO da de alta la aler
 test('processJob: sin alerta en el payload no llama al alta', async () => {
   await publishWorker.processJob(baseJob);
   assert.equal(alertState.calls.length, 0);
+});
+
+test('processJob: guarda el proveedor después de la alerta, con el pack que creó la alerta', async () => {
+  alertState.packId = 77;
+  const alert = { threshold: 2, skus: [{ sku: 'CUA-N' }], pack: { name: 'Cuadernos', unitCount: 8 } };
+  const supplier = { skus: ['CUA-N'], supplierKey: 'punto_cero', profileId: 3, cost: null };
+  await publishWorker.processJob({ ...baseJob, payloadJson: JSON.stringify({ alert, supplier }) });
+  assert.deepEqual(supplierState.calls, [{ supplier, opts: { packId: 77 } }]);
+});
+
+test('processJob: proveedor sin alerta → sin pack', async () => {
+  const supplier = { skus: ['CUA-N'], supplierKey: 'punto_cero', profileId: null, cost: null };
+  await publishWorker.processJob({ ...baseJob, payloadJson: JSON.stringify({ supplier }) });
+  assert.deepEqual(supplierState.calls, [{ supplier, opts: { packId: null } }]);
+});
+
+test('processJob: si no se publicó nada, NO guarda el proveedor', async () => {
+  publishState.mlThrows = new Error('ML rechazó');
+  publishState.tnThrows = new Error('TN rechazó');
+  await publishWorker.processJob({ ...baseJob, payloadJson: JSON.stringify({ supplier: { skus: ['CUA-N'], supplierKey: 'punto_cero' } }) });
+  assert.equal(supplierState.calls.length, 0);
 });
 
 /* ── Jobs de edición (Publicaciones → Editar → Guardar) ── */

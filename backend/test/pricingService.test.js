@@ -1213,3 +1213,72 @@ test('getConfig: proveedores con sus configs y cuántos productos usa cada una',
   assert.equal(suppliers[0].productCount, 3); // AG-ROSA, AG-AZUL (por el pack) y CUAD
   assert.deepEqual(suppliers[0].profiles.map((p) => [p.name, p.productCount]), [['General', 1], ['Agendas', 1]]);
 });
+
+/* ── Proveedor de un producto fuera de Precios (Crear/Editar producto, Productos) ── */
+
+test('setProductSupplier: un producto que es pack entero se asigna al pack y guarda el costo en cada modelo', async () => {
+  dbState.storeCosts = true;
+  dbState.settings = { defaultMarginPct: 100 };
+  supplierState.suppliers[0].profiles.push({ ...AGENDAS });
+  packState.packs = [AGENDA_PACK];
+  supplierState.assignments = [{ type: 'sku', id: 'AG-AZUL', supplierKey: PC, profileId: 1 }];
+
+  const res = await svc.setProductSupplier({
+    skus: ['AG-ROSA', 'AG-AZUL'], supplierKey: PC, profileId: 2,
+    cost: { mode: 'bulk', bulkPrice: 12000, bulkQty: 12, marginPct: 100 },
+  });
+
+  assert.deepEqual(res.targets, [{ type: 'pack', id: '7' }]);
+  assert.ok(supplierState.assignments.some((a) => a.type === 'pack' && a.id === '7' && a.profileId === 2));
+  for (const sku of ['AG-ROSA', 'AG-AZUL']) {
+    assert.equal(dbState.costs[sku].bulkPrice, 12000);
+    assert.equal(dbState.costs[sku].supplierKey, PC);
+    assert.equal(dbState.costs[sku].marginOverride, null); // igual al default de Ajustes
+  }
+  assert.deepEqual(res.changedSkus.sort(), ['AG-AZUL', 'AG-ROSA']);
+});
+
+test('setProductSupplier: SKUs sueltos van uno por uno; el pack explícito (nuevo de la alerta) gana', async () => {
+  const sueltos = await svc.setProductSupplier({ skus: ['CUA-A', 'CUA-B'], supplierKey: PC, profileId: null });
+  assert.deepEqual(sueltos.targets, [{ type: 'sku', id: 'CUA-A' }, { type: 'sku', id: 'CUA-B' }]);
+  const conPack = await svc.setProductSupplier({ skus: ['CUA-A'], packId: 77, supplierKey: PC });
+  assert.deepEqual(conPack.targets, [{ type: 'pack', id: '77' }]);
+});
+
+test('setProductSupplier: sin costo, un SKU con costo de otro proveedor pasa a este (vigente)', async () => {
+  dbState.storeCosts = true;
+  supplierState.suppliers.push({ key: 'filgo', name: 'Filgo', profiles: [{ id: 5, name: 'General', discount1: 0, discount2: 0, isDefault: true }] });
+  dbState.costs['LAP'] = { sku: 'LAP', source: 'list', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+
+  const res = await svc.setProductSupplier({ skus: ['LAP'], supplierKey: 'filgo' });
+
+  assert.equal(dbState.costs['LAP'].supplierKey, 'filgo');
+  assert.equal(dbState.costs['LAP'].bulkPrice, 900);
+  assert.deepEqual(res.changedSkus, ['LAP']);
+});
+
+test('setProductSupplier: costo inválido no se guarda; sin productos es 400', async () => {
+  dbState.storeCosts = true;
+  await svc.setProductSupplier({ skus: ['X'], supplierKey: PC, cost: { mode: 'bulk', bulkPrice: 0, bulkQty: 10 } });
+  assert.equal(dbState.costs['X'], undefined);
+  await assert.rejects(svc.setProductSupplier({ skus: [], supplierKey: PC }), { status: 400 });
+});
+
+test('getProductSupplierOverview: vigente, config que le toca y costo; sin costo usa el primer proveedor', async () => {
+  supplierState.suppliers[0].profiles.push({ ...AGENDAS });
+  packState.packs = [AGENDA_PACK];
+  supplierState.assignments = [{ type: 'pack', id: '7', supplierKey: PC, profileId: 2 }];
+  dbState.costs['AG-ROSA'] = { sku: 'AG-ROSA', source: 'manual', bulkPrice: 1000, bulkQty: 10, supplierKey: PC, marginOverride: 80 };
+
+  const ov = await svc.getProductSupplierOverview();
+
+  assert.equal(ov.bySku['AG-ROSA'].vigente, PC);
+  assert.equal(ov.bySku['AG-ROSA'].discount.name, 'Agendas');
+  assert.equal(ov.bySku['AG-ROSA'].discount.level, 'pack');
+  assert.deepEqual(ov.bySku['AG-ROSA'].cost, { mode: 'bulk', bulkPrice: 1000, bulkQty: 10, unitCost: null, marginOverride: 80 });
+  assert.equal(ov.bySku['AG-AZUL'].vigente, null); // sin costo todavía
+  assert.equal(ov.bySku['AG-AZUL'].discount.name, 'Agendas');
+  assert.deepEqual(ov.byPack['7'], [{ supplierKey: PC, profileId: 2 }]);
+  const solo = await svc.getProductSupplierOverview({ skus: ['AG-ROSA'] });
+  assert.deepEqual(Object.keys(solo.bySku), ['AG-ROSA']);
+});

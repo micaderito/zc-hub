@@ -32,7 +32,10 @@ class OrdersMock {
   units: CatalogUnit[] = [unit(), unit({ key: 'sku:LG', kind: 'sku', packId: null, sku: 'LG', name: 'Lapicera', code: 'GEL', price: 14400, unitsPerPack: 12, alerted: false, suggestedQty: null, members: [] })];
   catalog = jasmine.createSpy('catalog').and.callFake(() => Promise.resolve({ units: this.units }));
   suppliers = jasmine.createSpy('suppliers').and.resolveTo({ suppliers: [
-    { key: 'punto_cero', name: 'Punto Cero', profileName: 'General', discount1: 25, discount2: 5 },
+    { key: 'punto_cero', name: 'Punto Cero', profileName: 'General', discount1: 25, discount2: 5, profiles: [
+      { id: 1, name: 'General', discount1: 25, discount2: 5, isDefault: true },
+      { id: 2, name: 'Agendas', discount1: 30, discount2: 5, isDefault: false },
+    ] },
     { key: 'filgo', name: 'Filgo', profileName: 'General', discount1: 0, discount2: 0 },
   ] });
   saveDraft = jasmine.createSpy('saveDraft').and.callFake((_id: number, input: SupplierOrder) => Promise.resolve({ ...this.current, ...input }));
@@ -179,5 +182,28 @@ describe('PedidoEditorComponent', () => {
     await create(draft({ supplierKey: 'filgo' }), [unit({ suppliers: ['punto_cero', 'filgo'], priceSupplier: 'punto_cero' })]);
     expect(component.otherPriceSupplier(component.catalogUnits()[0])).toBe('Punto Cero');
     expect(component.otherPriceSupplier(unit({ priceSupplier: 'filgo' }))).toBeNull();
+  });
+
+  it('ofrece las configs de descuento del proveedor y elegir una pisa los dos %', async () => {
+    await create(draft());
+    expect(component.discountProfiles().map((p) => p.name)).toEqual(['General', 'Agendas']);
+    expect(component.selectedProfile()?.name).toBe('General');
+    component.applyProfile('2');
+    expect([component.order()!.discount1, component.order()!.discount2]).toEqual([30, 5]);
+    expect(component.selectedProfile()?.name).toBe('Agendas');
+    expect(component.saveState()).toBe('pending');
+  });
+
+  it('tocar un % a mano deja el pedido como "Personalizado"', async () => {
+    await create(draft());
+    component.setDiscount('discount1', 27);
+    expect(component.selectedProfile()).toBeNull();
+    expect(component.order()!.discount1).toBe(27);
+  });
+
+  it('un proveedor sin configs no muestra el selector', async () => {
+    await create(draft({ supplierKey: 'filgo' }));
+    expect(component.discountProfiles()).toEqual([]);
+    expect(fixture.nativeElement.querySelector('.profile-row')).toBeNull();
   });
 });

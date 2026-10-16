@@ -111,3 +111,23 @@ export function supplierKeyFromName(name) {
     .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
     .slice(0, 60);
 }
+
+/**
+ * A qué se le asigna el proveedor de un producto (Crear/Editar, Productos): al pack si viene uno
+ * explícito o si todos sus SKUs son de un mismo pack (sus modelos lo heredan, igual que en Precios);
+ * si no, a cada SKU.
+ * @param {string[]} skus
+ * @param {Array<{ id: number, skus: string[] }>} packs
+ * @param {number|string|null} [packId]
+ * @returns {Array<{ type: 'sku'|'pack', id: string }>}
+ */
+export function supplierTargets(skus = [], packs = [], packId = null) {
+  const list = [...new Set((skus || []).map((s) => String(s ?? '').trim()).filter(Boolean))];
+  if (packId != null && String(packId).trim()) return [{ type: 'pack', id: String(packId) }];
+  if (list.length === 0) return [];
+  const packOf = new Map();
+  for (const pk of packs) for (const s of pk.skus || []) packOf.set(s, String(pk.id));
+  const first = packOf.get(list[0]);
+  if (first != null && list.every((s) => packOf.get(s) === first)) return [{ type: 'pack', id: first }];
+  return list.map((s) => ({ type: 'sku', id: s }));
+}

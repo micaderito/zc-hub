@@ -25,6 +25,8 @@ import { ProductHistoryDialogComponent } from './components/product-history-dial
 import { PacksTabComponent } from './components/packs-tab/packs-tab.component';
 import { PacksService } from '../../core/services/packs.service';
 import { AlertsService, ALERTS_RULES_QUERY_KEY } from '../../core/services/alerts.service';
+import { PRODUCT_SUPPLIERS_QUERY_KEY, PricingService, SkuSupplierInfo } from '../../core/services/pricing.service';
+import { ProductSupplierDialogComponent, supplierChipLabel } from '../../shared/components/product-supplier-dialog/product-supplier-dialog.component';
 
 const PAGE_SIZE = 25;
 const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
@@ -34,7 +36,7 @@ type SubTab = 'stock' | 'packs';
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
-  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, TabsComponent, StockFilterTabsComponent, PairCardComponent, ProductHistoryDialogComponent, PacksTabComponent],
+  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, TabsComponent, StockFilterTabsComponent, PairCardComponent, ProductHistoryDialogComponent, PacksTabComponent, ProductSupplierDialogComponent],
   templateUrl: './precio-stock.component.html',
   styleUrl: './precio-stock.component.scss'
 })
@@ -221,6 +223,35 @@ export class PrecioStockComponent {
   readonly historySku = signal<string | null>(null);
   /** Stock actual de cada canal para el par abierto: se lo pasamos al diálogo (ver su doc). */
   readonly historyStock = signal<{ ml: number | null; tn: number | null }>({ ml: null, tn: null });
+
+  /** Proveedor de cada SKU (vigente + config), el mismo dato que Precios. No le pega a ML/TN. */
+  private readonly pricingSvc = inject(PricingService);
+  readonly suppliersQuery = injectQuery(() => ({
+    queryKey: PRODUCT_SUPPLIERS_QUERY_KEY,
+    queryFn: () => firstValueFrom(this.pricingSvc.getProductSuppliers()),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  }));
+
+  pairSupplierLabel(pair: { ml: MlRow; tn: TnRow; sku?: string }): string | null {
+    const sku = pair.sku || pair.ml.sku || pair.tn.sku;
+    const data = this.suppliersQuery.data();
+    return sku && data ? supplierChipLabel(data.bySku[sku], data.suppliers) : null;
+  }
+
+  /** SKU cuyo proveedor se está eligiendo (diálogo abierto). */
+  readonly supplierEdit = signal<{ sku: string; info: SkuSupplierInfo | null; note: string | null } | null>(null);
+
+  openSupplier(pair: { ml: MlRow; tn: TnRow; sku?: string }): void {
+    const sku = pair.sku || pair.ml.sku || pair.tn.sku;
+    if (!sku) return;
+    const pack = this.getPairPackName(pair);
+    this.supplierEdit.set({
+      sku,
+      info: this.suppliersQuery.data()?.bySku[sku] ?? null,
+      note: pack ? `Es del pack "${pack}": se asigna al pack entero (sus modelos lo heredan).` : null,
+    });
+  }
 
   openHistory(pair: { ml: MlRow; tn: TnRow; sku?: string }): void {
     const sku = pair.sku || pair.ml.sku || pair.tn.sku;

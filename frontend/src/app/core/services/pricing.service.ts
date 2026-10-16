@@ -56,6 +56,45 @@ export interface PricingTarget {
   id: string | number;
 }
 
+/** Query de TanStack con el proveedor de cada producto (Productos); invalidarla al guardar. */
+export const PRODUCT_SUPPLIERS_QUERY_KEY = ['pricing', 'product-suppliers'] as const;
+
+/** Costo de un producto como lo muestra el form (sin descuentos: salen de la config). */
+export interface ProductCostSummary {
+  mode: 'bulk' | 'unit';
+  bulkPrice: number | null;
+  bulkQty: number | null;
+  unitCost: number | null;
+  marginOverride: number | null;
+}
+
+/** Proveedor de un SKU fuera de Precios (Productos, Crear/Editar producto). */
+export interface SkuSupplierInfo {
+  /** El que manda el costo (`null` = todavía sin costo). */
+  vigente: string | null;
+  /** Todos a los que se le compra, el vigente primero. */
+  suppliers: string[];
+  /** Config que le toca (para el vigente o, sin costo, para el primero). `level` = de dónde sale. */
+  discount: { profileId: number | null; name: string | null; discount1: number; discount2: number; level: 'sku' | 'pack' | 'default' | 'none' };
+  cost: ProductCostSummary | null;
+}
+
+export interface ProductSupplierOverview {
+  suppliers: Array<Pick<Supplier, 'key' | 'name'> & { profiles: Array<Omit<DiscountProfile, 'productCount'>> }>;
+  bySku: Record<string, SkuSupplierInfo>;
+  /** Asignaciones a nivel pack (por id de pack). */
+  byPack: Record<string, Array<{ supplierKey: string; profileId: number | null }>>;
+}
+
+export interface ProductSupplierInput {
+  skus: string[];
+  packId?: number | null;
+  supplierKey: string | null;
+  profileId?: number | null;
+  cost?: { mode: 'bulk' | 'unit'; bulkPrice?: number | null; bulkQty?: number | null; unitCost?: number | null; marginPct?: number | null } | null;
+  label?: string | null;
+}
+
 /** Resultado de sincronizar comisiones con la API de ML. */
 export interface MlFeesSync {
   remote: { commissionPct: number | null; tiers: MlFeeTier[]; probes: Array<{ price: number; fixedFee: number }>; fetchedAt: string };
@@ -482,6 +521,20 @@ export class PricingService {
   setVigente(supplierKey: string, targets: PricingTarget[]) {
     return this.http.put<{ ok: boolean; changedSkus: string[]; withoutPrice: string[] }>(
       `${this.api.baseUrl}/pricing/vigente`, { supplierKey, targets },
+    );
+  }
+
+  /** Proveedor, config y costo de cada producto (`skus` vacío = todos). */
+  getProductSuppliers(skus: string[] = []) {
+    return this.http.get<ProductSupplierOverview>(
+      `${this.api.baseUrl}/pricing/product-suppliers`, { params: skus.length ? { skus: skus.join(',') } : {} },
+    );
+  }
+
+  /** Proveedor + config (+ costo) de un producto; un pack entero se asigna como pack. */
+  setProductSupplier(body: ProductSupplierInput) {
+    return this.http.put<{ ok: boolean; targets: PricingTarget[]; changedSkus: string[] }>(
+      `${this.api.baseUrl}/pricing/product-supplier`, body,
     );
   }
 

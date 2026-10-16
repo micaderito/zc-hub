@@ -59,6 +59,28 @@
         .ti { font-size: 0.72rem; flex-shrink: 0; }
         .pack-chip-name { overflow: hidden; text-overflow: ellipsis; }
       }
+
+      .supplier-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font: inherit;
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.15rem 0.5rem;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-2);
+        min-width: 0;
+        max-width: 14rem;
+        white-space: nowrap;
+        cursor: pointer;
+        &.empty { color: var(--text-3); border-style: dashed; }
+        &:disabled { cursor: default; }
+        &:not(:disabled):hover { border-color: var(--brand); color: var(--brand); }
+        .pack-chip-name { overflow: hidden; text-overflow: ellipsis; }
+      }
     }
 
     .pair-header-right {
