@@ -291,4 +291,27 @@ describe('PairCardComponent', () => {
 
     expect(prices.syncStock).toBe(25);
   });
+
+  it('muestra el proveedor en un chip y emite editSupplier al tocarlo (sin colapsar la tarjeta)', () => {
+    setInputs();
+    fixture.componentRef.setInput('supplierLabel', 'Punto Cero · Agendas');
+    fixture.detectChanges();
+    const edit = jasmine.createSpy('edit');
+    const collapse = jasmine.createSpy('collapse');
+    component.editSupplier.subscribe(edit);
+    component.toggleCollapse.subscribe(collapse);
+
+    const chip = fixture.nativeElement.querySelector('.supplier-chip') as HTMLButtonElement;
+    expect(chip.textContent?.trim()).toBe('Punto Cero · Agendas');
+    chip.click();
+    expect(edit).toHaveBeenCalled();
+    expect(collapse).not.toHaveBeenCalled();
+  });
+
+  it('sin proveedor el chip dice "sin proveedor"', () => {
+    setInputs();
+    const chip = fixture.nativeElement.querySelector('.supplier-chip') as HTMLElement;
+    expect(chip.classList).toContain('empty');
+    expect(chip.textContent?.trim()).toBe('sin proveedor');
+  });
 });

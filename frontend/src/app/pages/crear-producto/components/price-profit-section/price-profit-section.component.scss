@@ -10,3 +10,33 @@
     margin-top: 0;
   }
 }
+
+.supplier-row {
+  margin-bottom: 0.2rem;
+}
+
+.supplier-hint {
+  display: block;
+  margin: 0 0 0.8rem;
+}
+
+.readonly-box {
+  display: flex;
+  align-items: center;
+  color: var(--text-3);
+  border-style: dashed;
+}
+
+.supplier-save {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+  .hint {
+    margin-top: 0;
+  }
+}
+
+.hint.ok {
+  color: var(--ok);
+}

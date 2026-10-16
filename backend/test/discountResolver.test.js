@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDiscountContext, resolveDiscount, suppliersOf, supplierKeyFromName } from '../src/lib/discountResolver.js';
+import { buildDiscountContext, resolveDiscount, suppliersOf, supplierKeyFromName, supplierTargets } from '../src/lib/discountResolver.js';
 
 const suppliers = [
   {
@@ -81,4 +81,13 @@ test('suppliersOf: junta asignaciones, códigos mapeados (también del pack) y v
 test('supplierKeyFromName: slug sin acentos ni símbolos', () => {
   assert.equal(supplierKeyFromName('Bic Argentina'), 'bic_argentina');
   assert.equal(supplierKeyFromName('  Filgo / Librería Ñandú '), 'filgo_libreria_nandu');
+});
+
+test('supplierTargets: pack explícito, todos del mismo pack → pack; si no, cada SKU', () => {
+  assert.deepEqual(supplierTargets(['X'], packs, 9), [{ type: 'pack', id: '9' }]);
+  assert.deepEqual(supplierTargets(['AG-ROSA', 'AG-AZUL'], packs), [{ type: 'pack', id: '7' }]);
+  assert.deepEqual(supplierTargets(['AG-ROSA'], packs), [{ type: 'pack', id: '7' }]);
+  assert.deepEqual(supplierTargets(['AG-ROSA', 'LAP'], packs), [{ type: 'sku', id: 'AG-ROSA' }, { type: 'sku', id: 'LAP' }]);
+  assert.deepEqual(supplierTargets([' ', 'LAP', 'LAP'], packs), [{ type: 'sku', id: 'LAP' }]);
+  assert.deepEqual(supplierTargets([], packs), []);
 });

@@ -344,6 +344,28 @@ pricingRoutes.post('/assignments/remove', async (req, res) => {
   }
 });
 
+/**
+ * Proveedor de cada producto (vigente, todos, config de descuento y costo) para Productos y
+ * Crear/Editar producto. `?skus=a,b` limita a esos SKUs.
+ */
+pricingRoutes.get('/product-suppliers', async (req, res) => {
+  const skus = String(req.query.skus || '').split(',').map((s) => s.trim()).filter(Boolean);
+  try {
+    res.json(await pricing.getProductSupplierOverview({ skus: skus.length ? skus : null }));
+  } catch (e) {
+    sendError(res, e);
+  }
+});
+
+/** Proveedor + config (+ costo) de un producto: { skus, packId?, supplierKey|null, profileId?, cost? }. */
+pricingRoutes.put('/product-supplier', async (req, res) => {
+  try {
+    res.json(await pricing.setProductSupplier(req.body || {}));
+  } catch (e) {
+    sendError(res, e);
+  }
+});
+
 /** Cambia el proveedor vigente (el que manda el costo): { supplierKey, targets }. */
 pricingRoutes.put('/vigente', async (req, res) => {
   try {

@@ -2,7 +2,7 @@ import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
 import { CatalogService, DraftDetail, DraftSummary, PublishJobSummary, PublishUnit, StorageUsage } from '../../core/services/catalog.service';
-import { PricingService } from '../../core/services/pricing.service';
+import { PricingService, ProductSupplierInput, Supplier } from '../../core/services/pricing.service';
 import { EditLockKey, EditOp, PublicationEdit, PublicationEditsService, RemoteChange } from '../../core/services/publication-edits.service';
 import {
   DEFAULT_SETTINGS,
@@ -493,14 +493,114 @@ export class ProductDraftStore {
     return c.mode === 'unit' ? c.unitCost != null && c.unitCost > 0 : c.bulkPrice != null && c.bulkQty != null && c.bulkQty > 0;
   });
 
+  /* ---------- proveedor (se guarda en Precios) ---------- */
+
+  /** Proveedores con sus configs de descuento (de /pricing/config). */
+  readonly suppliers = signal<Supplier[]>([]);
+  readonly selectedSupplier = computed(() => {
+    const key = this.draft().cost.supplierKey;
+    return key ? this.suppliers().find((s) => s.key === key) ?? null : null;
+  });
+  /** Config elegida, o la default del proveedor. Sin proveedor = sin descuento. */
+  readonly selectedProfile = computed(() => {
+    const s = this.selectedSupplier();
+    if (!s) return null;
+    const id = this.draft().cost.profileId;
+    return s.profiles.find((p) => p.id === id) ?? s.profiles.find((p) => p.isDefault) ?? s.profiles[0] ?? null;
+  });
+
+  setCostSupplier(key: string | null): void {
+    const d = this.draft();
+    d.cost.supplierKey = key;
+    d.cost.profileId = null;
+    this.touch();
+  }
+
+  setCostProfile(id: number | null): void {
+    const d = this.draft();
+    const profile = this.selectedSupplier()?.profiles.find((p) => p.id === id);
+    d.cost.profileId = profile && !profile.isDefault ? profile.id : null;
+    this.touch();
+  }
+
+  /** En la edición: estado de "Guardar en Precios" (es aparte de los cambios a ML/TN). */
+  readonly supplierSave = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  readonly supplierSaveError = signal<string | null>(null);
+
+  /** Lo que se manda a Precios: SKUs del producto + proveedor + config + costo (si está cargado). */
+  supplierInput(): ProductSupplierInput | null {
+    const d = this.draft();
+    const skus = this.alertSkus().map((r) => r.sku);
+    if (!skus.length || d.cost.supplierKey === undefined) return null;
+    if (!d.cost.supplierKey && !this.hasCost()) return null;
+    const c = d.cost;
+    return {
+      skus,
+      supplierKey: c.supplierKey ?? null,
+      profileId: c.supplierKey ? c.profileId ?? null : null,
+      cost: this.hasCost()
+        ? { mode: c.mode, bulkPrice: c.bulkPrice, bulkQty: c.bulkQty, unitCost: c.unitCost, marginPct: c.marginPct }
+        : null,
+      label: d.common.baseName.trim(),
+    };
+  }
+
+  /**
+   * Edición: trae de Precios el proveedor, la config y el costo actuales del producto (Precios es la
+   * fuente de verdad, así que pisa lo que hubiera en la edición guardada).
+   */
+  async loadSupplierFromPrecios(): Promise<void> {
+    const skus = this.alertSkus().map((r) => r.sku);
+    if (!skus.length) return;
+    try {
+      const ov = await firstValueFrom(this.pricingSvc.getProductSuppliers(skus));
+      const info = skus.map((s) => ov.bySku[s]).find((i) => i && (i.vigente || i.suppliers.length || i.cost));
+      const d = this.draft();
+      if (!info) {
+        if (d.cost.supplierKey === undefined) d.cost.supplierKey = null;
+        this.draft.set({ ...d });
+        return;
+      }
+      const key = info.vigente ?? info.suppliers[0] ?? null;
+      d.cost.supplierKey = key;
+      d.cost.profileId = key && (info.discount.level === 'sku' || info.discount.level === 'pack') ? info.discount.profileId : null;
+      if (info.cost) {
+        d.cost.mode = info.cost.mode;
+        d.cost.bulkPrice = info.cost.bulkPrice;
+        d.cost.bulkQty = info.cost.bulkQty;
+        d.cost.unitCost = info.cost.unitCost;
+        if (info.cost.marginOverride != null) d.cost.marginPct = info.cost.marginOverride;
+      }
+      this.draft.set({ ...d });
+    } catch {
+      // Sin Precios: la sección queda como venía; guardar avisa si falla.
+    }
+  }
+
+  /** Edición: guarda proveedor/config/costo en Precios al toque (no pasa por ML/TN). */
+  async saveSupplierToPrecios(): Promise<void> {
+    const input = this.supplierInput();
+    if (!input) return;
+    this.supplierSave.set('saving');
+    this.supplierSaveError.set(null);
+    try {
+      await firstValueFrom(this.pricingSvc.setProductSupplier(input));
+      this.supplierSave.set('saved');
+    } catch (e) {
+      this.supplierSaveError.set(this.errMsg(e) || 'No se pudo guardar en Precios.');
+      this.supplierSave.set('error');
+    }
+  }
+
   readonly costPreview = computed(() => {
     if (!this.hasCost()) return null;
     const c = this.draft().cost;
+    const profile = this.selectedProfile();
     try {
       return computePrices(
         c.mode === 'unit'
           ? { unitCost: c.unitCost, marginPct: c.marginPct }
-          : { bulkPrice: c.bulkPrice, bulkQty: c.bulkQty, discount1: c.discount1, discount2: c.discount2, marginPct: c.marginPct },
+          : { bulkPrice: c.bulkPrice, bulkQty: c.bulkQty, discount1: profile?.discount1 ?? 0, discount2: profile?.discount2 ?? 0, marginPct: c.marginPct },
         this.pricingSettings()
       );
     } catch {
@@ -538,14 +638,18 @@ export class ProductDraftStore {
     try {
       const config = await firstValueFrom(this.pricingSvc.getConfig());
       this.pricingSettings.set({ ...config.settings, tiers: tiersFromConfig(config.tiers) });
+      this.suppliers.set(config.suppliers ?? []);
       const d = this.draft();
-      // Solo si el borrador todavía tiene los defaults de fábrica (no pisamos lo que ya se cargó).
-      if (d.cost.discount1 === 25 && d.cost.discount2 === 5 && d.cost.marginPct === 100) {
-        d.cost.discount1 = config.settings.defaultDiscount1;
-        d.cost.discount2 = config.settings.defaultDiscount2;
-        d.cost.marginPct = config.settings.defaultMarginPct;
-        this.draft.set({ ...d });
+      // Solo si el borrador todavía tiene el default de fábrica (no pisamos lo que ya se cargó).
+      if (d.cost.marginPct === 100) d.cost.marginPct = config.settings.defaultMarginPct;
+      if (this.isEdit()) {
+        await this.loadSupplierFromPrecios();
+      } else if (d.cost.supplierKey === undefined) {
+        // Producto nuevo: arranca con el primer proveedor y su config default.
+        d.cost.supplierKey = config.suppliers?.[0]?.key ?? null;
+        d.cost.profileId = null;
       }
+      this.draft.set({ ...d });
     } catch {
       // Sin conexión a /precios: seguimos con los defaults de la planilla (DEFAULT_SETTINGS).
     } finally {
