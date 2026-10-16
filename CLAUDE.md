@@ -453,6 +453,16 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   código de cada proveedor. Borrar un proveedor con listas o productos vigentes da 409.
 - `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
   usar `track a + '|' + b`.
+- **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de
+  `angular.json` y el build de producción fallaba): `precios.component` es solo la página contenedora
+  (encabezado, pestañas, qué diálogo está abierto) y provee `PreciosStore` (`precios.store.ts`: las
+  queries de config y planilla, pestaña de proveedor / vista en la URL, `changedSkus`, `notice`,
+  `dialog`). Adentro, todos `OnPush`: `planilla/` (tabla, selección, aplicar, `zc-assign-dialog`),
+  `proveedor/` (tarjetas de configs) y `dialogs/` (Ajustes, Importar, Costo, Historial de listas,
+  Proveedor, Configuración), cada diálogo solo existe mientras está abierto. Helpers puros en
+  `precios.utils.ts`. Los estilos de base (botones, badges, modales, campos) van una sola vez en
+  `precios.component.scss` sin encapsulación y bajo `:where(.pr-page)` — especificidad cero, así el
+  estilo propio de cada componente (y los de Mapeo) los pisa; cada componente trae solo lo suyo.
 
 ### Alertas de stock: sugerencia de reposición por pack, no por modelo
 
