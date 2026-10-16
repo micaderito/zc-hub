@@ -9,7 +9,7 @@ import { CatalogUnit, OrdersService, computeOrderTotals, lineFromCatalogUnit, li
 const unit = (over: Partial<CatalogUnit> = {}): CatalogUnit => ({
   key: 'pack:1', kind: 'pack', packId: 1, sku: null, name: 'Cuadernos', code: '4410', description: 'CUADERNO X8',
   unitsPerPack: 8, mode: 'assorted', price: 96000, members: [], alerted: true, suggestedQty: 2, depositoStock: null,
-  lastOrder: null, pendingOrder: null, ...over,
+  lastOrder: null, pendingOrder: null, suppliers: ['punto_cero'], priceSupplier: 'punto_cero', ...over,
 });
 
 describe('OrdersService', () => {
@@ -50,6 +50,20 @@ describe('OrdersService', () => {
     expect(req.request.method).toBe('PUT');
     expect(req.request.body).toEqual({ received: { 10: 2, 11: null }, close: true });
     req.flush({ order: { id: 3 } });
+  });
+
+  it('create() manda el proveedor; catalog() filtra con ?supplier=', async () => {
+    const p = service.create({ supplierKey: 'filgo' });
+    const req = httpMock.expectOne(base);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ supplierKey: 'filgo' });
+    req.flush({ order: { id: 9, supplierKey: 'filgo' } });
+    expect((await p).supplierKey).toBe('filgo');
+
+    service.catalog('filgo');
+    httpMock.expectOne(`${base}/catalog?supplier=filgo`).flush({ units: [] });
+    service.catalog();
+    httpMock.expectOne(`${base}/catalog`).flush({ units: [] });
   });
 
   it('duplicate() pasa modo y estado', () => {

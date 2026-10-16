@@ -14,11 +14,13 @@ const unit = (over: Partial<CatalogUnit> = {}): CatalogUnit => ({
     { sku: 'A', label: 'A5 rayado', stockMl: 0, stockTn: 0, stockEffective: 0, depositoStock: 8, threshold: 2, alertState: 'out' },
     { sku: 'B', label: 'A4', stockMl: 6, stockTn: 6, stockEffective: 6, depositoStock: null, threshold: 2, alertState: 'watching' },
   ],
-  alerted: true, suggestedQty: 2, depositoStock: 8, lastOrder: null, pendingOrder: null, ...over,
+  alerted: true, suggestedQty: 2, depositoStock: 8, lastOrder: null, pendingOrder: null,
+  suppliers: ['punto_cero'], priceSupplier: 'punto_cero', ...over,
 });
 
 const draft = (over: Partial<SupplierOrder> = {}): SupplierOrder => ({
   id: 17, name: 'Pedido octubre', status: 'borrador', partial: false, discount1: 25, discount2: 5, note: '', basedOnId: null,
+  supplierKey: 'punto_cero',
   createdAt: '2026-10-08T00:00:00Z', updatedAt: null, orderedAt: null, receivedAt: null, lines: [],
   totals: { lineCount: 0, packs: 0, subtotal: 0, discount1Amount: 0, discount2Amount: 0, total: 0, missingPrices: 0 },
   ...over,
@@ -27,9 +29,12 @@ const draft = (over: Partial<SupplierOrder> = {}): SupplierOrder => ({
 class OrdersMock {
   current = draft();
   get = jasmine.createSpy('get').and.callFake(() => Promise.resolve(this.current));
-  catalog = jasmine.createSpy('catalog').and.callFake(() => Promise.resolve({
-    units: [unit(), unit({ key: 'sku:LG', kind: 'sku', packId: null, sku: 'LG', name: 'Lapicera', code: 'GEL', price: 14400, unitsPerPack: 12, alerted: false, suggestedQty: null, members: [] })],
-  }));
+  units: CatalogUnit[] = [unit(), unit({ key: 'sku:LG', kind: 'sku', packId: null, sku: 'LG', name: 'Lapicera', code: 'GEL', price: 14400, unitsPerPack: 12, alerted: false, suggestedQty: null, members: [] })];
+  catalog = jasmine.createSpy('catalog').and.callFake(() => Promise.resolve({ units: this.units }));
+  suppliers = jasmine.createSpy('suppliers').and.resolveTo({ suppliers: [
+    { key: 'punto_cero', name: 'Punto Cero', profileName: 'General', discount1: 25, discount2: 5 },
+    { key: 'filgo', name: 'Filgo', profileName: 'General', discount1: 0, discount2: 0 },
+  ] });
   saveDraft = jasmine.createSpy('saveDraft').and.callFake((_id: number, input: SupplierOrder) => Promise.resolve({ ...this.current, ...input }));
   place = jasmine.createSpy('place').and.callFake(() => Promise.resolve({ ...this.current, status: 'pendiente' }));
   receive = jasmine.createSpy('receive').and.callFake(() => Promise.resolve({ ...this.current, status: 'recibido', partial: true }));
@@ -42,9 +47,10 @@ describe('PedidoEditorComponent', () => {
   let component: PedidoEditorComponent;
   let orders: OrdersMock;
 
-  async function create(order: SupplierOrder): Promise<void> {
+  async function create(order: SupplierOrder, units?: CatalogUnit[]): Promise<void> {
     orders = new OrdersMock();
     orders.current = order;
+    if (units) orders.units = units;
     await TestBed.configureTestingModule({
       imports: [PedidoEditorComponent],
       providers: [
@@ -150,5 +156,28 @@ describe('PedidoEditorComponent', () => {
     component.setName('otro');
     expect(component.order()!.name).toBe('Pedido octubre');
     expect(fixture.nativeElement.querySelector('.catalog')).toBeNull();
+  });
+
+  it('el catálogo se pide para el proveedor del pedido y lo muestra en el encabezado', async () => {
+    await create(draft({ supplierKey: 'filgo' }));
+    expect(orders.catalog).toHaveBeenCalledWith('filgo');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.supplier-chip').textContent).toContain('Filgo');
+  });
+
+  it('lo que no tiene proveedor queda escondido (y fuera de "Agregar sugeridos") hasta tildar "Sin proveedor"', async () => {
+    await create(draft(), [unit(), unit({ key: 'pack:9', packId: 9, name: 'Gomas', suppliers: [], priceSupplier: null })]);
+    expect(component.unassignedCount()).toBe(1);
+    expect(component.visibleUnits().map((u) => u.key)).toEqual(['pack:1']);
+    component.addAllSuggested();
+    expect(component.order()!.lines.map((l) => l.packId)).toEqual([1]);
+    component.showUnassigned.set(true);
+    expect(component.visibleUnits().map((u) => u.key)).toEqual(['pack:1', 'pack:9']);
+  });
+
+  it('avisa cuando el precio de Precios es de otro proveedor (el vigente)', async () => {
+    await create(draft({ supplierKey: 'filgo' }), [unit({ suppliers: ['punto_cero', 'filgo'], priceSupplier: 'punto_cero' })]);
+    expect(component.otherPriceSupplier(component.catalogUnits()[0])).toBe('Punto Cero');
+    expect(component.otherPriceSupplier(unit({ priceSupplier: 'filgo' }))).toBeNull();
   });
 });

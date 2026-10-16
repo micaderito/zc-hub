@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import {
   listUnitPrice, packListPrice, resolvePackCode, suggestPacks, buildOrderHistoryIndex, buildCatalog,
   computeOrderTotals, buildPriceIndex, refreshLinePrices, buildDuplicateLines, sanitizeOrderInput,
+  codesForSupplier, unitSuppliers,
 } from '../src/services/ordersService.js';
+import { buildDiscountContext } from '../src/lib/discountResolver.js';
 
 const PACK_CI = { id: 1, name: 'Cuadernos inteligentes', sku: 'PK-CI', unitCount: 8, mode: 'assorted', skus: ['CI-1', 'CI-2', 'CI-3'] };
 const PACK_RH = { id: 2, name: 'Repuestos A5', sku: null, unitCount: 8, mode: 'single', skus: ['RH-1'] };
@@ -161,4 +163,51 @@ test('sanitizeOrderInput: valida nombre, descuentos y líneas; ítem libre siemp
   assert.equal(value.lines[0].unitPrice, null);
   assert.equal(value.lines[0].priceSource, 'manual');
   assert.equal(value.lines[0].origin, 'libre');
+});
+
+test('codesForSupplier: solo los códigos del proveedor del pedido', () => {
+  const r = codesForSupplier({
+    skuCodeMap: [{ sku: 'A', code: '1', supplier: 'pc' }, { sku: 'A', code: 'F1', supplier: 'filgo' }],
+    packCodeMap: [{ packId: 1, code: 'P', supplier: 'pc' }],
+  }, 'filgo');
+  assert.deepEqual(r.skuCodeMap.map((m) => m.code), ['F1']);
+  assert.deepEqual(r.packCodeMap, []);
+});
+
+test('unitSuppliers: unión de los proveedores de los modelos, el vigente primero', () => {
+  const ctx = buildDiscountContext({
+    packs: [PACK_CI],
+    assignments: [{ type: 'pack', id: '1', supplierKey: 'filgo', profileId: null }],
+    skuCodeMap: [{ sku: 'CI-2', supplier: 'bic' }],
+    costs: [{ sku: 'CI-3', supplierKey: 'pc' }],
+  });
+  assert.deepEqual(unitSuppliers(PACK_CI.skus, ctx), { suppliers: ['pc', 'filgo', 'bic'], vigente: 'pc' });
+  assert.deepEqual(unitSuppliers(['X'], ctx), { suppliers: [], vigente: null });
+  assert.deepEqual(unitSuppliers(['X'], null), { suppliers: [], vigente: null });
+});
+
+test('buildCatalog con proveedor: filtra lo de otros, deja lo sin proveedor y no usa el SKU del pack de otro vigente', () => {
+  const packs = [PACK_CI, { ...PACK_RH, sku: 'RH-PACK' }];
+  const costs = [{ sku: 'CI-1', supplierKey: 'filgo' }, { sku: 'RH-1', supplierKey: 'pc' }, { sku: 'LG', supplierKey: 'pc' }];
+  const discountCtx = buildDiscountContext({
+    packs, costs,
+    assignments: [{ type: 'pack', id: '2', supplierKey: 'filgo', profileId: null }],
+  });
+  const base = {
+    packs, costs, discountCtx,
+    snapshotData: { mlRows: [{ sku: 'LG', title: 'Lapicera', stock: 1 }, { sku: 'NA', title: 'Notas', stock: 1 }], tnRows: [] },
+    restockRows: [], rules: [], codeDescriptions: new Map(), depositoBySku: new Map(), orders: [],
+  };
+  const units = buildCatalog({ ...base, supplierKey: 'filgo', ...codesForSupplier({ skuCodeMap: [], packCodeMap: [] }, 'filgo') });
+  assert.deepEqual(units.map((u) => u.key).sort(), ['pack:1', 'pack:2', 'sku:NA'], 'la lapicera es solo de pc');
+  const rh = units.find((u) => u.key === 'pack:2');
+  assert.equal(rh.code, null, 'el SKU propio del pack es el código del vigente (pc), no de Filgo');
+  assert.equal(rh.priceSupplier, 'pc');
+  assert.deepEqual(rh.suppliers, ['pc', 'filgo']);
+  assert.equal(units.find((u) => u.key === 'pack:1').code, 'PK-CI', 'Filgo es el vigente: su SKU propio vale');
+  assert.deepEqual(units.find((u) => u.key === 'sku:NA').suppliers, []);
+
+  const all = buildCatalog({ ...base, skuCodeMap: [], packCodeMap: [] });
+  assert.equal(all.length, 4, 'sin proveedor, todo');
+  assert.equal(all.find((u) => u.key === 'pack:2').code, 'RH-PACK');
 });

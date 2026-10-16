@@ -654,6 +654,13 @@ export async function initDb() {
       );
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_supplier_order_lines_order ON supplier_order_lines (order_id, position);`);
+    // A qué proveedor se le hizo el pedido (`suppliers.key`): decide qué productos ofrece el catálogo
+    // del editor y qué código va a la fábrica. Sin FK a propósito: el pedido es historial, y borrar
+    // un proveedor con pedidos ya da 409 (getSupplierUsage). Los anteriores eran todos a Punto Cero.
+    // El UPDATE corre en cada arranque y no una sola vez: un backend viejo que siga creando pedidos
+    // contra la misma base (deploy en curso, backend local) los deja sin proveedor.
+    await p.query(`ALTER TABLE supplier_orders ADD COLUMN IF NOT EXISTS supplier_key VARCHAR(64);`);
+    await p.query(`UPDATE supplier_orders SET supplier_key = 'punto_cero' WHERE supplier_key IS NULL;`);
 
     // ── Usuarios del hub (login) ────────────────────────────────────────────
     // Rol: 'admin' (todo) o 'lectura' (solo ver; ver middleware/requireAuth.js). token_version invalida
@@ -2322,13 +2329,14 @@ export async function renameSupplier(key, name) {
   }
 }
 
-/** En uso = tiene listas importadas o es el vigente de algún costo (no se puede borrar). */
+/** En uso = tiene listas importadas, es el vigente de algún costo o tiene pedidos (no se puede borrar). */
 export async function getSupplierUsage(key) {
   const p = getPool();
-  if (!p) return { lists: 0, products: 0 };
+  if (!p) return { lists: 0, products: 0, orders: 0 };
   const r = await p.query(
     `SELECT (SELECT COUNT(*)::int FROM price_lists WHERE supplier = $1) AS lists,
-            (SELECT COUNT(*)::int FROM product_costs WHERE supplier_key = $1) AS products`, [key]);
+            (SELECT COUNT(*)::int FROM product_costs WHERE supplier_key = $1) AS products,
+            (SELECT COUNT(*)::int FROM supplier_orders WHERE supplier_key = $1) AS orders`, [key]);
   return r.rows[0];
 }
 
@@ -4294,6 +4302,7 @@ function mapOrderRow(row) {
     discount2: Number(row.discount_2),
     note: row.note ?? '',
     basedOnId: row.based_on_id ?? null,
+    supplierKey: row.supplier_key ?? null,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     orderedAt: iso(row.ordered_at),
@@ -4339,13 +4348,15 @@ async function replaceOrderLines(client, orderId, lines) {
 }
 
 /** Todos los pedidos (más nuevos primero), cada uno con sus líneas — son pocos y chicos. */
-export async function listSupplierOrders({ status } = {}) {
+export async function listSupplierOrders({ status, supplierKey } = {}) {
   const p = getPool();
   if (!p) return [];
   try {
     const params = [];
-    let where = '';
-    if (status) { params.push(status); where = 'WHERE status = $1'; }
+    const conds = [];
+    if (status) { params.push(status); conds.push(`status = $${params.length}`); }
+    if (supplierKey) { params.push(supplierKey); conds.push(`supplier_key = $${params.length}`); }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     const orders = await p.query(
       `SELECT * FROM supplier_orders ${where} ORDER BY COALESCE(ordered_at, created_at) DESC, id DESC`, params
     );
@@ -4382,7 +4393,9 @@ export async function getSupplierOrder(id) {
 }
 
 /** Crea un pedido (vacío o con líneas, ej. al duplicar). Devuelve el pedido creado o `null`. */
-export async function createSupplierOrder({ name, status = 'borrador', discount1, discount2, note = '', basedOnId = null, lines = [] }) {
+export async function createSupplierOrder({
+  name, status = 'borrador', discount1, discount2, note = '', basedOnId = null, supplierKey = 'punto_cero', lines = [],
+}) {
   const p = getPool();
   if (!p) return null;
   const client = await p.connect();
@@ -4392,9 +4405,9 @@ export async function createSupplierOrder({ name, status = 'borrador', discount1
     // columna y en una comparación hace que Postgres deduzca dos tipos y rechace la query (ver
     // publishJobsRealDb.test.js).
     const r = await client.query(
-      `INSERT INTO supplier_orders (name, status, discount_1, discount_2, note, based_on_id, ordered_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-      [name, status, discount1, discount2, note, basedOnId, status === 'pendiente' ? new Date() : null]
+      `INSERT INTO supplier_orders (name, status, discount_1, discount_2, note, based_on_id, ordered_at, supplier_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [name, status, discount1, discount2, note, basedOnId, status === 'pendiente' ? new Date() : null, supplierKey]
     );
     const id = r.rows[0].id;
     await replaceOrderLines(client, id, lines);

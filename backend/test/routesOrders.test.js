@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import { mock } from 'node:test';
 
-const db = { orders: new Map(), nextId: 1, nextLineId: 1, defaults: { discount1: 25, discount2: 5 }, cutoffSets: 0, packs: [], costs: [] };
+const db = { orders: new Map(), nextId: 1, nextLineId: 1, defaults: { discount1: 25, discount2: 5 }, cutoffSets: 0, packs: [], costs: [], suppliers: [], assignments: [], skuCodes: [], packCodes: [] };
 
 function reset() {
   db.orders = new Map();
@@ -19,7 +19,16 @@ function reset() {
   db.cutoffSets = 0;
   db.packs = [{ id: 7, name: 'Cuadernos', sku: 'PK', unitCount: 8, mode: 'assorted', skus: ['A'] }];
   db.costs = [{ sku: 'A', bulkPrice: 80000, bulkQty: 8 }];
+  db.suppliers = [];
+  db.assignments = [];
+  db.skuCodes = [];
+  db.packCodes = [];
 }
+
+const SUPPLIERS = [
+  { key: 'punto_cero', name: 'Punto Cero', profiles: [{ id: 1, name: 'General', discount1: 25, discount2: 5, isDefault: true }] },
+  { key: 'filgo', name: 'Filgo', profiles: [{ id: 2, name: 'Sin descuento', discount1: 0, discount2: 0, isDefault: true }] },
+];
 
 const clone = (o) => (o ? JSON.parse(JSON.stringify(o)) : null);
 const withIds = (lines) => lines.map((l) => ({ receivedQty: null, ...l, id: db.nextLineId++ }));
@@ -39,13 +48,15 @@ before(async () => {
       listPacks: async () => db.packs,
       getAnalysisSnapshot: async () => ({ data: { mlRows: [{ sku: 'A', title: 'Cuaderno', stock: 1 }], tnRows: [] } }),
       getAllProductCosts: async () => db.costs,
-      getSkuCodeMap: async () => [], getPackCodeMap: async () => [], getSupplierCodeDescriptions: async () => new Map(),
+      getSkuCodeMap: async () => db.skuCodes, getPackCodeMap: async () => db.packCodes, getSupplierCodeDescriptions: async () => new Map(),
+      listSuppliers: async () => db.suppliers, listProductSuppliers: async () => db.assignments,
       getOrderDefaults: async () => ({ ...db.defaults }),
       setOrderDefaults: async (v) => { db.defaults = v; return true; },
-      listSupplierOrders: async ({ status } = {}) => [...db.orders.values()].filter((o) => !status || o.status === status).reverse().map(clone),
+      listSupplierOrders: async ({ status, supplierKey } = {}) => [...db.orders.values()]
+        .filter((o) => (!status || o.status === status) && (!supplierKey || o.supplierKey === supplierKey)).reverse().map(clone),
       getSupplierOrder: async (id) => clone(db.orders.get(id)),
-      createSupplierOrder: async ({ name, status = 'borrador', discount1, discount2, note = '', basedOnId = null, lines = [] }) => {
-        const o = { id: db.nextId++, name, status, partial: false, discount1, discount2, note, basedOnId, createdAt: 'now', orderedAt: status === 'pendiente' ? 'now' : null, lines: withIds(lines) };
+      createSupplierOrder: async ({ name, status = 'borrador', discount1, discount2, note = '', basedOnId = null, supplierKey = 'punto_cero', lines = [] }) => {
+        const o = { id: db.nextId++, name, status, partial: false, discount1, discount2, note, basedOnId, supplierKey, createdAt: 'now', orderedAt: status === 'pendiente' ? 'now' : null, lines: withIds(lines) };
         db.orders.set(o.id, o);
         return clone(o);
       },
@@ -214,4 +225,57 @@ test('GET /catalog: devuelve las unidades de compra', async () => {
   assert.equal(status, 200);
   assert.equal(body.units[0].key, 'pack:7');
   assert.equal(body.units[0].price, 80000);
+});
+
+test('POST /: con proveedor precarga los descuentos de su config default; 400 si no existe', async () => {
+  db.suppliers = SUPPLIERS;
+  const filgo = await call('POST', '/', { supplierKey: 'filgo' });
+  assert.equal(filgo.status, 201);
+  assert.equal(filgo.body.order.supplierKey, 'filgo');
+  assert.equal(filgo.body.order.name, 'Pedido a Filgo');
+  assert.deepEqual([filgo.body.order.discount1, filgo.body.order.discount2], [0, 0]);
+
+  const pc = await call('POST', '/', {});
+  assert.equal(pc.body.order.supplierKey, 'punto_cero', 'sin elegir, Punto Cero');
+  assert.deepEqual([pc.body.order.discount1, pc.body.order.discount2], [25, 5]);
+
+  assert.equal((await call('POST', '/', { supplierKey: 'nadie' })).status, 400);
+});
+
+test('GET /suppliers: proveedores con el descuento de su config default', async () => {
+  db.suppliers = SUPPLIERS;
+  const { body } = await call('GET', '/suppliers');
+  assert.deepEqual(body.suppliers[1], { key: 'filgo', name: 'Filgo', profileName: 'Sin descuento', discount1: 0, discount2: 0 });
+});
+
+test('GET /?supplier= filtra por proveedor y duplicar conserva el proveedor', async () => {
+  db.suppliers = SUPPLIERS;
+  const a = (await call('POST', '/', { supplierKey: 'filgo' })).body.order.id;
+  await call('POST', '/', { supplierKey: 'punto_cero' });
+  const { body } = await call('GET', '/?supplier=filgo');
+  assert.deepEqual(body.orders.map((o) => o.id), [a]);
+  const dup = await call('POST', `/${a}/duplicate`, {});
+  assert.equal(dup.body.order.supplierKey, 'filgo');
+});
+
+test('GET /catalog?supplier=: solo lo de ese proveedor (y lo sin proveedor), con SU código', async () => {
+  db.suppliers = SUPPLIERS;
+  db.packs = [
+    { id: 7, name: 'Cuadernos', sku: 'PK', unitCount: 8, mode: 'assorted', skus: ['A'] },
+    { id: 8, name: 'Bolígrafos', sku: null, unitCount: 10, mode: 'single', skus: ['B'] },
+    { id: 9, name: 'Gomas', sku: null, unitCount: 10, mode: 'single', skus: ['C'] },
+  ];
+  db.costs = [{ sku: 'A', bulkPrice: 80000, bulkQty: 8, supplierKey: 'punto_cero' }, { sku: 'B', bulkPrice: 5000, bulkQty: 10, supplierKey: 'filgo' }];
+  db.assignments = [{ type: 'pack', id: '7', supplierKey: 'filgo', profileId: null }];
+  db.packCodes = [{ packId: 7, code: 'PC-7', supplier: 'punto_cero' }, { packId: 7, code: 'FG-7', supplier: 'filgo' }];
+
+  const filgo = (await call('GET', '/catalog?supplier=filgo')).body.units;
+  assert.deepEqual(filgo.map((u) => u.key).sort(), ['pack:7', 'pack:8', 'pack:9']);
+  assert.equal(filgo.find((u) => u.key === 'pack:7').code, 'FG-7');
+  assert.equal(filgo.find((u) => u.key === 'pack:7').priceSupplier, 'punto_cero');
+  assert.deepEqual(filgo.find((u) => u.key === 'pack:9').suppliers, [], 'sin proveedor también viene');
+
+  const pc = (await call('GET', '/catalog?supplier=punto_cero')).body.units;
+  assert.deepEqual(pc.map((u) => u.key).sort(), ['pack:7', 'pack:9'], 'los bolígrafos son solo de Filgo');
+  assert.equal(pc.find((u) => u.key === 'pack:7').code, 'PC-7');
 });

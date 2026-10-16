@@ -225,6 +225,15 @@ $cell-h: 30px;
   }
 
   .seg .count { font-size: 0.64rem; opacity: 0.75; }
+
+  h2 .hint { font-weight: 400; }
+
+  .check {
+    font-size: 0.78rem;
+    color: var(--text-2);
+
+    .count { font-size: 0.64rem; opacity: 0.75; }
+  }
 }
 
 .zc-table.cat {
