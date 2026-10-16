@@ -117,6 +117,16 @@ test(
       created.push(draft.id);
       assert.equal(draft.status, 'borrador');
       assert.equal(draft.orderedAt, null);
+      assert.equal(draft.supplierKey, 'punto_cero', 'sin proveedor, Punto Cero');
+
+      // Proveedor del pedido: se guarda, se filtra por él y cuenta como "en uso" del proveedor.
+      const supKey = `t-sup-${Date.now()}`;
+      const other = await db.createSupplierOrder({ name: 't-otro', discount1: 0, discount2: 0, supplierKey: supKey });
+      created.push(other.id);
+      assert.equal(other.supplierKey, supKey);
+      assert.deepEqual((await db.listSupplierOrders({ supplierKey: supKey })).map((o) => o.id), [other.id]);
+      assert.deepEqual((await db.listSupplierOrders({ status: 'pendiente', supplierKey: supKey })), []);
+      assert.equal((await db.getSupplierUsage(supKey)).orders, 1);
 
       const saved = await db.updateSupplierOrderDraft(draft.id, {
         name: 'Pedido test', note: 'nota', discount1: 30, discount2: 0,

@@ -46,8 +46,7 @@ sin proveedor, 0. Se resuelve al calcular (`lib/discountResolver.js`), no se gua
 - Agregar/editar costo: proveedor + config en vez de los % sueltos.
 - Mapeo: por proveedor; en "Todos" solo lectura con el código de cada proveedor.
 
-## Fuera de alcance (follow-up)
+## Follow-up hecho
 
-- Proveedor en los **Pedidos** (`supplier_orders`): hoy la fábrica recibe el código del proveedor
-  vigente, pero el pedido no sabe a quién se le hizo. Sus descuentos por pedido (25 + 5 por default)
-  siguen aparte.
+- Proveedor en los **Pedidos** (`supplier_orders.supplier_key`): catálogo y código del proveedor del
+  pedido, descuentos precargados con su config default. Ver CLAUDE.md → "Pedidos al proveedor".

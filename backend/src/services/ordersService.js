@@ -14,9 +14,10 @@ import {
   getSupplierCodeDescriptions, getDepositoStockBySku, listStockAlerts,
   listSupplierOrders, getSupplierOrder, createSupplierOrder, updateSupplierOrderDraft,
   placeSupplierOrder, receiveSupplierOrder, deleteSupplierOrderDraft,
-  getOrderDefaults, setOrderDefaults, setRestockCutoff,
+  getOrderDefaults, setOrderDefaults, setRestockCutoff, listSuppliers, listProductSuppliers,
 } from '../db.js';
 import { buildStockBySku, effectiveStock, computeShortfall, getRestockList } from './alertsService.js';
+import { buildDiscountContext, suppliersOf } from '../lib/discountResolver.js';
 
 const ACTIVE_ALERT_STATES = new Set(['still-low', 'out']);
 const ORDER_STATUSES = ['borrador', 'pendiente', 'recibido'];
@@ -81,6 +82,26 @@ export function pickVigenteCodes({ skuCodeMap = [], packCodeMap = [], costs = []
   };
 }
 
+/** Los mapeos de código de UN proveedor (el del pedido), a partir de los de todos. Puro. */
+export function codesForSupplier({ skuCodeMap = [], packCodeMap = [] }, supplierKey) {
+  return {
+    skuCodeMap: skuCodeMap.filter((r) => r.supplier === supplierKey),
+    packCodeMap: packCodeMap.filter((r) => r.supplier === supplierKey),
+  };
+}
+
+/**
+ * A qué proveedores se le compra una unidad de compra: la unión de los de sus modelos (una
+ * asignación o un código mapeado al pack ya se los suma a todos), el vigente del primer modelo que
+ * tenga uno primero. Puro.
+ */
+export function unitSuppliers(skus, ctx) {
+  const out = [];
+  for (const sku of skus) for (const k of suppliersOf(sku, ctx)) if (!out.includes(k)) out.push(k);
+  const vigente = skus.map((sku) => ctx?.vigenteBySku.get(sku)).find(Boolean) ?? null;
+  return { suppliers: vigente ? [vigente, ...out.filter((k) => k !== vigente)] : out, vigente };
+}
+
 /** Nombre legible de un SKU a partir del snapshot (título de ML con variante, si no el de TN). */
 function buildLabelBySku(snapshotData) {
   const map = new Map();
@@ -129,9 +150,16 @@ export function buildOrderHistoryIndex(orders) {
  * Arma el catálogo de unidades de compra. PURO: entra todo lo leído de la base y sale la lista.
  * Cada pack del hub es una unidad; cada SKU del snapshot que no está en ningún pack es otra (su
  * "pack" es el bulto cargado en Precios, 1 unidad si no hay).
+ *
+ * Con `supplierKey` (el proveedor del pedido) quedan solo las unidades que se le compran a ese
+ * proveedor —según `discountCtx`: asignación en Precios, código mapeado o vigente— y las que no
+ * tienen ningún proveedor (`suppliers: []`, el front las esconde detrás de un filtro). Los códigos
+ * que entran ya tienen que ser los de ese proveedor (`codesForSupplier`); el SKU propio del pack
+ * (`product_packs.sku`) solo vale si el pack no es de otro proveedor vigente.
  */
 export function buildCatalog({
   packs, snapshotData, restockRows, rules, costs, skuCodeMap, packCodeMap, codeDescriptions, depositoBySku, orders,
+  supplierKey = null, discountCtx = null,
 }) {
   const stockBySku = buildStockBySku(snapshotData);
   const labelBySku = buildLabelBySku(snapshotData);
@@ -159,12 +187,16 @@ export function buildCatalog({
     };
   };
 
-  const finish = (unit, members, modelCount) => {
+  const finish = (unit, members, modelCount, suppliers) => {
     const key = unit.kind === 'pack' ? unitKey('pack', unit.packId) : unitKey('sku', unit.sku);
     const depositoTotal = members.reduce((a, m) => a + (m.depositoStock ?? 0), 0);
     return {
       key,
       ...unit,
+      // Proveedores a los que se le compra (vigente primero) y el vigente, que es el que puso el
+      // precio de Precios: si no es el del pedido, el front lo avisa.
+      suppliers: suppliers.suppliers,
+      priceSupplier: suppliers.vigente,
       description: (unit.code && codeDescriptions.get(unit.code)) || unit.name,
       members,
       alerted: members.some((m) => ACTIVE_ALERT_STATES.has(m.alertState)),
@@ -175,27 +207,34 @@ export function buildCatalog({
     };
   };
 
+  const belongs = (sup) => !supplierKey || sup.suppliers.length === 0 || sup.suppliers.includes(supplierKey);
+
   const units = [];
   const inPack = new Set();
   for (const pack of packs) {
     for (const s of pack.skus || []) inPack.add(s);
+    const sup = unitSuppliers(pack.skus || [], discountCtx);
+    if (!belongs(sup)) continue;
     const members = (pack.skus || []).map(member);
+    const ownCodeOk = !supplierKey || !sup.vigente || sup.vigente === supplierKey;
     units.push(finish({
       kind: 'pack',
       packId: pack.id,
       sku: null,
       name: pack.name,
-      code: resolvePackCode(pack, packCodeById, skuCodeBySku),
+      code: resolvePackCode(ownCodeOk ? pack : { ...pack, sku: null }, packCodeById, skuCodeBySku),
       unitsPerPack: pack.unitCount,
       mode: pack.mode,
       price: packListPrice(pack, costsBySku),
-    }, members, members.length));
+    }, members, members.length, sup));
   }
 
   const looseSkus = new Set();
   for (const r of snapshotData?.mlRows || []) if (r.sku && !inPack.has(r.sku)) looseSkus.add(r.sku);
   for (const r of snapshotData?.tnRows || []) if (r.sku && !inPack.has(r.sku)) looseSkus.add(r.sku);
   for (const sku of looseSkus) {
+    const sup = unitSuppliers([sku], discountCtx);
+    if (!belongs(sup)) continue;
     const cost = costsBySku.get(sku);
     const m = member(sku);
     units.push(finish({
@@ -207,7 +246,7 @@ export function buildCatalog({
       unitsPerPack: cost?.bulkQty > 0 ? cost.bulkQty : 1,
       mode: 'bulk',
       price: cost?.bulkPrice > 0 && cost?.bulkQty > 0 ? round2(cost.bulkPrice) : null,
-    }, [m], 1));
+    }, [m], 1, sup));
   }
 
   return units.sort((a, b) => a.name.localeCompare(b.name, 'es'));
@@ -320,23 +359,55 @@ export function sanitizeOrderInput(body) {
 
 // ── Pegamento con la base ─────────────────────────────────────────────────────
 
-export async function getCatalog() {
-  const [packs, snap, restock, rules, costs, skuCodeMap, packCodeMap, codeDescriptions, depositoBySku, orders] = await Promise.all([
+/**
+ * Catálogo del editor. Con `supplierKey` (el proveedor del pedido): solo lo que se le compra a ese
+ * proveedor (+ lo que no tiene ninguno) y con SU código y descripción. Sin él, todo con el código
+ * del proveedor vigente de cada producto.
+ */
+export async function getCatalog({ supplierKey = null } = {}) {
+  const [packs, snap, restock, rules, costs, skuCodeMap, packCodeMap, codeDescriptions, depositoBySku, orders, suppliers, assignments] = await Promise.all([
     listPacks(), getAnalysisSnapshot(), getRestockList({ period: 'last-order' }), listStockAlerts(), getAllProductCosts(),
-    getSkuCodeMap(null), getPackCodeMap(null), getSupplierCodeDescriptions(null), getDepositoStockBySku(), listSupplierOrders(),
+    getSkuCodeMap(null), getPackCodeMap(null), getSupplierCodeDescriptions(supplierKey), getDepositoStockBySku(), listSupplierOrders(),
+    listSuppliers(), listProductSuppliers(),
   ]);
-  const vigente = pickVigenteCodes({ skuCodeMap, packCodeMap, costs, packs });
+  const discountCtx = buildDiscountContext({ suppliers, assignments, packs, skuCodeMap, packCodeMap, costs });
+  const codes = supplierKey
+    ? codesForSupplier({ skuCodeMap, packCodeMap }, supplierKey)
+    : pickVigenteCodes({ skuCodeMap, packCodeMap, costs, packs });
   return buildCatalog({
     packs, snapshotData: snap?.data, restockRows: restock.rows, rules, costs,
-    skuCodeMap: vigente.skuCodeMap, packCodeMap: vigente.packCodeMap,
-    codeDescriptions, depositoBySku, orders,
+    skuCodeMap: codes.skuCodeMap, packCodeMap: codes.packCodeMap,
+    codeDescriptions, depositoBySku, orders, supplierKey, discountCtx,
   });
 }
 
+/**
+ * Proveedores para elegir al crear un pedido, cada uno con el descuento de su config default (el
+ * que se precarga en el pedido).
+ */
+export async function listOrderSuppliers() {
+  return (await listSuppliers()).map((s) => {
+    const def = s.profiles.find((p) => p.isDefault) ?? null;
+    return {
+      key: s.key,
+      name: s.name,
+      profileName: def?.name ?? null,
+      discount1: def ? def.discount1 : null,
+      discount2: def ? def.discount2 : null,
+    };
+  });
+}
+
+/** Proveedor de un pedido nuevo cuando no se elige ninguno: Punto Cero, si no el primero. */
+export const DEFAULT_ORDER_SUPPLIER = 'punto_cero';
+
 const withTotals = (order) => ({ ...order, totals: computeOrderTotals(order) });
 
-export async function listOrders({ status } = {}) {
-  const orders = await listSupplierOrders({ status: ORDER_STATUSES.includes(status) ? status : undefined });
+export async function listOrders({ status, supplierKey } = {}) {
+  const orders = await listSupplierOrders({
+    status: ORDER_STATUSES.includes(status) ? status : undefined,
+    supplierKey: supplierKey ? String(supplierKey) : undefined,
+  });
   return orders.map(withTotals);
 }
 
@@ -349,10 +420,22 @@ export async function getOrder(id) {
   return withTotals({ ...order, lines: refreshLinePrices(order.lines, buildPriceIndex(packs, costs)) });
 }
 
-export async function createOrder({ name } = {}) {
-  const defaults = await getOrderDefaults();
+/**
+ * Borrador vacío para un proveedor. Los descuentos se precargan con la config default de ese
+ * proveedor (la misma cadena que usa Precios: el 1.º sobre la lista, el 2.º sobre lo que queda); sin
+ * config, con los descuentos por defecto de Pedidos. Devuelve el pedido, `'unknown_supplier'` o `null`.
+ */
+export async function createOrder({ name, supplierKey } = {}) {
+  const suppliers = await listOrderSuppliers();
+  const key = supplierKey
+    ? String(supplierKey)
+    : (suppliers.find((s) => s.key === DEFAULT_ORDER_SUPPLIER) ?? suppliers[0])?.key ?? DEFAULT_ORDER_SUPPLIER;
+  const supplier = suppliers.find((s) => s.key === key);
+  if (supplierKey && !supplier) return 'unknown_supplier';
+  const defaults = supplier?.discount1 != null ? supplier : await getOrderDefaults();
   const order = await createSupplierOrder({
-    name: String(name ?? '').trim() || 'Pedido nuevo', discount1: defaults.discount1, discount2: defaults.discount2,
+    name: String(name ?? '').trim() || (supplier ? `Pedido a ${supplier.name}` : 'Pedido nuevo'),
+    discount1: defaults.discount1, discount2: defaults.discount2, supplierKey: key,
   });
   return order && withTotals(order);
 }
@@ -386,6 +469,7 @@ export async function duplicateOrder(id, { mode = 'all', status = 'borrador' } =
   const created = await createSupplierOrder({
     name: mode === 'missing' ? `Faltantes de ${src.name}` : `${src.name} (copia)`,
     status, discount1: src.discount1, discount2: src.discount2, note: src.note, basedOnId: src.id, lines,
+    supplierKey: src.supplierKey ?? DEFAULT_ORDER_SUPPLIER,
   });
   if (created && status === 'pendiente') await setRestockCutoff(new Date().toISOString());
   return created && withTotals(created);

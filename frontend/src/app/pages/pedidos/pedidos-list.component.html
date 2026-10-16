@@ -19,22 +19,15 @@
         </button>
       }
     </div>
+    @if (suppliers().length > 1) {
+      <select class="zc-select supplier-select" [ngModel]="supplierFilter()" (ngModelChange)="supplierFilter.set($event)" aria-label="Filtrar por proveedor">
+        <option value="">Todos los proveedores</option>
+        @for (s of suppliers(); track s.key) { <option [value]="s.key">{{ s.name }}</option> }
+      </select>
+    }
     <zc-search-bar [value]="search()" (valueChange)="search.set($event)" placeholder="Buscar pedido o producto…" ariaLabel="Buscar pedidos" />
     <span class="spacer"></span>
-    <div class="defaults">
-      @if (editingDefaults()) {
-        <span class="hint">Descuentos por defecto</span>
-        <input class="zc-input pct" type="number" min="0" max="100" [(ngModel)]="defaultsDraft.discount1" aria-label="Descuento sobre los productos" />%
-        <span class="hint">+</span>
-        <input class="zc-input pct" type="number" min="0" max="100" [(ngModel)]="defaultsDraft.discount2" aria-label="Descuento sobre el total" />%
-        <button type="button" class="zc-btn small" (click)="editingDefaults.set(false)">Cancelar</button>
-        <button type="button" class="zc-btn small primary" [disabled]="busy()" (click)="saveDefaults()">Guardar</button>
-      } @else {
-        <span class="hint">Descuentos por defecto:
-          <b>{{ settingsQuery.data()?.discount1 ?? 25 }}%</b> + <b>{{ settingsQuery.data()?.discount2 ?? 5 }}%</b> sobre el total</span>
-        <button type="button" class="link-btn" *zcCanWrite (click)="startEditDefaults()"><i class="ti ti-pencil" aria-hidden="true"></i> Cambiar</button>
-      }
-    </div>
+    <span class="hint">Los descuentos de un pedido nuevo salen de la configuración default del proveedor (en Precios).</span>
   </div>
 
   @if (loading()) {
@@ -59,7 +52,7 @@
             <tr class="order-row" (click)="open(o)">
               <td>
                 <div class="prod-name strong">{{ o.name }}</div>
-                <div class="prod-sku">#{{ o.id }}@if (o.basedOnId) { · copia del #{{ o.basedOnId }} }</div>
+                <div class="prod-sku">#{{ o.id }}@if (o.supplierKey) { · {{ supplierName(o.supplierKey) }} }@if (o.basedOnId) { · copia del #{{ o.basedOnId }} }</div>
               </td>
               <td>
                 <span class="zc-badge"
@@ -131,6 +124,32 @@
           <button type="button" class="zc-btn small primary" (click)="repeatAndPlace()">
             <i class="ti ti-send" aria-hidden="true"></i> Repetir y marcar como pedido
           </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (choosingSupplier()) {
+    <div class="modal-backdrop" (click)="choosingSupplier.set(false)">
+      <div class="modal-card" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-labelledby="new-order-title">
+        <h2 id="new-order-title"><i class="ti ti-plus" aria-hidden="true"></i> Nuevo pedido</h2>
+        <p>¿A qué proveedor? El pedido ofrece solo sus productos, con su código, y arranca con los descuentos de su
+          configuración default (después se pueden cambiar).</p>
+        <div class="supplier-options" role="radiogroup" aria-label="Proveedor">
+          @for (s of suppliers(); track s.key) {
+            <label class="supplier-option" [class.on]="newSupplierKey === s.key">
+              <input type="radio" name="new-order-supplier" [value]="s.key" [(ngModel)]="newSupplierKey" />
+              <span class="strong">{{ s.name }}</span>
+              <span class="hint">
+                @if (s.discount1 != null) { {{ s.profileName }}: −{{ s.discount1 }}%@if (s.discount2) { −{{ s.discount2 }}% } }
+                @else { sin configuración de descuento }
+              </span>
+            </label>
+          }
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="zc-btn small" (click)="choosingSupplier.set(false)">Cancelar</button>
+          <button type="button" class="zc-btn small primary" [disabled]="!newSupplierKey || busy()" (click)="createFor(newSupplierKey)">Crear pedido</button>
         </div>
       </div>
     </div>

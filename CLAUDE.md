@@ -436,7 +436,8 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   dos proveedores, la lista del que no es vigente no pisa nada. **El vigente se elige a mano**
   (`PUT /api/pricing/vigente`): toma el precio de la última lista de ese proveedor con su código;
   sin precio de lista, deja el costo y lo devuelve en `withoutPrice`. A la fábrica (Pedidos) va el
-  código del vigente (`pickVigenteCodes`).
+  código del proveedor DEL PEDIDO (ver "Pedidos al proveedor"); `pickVigenteCodes` solo queda para
+  el catálogo pedido sin proveedor.
 - **Importar**: el modal pide proveedor + config (precargada con la default). La elegida va **solo**
   a lo de la lista sin config propia (`onlyIfMissing`); lo que ya tiene una (los packs de agendas)
   la conserva, y el resumen lo dice.
@@ -536,6 +537,23 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
 - **Vista para la fábrica** (`factory-sheet.ts`): hoja con código · descripción · cantidad · detalle,
   siempre en fondo blanco (sin tokens, es lo que se manda afuera). "Descargar imagen" la dibuja en
   canvas (sin dependencias) y "Copiar como tabla" pone HTML + TSV en el portapapeles.
+- **Proveedor del pedido** (`supplier_orders.supplier_key`, 2026-10-15; los anteriores quedaron
+  `'punto_cero'` — el `UPDATE … WHERE supplier_key IS NULL` corre en cada `initDb()` a propósito, por
+  si un backend viejo sigue creando pedidos). Se elige al crear ("Nuevo pedido" abre un modal con los
+  proveedores; con uno solo crea directo) y no se cambia después; duplicar/repetir lo conserva. Sin FK
+  (el pedido es historial): borrar un proveedor con pedidos da 409 (`getSupplierUsage().orders`).
+  - **Descuentos**: el pedido nuevo arranca con la config **default del proveedor** (misma cadena:
+    el 1.º sobre la lista, el 2.º sobre lo que queda); `supplier_order_defaults` es solo el fallback
+    de un proveedor sin config, y la lista ya no muestra su editor. `GET /api/orders/suppliers`
+    devuelve cada proveedor con su descuento default.
+  - **Catálogo** (`GET /api/orders/catalog?supplier=`): solo las unidades que se le compran a ese
+    proveedor según `buildDiscountContext`/`suppliersOf` (asignación en Precios, código mapeado o
+    vigente; en un pack, la unión de sus modelos — `unitSuppliers`) **más las que no tienen ningún
+    proveedor** (`suppliers: []`), que el editor esconde detrás del tilde "Sin proveedor". El código y
+    la descripción son los de ESE proveedor (`codesForSupplier`); el SKU propio del pack
+    (`product_packs.sku`) solo se usa si el pack no tiene otro proveedor vigente. El precio sigue
+    siendo el de Precios (= del vigente): si el vigente es otro, la fila dice "precio de X".
+  - Lista: filtro por proveedor (los chips de estado cuentan sobre él) y el proveedor en cada fila.
 - `createSupplierOrder` calcula `ordered_at` en JS: reusar un `$n` como valor de columna y en un
   `CASE` hace que Postgres deduzca dos tipos (mismo bug que tuvo `finishPublishJob`).
 
@@ -1198,7 +1216,13 @@ faltantes, validación) y `backend/test/routesOrders.test.js` (ciclo borrador �
 incompleto, 409 fuera de estado, repetir como pendiente, descuentos por defecto) + el SQL real en
 `backend/test/publishJobsRealDb.test.js` (mismo archivo a propósito: dos archivos con `initDb()` en
 paralelo chocan creando tablas); en el front
-`orders.service.spec.ts`, `factory-sheet.spec.ts` y `pedido-editor.component.spec.ts`.
+`orders.service.spec.ts`, `factory-sheet.spec.ts`, `pedido-editor.component.spec.ts` y
+`pedidos-list.component.spec.ts`. Proveedor del pedido: `ordersService.test.js` (`codesForSupplier`,
+`unitSuppliers`, catálogo filtrado con lo sin proveedor y el SKU propio del pack de otro vigente),
+`routesOrders.test.js` (descuentos de la config default, 400 con proveedor inexistente, filtro de la
+lista, duplicar conserva el proveedor, catálogo por proveedor con su código), el SQL real en
+`publishJobsRealDb.test.js`; en el front el catálogo por proveedor, "Sin proveedor" y "precio de X"
+en `pedido-editor.component.spec.ts` y el modal/filtro en `pedidos-list.component.spec.ts`.
 `backend/test/salesService.test.js` (clasificación, armado de la fila, período anterior,
 agregación por provincia con comparativa y excluidas, y que un pack de varios productos cuente
 como 1 venta y no una por línea de orden), `backend/test/routesSales.test.js`

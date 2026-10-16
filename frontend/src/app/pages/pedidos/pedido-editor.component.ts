@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import {
-  OrdersService, ORDERS_CATALOG_QUERY_KEY, CatalogUnit, CatalogMember, OrderLine, SupplierOrder,
+  OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY, CatalogUnit, CatalogMember, OrderLine, SupplierOrder,
   computeOrderTotals, lineFromCatalogUnit, lineKey, orderStatusLabel,
 } from '../../core/services/orders.service';
 import { matchSearchByTokens } from '../../core/services/conflicts.service';
@@ -178,9 +178,24 @@ export class PedidoEditorComponent implements OnDestroy {
 
   // ══════════════════════ Catálogo para agregar ══════════════════════
 
+  /** Proveedor del pedido: decide qué productos ofrece el catálogo y con qué código. */
+  readonly supplierKey = computed(() => this.order()?.supplierKey ?? null);
+
+  readonly suppliersQuery = injectQuery(() => ({
+    queryKey: ORDERS_SUPPLIERS_QUERY_KEY,
+    queryFn: () => this.orders.suppliers(),
+    staleTime: 5 * 60_000,
+  }));
+
+  supplierName(key: string | null): string {
+    if (!key) return '';
+    return this.suppliersQuery.data()?.suppliers.find((s) => s.key === key)?.name ?? key;
+  }
+
   readonly catalogQuery = injectQuery(() => ({
-    queryKey: ORDERS_CATALOG_QUERY_KEY,
-    queryFn: () => this.orders.catalog(),
+    queryKey: [...ORDERS_CATALOG_QUERY_KEY, this.supplierKey()],
+    queryFn: () => this.orders.catalog(this.supplierKey()),
+    enabled: !!this.order(),
     staleTime: 60_000,
   }));
 
@@ -192,12 +207,21 @@ export class PedidoEditorComponent implements OnDestroy {
   /** Packs desplegados (se ven sus modelos). Los que avisaron arrancan abiertos. */
   private readonly toggledPacks = signal<Set<string>>(new Set());
 
-  readonly alertedCount = computed(() => this.catalogUnits().filter((u) => u.alerted).length);
+  /**
+   * El catálogo ya viene filtrado por el proveedor del pedido, más lo que no tiene ningún proveedor
+   * en Precios (`suppliers: []`): eso queda escondido salvo que se pida verlo.
+   */
+  readonly showUnassigned = signal(false);
+  readonly unassignedCount = computed(() => this.catalogUnits().filter((u) => !u.suppliers?.length).length);
+  readonly supplierUnits = computed(() =>
+    this.showUnassigned() ? this.catalogUnits() : this.catalogUnits().filter((u) => !!u.suppliers?.length));
+
+  readonly alertedCount = computed(() => this.supplierUnits().filter((u) => u.alerted).length);
 
   readonly visibleUnits = computed(() => {
     const onlyAlerted = this.catalogFilter() === 'alert';
     const q = this.catalogSearch();
-    return this.catalogUnits().filter((u) =>
+    return this.supplierUnits().filter((u) =>
       (!onlyAlerted || u.alerted) &&
       matchSearchByTokens(q, `${u.name} ${u.code ?? ''} ${u.description} ${u.members.map((m) => `${m.sku} ${m.label}`).join(' ')}`)
     );
@@ -238,10 +262,16 @@ export class PedidoEditorComponent implements OnDestroy {
   /** Suma la sugerencia de cada unidad con alerta activa que todavía no está en el pedido. */
   addAllSuggested(): void {
     const inOrder = this.qtyInOrder();
-    const toAdd = this.catalogUnits().filter((u) => u.alerted && !inOrder.has(u.key));
+    const toAdd = this.supplierUnits().filter((u) => u.alerted && !inOrder.has(u.key));
     if (!toAdd.length) { this.showFlash('Todas las alertas ya están en el pedido.'); return; }
     this.edit((o) => ({ ...o, lines: [...o.lines, ...toAdd.map((u) => lineFromCatalogUnit(u, u.suggestedQty ?? 1))] }));
     this.showFlash(`${toAdd.length} sugerencia${toAdd.length === 1 ? '' : 's'} agregada${toAdd.length === 1 ? '' : 's'} — sacá las que no vayas a pedir.`);
+  }
+
+  /** El precio de Precios es del proveedor vigente: si es otro, se avisa de quién es. */
+  otherPriceSupplier(unit: CatalogUnit): string | null {
+    const key = this.supplierKey();
+    return unit.price != null && unit.priceSupplier && key && unit.priceSupplier !== key ? this.supplierName(unit.priceSupplier) : null;
   }
 
   catalogPrice(line: OrderLine): number | null {

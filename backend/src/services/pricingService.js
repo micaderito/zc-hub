@@ -1167,8 +1167,8 @@ export async function editSupplier(key, { name } = {}) {
 /** Borra un proveedor sin listas ni productos vigentes (si los tiene: 409, primero hay que moverlos). */
 export async function removeSupplier(key) {
   const usage = await getSupplierUsage(key);
-  if (usage.lists > 0 || usage.products > 0) {
-    throw httpError(409, `No se puede borrar: tiene ${usage.lists} lista(s) y es el proveedor vigente de ${usage.products} producto(s)`);
+  if (usage.lists > 0 || usage.products > 0 || usage.orders > 0) {
+    throw httpError(409, `No se puede borrar: tiene ${usage.lists} lista(s), ${usage.orders ?? 0} pedido(s) y es el proveedor vigente de ${usage.products} producto(s)`);
   }
   if (!(await deleteSupplier(key))) throw httpError(404, 'El proveedor no existe');
   return { ok: true };
