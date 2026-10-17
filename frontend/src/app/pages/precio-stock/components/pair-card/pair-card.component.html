@@ -1,7 +1,11 @@
-<div class="pair-card" [class.pair-pending]="isPending()" [class.pair-collapsed]="isCollapsed()">
+<div class="pair-card" [class.pair-pending]="isPending()" [class.pair-collapsed]="isCollapsed()" [class.pair-selected]="selected()">
   <!-- Cabecera: SKU + badge de estado + toggle -->
   <div class="pair-header" (click)="toggleCollapse.emit()" role="button" [attr.aria-expanded]="!isCollapsed()" style="cursor:pointer">
     <div class="pair-sku">
+      @if (selectable()) {
+        <input type="checkbox" class="pair-check" [checked]="selected()" (click)="$event.stopPropagation()"
+               (change)="selectToggle.emit()" aria-label="Seleccionar producto" />
+      }
       <span class="label-sm">SKU</span>
       <code>{{ pair().sku || pair().ml.sku || pair().tn.sku || '—' }}</code>
       @if (packName()) {

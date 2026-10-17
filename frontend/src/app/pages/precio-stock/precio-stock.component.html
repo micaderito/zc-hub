@@ -75,6 +75,21 @@
             <p class="empty">No hay resultados para el filtro o búsqueda activos.</p>
           } @else {
             <div class="list-toolbar">
+              @if (!session.isReadOnly()) {
+                <div class="selection-bar">
+                  <label class="select-page">
+                    <input type="checkbox" [checked]="allPageSelected()" (change)="togglePageSelection()" />
+                    Seleccionar página
+                  </label>
+                  @if (selectedSkus().size > 0) {
+                    <span class="selection-count">{{ selectedSkus().size }} seleccionado{{ selectedSkus().size === 1 ? '' : 's' }}</span>
+                    <button type="button" class="zc-btn primary small" (click)="bulkSupplierOpen.set(true)">
+                      <i class="ti ti-building-store" aria-hidden="true"></i> Asignar proveedor…
+                    </button>
+                    <button type="button" class="btn-link" (click)="clearSelection()">Limpiar</button>
+                  }
+                </div>
+              }
               <button type="button" class="btn-collapse-all" (click)="toggleAll()" [attr.aria-expanded]="!allCollapsed()">
                 <i class="ti" [class.ti-chevrons-up]="!allCollapsed()" [class.ti-chevrons-down]="allCollapsed()" aria-hidden="true"></i>
                 {{ allCollapsed() ? 'Expandir todo' : 'Colapsar todo' }}
@@ -94,6 +109,9 @@
                   [packName]="getPairPackName(pair)"
                   [hasAlert]="pairHasAlert(pair)"
                   [supplierLabel]="pairSupplierLabel(pair)"
+                  [selectable]="!session.isReadOnly() && !!pairSku(pair)"
+                  [selected]="selectedSkus().has(pairSku(pair))"
+                  (selectToggle)="toggleSelected(pair)"
                   [prices]="getPairPrices(pair)"
                   [displayStockML]="getDisplayStock(pair, 'ml')"
                   [displayStockTN]="getDisplayStock(pair, 'tn')"
@@ -164,5 +182,11 @@
     <zc-product-supplier-dialog [title]="'Proveedor de ' + se.sku" [skus]="[se.sku]" [info]="se.info" [note]="se.note"
                                 [suppliers]="suppliersQuery.data()?.suppliers ?? []"
                                 (closed)="supplierEdit.set(null)" />
+  }
+
+  @if (bulkSupplierOpen()) {
+    <zc-product-supplier-dialog title="Proveedor de los seleccionados" [skus]="selectedSkuList()" [bulk]="true"
+                                [note]="bulkSupplierNote()" [suppliers]="suppliersQuery.data()?.suppliers ?? []"
+                                (saved)="clearSelection()" (closed)="bulkSupplierOpen.set(false)" />
   }
 </div>

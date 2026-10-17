@@ -174,8 +174,26 @@
 
 .list-toolbar {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
+
+  .selection-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-right: auto;
+    font-size: 0.75rem;
+    color: var(--text-2);
+
+    .select-page { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+    input { margin: 0; accent-color: var(--brand); }
+    .selection-count { font-weight: 600; color: var(--text); }
+    .btn-link { background: none; border: none; padding: 0; font: inherit; color: var(--text-3); cursor: pointer; text-decoration: underline; }
+  }
 
   .btn-collapse-all {
     display: inline-flex;
