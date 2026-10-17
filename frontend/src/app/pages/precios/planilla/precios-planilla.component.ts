@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, u
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { PreviewRow, PricingService, PricingTarget } from '../../../core/services/pricing.service';
+import { PreviewRow, PreviewRowPack, PricingService, PricingTarget, UncostedProduct } from '../../../core/services/pricing.service';
 import { ProductHistoryDialogComponent } from '../../precio-stock/components/product-history-dialog/product-history-dialog.component';
 import { AssignDialogComponent, AssignMode } from '../dialogs/assign-dialog.component';
 import { PreciosStore } from '../precios.store';
@@ -14,6 +14,13 @@ import { PriceGroup, apiError, buildPriceGroups, discountChain, discountPcts, is
  * selección, los filtros y los packs abiertos son de acá; las filas salen del store (ya
  * filtradas por la pestaña de proveedor).
  */
+/** Productos sin costo de un mismo pack (o uno suelto), para cargarles el costo de una. */
+interface UncostedGroup {
+  key: string;
+  pack: PreviewRowPack | null;
+  items: UncostedProduct[];
+}
+
 @Component({
   selector: 'zc-precios-planilla',
   standalone: true,
@@ -64,6 +71,26 @@ export class PreciosPlanillaComponent {
   });
 
   readonly priceGroups = computed(() => buildPriceGroups(this.filteredRows()));
+
+  /** Lo sin costo agrupado por pack: un pack se carga entero (mismo bulto para sus modelos). */
+  readonly uncostedGroups = computed<UncostedGroup[]>(() => {
+    const groups: UncostedGroup[] = [];
+    const byPack = new Map<number, UncostedGroup>();
+    for (const u of this.store.uncosted()) {
+      if (!u.pack) { groups.push({ key: `sku:${u.sku}`, pack: null, items: [u] }); continue; }
+      let g = byPack.get(u.pack.packId);
+      if (!g) { g = { key: `pack:${u.pack.packId}`, pack: u.pack, items: [] }; byPack.set(u.pack.packId, g); groups.push(g); }
+      g.items.push(u);
+    }
+    return groups;
+  });
+
+  /** Costo nuevo para lo sin costo, con el proveedor de la pestaña (o el suyo) como vigente. */
+  loadCost(g: UncostedGroup): void {
+    const supplierKey = this.store.currentSupplier()?.key ?? g.items[0].suppliers[0] ?? null;
+    const label = g.pack?.name ?? g.items[0].name ?? null;
+    this.store.open({ kind: 'cost', row: null, prefill: { skus: g.items.map((u) => u.sku), label, supplierKey } });
+  }
   readonly selectedCount = computed(() => this.selected().size);
   readonly allSelected = computed(() => {
     const rows = this.filteredRows();

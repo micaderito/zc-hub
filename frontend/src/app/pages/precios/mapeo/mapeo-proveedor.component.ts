@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { QueryClient, injectQuery } from '@tanstack/angular-query-experimental';
@@ -6,6 +6,8 @@ import { firstValueFrom } from 'rxjs';
 import { MappingProduct, PricingService, SupplierCode } from '../../../core/services/pricing.service';
 
 type MappingFilter = 'all' | 'mapped' | 'unmapped';
+/** Qué productos se listan en la pestaña de un proveedor: los suyos o toda la tienda. */
+type MappingScope = 'supplier' | 'store';
 
 /**
  * Un grupo de la lista: un pack CON código propio (`packRow`: el código se asigna al pack entero y
@@ -63,6 +65,8 @@ export class MapeoProveedorComponent {
   }));
 
   readonly filter = signal<MappingFilter>('all');
+  /** Elegido a mano; `null` = el default (los del proveedor si tiene alguno, si no toda la tienda). */
+  private readonly scopeChoice = signal<MappingScope | null>(null);
   readonly listFilter = signal<string>('');
   readonly search = signal('');
   /** Packs desplegados (por clave de grupo). Arrancan plegados para que la lista no sea eterna. */
@@ -77,6 +81,18 @@ export class MapeoProveedorComponent {
   readonly codes = computed<SupplierCode[]>(() => this.mappingQuery.data()?.codes ?? []);
   private readonly codeSet = computed(() => new Set(this.codes().map((c) => c.code)));
 
+  /** Productos que se le compran al proveedor de la pestaña (asignados, con código o vigente). */
+  readonly ownCount = computed(() => {
+    const key = this.supplierKey();
+    return key ? this.products().filter((p) => p.suppliers?.includes(key)).length : 0;
+  });
+  readonly scope = computed<MappingScope>(() =>
+    this.readOnly() ? 'store' : this.scopeChoice() ?? (this.ownCount() > 0 ? 'supplier' : 'store'));
+
+  setScope(scope: MappingScope): void {
+    this.scopeChoice.set(scope);
+  }
+
   /** Listas de las que sale algún precio, para el filtro. */
   readonly listLabels = computed(() =>
     [...new Set(this.products().map((p) => p.listLabel).filter((l): l is string => !!l))].sort((a, b) => a.localeCompare(b, 'es')),
@@ -85,7 +101,9 @@ export class MapeoProveedorComponent {
   private readonly searched = computed(() => {
     const q = normalize(this.search());
     const list = this.listFilter();
+    const own = this.scope() === 'supplier' ? this.supplierKey() : null;
     return this.products().filter((p) => {
+      if (own && !p.suppliers?.includes(own)) return false;
       if (list === NO_LIST && p.code) return false;
       if (list && list !== NO_LIST && p.listLabel !== list) return false;
       if (!q) return true;
@@ -146,6 +164,11 @@ export class MapeoProveedorComponent {
   private notifiedAuto: object | null = null;
 
   constructor() {
+    // Cada pestaña de proveedor arranca con su default (el componente se reusa entre pestañas).
+    effect(() => {
+      this.supplierKey();
+      untracked(() => this.scopeChoice.set(null));
+    }, { allowSignalWrites: true });
     // El backend mapea solo lo que coincide con un código de las listas (código igual o
     // `CODIGO-variante`) al leer el mapeo: se avisa y se resaltan los costos que cambiaron.
     effect(() => {

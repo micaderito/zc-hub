@@ -54,6 +54,8 @@
 <!-- Tabla -->
 @if (store.previewQuery.isLoading()) {
   <p class="pr-msg">Cargando…</p>
+} @else if (store.rows().length === 0 && store.uncosted().length > 0) {
+  <!-- Sin filas con costo: solo la lista de abajo ("sin costo cargado") -->
 } @else if (store.rows().length === 0 && store.currentSupplier() && store.allRows().length > 0) {
   <div class="pr-empty">
     <i class="ti ti-building-store"></i>
@@ -159,6 +161,42 @@
       </tbody>
     </table>
   </div>
+}
+
+<!-- Productos del proveedor que todavía no tienen costo: sin costo no hay precio que calcular -->
+@if (!store.previewQuery.isLoading() && uncostedGroups().length > 0) {
+  <section class="pr-uncosted">
+    <header>
+      <h3><i class="ti ti-alert-circle"></i> Sin costo cargado <span class="count">{{ store.uncosted().length }}</span></h3>
+      <p class="hint">
+        @if (store.currentSupplier(); as sup) {
+          Le comprás estos productos a {{ sup.name }} pero todavía no tienen costo, así que no se les puede calcular el precio.
+          Importá una lista de {{ sup.name }} (con los códigos en "Mapeo con el proveedor") o cargales el costo a mano.
+        } @else {
+          Tienen proveedor pero todavía no tienen costo, así que no se les puede calcular el precio.
+        }
+      </p>
+    </header>
+    <ul>
+      @for (g of uncostedGroups(); track g.key) {
+        <li>
+          <div class="who">
+            @if (g.pack) {
+              <i class="ti ti-stack-2"></i>
+              <b>{{ g.pack.name }}</b>
+              <span class="sub">{{ g.items.length }} de {{ g.pack.modelCount }} modelos sin costo</span>
+            } @else {
+              <b>{{ g.items[0].name || g.items[0].sku }}</b>
+              <span class="sub mono">{{ g.items[0].sku }}</span>
+            }
+          </div>
+          <button type="button" class="btn btn-s" (click)="loadCost(g)">
+            <i class="ti ti-plus"></i> Cargar costo
+          </button>
+        </li>
+      }
+    </ul>
+  </section>
 }
 
 <!-- Fila de producto, reutilizada agrupada o suelta -->

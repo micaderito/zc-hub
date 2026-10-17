@@ -330,6 +330,23 @@ export async function getPreview(currentBySku = null) {
   }));
 }
 
+/**
+ * Productos que tienen proveedor (asignado en Productos / Crear producto, o con código mapeado) pero
+ * todavía NO tienen costo: la planilla se arma solo con costos, así que sin esto la pestaña de un
+ * proveedor nuevo decía "0" aunque ya tuviera productos. Se listan aparte para cargarles el costo.
+ */
+export async function getUncostedSupplierProducts() {
+  const { names } = await loadCatalogContext();
+  const [costs, packs] = await Promise.all([getAllProductCosts(), listPacks()]);
+  const ctx = await loadDiscountContext({ costs, packs });
+  const costed = new Set(costs.map((c) => c.sku));
+  const packBySku = buildSkuPackIndex(packs);
+  return [...ctx.suppliersBySku.keys()]
+    .filter((sku) => !costed.has(sku))
+    .map((sku) => ({ sku, name: names.get(sku) ?? null, suppliers: suppliersOf(sku, ctx), pack: packBySku.get(sku) || null }))
+    .sort((a, b) => (a.name ?? a.sku).localeCompare(b.name ?? b.sku, 'es'));
+}
+
 /** Fija (o corrige) el precio publicado a mano de un SKU en un canal. `value: null` lo saca. */
 export async function saveOverride(sku, channel, value) {
   if (value == null) return deletePriceOverride(sku, channel);
@@ -939,6 +956,9 @@ export async function getMappingState(supplierKey = null) {
   const latestByCode = new Map(latest.map((i) => [`${i.supplier}|${i.code}`, i]));
   const costBySku = new Map(costs.map((c) => [c.sku, c]));
   const packBySku = buildSkuPackIndex(packs);
+  // A qué proveedores se le compra cada producto (para filtrar "de este proveedor" en la UI).
+  const ctx = await loadDiscountContext({ costs, packs });
+  const suppliersOfSkus = (skuList) => [...new Set(skuList.flatMap((s) => suppliersOf(s, ctx)))];
 
   // Mapas por proveedor: `${supplier}|${sku}` / `${supplier}|${packId}`.
   const skuMapByKey = new Map(allSkuMap.map((m) => [`${m.supplier}|${m.sku}`, m]));
@@ -989,6 +1009,7 @@ export async function getMappingState(supplierKey = null) {
         mappedMl: pk.skus.some((s) => !!getMlItemBySku(s)),
         mappedTn: pk.skus.some((s) => !!getTnVariantBySku(s)),
         vigente: vigenteOf(pk.skus),
+        suppliers: suppliersOfSkus(pk.skus),
         codesBySupplier: codesBySupplierFor('pack', pk.id),
         // Los modelos del pack, con el código del que sale su precio: el propio si tienen mapeo
         // individual (pisa al del pack, ver applyListCosts), si no el del pack.
@@ -1005,6 +1026,7 @@ export async function getMappingState(supplierKey = null) {
             mappedMl: !!getMlItemBySku(sku),
             mappedTn: !!getTnVariantBySku(sku),
             vigente: costBySku.get(sku)?.supplierKey ?? null,
+            suppliers: suppliersOf(sku, ctx),
             codesBySupplier: codesBySupplierFor('sku', sku),
           };
         }),
@@ -1028,6 +1050,7 @@ export async function getMappingState(supplierKey = null) {
         mappedMl: !!getMlItemBySku(sku),
         mappedTn: !!getTnVariantBySku(sku),
         vigente: costBySku.get(sku)?.supplierKey ?? null,
+        suppliers: suppliersOf(sku, ctx),
         codesBySupplier: codesBySupplierFor('sku', sku),
         members: [],
       };

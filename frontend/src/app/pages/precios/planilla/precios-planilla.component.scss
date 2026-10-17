@@ -132,3 +132,16 @@
     .btn.pri { flex-basis: 100%; justify-content: center; }
   }
 }
+
+/* Productos del proveedor sin costo cargado */
+.pr-uncosted {
+  margin-top: 16px; border: 1px dashed var(--border); border-radius: 12px; background: var(--surface); padding: 14px 16px;
+  h3 { margin: 0; font-size: 14px; display: flex; align-items: center; gap: 6px; i { color: var(--warn); } }
+  .count { font-size: 12px; color: var(--text-3); font-weight: 500; }
+  .hint { margin: 4px 0 10px; font-size: 12px; color: var(--text-2); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 0.5px solid var(--border); }
+  .who { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; i { color: var(--text-3); } }
+  .sub { font-size: 12px; color: var(--text-3); }
+  .mono { font-family: var(--font-mono, monospace); }
+}

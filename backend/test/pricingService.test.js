@@ -1381,3 +1381,32 @@ test('getProductSupplierOverview: vigente, config que le toca y costo; sin costo
   const solo = await svc.getProductSupplierOverview({ skus: ['AG-ROSA'] });
   assert.deepEqual(Object.keys(solo.bySku), ['AG-ROSA']);
 });
+
+test('getUncostedSupplierProducts: los productos de un proveedor sin costo, con su pack; lo que tiene costo no', async () => {
+  supplierState.suppliers.push(FILGO());
+  packState.packs = [AGENDA_PACK];
+  supplierState.assignments = [
+    { type: 'pack', id: '7', supplierKey: 'filgo', profileId: null },
+    { type: 'sku', id: 'LAP', supplierKey: 'filgo', profileId: null },
+  ];
+  dbState.costs['AG-ROSA'] = { sku: 'AG-ROSA', source: 'manual', bulkPrice: 1000, bulkQty: 10, supplierKey: PC };
+
+  const rows = await svc.getUncostedSupplierProducts();
+
+  assert.deepEqual(rows.map((r) => r.sku).sort(), ['AG-AZUL', 'LAP']);
+  const azul = rows.find((r) => r.sku === 'AG-AZUL');
+  assert.deepEqual(azul.suppliers, ['filgo']);
+  assert.equal(azul.pack.packId, 7);
+});
+
+test('getMappingState: cada producto trae a qué proveedores se le compra', async () => {
+  supplierState.suppliers.push(FILGO());
+  supplierState.assignments = [{ type: 'sku', id: 'LAP', supplierKey: 'filgo', profileId: null }];
+  storeState.resolvedSkus = ['LAP', 'OTRO'];
+
+  const state = await svc.getMappingState('filgo');
+
+  const bySku = Object.fromEntries(state.products.map((p) => [p.sku, p]));
+  assert.deepEqual(bySku.LAP.suppliers, ['filgo']);
+  assert.deepEqual(bySku.OTRO.suppliers, []);
+});

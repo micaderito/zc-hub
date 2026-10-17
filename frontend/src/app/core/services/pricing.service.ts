@@ -156,6 +156,17 @@ export interface RowDiscount {
 }
 
 /** El pack al que pertenece un SKU (si tiene), para agrupar la planilla. */
+/**
+ * Producto que tiene proveedor pero todavía no tiene costo: no entra a la planilla (sin costo no hay
+ * precio que calcular), se lista aparte en la pestaña del proveedor para cargárselo.
+ */
+export interface UncostedProduct {
+  sku: string;
+  name: string | null;
+  suppliers: string[];
+  pack: PreviewRowPack | null;
+}
+
 export interface PreviewRowPack {
   packId: number;
   name: string;
@@ -340,6 +351,8 @@ export interface MappingProduct {
   codeSupplier?: string | null;
   vigente?: string | null;
   codesBySupplier?: SupplierCodeRef[];
+  /** Proveedores a los que se le compra (en un pack, los de todos sus modelos). */
+  suppliers?: string[];
   /** Pack con código propio: sus modelos, con el código del que sale el precio de cada uno. */
   members?: MappingMember[];
   /** En un modelo de pack: `pack` = toma el código del pack, `own` = tiene mapeo propio. */
@@ -438,7 +451,7 @@ export class PricingService {
   }
 
   getPreview() {
-    return this.http.get<{ rows: PreviewRow[] }>(`${this.api.baseUrl}/pricing/preview`);
+    return this.http.get<{ rows: PreviewRow[]; uncosted?: UncostedProduct[] }>(`${this.api.baseUrl}/pricing/preview`);
   }
 
   saveCost(sku: string, data: Partial<ProductCost> & { profileId?: number | null }) {
