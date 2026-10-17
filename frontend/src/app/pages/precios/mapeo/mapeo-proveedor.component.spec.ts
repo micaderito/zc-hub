@@ -90,6 +90,20 @@ describe('MapeoProveedorComponent', () => {
     expect(text()).toContain('Cuadernos');
   });
 
+  it('"Cargar costo" emite el producto (con proveedor) y no aparece en "Todos"', async () => {
+    await render();
+    const emitted: string[] = [];
+    component.editCost.subscribe((p) => emitted.push(p.sku));
+    const btn = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.mp-cost-btn'))
+      .find((b) => b.textContent?.includes('Cargar costo'))!;
+    btn.click();
+    expect(emitted).toEqual(['LAP-1']);
+
+    fixture.componentRef.setInput('supplierKey', null);
+    await render();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.mp-cost-btn')).toBeNull();
+  });
+
   it('filtra "Sin código" y por lista', async () => {
     await render();
     component.filter.set('unmapped');

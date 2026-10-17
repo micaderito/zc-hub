@@ -5,9 +5,21 @@
       <button type="button" class="icon-btn" (click)="store.close()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      <label class="fld">SKU
-        <input type="text" [ngModel]="form().sku" (ngModelChange)="update('sku', $event)" placeholder="El mismo SKU que en ML/TN" />
-      </label>
+      @if (prefill(); as pf) {
+        <p class="modal-note">
+          <i class="ti ti-info-circle"></i>
+          @if (pf.skus.length > 1) {
+            Se carga el mismo costo a los {{ pf.skus.length }} modelos del pack ({{ pf.skus.join(', ') }}).
+          } @else {
+            SKU <b>{{ pf.skus[0] }}</b>.
+          }
+          Con un proveedor elegido queda como su vigente y aparece en su planilla.
+        </p>
+      } @else {
+        <label class="fld">SKU
+          <input type="text" [ngModel]="form().sku" (ngModelChange)="update('sku', $event)" placeholder="El mismo SKU que en ML/TN" />
+        </label>
+      }
       <label class="fld">Nombre (opcional)
         <input type="text" [ngModel]="form().label" (ngModelChange)="update('label', $event)" />
       </label>

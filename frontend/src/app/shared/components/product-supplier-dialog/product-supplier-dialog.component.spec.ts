@@ -61,6 +61,15 @@ describe('ProductSupplierDialogComponent', () => {
     expect(closed).toHaveBeenCalled();
   });
 
+  it('en modo masivo manda bulk: true y avisa con saved', async () => {
+    const fixture = create({ suppliers: SUPPLIERS, skus: ['A', 'B', 'C'], bulk: true });
+    const saved = jasmine.createSpy('saved');
+    fixture.componentInstance.saved.subscribe(saved);
+    await fixture.componentInstance.save();
+    expect(pricing.setProductSupplier).toHaveBeenCalledWith({ skus: ['A', 'B', 'C'], packId: null, supplierKey: 'pc', profileId: 1, bulk: true });
+    expect(saved).toHaveBeenCalled();
+  });
+
   it('sin info arranca con el primer proveedor y su default', () => {
     const c = create({ suppliers: SUPPLIERS, skus: ['X'] }).componentInstance;
     expect(c.supplierKey()).toBe('pc');

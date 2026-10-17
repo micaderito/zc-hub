@@ -465,7 +465,10 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
 - **Fuera de Precios** (2026-10-16): el proveedor + config también se eligen en **Crear/Editar
   producto** ("Precios y ganancia": selects Proveedor y Descuento en vez de los % sueltos, que quedan
   sin uso en `DraftCost`) y en **Productos** (chip en cada tarjeta y en cada pack de la pestaña
-  Packs → `zc-product-supplier-dialog`). Todo pasa por `setProductSupplier` (`PUT
+  Packs → `zc-product-supplier-dialog`). En Productos también se puede tildar varios (por SKU, la selección sobrevive a
+  cambiar de página/búsqueda) y "Asignar proveedor…" los manda juntos con `bulk: true`: cada SKU de un
+  pack asigna su pack (una vez) y los sueltos van por SKU (`bulkSupplierTargets`), en vez de tratar
+  la lista como las variantes de UN producto. Todo pasa por `setProductSupplier` (`PUT
   /api/pricing/product-supplier`): se asigna al pack si el producto es un pack o todos sus SKUs son
   de uno (`supplierTargets`, `discountResolver.js`), si no a cada SKU; con costo lo guarda con ese
   proveedor como vigente, sin costo solo mueve el vigente de lo que ya tenía costo de otro. Se lee

@@ -21,7 +21,7 @@ import {
   createDiscountProfile, updateDiscountProfile, deleteDiscountProfile,
   listProductSuppliers, upsertProductSuppliers, clearSkuProfiles, deleteProductSuppliers, setCostSupplier,
 } from '../db.js';
-import { buildDiscountContext, resolveDiscount, suppliersOf, supplierKeyFromName, supplierTargets } from '../lib/discountResolver.js';
+import { buildDiscountContext, resolveDiscount, suppliersOf, supplierKeyFromName, supplierTargets, bulkSupplierTargets } from '../lib/discountResolver.js';
 import { patchTnPrice, readTnSnapshotRow, getCatalogRows } from './conflictsService.js';
 import { rememberPriceWrite, forgetPriceWrite, tnPriceEchoKey } from '../lib/stockEcho.js';
 import {
@@ -1301,17 +1301,20 @@ const positive = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && N
  * SKU (`supplierTargets`). Con `cost` válido lo guarda en cada SKU con ese proveedor como vigente;
  * sin costo, si un SKU ya tenía costo de otro proveedor, pasa a este (el vigente). `supplierKey: null`
  * = "sin proveedor": solo deja el costo sin vigente (sin descuento). Idempotente: todo es upsert.
+ * `bulk: true` = varios productos a la vez (selección de Productos): cada SKU de un pack asigna su
+ * pack y los sueltos van por SKU (`bulkSupplierTargets`), en vez de tratar la lista como UN producto.
  *
  * @param {{ skus: string[], packId?: number|null, supplierKey: string|null, profileId?: number|null,
- *   cost?: { mode: 'bulk'|'unit', bulkPrice?, bulkQty?, unitCost?, marginPct? } | null, label?: string|null }} input
+ *   cost?: { mode: 'bulk'|'unit', bulkPrice?, bulkQty?, unitCost?, marginPct? } | null, label?: string|null,
+ *   bulk?: boolean }} input
  * @returns {Promise<{ ok: true, targets, changedSkus: string[] }>}
  */
-export async function setProductSupplier({ skus, packId = null, supplierKey = null, profileId = null, cost = null, label = null } = {}) {
+export async function setProductSupplier({ skus, packId = null, supplierKey = null, profileId = null, cost = null, label = null, bulk = false } = {}) {
   const packs = await listPacks();
   let list = [...new Set((Array.isArray(skus) ? skus : []).map((s) => String(s ?? '').trim()).filter(Boolean))];
   if (packId != null && list.length === 0) list = packs.find((pk) => String(pk.id) === String(packId))?.skus ?? [];
   if (list.length === 0) throw httpError(400, 'Faltan los productos');
-  const targets = supplierTargets(list, packs, packId);
+  const targets = bulk && packId == null ? bulkSupplierTargets(list, packs) : supplierTargets(list, packs, packId);
   if (supplierKey) await assignDiscount({ supplierKey, targets, profileId });
 
   const changedSkus = [];

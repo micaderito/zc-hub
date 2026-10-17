@@ -93,6 +93,8 @@ export interface ProductSupplierInput {
   profileId?: number | null;
   cost?: { mode: 'bulk' | 'unit'; bulkPrice?: number | null; bulkQty?: number | null; unitCost?: number | null; marginPct?: number | null } | null;
   label?: string | null;
+  /** Varios productos a la vez (selección de Productos): cada SKU de un pack asigna su pack, los sueltos van por SKU. */
+  bulk?: boolean;
 }
 
 /** Resultado de sincronizar comisiones con la API de ML. */

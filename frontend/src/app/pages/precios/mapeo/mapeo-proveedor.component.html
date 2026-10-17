@@ -4,7 +4,8 @@
     Cada producto con su código en cada proveedor. Para asignar o cambiar un código, elegí el proveedor en las pestañas de arriba.
   } @else {
     Cada producto de la tienda con su código en la lista de {{ supplierName(supplierKey()) }}. Los que no tienen código no
-    toman precio de sus listas: asignáselo a mano (el precio se toma al momento, de la lista más reciente que lo trae).
+    toman precio de sus listas: asignáselo a mano (el precio se toma al momento, de la lista más reciente que lo trae),
+    o, si no está en ninguna lista, cargale el costo con "Cargar costo" y pasa a la planilla.
   }
 </p>
 
@@ -177,8 +178,18 @@
     @else { <span class="muted">—</span> }
   </td>
   <td>
-    @if (p.hasCost) { <span class="mp-cost ok"><i class="ti ti-check"></i> cargado</span> }
-    @else { <span class="mp-cost muted">sin costo</span> }
+    <div class="mp-cost-cell">
+      @if (p.hasCost) { <span class="mp-cost ok"><i class="ti ti-check"></i> cargado</span> }
+      @else { <span class="mp-cost muted">sin costo</span> }
+      @if (!readOnly()) {
+        <button
+          type="button"
+          class="link mp-cost-btn"
+          (click)="editCost.emit(p)"
+          [title]="p.kind === 'pack' ? 'El mismo costo para todos los modelos del pack' : 'Cargar el costo a mano, sin lista'"
+        >{{ p.hasCost ? 'Editar' : 'Cargar costo' }}</button>
+      }
+    </div>
   </td>
   <td class="col-actions">
     @if (!readOnly() && editingKey() !== p.key) {

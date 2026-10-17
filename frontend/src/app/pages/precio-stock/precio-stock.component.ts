@@ -26,6 +26,7 @@ import { PacksTabComponent } from './components/packs-tab/packs-tab.component';
 import { PacksService } from '../../core/services/packs.service';
 import { AlertsService, ALERTS_RULES_QUERY_KEY } from '../../core/services/alerts.service';
 import { PRODUCT_SUPPLIERS_QUERY_KEY, PricingService, SkuSupplierInfo } from '../../core/services/pricing.service';
+import { SessionService } from '../../core/services/session.service';
 import { ProductSupplierDialogComponent, supplierChipLabel } from '../../shared/components/product-supplier-dialog/product-supplier-dialog.component';
 
 const PAGE_SIZE = 25;
@@ -252,6 +253,60 @@ export class PrecioStockComponent {
       note: pack ? `Es del pack "${pack}": se asigna al pack entero (sus modelos lo heredan).` : null,
     });
   }
+
+  /**
+   * Selección para asignar proveedor a varios productos de una. Es por SKU y sobrevive a cambiar de
+   * página, filtro o búsqueda (así se juntan productos de distintas búsquedas); se limpia al guardar.
+   */
+  readonly session = inject(SessionService);
+  readonly selectedSkus = signal<Set<string>>(new Set());
+  readonly selectedSkuList = computed(() => [...this.selectedSkus()]);
+  readonly bulkSupplierOpen = signal(false);
+
+  pairSku(pair: { ml: MlRow; tn: TnRow; sku?: string }): string {
+    return pair.sku || pair.ml.sku || pair.tn.sku || '';
+  }
+
+  /** SKUs de la página (sin repetir: dos pares pueden compartir SKU). */
+  private readonly pageSkus = computed(() => [...new Set(this.currentPagePairs().map((p) => this.pairSku(p)).filter(Boolean))]);
+  readonly allPageSelected = computed(() => {
+    const skus = this.pageSkus();
+    const sel = this.selectedSkus();
+    return skus.length > 0 && skus.every((s) => sel.has(s));
+  });
+
+  toggleSelected(pair: { ml: MlRow; tn: TnRow; sku?: string }): void {
+    const sku = this.pairSku(pair);
+    if (!sku) return;
+    this.selectedSkus.update((cur) => {
+      const next = new Set(cur);
+      if (next.has(sku)) next.delete(sku); else next.add(sku);
+      return next;
+    });
+  }
+
+  togglePageSelection(): void {
+    const all = this.allPageSelected();
+    this.selectedSkus.update((cur) => {
+      const next = new Set(cur);
+      for (const s of this.pageSkus()) if (all) next.delete(s); else next.add(s);
+      return next;
+    });
+  }
+
+  clearSelection(): void {
+    this.selectedSkus.set(new Set());
+  }
+
+  /** Cuántos de los seleccionados son de un pack (el aviso del diálogo: se asigna el pack entero). */
+  readonly selectedInPacks = computed(() => [...this.selectedSkus()].filter((s) => this.skuPackIndex().has(s)).length);
+
+  readonly bulkSupplierNote = computed(() => {
+    const n = this.selectedSkus().size;
+    const inPacks = this.selectedInPacks();
+    const base = `Se asigna a ${n} producto${n === 1 ? '' : 's'}.`;
+    return inPacks ? `${base} ${inPacks === 1 ? 'Uno es' : `${inPacks} son`} de un pack: se asigna al pack entero (sus modelos lo heredan).` : base;
+  });
 
   openHistory(pair: { ml: MlRow; tn: TnRow; sku?: string }): void {
     const sku = pair.sku || pair.ml.sku || pair.tn.sku;

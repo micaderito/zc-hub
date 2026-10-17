@@ -77,6 +77,8 @@ export class ProductSupplierDialogComponent implements OnInit {
   readonly note = input<string | null>(null);
   readonly info = input<SkuSupplierInfo | null>(null);
   readonly suppliers = input<OverviewSupplier[]>([]);
+  /** `skus` son varios productos (selección masiva), no las variantes de uno solo. */
+  readonly bulk = input(false);
 
   readonly closed = output<void>();
   readonly saved = output<void>();
@@ -108,6 +110,7 @@ export class ProductSupplierDialogComponent implements OnInit {
     try {
       await firstValueFrom(this.pricing.setProductSupplier({
         skus: this.skus(), packId: this.packId(), supplierKey: this.supplierKey(), profileId: this.profileId(),
+        ...(this.bulk() ? { bulk: true } : {}),
       }));
       await this.queryClient.invalidateQueries({ queryKey: PRODUCT_SUPPLIERS_QUERY_KEY });
       this.saved.emit();
