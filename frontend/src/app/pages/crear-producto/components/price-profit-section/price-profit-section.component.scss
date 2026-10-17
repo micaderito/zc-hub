@@ -40,3 +40,40 @@
 .hint.ok {
   color: var(--ok);
 }
+
+.other-suppliers {
+  margin-bottom: 0.4rem;
+}
+
+.other-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.other-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.3rem 0.15rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.78rem;
+  button {
+    border: 0;
+    background: none;
+    color: var(--text-3);
+    cursor: pointer;
+    padding: 0 0.15rem;
+    &:hover {
+      color: var(--err);
+    }
+  }
+}
+
+.other-add {
+  width: auto;
+  min-width: 11rem;
+}

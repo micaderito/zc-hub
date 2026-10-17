@@ -51,14 +51,14 @@ pricingRoutes.post('/ml-fees/sync', async (req, res) => {
 /** Preview: todos los costos cargados, calculados, con el estado de mapeo por canal. */
 pricingRoutes.get('/preview', async (_req, res) => {
   try {
-    const rows = await pricing.getPreview();
+    const [rows, uncosted] = await Promise.all([pricing.getPreview(), pricing.getUncostedSupplierProducts()]);
     // Anota si el SKU está mapeado en cada canal (para que la UI sepa qué se puede aplicar).
     const annotated = rows.map((r) => ({
       ...r,
       mappedMl: !!getMlItemBySku(r.sku),
       mappedTn: !!getTnVariantBySku(r.sku),
     }));
-    res.json({ rows: annotated });
+    res.json({ rows: annotated, uncosted });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -357,10 +357,22 @@ pricingRoutes.get('/product-suppliers', async (req, res) => {
   }
 });
 
-/** Proveedor + config (+ costo) de un producto: { skus, packId?, supplierKey|null, profileId?, cost? }. */
+/**
+ * Proveedor + config (+ costo) de un producto: { skus, packId?, supplierKey|null, profileId?, cost? }.
+ * Con `suppliers: [{ supplierKey, profileId }]` es la lista completa (y `supplierKey` el vigente).
+ */
 pricingRoutes.put('/product-supplier', async (req, res) => {
   try {
     res.json(await pricing.setProductSupplier(req.body || {}));
+  } catch (e) {
+    sendError(res, e);
+  }
+});
+
+/** Deja de comprarle un proveedor a uno o varios productos: { skus, packId?, supplierKey, bulk? }. */
+pricingRoutes.post('/product-supplier/remove', async (req, res) => {
+  try {
+    res.json(await pricing.removeProductSupplier(req.body || {}));
   } catch (e) {
     sendError(res, e);
   }

@@ -3,7 +3,7 @@
   @if (readOnly()) {
     Cada producto con su código en cada proveedor. Para asignar o cambiar un código, elegí el proveedor en las pestañas de arriba.
   } @else {
-    Cada producto de la tienda con su código en la lista de {{ supplierName(supplierKey()) }}. Los que no tienen código no
+    Los productos de {{ supplierName(supplierKey()) }} (o, con "Toda la tienda", todos) con su código en sus listas. Los que no tienen código no
     toman precio de sus listas: asignáselo a mano (el precio se toma al momento, de la lista más reciente que lo trae),
     o, si no está en ninguna lista, cargale el costo con "Cargar costo" y pasa a la planilla.
   }
@@ -14,6 +14,14 @@
     <i class="ti ti-search"></i>
     <input type="text" placeholder="Buscar producto, SKU o código…" [ngModel]="search()" (ngModelChange)="search.set($event)" />
   </div>
+  @if (!readOnly()) {
+    <div class="mp-chips" role="group" aria-label="Qué productos mostrar">
+      <button type="button" [class.on]="scope() === 'supplier'" (click)="setScope('supplier')">
+        <i class="ti ti-building-store"></i> De {{ supplierName(supplierKey()) }} <b>{{ ownCount() }}</b>
+      </button>
+      <button type="button" [class.on]="scope() === 'store'" (click)="setScope('store')">Toda la tienda</button>
+    </div>
+  }
   <div class="mp-chips" role="group" aria-label="Filtrar por estado">
     <button type="button" [class.on]="filter() === 'all'" (click)="filter.set('all')">Todos <b>{{ counts().all }}</b></button>
     <button type="button" [class.on]="filter() === 'mapped'" (click)="filter.set('mapped')">

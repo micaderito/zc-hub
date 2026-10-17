@@ -1277,6 +1277,92 @@ test('setProductSupplier: costo inválido no se guarda; sin productos es 400', a
   await assert.rejects(svc.setProductSupplier({ skus: [], supplierKey: PC }), { status: 400 });
 });
 
+const FILGO = () => ({ key: 'filgo', name: 'Filgo', profiles: [{ id: 5, name: 'General', discount1: 0, discount2: 0, isDefault: true }, { id: 6, name: 'Bic', discount1: 10, discount2: 0, isDefault: false }] });
+
+test('setProductSupplier con lista: suma proveedores con su config, cambia el vigente tomando su lista y saca los que no están', async () => {
+  dbState.storeCosts = true;
+  supplierState.suppliers.push(FILGO(), { key: 'bic', name: 'Bic', profiles: [{ id: 8, name: 'General', discount1: 0, discount2: 0, isDefault: true }] });
+  supplierState.assignments = [
+    { type: 'sku', id: 'LAP', supplierKey: PC, profileId: null },
+    { type: 'sku', id: 'LAP', supplierKey: 'bic', profileId: null },
+  ];
+  listState.map = [{ sku: 'LAP', code: 'B-1', supplier: 'bic' }, { sku: 'LAP', code: 'F-9', supplier: 'filgo' }];
+  latestState.items = [{ code: 'F-9', supplier: 'filgo', bulkPrice: 500, bulkQty: 10, description: 'Lapicera' }];
+  dbState.costs['LAP'] = { sku: 'LAP', source: 'list', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+
+  const res = await svc.setProductSupplier({
+    skus: ['LAP'], supplierKey: 'filgo',
+    suppliers: [{ supplierKey: PC, profileId: null }, { supplierKey: 'filgo', profileId: 6 }],
+  });
+
+  const of = (key) => supplierState.assignments.find((a) => a.id === 'LAP' && a.supplierKey === key);
+  assert.ok(of(PC));
+  assert.equal(of('filgo').profileId, 6);
+  assert.equal(of('bic'), undefined, 'Bic ya no está en la lista: se saca');
+  assert.ok(listState.removed.includes('sku:LAP'), 'y su código queda marcado como sacado');
+  assert.equal(dbState.costs['LAP'].supplierKey, 'filgo');
+  assert.equal(dbState.costs['LAP'].bulkPrice, 500, 'el vigente nuevo toma el precio de su lista');
+  assert.deepEqual(res.changedSkus, ['LAP']);
+  assert.deepEqual(res.withoutPrice, []);
+});
+
+test('setProductSupplier con lista: con proveedores pero sin vigente es 400; lista vacía saca todo', async () => {
+  dbState.storeCosts = true;
+  await assert.rejects(svc.setProductSupplier({ skus: ['LAP'], supplierKey: null, suppliers: [{ supplierKey: PC }] }), { status: 400 });
+  supplierState.assignments = [{ type: 'sku', id: 'LAP', supplierKey: PC, profileId: null }];
+  dbState.costs['LAP'] = { sku: 'LAP', source: 'manual', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+
+  const res = await svc.setProductSupplier({ skus: ['LAP'], supplierKey: null, suppliers: [] });
+
+  assert.deepEqual(supplierState.assignments, []);
+  assert.equal(dbState.costs['LAP'].supplierKey, null);
+  assert.equal(dbState.costs['LAP'].bulkPrice, 900, 'el costo no se toca');
+  assert.deepEqual(res.changedSkus, ['LAP']);
+});
+
+test('setProductSupplier bulk con makeVigente false: suma el proveedor sin mover el costo', async () => {
+  dbState.storeCosts = true;
+  supplierState.suppliers.push(FILGO());
+  dbState.costs['LAP'] = { sku: 'LAP', source: 'list', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+
+  const res = await svc.setProductSupplier({ skus: ['LAP'], supplierKey: 'filgo', bulk: true, makeVigente: false });
+
+  assert.ok(supplierState.assignments.some((a) => a.id === 'LAP' && a.supplierKey === 'filgo'));
+  assert.equal(dbState.costs['LAP'].supplierKey, PC);
+  assert.deepEqual(res.changedSkus, []);
+});
+
+test('removeProductSupplier: un pack saca la asignación del pack y de sus modelos, marca los códigos y avisa el vigente perdido', async () => {
+  dbState.storeCosts = true;
+  packState.packs = [AGENDA_PACK];
+  supplierState.assignments = [
+    { type: 'pack', id: '7', supplierKey: PC, profileId: null },
+    { type: 'sku', id: 'AG-ROSA', supplierKey: PC, profileId: null },
+    { type: 'pack', id: '7', supplierKey: 'filgo', profileId: null },
+  ];
+  dbState.costs['AG-ROSA'] = { sku: 'AG-ROSA', source: 'list', bulkPrice: 1, bulkQty: 1, supplierKey: PC };
+
+  const res = await svc.removeProductSupplier({ skus: ['AG-ROSA', 'AG-AZUL'], packId: 7, supplierKey: PC });
+
+  assert.deepEqual(supplierState.assignments, [{ type: 'pack', id: '7', supplierKey: 'filgo', profileId: null }]);
+  assert.ok(listState.removed.includes('pack:7'));
+  assert.ok(listState.removed.includes('sku:AG-AZUL'));
+  assert.deepEqual(res.lostVigente, ['AG-ROSA']);
+  assert.equal(dbState.costs['AG-ROSA'].supplierKey, null);
+  await assert.rejects(svc.removeProductSupplier({ skus: ['X'] }), { status: 400 });
+});
+
+test('getProductSupplierOverview: la config de cada proveedor del producto', async () => {
+  supplierState.suppliers.push(FILGO());
+  supplierState.assignments = [
+    { type: 'sku', id: 'LAP', supplierKey: PC, profileId: null },
+    { type: 'sku', id: 'LAP', supplierKey: 'filgo', profileId: 6 },
+  ];
+  const ov = await svc.getProductSupplierOverview({ skus: ['LAP'] });
+  assert.equal(ov.bySku['LAP'].discounts[PC].level, 'default');
+  assert.equal(ov.bySku['LAP'].discounts['filgo'].profileId, 6);
+});
+
 test('getProductSupplierOverview: vigente, config que le toca y costo; sin costo usa el primer proveedor', async () => {
   supplierState.suppliers[0].profiles.push({ ...AGENDAS });
   packState.packs = [AGENDA_PACK];
@@ -1294,4 +1380,33 @@ test('getProductSupplierOverview: vigente, config que le toca y costo; sin costo
   assert.deepEqual(ov.byPack['7'], [{ supplierKey: PC, profileId: 2 }]);
   const solo = await svc.getProductSupplierOverview({ skus: ['AG-ROSA'] });
   assert.deepEqual(Object.keys(solo.bySku), ['AG-ROSA']);
+});
+
+test('getUncostedSupplierProducts: los productos de un proveedor sin costo, con su pack; lo que tiene costo no', async () => {
+  supplierState.suppliers.push(FILGO());
+  packState.packs = [AGENDA_PACK];
+  supplierState.assignments = [
+    { type: 'pack', id: '7', supplierKey: 'filgo', profileId: null },
+    { type: 'sku', id: 'LAP', supplierKey: 'filgo', profileId: null },
+  ];
+  dbState.costs['AG-ROSA'] = { sku: 'AG-ROSA', source: 'manual', bulkPrice: 1000, bulkQty: 10, supplierKey: PC };
+
+  const rows = await svc.getUncostedSupplierProducts();
+
+  assert.deepEqual(rows.map((r) => r.sku).sort(), ['AG-AZUL', 'LAP']);
+  const azul = rows.find((r) => r.sku === 'AG-AZUL');
+  assert.deepEqual(azul.suppliers, ['filgo']);
+  assert.equal(azul.pack.packId, 7);
+});
+
+test('getMappingState: cada producto trae a qué proveedores se le compra', async () => {
+  supplierState.suppliers.push(FILGO());
+  supplierState.assignments = [{ type: 'sku', id: 'LAP', supplierKey: 'filgo', profileId: null }];
+  storeState.resolvedSkus = ['LAP', 'OTRO'];
+
+  const state = await svc.getMappingState('filgo');
+
+  const bySku = Object.fromEntries(state.products.map((p) => [p.sku, p]));
+  assert.deepEqual(bySku.LAP.suppliers, ['filgo']);
+  assert.deepEqual(bySku.OTRO.suppliers, []);
 });

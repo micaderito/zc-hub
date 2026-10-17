@@ -476,6 +476,33 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   `payload.supplier` y lo aplica el publish worker (`publishSupplier.js`) después de la alerta (que
   puede crear el pack), solo con alguna unidad `ok`. En la edición NO es una operación de ML/TN: se
   carga desde Precios al abrir y tiene su propio botón "Guardar en Precios".
+- **Varios proveedores por producto** (2026-10-17). La base ya lo soportaba (`product_suppliers` es
+  N:N); lo que faltaba era la UI. El diálogo de Productos (`zc-product-supplier-dialog`) edita la
+  lista COMPLETA de un producto/pack: cada proveedor con su config, un radio para el vigente, quitar y
+  agregar. Viaja como `suppliers: [{supplierKey, profileId}]` en `PUT /pricing/product-supplier`
+  (`supplierKey` = vigente, 400 si hay proveedores sin vigente): los que ya no están se sacan y, si
+  el vigente cambia sin costo cargado, toma el precio de su última lista (`setVigenteSupplier`, con
+  `withoutPrice` si no hay). Con varios productos tildados no se edita una lista (cada uno tiene la
+  suya): **Agregar** (con "que sea el vigente" opcional → `makeVigente: false`) o **Quitar**
+  (`POST /pricing/product-supplier/remove`). En Crear/Editar producto: "Proveedor vigente" + "También
+  se compra a" (`DraftCost.otherSuppliers`; un borrador viejo sin ese campo manda solo el vigente,
+  como antes, y no saca nada). En Precios, en la pestaña de un proveedor: **Quitar de X…**
+  (`/assignments/remove`). `GET /product-suppliers` suma `discounts` (la config con cada proveedor).
+  **Quitar un proveedor** (`detachSupplier`) borra la asignación (del pack y de sus modelos) y deja la
+  marca de código "sacado" para ese proveedor en el pack y en cada modelo: si no, el código mapeado
+  lo seguiría contando como proveedor (`suppliersOf` cuenta códigos) y el mapeo automático lo volvería
+  a poner con la próxima lista. Lo que lo tenía de vigente queda sin vigente (costo intacto, sin
+  descuento) y vuelve en `lostVigente` para avisar. Sacar un SKU suelto de un pack cuyo pack tiene
+  código de ese proveedor no alcanza (el pack lo sigue trayendo): se saca el pack.
+- **Productos de un proveedor sin costo** (2026-10-17): la planilla se arma solo con `product_costs`,
+  así que un proveedor con productos asignados (desde Productos / Crear producto) pero sin costo
+  mostraba "0" y la planilla vacía. `GET /pricing/preview` suma `uncosted`
+  (`getUncostedSupplierProducts`: SKUs con proveedor y sin costo); cuentan en la pestaña y la planilla
+  los lista abajo, "Sin costo cargado", agrupados por pack, con "Cargar costo" (costo nuevo con el
+  proveedor de la pestaña como vigente). En Mapeo cada producto trae `suppliers` y la pestaña de un
+  proveedor arranca en **De X** (sus productos) si tiene alguno; **Toda la tienda** es la vista de
+  siempre, para asignarle códigos a lo que todavía no es suyo. Ojo: "Punto Cero" = todo lo que tenía
+  costo antes de que existieran los proveedores (la migración lo dejó de vigente).
 - `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
   usar `track a + '|' + b`.
 - **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de
