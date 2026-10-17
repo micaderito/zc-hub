@@ -131,3 +131,25 @@ export function supplierTargets(skus = [], packs = [], packId = null) {
   if (first != null && list.every((s) => packOf.get(s) === first)) return [{ type: 'pack', id: first }];
   return list.map((s) => ({ type: 'sku', id: s }));
 }
+
+/**
+ * Lo mismo pero para una selección de VARIOS productos (asignación masiva desde Productos): cada SKU
+ * que es de un pack asigna el pack entero (una sola vez por pack), igual que elegirlo de a uno; los
+ * sueltos van por SKU.
+ * @param {string[]} skus
+ * @param {Array<{ id: number, skus: string[] }>} packs
+ * @returns {Array<{ type: 'sku'|'pack', id: string }>}
+ */
+export function bulkSupplierTargets(skus = [], packs = []) {
+  const list = [...new Set((skus || []).map((s) => String(s ?? '').trim()).filter(Boolean))];
+  const packOf = new Map();
+  for (const pk of packs) for (const s of pk.skus || []) packOf.set(s, String(pk.id));
+  const out = [];
+  const seenPacks = new Set();
+  for (const s of list) {
+    const pk = packOf.get(s);
+    if (pk == null) out.push({ type: 'sku', id: s });
+    else if (!seenPacks.has(pk)) { seenPacks.add(pk); out.push({ type: 'pack', id: pk }); }
+  }
+  return out;
+}

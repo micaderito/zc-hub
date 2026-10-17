@@ -715,4 +715,43 @@ describe('PrecioStockComponent', () => {
       expect(component.historySku()).toBeNull();
     });
   });
+
+  describe('selección para asignar proveedor a varios', () => {
+    it('tildar productos y "Seleccionar página" arma la selección por SKU', async () => {
+      await createAndLoad();
+      const [p1, p2a] = buildAnalysis().matched;
+
+      component.toggleSelected(p1);
+      component.toggleSelected(p2a);
+      expect([...component.selectedSkus()]).toEqual(['SKU1', 'SKU2']);
+      expect(component.allPageSelected()).toBeFalse();
+
+      component.togglePageSelection();
+      expect(component.allPageSelected()).toBeTrue();
+      expect(component.selectedSkus().size).toBe(3);
+
+      component.togglePageSelection();
+      expect(component.selectedSkus().size).toBe(0);
+    });
+
+    it('muestra la barra con el conteo y abre el diálogo en modo masivo', async () => {
+      await createAndLoad();
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelectorAll('.pair-check').length).toBe(3);
+      expect(el.querySelector('.selection-count')).toBeNull();
+
+      (el.querySelector('.pair-check') as HTMLInputElement).click();
+      fixture.detectChanges();
+      expect(el.querySelector('.selection-count')?.textContent).toContain('1 seleccionado');
+      expect(component.bulkSupplierNote()).toBe('Se asigna a 1 producto.');
+
+      (el.querySelector('.selection-bar .zc-btn') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.bulkSupplierOpen()).toBeTrue();
+      expect(el.querySelector('zc-product-supplier-dialog')).not.toBeNull();
+
+      component.clearSelection();
+      expect(component.selectedSkus().size).toBe(0);
+    });
+  });
 });

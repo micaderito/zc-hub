@@ -1245,6 +1245,19 @@ test('setProductSupplier: SKUs sueltos van uno por uno; el pack explícito (nuev
   assert.deepEqual(conPack.targets, [{ type: 'pack', id: '77' }]);
 });
 
+test('setProductSupplier bulk: una selección mezclada asigna el pack de los modelos y los sueltos por SKU', async () => {
+  dbState.storeCosts = true;
+  packState.packs = [AGENDA_PACK];
+  supplierState.suppliers.push({ key: 'filgo', name: 'Filgo', profiles: [{ id: 5, name: 'General', discount1: 0, discount2: 0, isDefault: true }] });
+  dbState.costs['LAP'] = { sku: 'LAP', source: 'list', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+
+  const res = await svc.setProductSupplier({ skus: ['AG-ROSA', 'LAP'], supplierKey: 'filgo', bulk: true });
+
+  assert.deepEqual(res.targets, [{ type: 'pack', id: '7' }, { type: 'sku', id: 'LAP' }]);
+  assert.equal(dbState.costs['LAP'].supplierKey, 'filgo');
+  assert.deepEqual(res.changedSkus, ['LAP']);
+});
+
 test('setProductSupplier: sin costo, un SKU con costo de otro proveedor pasa a este (vigente)', async () => {
   dbState.storeCosts = true;
   supplierState.suppliers.push({ key: 'filgo', name: 'Filgo', profiles: [{ id: 5, name: 'General', discount1: 0, discount2: 0, isDefault: true }] });

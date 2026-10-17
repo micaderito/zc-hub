@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDiscountContext, resolveDiscount, suppliersOf, supplierKeyFromName, supplierTargets } from '../src/lib/discountResolver.js';
+import { buildDiscountContext, resolveDiscount, suppliersOf, supplierKeyFromName, supplierTargets, bulkSupplierTargets } from '../src/lib/discountResolver.js';
 
 const suppliers = [
   {
@@ -90,4 +90,10 @@ test('supplierTargets: pack explícito, todos del mismo pack → pack; si no, ca
   assert.deepEqual(supplierTargets(['AG-ROSA', 'LAP'], packs), [{ type: 'sku', id: 'AG-ROSA' }, { type: 'sku', id: 'LAP' }]);
   assert.deepEqual(supplierTargets([' ', 'LAP', 'LAP'], packs), [{ type: 'sku', id: 'LAP' }]);
   assert.deepEqual(supplierTargets([], packs), []);
+});
+
+test('bulkSupplierTargets: cada SKU de un pack asigna su pack (una vez), los sueltos van por SKU', () => {
+  assert.deepEqual(bulkSupplierTargets(['AG-ROSA', 'LAP', 'AG-AZUL', ' ', 'LAP'], packs),
+    [{ type: 'pack', id: '7' }, { type: 'sku', id: 'LAP' }]);
+  assert.deepEqual(bulkSupplierTargets([], packs), []);
 });

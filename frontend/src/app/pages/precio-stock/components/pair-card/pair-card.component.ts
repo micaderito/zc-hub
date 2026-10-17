@@ -39,12 +39,16 @@ export class PairCardComponent {
   readonly hasAlert = input(false);
   /** Proveedor vigente + config ("Punto Cero · General"); `null` = sin proveedor. */
   readonly supplierLabel = input<string | null>(null);
+  /** Muestra el tilde para la selección masiva (asignar proveedor a varios). */
+  readonly selectable = input(false);
+  readonly selected = input(false);
 
   readonly toggleCollapse = output<void>();
   readonly updatePrices = output<void>();
   readonly syncStock = output<void>();
   readonly showHistory = output<void>();
   readonly editSupplier = output<void>();
+  readonly selectToggle = output<void>();
 
   protected mlLabel = mlLabel;
   protected tnLabel = tnLabel;

@@ -5,6 +5,9 @@
   overflow: hidden;
 
   &.pair-pending { opacity: 0.75; }
+  &.pair-selected { border-color: var(--brand); }
+
+  .pair-check { margin: 0; accent-color: var(--brand); cursor: pointer; }
 
   // ── Cabecera ───────────────────────────────────────────────────────
   .pair-header {
