@@ -165,39 +165,70 @@
 
 <!-- Productos del proveedor que todavía no tienen costo: sin costo no hay precio que calcular -->
 @if (!store.previewQuery.isLoading() && uncostedGroups().length > 0) {
-  <section class="pr-uncosted">
-    <header>
-      <h3><i class="ti ti-alert-circle"></i> Sin costo cargado <span class="count">{{ store.uncosted().length }}</span></h3>
-      <p class="hint">
-        @if (store.currentSupplier(); as sup) {
-          Le comprás estos productos a {{ sup.name }} pero todavía no tienen costo, así que no se les puede calcular el precio.
-          Importá una lista de {{ sup.name }} (con los códigos en "Mapeo con el proveedor") o cargales el costo a mano.
-        } @else {
-          Tienen proveedor pero todavía no tienen costo, así que no se les puede calcular el precio.
-        }
-      </p>
-    </header>
-    <ul>
-      @for (g of uncostedGroups(); track g.key) {
-        <li>
-          <div class="who">
-            @if (g.pack) {
-              <i class="ti ti-stack-2"></i>
-              <b>{{ g.pack.name }}</b>
-              <span class="sub">{{ g.items.length }} de {{ g.pack.modelCount }} modelos sin costo</span>
-            } @else {
-              <b>{{ g.items[0].name || g.items[0].sku }}</b>
-              <span class="sub mono">{{ g.items[0].sku }}</span>
-            }
-          </div>
-          <button type="button" class="btn btn-s" (click)="loadCost(g)">
-            <i class="ti ti-plus"></i> Cargar costo
-          </button>
-        </li>
+  <div class="pr-uncosted-head">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <b>Sin costo cargado</b>
+    <span class="group-total">{{ store.uncosted().length }}</span>
+    <span class="hint">
+      @if (store.currentSupplier(); as sup) {
+        Se los comprás a {{ sup.name }} pero no tienen costo, así que todavía no tienen precio: importá su lista o cargalo a mano.
+      } @else {
+        Tienen proveedor pero no tienen costo, así que todavía no tienen precio.
       }
-    </ul>
-  </section>
+    </span>
+  </div>
+  <div class="pr-table-wrap">
+    <table class="pr-table">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th class="col-actions"></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (g of uncostedGroups(); track g.key) {
+          @if (g.pack; as pk) {
+            <tr class="group-row">
+              <td>
+                <div class="group-row-inner">
+                  <i class="ti ti-stack-2" aria-hidden="true"></i>
+                  <b>{{ pk.name }}</b>
+                  @if (pk.sku) { <span class="pack-sku">{{ pk.sku }}</span> }
+                  <span class="zc-badge">pack de {{ pk.unitCount }} u.</span>
+                  <span class="group-total">{{ g.items.length }} de {{ pk.modelCount }} modelo{{ pk.modelCount === 1 ? '' : 's' }} sin costo</span>
+                </div>
+              </td>
+              <td class="col-actions">
+                <button type="button" class="btn btn-s" (click)="loadCost(g)" title="El mismo bulto para todos los modelos sin costo del pack">
+                  <i class="ti ti-plus"></i> Cargar costo
+                </button>
+              </td>
+            </tr>
+            @for (u of g.items; track u.sku) {
+              <ng-container *ngTemplateOutlet="uncostedRowTpl; context: { $implicit: u, inPack: true }" />
+            }
+          } @else {
+            <ng-container *ngTemplateOutlet="uncostedRowTpl; context: { $implicit: g.items[0], inPack: false }" />
+          }
+        }
+      </tbody>
+    </table>
+  </div>
 }
+
+<ng-template #uncostedRowTpl let-u let-inPack="inPack">
+  <tr [class.row-in-pack]="inPack">
+    <td>
+      <div class="pr-prod">
+        <span class="pr-prod-name">{{ u.name || u.sku }}</span>
+        <span class="pr-prod-sub">{{ u.sku }}</span>
+      </div>
+    </td>
+    <td class="col-actions">
+      <button type="button" class="btn btn-s" (click)="loadCostFor(u)"><i class="ti ti-plus"></i> Cargar costo</button>
+    </td>
+  </tr>
+</ng-template>
 
 <!-- Fila de producto, reutilizada agrupada o suelta -->
 <ng-template #priceRowTpl let-row let-inPack="inPack">

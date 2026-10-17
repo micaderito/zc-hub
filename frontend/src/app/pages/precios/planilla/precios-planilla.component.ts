@@ -85,6 +85,11 @@ export class PreciosPlanillaComponent {
     return groups;
   });
 
+  /** Un solo modelo / producto sin costo. */
+  loadCostFor(u: UncostedProduct): void {
+    this.loadCost({ key: `sku:${u.sku}`, pack: null, items: [u] });
+  }
+
   /** Costo nuevo para lo sin costo, con el proveedor de la pestaña (o el suyo) como vigente. */
   loadCost(g: UncostedGroup): void {
     const supplierKey = this.store.currentSupplier()?.key ?? g.items[0].suppliers[0] ?? null;
