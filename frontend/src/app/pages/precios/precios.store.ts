@@ -8,12 +8,22 @@ import { ALL_SUPPLIERS } from './precios.utils';
 
 export type PreciosView = 'precios' | 'mapeo';
 
+/**
+ * Costo nuevo abierto desde Mapeo con el proveedor: los SKUs a los que se le carga (un pack con
+ * código propio son todos sus modelos), el nombre y el proveedor de la pestaña.
+ */
+export interface CostPrefill {
+  skus: string[];
+  label: string | null;
+  supplierKey: string | null;
+}
+
 /** El diálogo abierto de la página (uno a la vez) con lo que necesita. */
 export type PreciosDialog =
   | { kind: 'settings' }
   | { kind: 'import' }
   | { kind: 'lists' }
-  | { kind: 'cost'; row: PreviewRow | null }
+  | { kind: 'cost'; row: PreviewRow | null; prefill?: CostPrefill }
   | { kind: 'supplier'; supplier: Supplier | null }
   | { kind: 'profile'; supplierKey: string; profile: DiscountProfile | null };
 

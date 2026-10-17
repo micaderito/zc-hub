@@ -9,6 +9,7 @@ import { PdfTextService } from '../../core/services/pdf-text.service';
 import { PreciosComponent } from './precios.component';
 import { PreciosStore } from './precios.store';
 import { PreciosPlanillaComponent } from './planilla/precios-planilla.component';
+import { CostFormDialogComponent } from './dialogs/cost-form-dialog.component';
 import { AssignDialogComponent } from './dialogs/assign-dialog.component';
 import { ImportListDialogComponent } from './dialogs/import-list-dialog.component';
 import { PriceListsDialogComponent } from './dialogs/price-lists-dialog.component';
@@ -89,6 +90,7 @@ class PricingMock {
   getLists = jasmine.createSpy('getLists').and.returnValue(of({ lists: [
     { id: 3, label: 'LISTA BE POSITIVE', sourceFilename: null, discount1: 0, discount2: 0, importedAt: null, itemCount: 46 },
   ] }));
+  saveCost = jasmine.createSpy('saveCost').and.returnValue(of({}));
   deleteList = jasmine.createSpy('deleteList').and.returnValue(of({ ok: true }));
 }
 
@@ -297,6 +299,58 @@ describe('PreciosComponent', () => {
     await dlg.save();
     expect(pricing.createProfile).toHaveBeenCalledWith('punto_cero', { name: 'Liquidación', discount1: 40, discount2: 0 });
     expect(store().dialog()).toBeNull();
+  });
+
+  // ── Cargar costo desde Mapeo con el proveedor ──
+
+  function mappingProduct(over: Record<string, unknown> = {}) {
+    return {
+      key: 'sku:LAP-1', kind: 'sku' as const, sku: 'LAP-1', packId: null, name: 'Lapicera', memberSkus: [], packName: null,
+      code: null, codeDescription: null, listLabel: null, matchSource: null, hasCost: false, mappedMl: true, mappedTn: true,
+      ...over,
+    };
+  }
+
+  it('un producto sin costo de Mapeo abre costo nuevo con el proveedor de la pestaña y lo guarda', async () => {
+    await render();
+    store().setSupplierTab('bic');
+    fixture.componentInstance.onMappingEditCost(mappingProduct());
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const dlg = child(CostFormDialogComponent);
+    expect(dlg.form().sku).toBe('LAP-1');
+    expect(dlg.form().label).toBe('Lapicera');
+    expect(dlg.form().supplierKey).toBe('bic');
+    expect(dlg.form().mode).toBe('bulk');
+    dlg.update('bulkPrice', 12000);
+    dlg.update('bulkQty', 12);
+    await dlg.save();
+    expect(pricing.saveCost).toHaveBeenCalledWith('LAP-1', jasmine.objectContaining({ bulkPrice: 12000, bulkQty: 12, supplierKey: 'bic' }));
+    expect(store().dialog()).toBeNull();
+  });
+
+  it('un pack con código propio carga el mismo costo a todos sus modelos', async () => {
+    await render();
+    store().setSupplierTab('punto_cero');
+    fixture.componentInstance.onMappingEditCost(mappingProduct({ key: 'pack:7', kind: 'pack', sku: '39500', packId: 7, name: 'Lapiceras x2', memberSkus: ['LAP-A', 'LAP-B'] }));
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    expect(text()).toContain('los 2 modelos del pack');
+    const dlg = child(CostFormDialogComponent);
+    dlg.update('bulkPrice', 5000);
+    dlg.update('bulkQty', 10);
+    await dlg.save();
+    expect(pricing.saveCost.calls.allArgs().map((a: unknown[]) => a[0])).toEqual(['LAP-A', 'LAP-B']);
+  });
+
+  it('un producto que ya tiene costo de Mapeo abre la edición de su fila', async () => {
+    await render();
+    fixture.componentInstance.onMappingEditCost(mappingProduct({ key: 'sku:30700', sku: '30700', hasCost: true }));
+    const d = store().dialog();
+    expect(d?.kind === 'cost' && d.row?.sku).toBe('30700');
+    expect(d?.kind === 'cost' && d.prefill).toBeUndefined();
   });
 
   // ── Importar lista ──
