@@ -251,6 +251,33 @@ describe('PreciosComponent', () => {
     expect(text()).toContain('−30% −5%');
   });
 
+  it('lo de un proveedor que todavía no tiene costo cuenta en su pestaña y se lista para cargarle el costo', async () => {
+    withBic();
+    const pack = { packId: 9, name: 'Resaltadores x6', sku: null, unitCount: 6, mode: 'assorted' as const, modelCount: 3 };
+    pricing.getPreview.and.callFake(() => of({
+      rows: rows(),
+      uncosted: [
+        { sku: 'RES-AM', name: 'Resaltador amarillo', suppliers: ['bic'], pack },
+        { sku: 'RES-VE', name: 'Resaltador verde', suppliers: ['bic'], pack },
+        { sku: 'CORR', name: 'Corrector', suppliers: ['bic'], pack: null },
+      ],
+    }));
+    await render();
+    expect(store().supplierTabs().find((t) => t.key === 'bic')?.count).toBe(3);
+
+    store().setSupplierTab('bic');
+    fixture.detectChanges();
+    expect(text()).toContain('Sin costo cargado');
+    expect(text()).toContain('Resaltadores x6');
+    expect(text()).toContain('2 de 3 modelos sin costo');
+    expect(text()).toContain('Corrector');
+
+    planilla().loadCost(planilla().uncostedGroups()[0]);
+    expect(store().dialog()).toEqual({
+      kind: 'cost', row: null, prefill: { skus: ['RES-AM', 'RES-VE'], label: 'Resaltadores x6', supplierKey: 'bic' },
+    });
+  });
+
   it('cambiar de pestaña de proveedor limpia la selección', async () => {
     await render();
     planilla().toggleRow('30700');

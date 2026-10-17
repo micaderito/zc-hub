@@ -51,14 +51,14 @@ pricingRoutes.post('/ml-fees/sync', async (req, res) => {
 /** Preview: todos los costos cargados, calculados, con el estado de mapeo por canal. */
 pricingRoutes.get('/preview', async (_req, res) => {
   try {
-    const rows = await pricing.getPreview();
+    const [rows, uncosted] = await Promise.all([pricing.getPreview(), pricing.getUncostedSupplierProducts()]);
     // Anota si el SKU está mapeado en cada canal (para que la UI sepa qué se puede aplicar).
     const annotated = rows.map((r) => ({
       ...r,
       mappedMl: !!getMlItemBySku(r.sku),
       mappedTn: !!getTnVariantBySku(r.sku),
     }));
-    res.json({ rows: annotated });
+    res.json({ rows: annotated, uncosted });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

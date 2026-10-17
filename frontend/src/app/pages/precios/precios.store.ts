@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
-import { DiscountProfile, PreviewRow, PricingConfig, PricingService, Supplier } from '../../core/services/pricing.service';
+import { DiscountProfile, PreviewRow, PricingConfig, PricingService, Supplier, UncostedProduct } from '../../core/services/pricing.service';
 import { TabDef } from '../../shared/components/tabs/tabs.component';
 import { ALL_SUPPLIERS } from './precios.utils';
 
@@ -56,6 +56,8 @@ export class PreciosStore {
 
   readonly config = computed<PricingConfig | undefined>(() => this.configQuery.data());
   readonly allRows = computed<PreviewRow[]>(() => this.previewQuery.data()?.rows ?? []);
+  /** Productos con proveedor y sin costo (no están en la planilla hasta que se les cargue uno). */
+  readonly allUncosted = computed<UncostedProduct[]>(() => this.previewQuery.data()?.uncosted ?? []);
   readonly suppliers = computed<Supplier[]>(() => this.config()?.suppliers ?? []);
 
   // ── Pestaña de proveedor (?proveedor=) ──
@@ -68,9 +70,13 @@ export class PreciosStore {
   readonly activeSupplierTab = computed(() => this.currentSupplier()?.key ?? ALL_SUPPLIERS);
   readonly supplierTabs = computed<TabDef[]>(() => {
     const rows = this.allRows();
+    const uncosted = this.allUncosted();
+    // Cuenta también lo que todavía no tiene costo: si no, un proveedor recién asignado decía "0".
+    const count = (key: string) => rows.filter((r) => r.suppliers?.includes(key)).length
+      + uncosted.filter((u) => u.suppliers.includes(key)).length;
     return [
-      { key: ALL_SUPPLIERS, label: 'Todos', count: rows.length },
-      ...this.suppliers().map((s) => ({ key: s.key, label: s.name, count: rows.filter((r) => r.suppliers?.includes(s.key)).length })),
+      { key: ALL_SUPPLIERS, label: 'Todos', count: rows.length + uncosted.length },
+      ...this.suppliers().map((s) => ({ key: s.key, label: s.name, count: count(s.key) })),
     ];
   });
   /** Filas de la planilla: las del proveedor de la pestaña (todas en "Todos"). */
@@ -78,6 +84,13 @@ export class PreciosStore {
     const sup = this.currentSupplier();
     const all = this.allRows();
     return sup ? all.filter((r) => r.suppliers?.includes(sup.key)) : all;
+  });
+
+  /** Productos sin costo de la pestaña (todos en "Todos"). */
+  readonly uncosted = computed<UncostedProduct[]>(() => {
+    const sup = this.currentSupplier();
+    const all = this.allUncosted();
+    return sup ? all.filter((u) => u.suppliers.includes(sup.key)) : all;
   });
 
   setSupplierTab(key: string): void {

@@ -494,6 +494,15 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   a poner con la próxima lista. Lo que lo tenía de vigente queda sin vigente (costo intacto, sin
   descuento) y vuelve en `lostVigente` para avisar. Sacar un SKU suelto de un pack cuyo pack tiene
   código de ese proveedor no alcanza (el pack lo sigue trayendo): se saca el pack.
+- **Productos de un proveedor sin costo** (2026-10-17): la planilla se arma solo con `product_costs`,
+  así que un proveedor con productos asignados (desde Productos / Crear producto) pero sin costo
+  mostraba "0" y la planilla vacía. `GET /pricing/preview` suma `uncosted`
+  (`getUncostedSupplierProducts`: SKUs con proveedor y sin costo); cuentan en la pestaña y la planilla
+  los lista abajo, "Sin costo cargado", agrupados por pack, con "Cargar costo" (costo nuevo con el
+  proveedor de la pestaña como vigente). En Mapeo cada producto trae `suppliers` y la pestaña de un
+  proveedor arranca en **De X** (sus productos) si tiene alguno; **Toda la tienda** es la vista de
+  siempre, para asignarle códigos a lo que todavía no es suyo. Ojo: "Punto Cero" = todo lo que tenía
+  costo antes de que existieran los proveedores (la migración lo dejó de vigente).
 - `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
   usar `track a + '|' + b`.
 - **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de

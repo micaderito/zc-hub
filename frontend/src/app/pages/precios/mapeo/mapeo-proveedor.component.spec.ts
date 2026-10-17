@@ -90,6 +90,30 @@ describe('MapeoProveedorComponent', () => {
     expect(text()).toContain('Cuadernos');
   });
 
+  it('en la pestaña de un proveedor muestra sus productos y con "Toda la tienda" todos', async () => {
+    pricing.getMappingState.and.callFake(() => of({
+      ...state(),
+      products: state().products.map((p) => ({ ...p, suppliers: p.sku === 'LAP-1' ? ['punto_cero'] : ['bic'] })),
+    }));
+    await render();
+    expect(component.scope()).toBe('supplier');
+    expect(component.ownCount()).toBe(1);
+    expect(component.counts().all).toBe(1);
+    expect(text()).toContain('Lapicera');
+    expect(text()).not.toContain('Cuaderno · Rosa');
+
+    component.setScope('store');
+    fixture.detectChanges();
+    expect(component.counts().all).toBe(4);
+  });
+
+  it('un proveedor sin productos todavía muestra toda la tienda (para asignarle códigos)', async () => {
+    await render();
+    expect(component.ownCount()).toBe(0);
+    expect(component.scope()).toBe('store');
+    expect(component.counts().all).toBe(4);
+  });
+
   it('"Cargar costo" emite el producto (con proveedor) y no aparece en "Todos"', async () => {
     await render();
     const emitted: string[] = [];
