@@ -1351,7 +1351,8 @@ const positive = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && N
  * = "sin proveedor": solo deja el costo sin vigente (sin descuento). Idempotente: todo es upsert.
  * `bulk: true` = varios productos a la vez (selección de Productos): cada SKU de un pack asigna su
  * pack y los sueltos van por SKU (`bulkSupplierTargets`), en vez de tratar la lista como UN producto.
- * Ahí `makeVigente: false` lo suma como un proveedor más sin cambiar de dónde sale el costo.
+ * Ahí `makeVigente: false` lo suma como un proveedor más sin cambiar de dónde sale el costo, y
+ * `keepProfile: true` no toca la config de lo que ya lo tenía (lo nuevo entra con la default).
  *
  * `suppliers` = la lista COMPLETA de proveedores de UN producto (diálogo de Productos, Crear/Editar),
  * cada uno con su config; `supplierKey` es el vigente (tiene que estar en la lista). Los que tenía y
@@ -1360,13 +1361,13 @@ const positive = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && N
  *
  * @param {{ skus: string[], packId?: number|null, supplierKey: string|null, profileId?: number|null,
  *   cost?: { mode: 'bulk'|'unit', bulkPrice?, bulkQty?, unitCost?, marginPct? } | null, label?: string|null,
- *   bulk?: boolean, makeVigente?: boolean,
+ *   bulk?: boolean, makeVigente?: boolean, keepProfile?: boolean,
  *   suppliers?: Array<{ supplierKey: string, profileId?: number|null }> }} input
  * @returns {Promise<{ ok: true, targets, changedSkus: string[], withoutPrice?: string[] }>}
  */
 export async function setProductSupplier({
   skus, packId = null, supplierKey = null, profileId = null, cost = null, label = null, bulk = false,
-  makeVigente = true, suppliers = null,
+  makeVigente = true, suppliers = null, keepProfile = false,
 } = {}) {
   const packs = await listPacks();
   let list = [...new Set((Array.isArray(skus) ? skus : []).map((s) => String(s ?? '').trim()).filter(Boolean))];
@@ -1374,7 +1375,10 @@ export async function setProductSupplier({
   if (list.length === 0) throw httpError(400, 'Faltan los productos');
   const targets = bulk && packId == null ? bulkSupplierTargets(list, packs) : supplierTargets(list, packs, packId);
   if (Array.isArray(suppliers)) return setProductSupplierSet({ list, targets, packs, supplierKey, suppliers, cost, label });
-  if (supplierKey) await assignDiscount({ supplierKey, targets, profileId });
+  if (supplierKey && keepProfile) {
+    if (!(await listSuppliers()).some((s) => s.key === supplierKey)) throw httpError(404, 'El proveedor no existe');
+    await upsertProductSuppliers(supplierKey, targets, null, { onlyIfMissing: true });
+  } else if (supplierKey) await assignDiscount({ supplierKey, targets, profileId });
   if (!makeVigente) return { ok: true, targets, changedSkus: [] };
 
   const changedSkus = [];

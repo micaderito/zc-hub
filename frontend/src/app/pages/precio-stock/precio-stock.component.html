@@ -187,6 +187,7 @@
   @if (bulkSupplierOpen()) {
     <zc-product-supplier-dialog title="Proveedores de los seleccionados" [skus]="selectedSkuList()" [bulk]="true"
                                 [note]="bulkSupplierNote()" [suppliers]="suppliersQuery.data()?.suppliers ?? []"
+                                [bySku]="suppliersQuery.data()?.bySku ?? {}"
                                 (saved)="clearSelection()" (closed)="bulkSupplierOpen.set(false)" />
   }
 </div>
