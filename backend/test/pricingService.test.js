@@ -1332,6 +1332,21 @@ test('setProductSupplier bulk con makeVigente false: suma el proveedor sin mover
   assert.deepEqual(res.changedSkus, []);
 });
 
+test('setProductSupplier bulk con keepProfile: no pisa la config de lo que ya lo tenía y suma lo nuevo con la default', async () => {
+  dbState.storeCosts = true;
+  supplierState.suppliers.push(FILGO());
+  supplierState.assignments = [{ type: 'sku', id: 'LAP', supplierKey: 'filgo', profileId: 6 }];
+  dbState.costs['LAP'] = { sku: 'LAP', source: 'list', bulkPrice: 900, bulkQty: 10, supplierKey: PC };
+
+  await svc.setProductSupplier({ skus: ['LAP', 'GOMA'], supplierKey: 'filgo', bulk: true, keepProfile: true });
+
+  const of = (sku) => supplierState.assignments.find((a) => a.id === sku && a.supplierKey === 'filgo');
+  assert.equal(of('LAP').profileId, 6, 'la config propia se conserva');
+  assert.equal(of('GOMA').profileId, null, 'lo nuevo entra con la default');
+  assert.equal(dbState.costs['LAP'].supplierKey, 'filgo', 'y pasa a ser el vigente');
+  await assert.rejects(svc.setProductSupplier({ skus: ['LAP'], supplierKey: 'nadie', bulk: true, keepProfile: true }), { status: 404 });
+});
+
 test('removeProductSupplier: un pack saca la asignación del pack y de sus modelos, marca los códigos y avisa el vigente perdido', async () => {
   dbState.storeCosts = true;
   packState.packs = [AGENDA_PACK];

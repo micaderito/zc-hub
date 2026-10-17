@@ -107,6 +107,8 @@ export interface ProductSupplierInput {
   bulk?: boolean;
   /** Con `bulk`: `false` lo suma como un proveedor más sin cambiar de dónde sale el costo. */
   makeVigente?: boolean;
+  /** Con `bulk`: no toca la config de descuento de lo que ya tenía este proveedor (lo nuevo va con la default). */
+  keepProfile?: boolean;
   /** Lista COMPLETA de proveedores de un producto (los que no están se sacan); `supplierKey` = el vigente. */
   suppliers?: Array<{ supplierKey: string; profileId: number | null }>;
 }

@@ -477,14 +477,20 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   puede crear el pack), solo con alguna unidad `ok`. En la edición NO es una operación de ML/TN: se
   carga desde Precios al abrir y tiene su propio botón "Guardar en Precios".
 - **Varios proveedores por producto** (2026-10-17). La base ya lo soportaba (`product_suppliers` es
-  N:N); lo que faltaba era la UI. El diálogo de Productos (`zc-product-supplier-dialog`) edita la
-  lista COMPLETA de un producto/pack: cada proveedor con su config, un radio para el vigente, quitar y
-  agregar. Viaja como `suppliers: [{supplierKey, profileId}]` en `PUT /pricing/product-supplier`
+  N:N); lo que faltaba era la UI. El diálogo de Productos (`zc-product-supplier-dialog`) es UNO solo
+  para un producto, un pack y la selección masiva: una lista con TODOS los proveedores con tildes
+  (botones `role="checkbox"`, no `<input>`: el tilde a medias no se sincroniza bien con `[checked]`);
+  cada tildado lleva su select de config y un radio de vigente. Hasta 2026-10-17 el individual tenía
+  un select + botón "Agregar" y, con "sin proveedor", elegir en el select y Guardar sin tocar Agregar
+  mandaba la lista vacía: no guardaba nada. Un producto viaja como `suppliers: [{supplierKey, profileId}]` en `PUT /pricing/product-supplier`
   (`supplierKey` = vigente, 400 si hay proveedores sin vigente): los que ya no están se sacan y, si
   el vigente cambia sin costo cargado, toma el precio de su última lista (`setVigenteSupplier`, con
-  `withoutPrice` si no hay). Con varios productos tildados no se edita una lista (cada uno tiene la
-  suya): **Agregar** (con "que sea el vigente" opcional → `makeVigente: false`) o **Quitar**
-  (`POST /pricing/product-supplier/remove`). En Crear/Editar producto: "Proveedor vigente" + "También
+  `withoutPrice` si no hay). Con varios productos tildados (cada uno tiene su lista, `bySku`) solo se
+  aplica lo tocado: un proveedor que tienen algunos sale a medias (a medias → todos → ninguno → a
+  medias) y no se toca si no se cambia; destildar → `POST /pricing/product-supplier/remove` por
+  proveedor; tildar o cambiar config → `PUT` con `bulk` (`makeVigente: false` salvo el vigente, que
+  va al final). Config "Mantener la de cada uno" = `keepProfile: true` (upsert `onlyIfMissing`, no
+  pisa la config propia de nadie). Vigente opcional ("No cambiar el vigente"). En Crear/Editar producto: "Proveedor vigente" + "También
   se compra a" (`DraftCost.otherSuppliers`; un borrador viejo sin ese campo manda solo el vigente,
   como antes, y no saca nada). En Precios, en la pestaña de un proveedor: **Quitar de X…**
   (`/assignments/remove`). `GET /product-suppliers` suma `discounts` (la config con cada proveedor).
