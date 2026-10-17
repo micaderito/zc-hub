@@ -227,6 +227,39 @@ describe('PrecioStockComponent', () => {
     });
   });
 
+  describe('filtros (proveedor / alerta / bulto)', () => {
+    it('manda los filtros al backend y vuelve a la página 1', async () => {
+      await createAndLoad(buildAnalysis({ paging: { page: 1, limit: 25, total: 60, pages: 3 } }));
+      component.goToPage(2);
+      conflictsSpy.getAnalysisPromise.calls.reset();
+
+      component.onFiltersChange({ stock: 'mismatch', supplier: 'none', alert: 'without', bulk: 'with' });
+      fixture.detectChanges();
+      await new Promise((r) => setTimeout(r));
+      fixture.detectChanges();
+
+      expect(component.currentPage()).toBe(1);
+      const opts = conflictsSpy.getAnalysisPromise.calls.mostRecent().args[0]!;
+      expect(opts).toEqual(jasmine.objectContaining({ page: 1, filter: 'mismatch', supplier: 'none', alert: 'without', bulk: 'with' }));
+    });
+
+    it('sin filtros no manda supplier/alert/bulk', async () => {
+      await createAndLoad();
+      const opts = conflictsSpy.getAnalysisPromise.calls.mostRecent().args[0]!;
+      expect(opts.supplier).toBeUndefined();
+      expect(opts.alert).toBeUndefined();
+      expect(opts.bulk).toBeUndefined();
+    });
+
+    it('el panel muestra los conteos de stock y los botones de filtro', async () => {
+      await createAndLoad();
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('zc-product-filters zc-search-bar')).not.toBeNull();
+      expect(el.querySelector('zc-product-filters .sseg')?.textContent).toContain('Stock distinto');
+      expect(el.textContent).toContain('Proveedor');
+    });
+  });
+
   describe('paginación', () => {
     beforeEach(async () => {
       await createAndLoad(buildAnalysis({ paging: { page: 1, limit: 25, total: 75, pages: 3 } }));

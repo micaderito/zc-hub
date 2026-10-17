@@ -500,6 +500,13 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   a poner con la próxima lista. Lo que lo tenía de vigente queda sin vigente (costo intacto, sin
   descuento) y vuelve en `lostVigente` para avisar. Sacar un SKU suelto de un pack cuyo pack tiene
   código de ese proveedor no alcanza (el pack lo sigue trayendo): se saca el pack.
+- **Filtros de Productos** (2026-10-17, `components/product-filters/`, diseño en
+  `docs/prototype/productos-filtros.html`, opción D): una sola tarjeta con el buscador arriba y una
+  hilera abajo — Stock como segmentado con sus conteos de siempre y botones Proveedor (uno o "Sin
+  proveedor") / Alerta (con/sin regla) / Bulto (con/sin `bulk_qty` en Precios). Se filtra en
+  `GET /api/conflicts` ANTES de paginar (`supplier=<key>|none`, `alert=with|without`,
+  `bulk=with|without`; `getSkuFilterFacets` en pricingService). Proveedor = cualquiera de los suyos
+  (`suppliersOf`), no solo el vigente. `withoutAlertRule=1` sigue siendo alias de `alert=without`.
 - **Productos de un proveedor sin costo** (2026-10-17): la planilla se arma solo con `product_costs`,
   así que un proveedor con productos asignados (desde Productos / Crear producto) pero sin costo
   mostraba "0" y la planilla vacía. `GET /pricing/preview` suma `uncosted`

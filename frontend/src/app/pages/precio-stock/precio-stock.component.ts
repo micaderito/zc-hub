@@ -14,12 +14,12 @@ import {
   stockTaskKeys,
   ActiveTasksResponse,
 } from '../../core/services/conflicts.service';
-import { injectQuery, keepPreviousData } from '@tanstack/angular-query-experimental';
+import { injectQuery, keepPreviousData, QueryClient } from '@tanstack/angular-query-experimental';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
-import { StockFilterTabsComponent, StockFilter } from './components/stock-filter-tabs/stock-filter-tabs.component';
+import { ProductFiltersComponent, ProductFiltersValue, StockFilter, PresenceFilter } from './components/product-filters/product-filters.component';
 import { PairCardComponent, PairPrices } from './components/pair-card/pair-card.component';
 import { ProductHistoryDialogComponent } from './components/product-history-dialog/product-history-dialog.component';
 import { PacksTabComponent } from './components/packs-tab/packs-tab.component';
@@ -34,10 +34,13 @@ const ANALYSIS_BASE_KEY = ['conflicts', 'analysis'] as const;
 
 type SubTab = 'stock' | 'packs';
 
+/** 'all' no viaja: el backend solo entiende with/without. */
+const presenceParam = (v: PresenceFilter): 'with' | 'without' | undefined => (v === 'all' ? undefined : v);
+
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
-  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, TabsComponent, StockFilterTabsComponent, PairCardComponent, ProductHistoryDialogComponent, PacksTabComponent, ProductSupplierDialogComponent],
+  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, TabsComponent, ProductFiltersComponent, PairCardComponent, ProductHistoryDialogComponent, PacksTabComponent, ProductSupplierDialogComponent],
   templateUrl: './precio-stock.component.html',
   styleUrl: './precio-stock.component.scss'
 })
@@ -60,6 +63,24 @@ export class PrecioStockComponent {
   readonly currentPage = signal(1);
   readonly stockFilter = signal<StockFilter>('all');
   readonly searchQuery = signal('');
+  /** `''` = todos, `'none'` = sin proveedor, si no la key del proveedor. */
+  readonly supplierFilter = signal('');
+  readonly alertFilter = signal<PresenceFilter>('all');
+  readonly bulkFilter = signal<PresenceFilter>('all');
+
+  readonly filters = computed<ProductFiltersValue>(() => ({
+    stock: this.stockFilter(),
+    supplier: this.supplierFilter(),
+    alert: this.alertFilter(),
+    bulk: this.bulkFilter(),
+  }));
+
+  onFiltersChange(v: ProductFiltersValue): void {
+    this.stockFilter.set(v.stock);
+    this.supplierFilter.set(v.supplier);
+    this.alertFilter.set(v.alert);
+    this.bulkFilter.set(v.bulk);
+  }
 
   readonly debouncedSearch = toSignal(
     toObservable(this.searchQuery).pipe(debounceTime(350), distinctUntilChanged()),
@@ -67,16 +88,19 @@ export class PrecioStockComponent {
   );
 
   private get currentQueryKey() {
-    return [...ANALYSIS_BASE_KEY, this.currentPage(), this.stockFilter(), this.debouncedSearch()] as const;
+    return [...ANALYSIS_BASE_KEY, this.currentPage(), this.stockFilter(), this.debouncedSearch(), this.supplierFilter(), this.alertFilter(), this.bulkFilter()] as const;
   }
 
   readonly analysisQuery = injectQuery(() => ({
-    queryKey: [...ANALYSIS_BASE_KEY, this.currentPage(), this.stockFilter(), this.debouncedSearch()],
+    queryKey: [...ANALYSIS_BASE_KEY, this.currentPage(), this.stockFilter(), this.debouncedSearch(), this.supplierFilter(), this.alertFilter(), this.bulkFilter()],
     queryFn: () => this.conflicts.getAnalysisPromise({
       page: this.currentPage(),
       limit: PAGE_SIZE,
       filter: this.stockFilter(),
       search: this.debouncedSearch() || undefined,
+      supplier: this.supplierFilter() || undefined,
+      alert: presenceParam(this.alertFilter()),
+      bulk: presenceParam(this.bulkFilter()),
     }),
     refetchOnWindowFocus: false,
     staleTime: 60 * 60 * 1000,
@@ -240,6 +264,18 @@ export class PrecioStockComponent {
     return sku && data ? supplierChipLabel(data.bySku[sku], data.suppliers) : null;
   }
 
+  private readonly queryClient = inject(QueryClient);
+
+  /**
+   * Con el filtro de proveedor o de bulto puesto, un cambio de proveedor puede sacar o meter
+   * productos en la lista (el filtro lo resuelve el backend): se vuelve a pedir.
+   */
+  onSupplierSaved(): void {
+    if (this.supplierFilter() || this.bulkFilter() !== 'all') {
+      void this.queryClient.invalidateQueries({ queryKey: [...ANALYSIS_BASE_KEY] });
+    }
+  }
+
   /** SKU cuyo proveedor se está eligiendo (diálogo abierto). */
   readonly supplierEdit = signal<{ sku: string; info: SkuSupplierInfo | null; note: string | null } | null>(null);
 
@@ -331,6 +367,9 @@ export class PrecioStockComponent {
     effect(() => {
       this.stockFilter();
       this.debouncedSearch();
+      this.supplierFilter();
+      this.alertFilter();
+      this.bulkFilter();
       untracked(() => this.currentPage.set(1));
     });
 

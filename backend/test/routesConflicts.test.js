@@ -23,6 +23,8 @@ const analysisState = {
   },
 };
 
+// Proveedores por SKU y SKUs con bulto cargado (filtros supplier/bulk de GET /).
+const facetsState = { suppliersBySku: {}, bulkSkus: [] };
 const syncServiceState = { persistResult: { ml: true, tn: true } };
 const dbState = { enqueueResult: 5, taskStatus: null, auditRows: [], priceAuditRows: [], enqueued: [], stockAlerts: [] };
 // tnSnapshotRow: lo que readTnSnapshotRow devuelve como fila previa (null = no está en el snapshot).
@@ -72,6 +74,14 @@ before(async () => {
       patchTnStock: async (...a) => { patchState.calls.push(['patchTnStock', ...a]); },
       readTnSnapshotRow: async (...a) => { patchState.calls.push(['readTnSnapshotRow', ...a]); return patchState.tnSnapshotRow; },
       readTnSnapshotRows: async (...a) => { patchState.calls.push(['readTnSnapshotRows', ...a]); return patchState.tnSnapshotRows; },
+    },
+  });
+  mock.module('../src/services/pricingService.js', {
+    exports: {
+      getSkuFilterFacets: async () => ({
+        suppliersOf: (sku) => facetsState.suppliersBySku[sku] || [],
+        bulkSkus: new Set(facetsState.bulkSkus),
+      }),
     },
   });
   mock.module('../src/services/syncService.js', {
@@ -204,6 +214,53 @@ test('GET /: sin withoutAlertRule no filtra por reglas', async () => {
   const res = await fetch(`${baseUrl}/?tab=coincidencias`);
   const body = await res.json();
   assert.equal(body.matched.length, 1);
+});
+
+test('GET /: supplier=<key> deja los que se le compran a ese proveedor (no solo el vigente), antes de paginar', async () => {
+  analysisState.result.matched = [
+    { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'A' },
+    { ml: { stock: 1, sku: 'B' }, tn: { stock: 1 } },
+    { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'C' },
+  ];
+  facetsState.suppliersBySku = { A: ['punto_cero'], B: ['bic', 'punto_cero'], C: ['bic'] };
+  const res = await fetch(`${baseUrl}/?tab=coincidencias&supplier=punto_cero`);
+  const body = await res.json();
+  assert.deepEqual(body.matched.map((p) => p.sku || p.ml.sku), ['A', 'B']);
+  assert.equal(body.paging.total, 2);
+});
+
+test('GET /: supplier=none deja solo los que no tienen ningún proveedor', async () => {
+  analysisState.result.matched = [
+    { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'A' },
+    { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'Z' },
+  ];
+  facetsState.suppliersBySku = { A: ['punto_cero'] };
+  const body = await (await fetch(`${baseUrl}/?tab=coincidencias&supplier=none`)).json();
+  assert.deepEqual(body.matched.map((p) => p.sku), ['Z']);
+});
+
+test('GET /: bulk=with / bulk=without según tenga las unidades del bulto cargadas', async () => {
+  analysisState.result.matched = [
+    { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'A' },
+    { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'B' },
+  ];
+  facetsState.bulkSkus = ['A'];
+  const withBulk = await (await fetch(`${baseUrl}/?tab=coincidencias&bulk=with`)).json();
+  assert.deepEqual(withBulk.matched.map((p) => p.sku), ['A']);
+  const without = await (await fetch(`${baseUrl}/?tab=coincidencias&bulk=without`)).json();
+  assert.deepEqual(without.matched.map((p) => p.sku), ['B']);
+});
+
+test('GET /: alert=with / alert=without según tenga regla de alerta de stock', async () => {
+  analysisState.result.matched = [
+    { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'A' },
+    { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'B' },
+  ];
+  dbState.stockAlerts = [{ sku: 'B' }];
+  const withAlert = await (await fetch(`${baseUrl}/?tab=coincidencias&alert=with`)).json();
+  assert.deepEqual(withAlert.matched.map((p) => p.sku), ['B']);
+  const without = await (await fetch(`${baseUrl}/?tab=coincidencias&alert=without`)).json();
+  assert.deepEqual(without.matched.map((p) => p.sku), ['A']);
 });
 
 // ─── POST /update-sku ────────────────────────────────────────────────────
