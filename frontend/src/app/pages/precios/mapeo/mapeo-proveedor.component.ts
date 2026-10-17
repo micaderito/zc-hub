@@ -50,6 +50,11 @@ export class MapeoProveedorComponent {
 
   /** Avisa al padre qué SKUs cambiaron de costo, para resaltarlos en la planilla de precios. */
   readonly costsChanged = output<string[]>();
+  /**
+   * Cargar / editar el costo a mano (lo abre el padre, que tiene el diálogo): un producto que no
+   * está en ninguna lista también necesita costo para que se le pueda cambiar el precio.
+   */
+  readonly editCost = output<MappingProduct>();
 
   readonly mappingQuery = injectQuery(() => ({
     queryKey: ['pricing', 'mapping', this.supplierKey() ?? 'all'],

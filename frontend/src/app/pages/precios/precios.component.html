@@ -37,7 +37,7 @@
   </div>
 
   @if (store.view() === 'mapeo') {
-    <zc-mapeo-proveedor [supplierKey]="store.currentSupplier()?.key ?? null" (costsChanged)="onMappingCostsChanged($event)" />
+    <zc-mapeo-proveedor [supplierKey]="store.currentSupplier()?.key ?? null" (costsChanged)="onMappingCostsChanged($event)" (editCost)="onMappingEditCost($event)" />
   } @else {
     <zc-precios-planilla />
   }
@@ -48,7 +48,7 @@
       @case ('settings') { <zc-pricing-settings-dialog /> }
       @case ('import') { <zc-import-list-dialog /> }
       @case ('lists') { <zc-price-lists-dialog /> }
-      @case ('cost') { @if (d.kind === 'cost') { <zc-cost-form-dialog [row]="d.row" /> } }
+      @case ('cost') { @if (d.kind === 'cost') { <zc-cost-form-dialog [row]="d.row" [prefill]="d.prefill ?? null" /> } }
       @case ('supplier') { @if (d.kind === 'supplier') { <zc-supplier-form-dialog [supplier]="d.supplier" /> } }
       @case ('profile') { @if (d.kind === 'profile') { <zc-profile-form-dialog [supplierKey]="d.supplierKey" [profile]="d.profile" /> } }
     }
