@@ -121,6 +121,12 @@ export interface DraftCost {
   supplierKey?: string | null;
   /** Config de descuento de ese proveedor; `null` = su default. */
   profileId?: number | null;
+  /**
+   * Los OTROS proveedores a los que también se le compra (el de `supplierKey` es el vigente, el que
+   * manda el costo). `undefined` = borrador de antes de 2026-10-17: se guarda solo el vigente, sin
+   * tocar los demás que tenga en Precios.
+   */
+  otherSuppliers?: Array<{ supplierKey: string; profileId: number | null }>;
   /** Costo unitario directo (modo 'unit'). */
   unitCost: number | null;
   /** Ganancia deseada (%) sobre el costo unitario. */

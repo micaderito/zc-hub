@@ -5,8 +5,11 @@ import { DiscountProfile, PricingService, PricingTarget } from '../../../core/se
 import { PreciosStore } from '../precios.store';
 import { apiError, defaultProfile, discountPcts } from '../precios.utils';
 
-/** `discount` = asignar una config de descuento; `vigente` = cambiar el proveedor vigente. */
-export type AssignMode = 'discount' | 'vigente';
+/**
+ * `discount` = asignar una config de descuento (suma el producto a ese proveedor); `vigente` =
+ * cambiar el proveedor vigente; `remove` = dejar de comprarle esos productos a un proveedor.
+ */
+export type AssignMode = 'discount' | 'vigente' | 'remove';
 
 /** Asignación masiva sobre lo seleccionado en la planilla. */
 @Component({
@@ -61,6 +64,17 @@ export class AssignDialogComponent implements OnInit {
         this.closed.emit();
         return;
       }
+      if (this.mode() === 'remove') {
+        const removed = await firstValueFrom(this.pricing.unassignSupplier(supplierKey, targets));
+        await this.store.refreshMarkingChanges();
+        const lost = removed.lostVigente?.length ?? 0;
+        if (lost === 0) { this.closed.emit(); return; }
+        this.result.set(
+          `${lost} producto${lost === 1 ? '' : 's'} tenía${lost === 1 ? '' : 'n'} a ${this.store.supplierName(supplierKey)} de vigente `
+          + 'y quedó sin vigente: el costo sigue, pero sin descuento. Elegile otro con "Proveedor vigente…".',
+        );
+        return;
+      }
       const res = await firstValueFrom(this.pricing.setVigente(supplierKey, targets));
       await this.store.refreshMarkingChanges();
       if (res.withoutPrice.length === 0) { this.closed.emit(); return; }
@@ -71,7 +85,7 @@ export class AssignDialogComponent implements OnInit {
         + `quedó el costo que tenía${n === 1 ? '' : 'n'}. Cargalo a mano o importá su lista.`,
       );
     } catch (e) {
-      this.errorMsg.set(apiError(e, 'No se pudo asignar'));
+      this.errorMsg.set(apiError(e, this.mode() === 'remove' ? 'No se pudo quitar' : 'No se pudo asignar'));
     } finally {
       this.saving.set(false);
     }

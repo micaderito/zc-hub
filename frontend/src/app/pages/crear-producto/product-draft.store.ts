@@ -511,8 +511,43 @@ export class ProductDraftStore {
 
   setCostSupplier(key: string | null): void {
     const d = this.draft();
+    const prev = d.cost.supplierKey ?? null;
     d.cost.supplierKey = key;
     d.cost.profileId = null;
+    // El vigente no puede estar además entre los "otros"; el que deja de serlo pasa a ser uno más.
+    // "Sin proveedor" es sin ninguno.
+    if (d.cost.otherSuppliers) {
+      let others = d.cost.otherSuppliers.filter((o) => o.supplierKey !== key);
+      if (!key) others = [];
+      else if (prev && prev !== key) others = [{ supplierKey: prev, profileId: null }, ...others];
+      d.cost.otherSuppliers = others;
+    }
+    this.touch();
+  }
+
+  /** Proveedores que se pueden sumar como "también se compra a" (ni el vigente ni los ya agregados). */
+  readonly addableSuppliers = computed(() => {
+    const c = this.draft().cost;
+    const used = new Set([c.supplierKey, ...(c.otherSuppliers ?? []).map((o) => o.supplierKey)]);
+    return this.suppliers().filter((s) => !used.has(s.key));
+  });
+
+  supplierName(key: string): string {
+    return this.suppliers().find((s) => s.key === key)?.name ?? key;
+  }
+
+  addOtherSupplier(key: string | null): void {
+    const d = this.draft();
+    if (!key || !d.cost.supplierKey || key === d.cost.supplierKey) return;
+    const others = d.cost.otherSuppliers ?? [];
+    if (others.some((o) => o.supplierKey === key)) return;
+    d.cost.otherSuppliers = [...others, { supplierKey: key, profileId: null }];
+    this.touch();
+  }
+
+  removeOtherSupplier(key: string): void {
+    const d = this.draft();
+    d.cost.otherSuppliers = (d.cost.otherSuppliers ?? []).filter((o) => o.supplierKey !== key);
     this.touch();
   }
 
@@ -534,10 +569,19 @@ export class ProductDraftStore {
     if (!skus.length || d.cost.supplierKey === undefined) return null;
     if (!d.cost.supplierKey && !this.hasCost()) return null;
     const c = d.cost;
+    // Con la lista de "otros" cargada se manda el set completo (lo que se sacó deja de ser proveedor);
+    // un borrador viejo sin ella solo agrega el vigente, como antes.
+    const suppliers = c.otherSuppliers
+      ? [
+          ...(c.supplierKey ? [{ supplierKey: c.supplierKey, profileId: c.profileId ?? null }] : []),
+          ...c.otherSuppliers.filter((o) => o.supplierKey !== c.supplierKey),
+        ]
+      : undefined;
     return {
       skus,
       supplierKey: c.supplierKey ?? null,
       profileId: c.supplierKey ? c.profileId ?? null : null,
+      ...(suppliers ? { suppliers } : {}),
       cost: this.hasCost()
         ? { mode: c.mode, bulkPrice: c.bulkPrice, bulkQty: c.bulkQty, unitCost: c.unitCost, marginPct: c.marginPct }
         : null,
@@ -558,12 +602,18 @@ export class ProductDraftStore {
       const d = this.draft();
       if (!info) {
         if (d.cost.supplierKey === undefined) d.cost.supplierKey = null;
+        d.cost.otherSuppliers = [];
         this.draft.set({ ...d });
         return;
       }
       const key = info.vigente ?? info.suppliers[0] ?? null;
+      const ownProfile = (k: string) => {
+        const disc = info.discounts?.[k] ?? (k === key ? info.discount : null);
+        return disc && (disc.level === 'sku' || disc.level === 'pack') ? disc.profileId : null;
+      };
       d.cost.supplierKey = key;
-      d.cost.profileId = key && (info.discount.level === 'sku' || info.discount.level === 'pack') ? info.discount.profileId : null;
+      d.cost.profileId = key ? ownProfile(key) : null;
+      d.cost.otherSuppliers = info.suppliers.filter((k) => k !== key).map((k) => ({ supplierKey: k, profileId: ownProfile(k) }));
       if (info.cost) {
         d.cost.mode = info.cost.mode;
         d.cost.bulkPrice = info.cost.bulkPrice;
@@ -648,6 +698,10 @@ export class ProductDraftStore {
         // Producto nuevo: arranca con el primer proveedor y su config default.
         d.cost.supplierKey = config.suppliers?.[0]?.key ?? null;
         d.cost.profileId = null;
+        d.cost.otherSuppliers = [];
+      } else if (d.cost.otherSuppliers === undefined) {
+        // Borrador de un producto nuevo guardado antes de poder elegir varios: no tiene otros.
+        d.cost.otherSuppliers = [];
       }
       this.draft.set({ ...d });
     } catch {

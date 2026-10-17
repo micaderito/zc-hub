@@ -7,7 +7,7 @@
 
   <div class="grid-2 field supplier-row">
     <label>
-      <span class="lbl">Proveedor</span>
+      <span class="lbl">Proveedor vigente</span>
       <select class="zc-select" [ngModel]="store.draft().cost.supplierKey ?? null" (ngModelChange)="store.setCostSupplier($event)">
         @for (s of store.suppliers(); track s.key) {
           <option [ngValue]="s.key">{{ s.name }}</option>
@@ -28,6 +28,28 @@
       }
     </label>
   </div>
+  @if (store.draft().cost.supplierKey && store.draft().cost.otherSuppliers; as others) {
+    <div class="field other-suppliers">
+      <span class="lbl">También se compra a</span>
+      <div class="other-list">
+        @for (o of others; track o.supplierKey) {
+          <span class="other-chip">
+            {{ store.supplierName(o.supplierKey) }}
+            <button type="button" (click)="store.removeOtherSupplier(o.supplierKey)" [attr.aria-label]="'Quitar ' + store.supplierName(o.supplierKey)">
+              <i class="ti ti-x"></i>
+            </button>
+          </span>
+        }
+        @if (store.addableSuppliers().length) {
+          <select class="zc-select other-add" aria-label="Agregar proveedor" [ngModel]="null"
+                  (ngModelChange)="store.addOtherSupplier($event); addSel.selectedIndex = 0" #addSel>
+            <option [ngValue]="null" disabled>+ Agregar proveedor</option>
+            @for (s of store.addableSuppliers(); track s.key) { <option [ngValue]="s.key">{{ s.name }}</option> }
+          </select>
+        }
+      </div>
+    </div>
+  }
   <span class="hint supplier-hint">
     <i class="ti ti-building-store"></i>
     @if (store.isEdit()) {
@@ -35,7 +57,8 @@
     } @else {
       Se guarda en Precios al publicar (proveedor, descuento y costo).
     }
-    Si el producto es un pack, se asigna al pack entero.
+    Si el producto es un pack, se asigna al pack entero. El costo de abajo es el del vigente; los
+    otros proveedores toman su config default (se cambia en Productos o en Precios).
     @if (store.draft().cost.mode === 'unit' && store.selectedSupplier()) { El costo unitario directo no lleva descuento. }
   </span>
 

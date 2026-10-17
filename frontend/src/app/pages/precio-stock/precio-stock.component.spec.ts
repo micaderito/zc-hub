@@ -743,7 +743,7 @@ describe('PrecioStockComponent', () => {
       (el.querySelector('.pair-check') as HTMLInputElement).click();
       fixture.detectChanges();
       expect(el.querySelector('.selection-count')?.textContent).toContain('1 seleccionado');
-      expect(component.bulkSupplierNote()).toBe('Se asigna a 1 producto.');
+      expect(component.bulkSupplierNote()).toBe('1 producto seleccionado.');
 
       (el.querySelector('.selection-bar .zc-btn') as HTMLButtonElement).click();
       fixture.detectChanges();

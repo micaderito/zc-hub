@@ -357,10 +357,22 @@ pricingRoutes.get('/product-suppliers', async (req, res) => {
   }
 });
 
-/** Proveedor + config (+ costo) de un producto: { skus, packId?, supplierKey|null, profileId?, cost? }. */
+/**
+ * Proveedor + config (+ costo) de un producto: { skus, packId?, supplierKey|null, profileId?, cost? }.
+ * Con `suppliers: [{ supplierKey, profileId }]` es la lista completa (y `supplierKey` el vigente).
+ */
 pricingRoutes.put('/product-supplier', async (req, res) => {
   try {
     res.json(await pricing.setProductSupplier(req.body || {}));
+  } catch (e) {
+    sendError(res, e);
+  }
+});
+
+/** Deja de comprarle un proveedor a uno o varios productos: { skus, packId?, supplierKey, bulk? }. */
+pricingRoutes.post('/product-supplier/remove', async (req, res) => {
+  try {
+    res.json(await pricing.removeProductSupplier(req.body || {}));
   } catch (e) {
     sendError(res, e);
   }
