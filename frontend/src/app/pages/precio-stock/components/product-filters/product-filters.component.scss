@@ -1,0 +1,191 @@
+:host { display: block; margin-bottom: 1rem; }
+
+.fpanel {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.row1 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem;
+}
+
+.row2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.75rem;
+  border-top: 0.5px solid var(--border);
+}
+
+.lbl {
+  font-size: 0.68rem;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sseg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.35rem 0.65rem;
+    border: 0;
+    border-left: 0.5px solid var(--border);
+    background: none;
+    color: var(--text-2);
+    cursor: pointer;
+
+    &:first-child { border-left: 0; }
+    &:hover:not(.sel) { background: var(--surface-2); color: var(--text); }
+    &.sel { background: var(--brand-bg); color: var(--brand); font-weight: 600; }
+  }
+}
+
+.cnt {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  min-width: 1.2rem;
+  text-align: center;
+
+  &.ok { background: var(--ok-bg); color: var(--ok); }
+  &.warn { background: var(--warn-bg); color: var(--warn); }
+}
+
+.vsep {
+  width: 0.5px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 0.15rem;
+}
+
+.fwrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.fbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.35rem 0.65rem;
+  border: 0.5px dashed var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+
+  .ti { font-size: 0.95rem; }
+  &:hover:not(.on) { background: var(--surface-2); color: var(--text); }
+
+  &.on {
+    border-style: solid;
+    border-color: var(--brand);
+    background: var(--brand-bg);
+    color: var(--brand);
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .val { font-weight: 600; }
+}
+
+.fclear {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.45rem;
+  border: 0.5px solid var(--brand);
+  border-left: 0;
+  background: var(--brand-bg);
+  color: var(--brand);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  cursor: pointer;
+
+  .ti { font-size: 0.8rem; }
+  &:hover { background: var(--brand); color: var(--brand-contrast); }
+}
+
+.pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+  padding: 0.35rem;
+
+  .h {
+    font-size: 0.65rem;
+    color: var(--text-3);
+    padding: 0.35rem 0.5rem 0.2rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .o {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    font: inherit;
+    font-size: 0.8rem;
+    text-align: left;
+    padding: 0.45rem 0.5rem;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    cursor: pointer;
+
+    .ti { width: 1rem; color: var(--brand); }
+    &:hover, &.sel { background: var(--surface-2); }
+  }
+
+  hr { border: 0; border-top: 0.5px solid var(--border); margin: 0.25rem 0; }
+}
+
+.clear {
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--text-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+
+  &:hover { color: var(--text); }
+}
+
+@media (max-width: 640px) {
+  .vsep { display: none; }
+  .clear { margin-left: 0; }
+}

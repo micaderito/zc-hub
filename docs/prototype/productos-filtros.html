@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Filtros de Productos</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root, :root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd;
+  --ml:#ffe600; --ml-bg:#fff7bf; --ml-text:#5c5400; --tn:#2b8aef; --tn-bg:#e3eefc; --tn-text:#114e8e;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --radius-sm:8px; --radius-md:10px; --radius-lg:12px; --shadow-pop:0 8px 28px rgba(20,22,40,.12);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414; --shadow-pop:0 8px 28px rgba(0,0,0,.5);
+}}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414; --shadow-pop:0 8px 28px rgba(0,0,0,.5);
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 Inter, system-ui, -apple-system, sans-serif; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 80px; }
+header.top { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px; }
+h1 { font-size:20px; margin:0; }
+.lead { color:var(--text-2); margin:4px 0 24px; max-width: 70ch; }
+.theme { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text-2); border-radius:var(--radius-md); padding:6px 10px; cursor:pointer; }
+.option { background:var(--surface); border:.5px solid var(--border); border-radius:var(--radius-lg); padding:20px; margin-bottom:28px; }
+.option > h2 { font-size:15px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+.reco { font-size:11px; font-weight:600; color:var(--ok); background:var(--ok-bg); padding:2px 8px; border-radius:10px; }
+.option > p { color:var(--text-2); margin:0 0 16px; font-size:13px; }
+.pros { display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:16px; font-size:12.5px; color:var(--text-2); }
+.pros ul { margin:4px 0 0; padding-left:18px; }
+.pros b { color:var(--text); font-weight:600; }
+.stage { background:var(--bg); border-radius:var(--radius-md); padding:16px; border:.5px dashed var(--border-strong); }
+
+/* ── piezas existentes ── */
+.tabs { display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:12px; }
+.tab { display:inline-flex; align-items:center; gap:.4rem; font:inherit; font-size:12px; font-weight:500; padding:5px 12px; border:.5px solid var(--border); background:var(--surface); color:var(--text-2); border-radius:var(--radius-md); cursor:pointer; }
+.tab.active { background:var(--brand-bg); color:var(--brand); border-color:var(--brand); }
+.cnt { font-size:10.5px; font-weight:600; padding:1px 6px; border-radius:10px; background:var(--surface-2); color:var(--text-2); }
+.cnt.ok { background:var(--ok-bg); color:var(--ok); } .cnt.warn { background:var(--warn-bg); color:var(--warn); }
+.search-card { display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface); border:.5px solid var(--border); border-radius:var(--radius-lg); padding:10px 12px; margin-bottom:12px; }
+.search { flex:1 1 260px; display:flex; align-items:center; gap:8px; border:.5px solid var(--border); border-radius:var(--radius-md); padding:7px 10px; color:var(--text-3); background:var(--surface); min-width:0; }
+.stock-chip { display:inline-flex; gap:6px; align-items:center; font-size:12px; color:var(--text-2); background:var(--surface-2); border-radius:var(--radius-md); padding:6px 10px; white-space:nowrap; }
+.card { background:var(--surface); border:.5px solid var(--border); border-radius:var(--radius-lg); padding:12px 14px; display:flex; gap:12px; align-items:center; margin-top:8px; }
+.card .t { flex:1; min-width:0; }
+.card .t b { display:block; font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.card .t span { font-size:12px; color:var(--text-3); }
+.tag { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--surface-2); color:var(--text-2); display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
+.tag.alert { background:var(--warn-bg); color:var(--warn); }
+.thumb { width:36px; height:36px; border-radius:8px; background:var(--surface-2); flex:none; }
+
+/* ── A: botones de filtro + popover ── */
+.fbtn { position:relative; display:inline-flex; align-items:center; gap:6px; font:inherit; font-size:12px; font-weight:500; padding:6px 10px; border:.5px dashed var(--border-strong); background:var(--surface); color:var(--text-2); border-radius:var(--radius-md); cursor:pointer; white-space:nowrap; }
+.fbtn i { font-size:15px; }
+.fbtn.on { border-style:solid; border-color:var(--brand); background:var(--brand-bg); color:var(--brand); }
+.fbtn.on .x { margin-left:2px; opacity:.7; }
+.fbtn.on .val { font-weight:600; }
+.pop { position:absolute; top:calc(100% + 6px); left:0; z-index:5; min-width:220px; background:var(--surface); border:.5px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-pop); padding:6px; text-align:left; color:var(--text); font-weight:400; }
+.pop .h { font-size:11px; color:var(--text-3); padding:6px 8px 4px; text-transform:uppercase; letter-spacing:.04em; }
+.pop .o { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:6px; font-size:13px; }
+.pop .o:hover, .pop .o.sel { background:var(--surface-2); }
+.pop .o .n { margin-left:auto; font-size:11px; color:var(--text-3); }
+.pop .o i { width:16px; color:var(--brand); }
+.pop hr { border:0; border-top:.5px solid var(--border); margin:4px 0; }
+.filters-row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.clear { font:inherit; font-size:12px; color:var(--text-3); background:none; border:0; cursor:pointer; text-decoration:underline; }
+
+/* ── B: segmentados ── */
+.facets { display:flex; gap:10px 18px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+.facet { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-3); }
+.seg { display:inline-flex; border:.5px solid var(--border); border-radius:var(--radius-md); overflow:hidden; background:var(--surface); }
+.seg button { font:inherit; font-size:12px; padding:5px 10px; border:0; background:none; color:var(--text-2); cursor:pointer; border-left:.5px solid var(--border); }
+.seg button:first-child { border-left:0; }
+.seg button.sel { background:var(--brand-bg); color:var(--brand); font-weight:600; }
+.select { font:inherit; font-size:12px; padding:5px 26px 5px 10px; border:.5px solid var(--border); border-radius:var(--radius-md); background:var(--surface); color:var(--text); }
+
+/* ── C: panel de filtros ── */
+.panel { background:var(--surface); border:.5px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-pop); padding:14px; display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:14px 20px; margin:-4px 0 12px; }
+.panel label { display:block; font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+.panel .foot { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; border-top:.5px solid var(--border); padding-top:10px; }
+.btn { font:inherit; font-size:12px; font-weight:500; padding:6px 12px; border-radius:var(--radius-md); border:.5px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; display:inline-flex; gap:6px; align-items:center; }
+.btn.primary { background:var(--brand); color:#fff; border-color:var(--brand); }
+.badge { font-size:10.5px; font-weight:700; background:var(--brand); color:#fff; border-radius:10px; padding:1px 6px; }
+
+
+/* ── D: un solo panel ── */
+.fpanel { background:var(--surface); border:.5px solid var(--border); border-radius:var(--radius-lg); }
+.fpanel .row1 { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 12px; }
+.fpanel .row2 { display:flex; align-items:center; gap:8px 10px; flex-wrap:wrap; padding:10px 12px; border-top:.5px solid var(--border); }
+.fpanel .lbl { font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:.04em; margin-right:2px; }
+.vsep { width:.5px; align-self:stretch; background:var(--border); margin:0 4px; }
+.sseg { display:inline-flex; flex-wrap:wrap; border:.5px solid var(--border); border-radius:var(--radius-md); overflow:hidden; background:var(--surface); }
+.sseg button { display:inline-flex; align-items:center; gap:6px; font:inherit; font-size:12px; padding:5px 10px; border:0; border-left:.5px solid var(--border); background:none; color:var(--text-2); cursor:pointer; }
+.sseg button:first-child { border-left:0; }
+.sseg button.sel { background:var(--brand-bg); color:var(--brand); font-weight:600; }
+.push { margin-left:auto; }
+
+@media (max-width: 640px) {
+  .vsep { display:none; }
+  .push { margin-left:0; }
+  .pros { grid-template-columns: 1fr; }
+  .panel { grid-template-columns: 1fr; }
+  .seg button { padding:5px 8px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Productos · filtros nuevos</h1>
+    <button class="theme" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+  </header>
+  <p class="lead">Se suman tres filtros: <b>Proveedor</b> (uno puntual o "Sin proveedor"), <b>Alerta</b> (con / sin regla de alerta de stock) y <b>Bulto</b> (con / sin unidades del bulto cargadas en Precios). Todos se combinan entre sí, con los de stock y con la búsqueda. La D (arriba) junta lo que te gustó de A y C; abajo quedan las tres originales para comparar.</p>
+
+  <!-- ───────────── D ───────────── -->
+  <section class="option" style="border-color:var(--brand)">
+    <h2>D · Todo en un panel, con los números de stock a la vista <span class="reco">Nueva · A + C</span></h2>
+    <p>Una sola tarjeta. Arriba el buscador y el total de unidades. Abajo, una única hilera de filtros: <b>Stock</b> como segmentado con sus conteos de siempre (se ven sin abrir nada) y, a la derecha, los botones de A para Proveedor, Alerta y Bulto. Desaparecen los chips sueltos de arriba.</p>
+    <div class="stage">
+      <div class="fpanel">
+        <div class="row1">
+          <div class="search"><i class="ti ti-search"></i> Buscar por título, SKU o variante…</div>
+          <div class="stock-chip"><i class="ti ti-package"></i> <strong>23</strong> unidades · 6 productos</div>
+        </div>
+        <div class="row2">
+          <span class="lbl">Stock</span>
+          <span class="sseg">
+            <button>Todos <span class="cnt">412</span></button>
+            <button class="sel">Distinto <span class="cnt warn">18</span></button>
+            <button>Igual <span class="cnt ok">394</span></button>
+            <button>Sin stock <span class="cnt">37</span></button>
+            <button>Con stock <span class="cnt ok">375</span></button>
+          </span>
+          <span class="vsep"></span>
+          <span class="fbtn on"><i class="ti ti-building-store"></i> <span class="val">Sin proveedor</span> <i class="ti ti-x x"></i>
+            <div class="pop">
+              <div class="o"><i></i> Todos</div>
+              <div class="o sel"><i class="ti ti-check"></i> Sin proveedor</div>
+              <hr />
+              <div class="h">Proveedores</div>
+              <div class="o"><i></i> Punto Cero</div>
+              <div class="o"><i></i> Be Positive</div>
+              <div class="o"><i></i> Escolar</div>
+              <div class="o"><i></i> Bic</div>
+            </div>
+          </span>
+          <span class="fbtn"><i class="ti ti-bell"></i> Alerta</span>
+          <span class="fbtn"><i class="ti ti-box"></i> Bulto</span>
+          <button class="clear push">Limpiar</button>
+        </div>
+      </div>
+      <div style="height:170px"></div>
+      <div class="card"><span class="thumb"></span><div class="t"><b>Cuaderno Mi Punto Cero A4 tapa dura · Corazones</b><span>SKU 39000-CORAZONES</span></div><span class="tag">sin proveedor</span></div>
+    </div>
+    <div class="stage" style="margin-top:12px; max-width:400px">
+      <div class="fpanel">
+        <div class="row1">
+          <div class="search"><i class="ti ti-search"></i> Buscar…</div>
+          <div class="stock-chip"><i class="ti ti-package"></i> <strong>23</strong> u. · 6</div>
+        </div>
+        <div class="row2">
+          <span class="sseg">
+            <button>Todos <span class="cnt">412</span></button>
+            <button class="sel">Distinto <span class="cnt warn">18</span></button>
+            <button>Igual <span class="cnt ok">394</span></button>
+            <button>Sin stock <span class="cnt">37</span></button>
+            <button>Con stock <span class="cnt ok">375</span></button>
+          </span>
+          <span class="fbtn on"><i class="ti ti-building-store"></i> <span class="val">Sin proveedor</span> <i class="ti ti-x x"></i></span>
+          <span class="fbtn"><i class="ti ti-bell"></i> Alerta</span>
+          <span class="fbtn"><i class="ti ti-box"></i> Bulto</span>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--text-3);margin:8px 2px 0">En el celular la hilera se acomoda en dos o tres líneas, siempre dentro de la misma tarjeta.</p>
+    </div>
+    <div class="pros">
+      <div><b>A favor</b><ul><li>Un solo lugar para buscar y filtrar.</li><li>Los conteos de stock siguen a la vista, a un clic.</li><li>Proveedor/Alerta/Bulto no ocupan lugar mientras no se usan.</li></ul></div>
+      <div><b>En contra</b><ul><li>Stock (siempre visible) y el resto (botones) se eligen distinto, a propósito: stock es lo de todos los días.</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ───────────── A ───────────── -->
+  <section class="option">
+    <h2>A · Botones de filtro al lado del buscador </h2>
+    <p>Los chips de stock quedan como están (son excluyentes y con conteo). Los filtros nuevos son botones con borde punteado en la tarjeta del buscador; al elegir algo se rellenan con el color de marca y muestran el valor, con una × para sacarlo. Escala bien si mañana se suma otro.</p>
+    <div class="stage">
+      <div class="tabs">
+        <button class="tab">Todos <span class="cnt">412</span></button>
+        <button class="tab active">Stock distinto <span class="cnt warn">18</span></button>
+        <button class="tab">Mismo stock <span class="cnt ok">394</span></button>
+        <button class="tab">Sin stock <span class="cnt">37</span></button>
+        <button class="tab">Con stock <span class="cnt ok">375</span></button>
+      </div>
+      <div class="search-card">
+        <div class="search"><i class="ti ti-search"></i> Buscar por título, SKU o variante…</div>
+        <div class="filters-row">
+          <span class="fbtn on"><i class="ti ti-building-store"></i> Proveedor: <span class="val">Sin proveedor</span> <i class="ti ti-x x"></i>
+            <div class="pop">
+              <div class="o"><i></i> Todos</div>
+              <div class="o sel"><i class="ti ti-check"></i> Sin proveedor</div>
+              <hr />
+              <div class="h">Proveedores</div>
+              <div class="o"><i></i> Punto Cero</div>
+              <div class="o"><i></i> Be Positive</div>
+              <div class="o"><i></i> Escolar</div>
+              <div class="o"><i></i> Bic</div>
+            </div>
+          </span>
+          <span class="fbtn"><i class="ti ti-bell"></i> Alerta</span>
+          <span class="fbtn"><i class="ti ti-box"></i> Bulto</span>
+          <button class="clear">Limpiar</button>
+        </div>
+        <div class="stock-chip"><i class="ti ti-package"></i> <strong>23</strong> unidades · 6 productos</div>
+      </div>
+      <div style="height:178px"></div>
+      <div class="card"><span class="thumb"></span><div class="t"><b>Cuaderno Mi Punto Cero A4 tapa dura · Corazones</b><span>SKU 39000-CORAZONES</span></div><span class="tag">sin proveedor</span></div>
+    </div>
+    <div class="stage" style="margin-top:12px">
+      <div class="search-card" style="margin:0">
+        <div class="search"><i class="ti ti-search"></i> agenda</div>
+        <div class="filters-row">
+          <span class="fbtn on"><i class="ti ti-building-store"></i> Proveedor: <span class="val">Punto Cero</span> <i class="ti ti-x x"></i></span>
+          <span class="fbtn on"><i class="ti ti-bell"></i> <span class="val">Sin alerta</span> <i class="ti ti-x x"></i></span>
+          <span class="fbtn on"><i class="ti ti-box"></i> <span class="val">Sin bulto</span> <i class="ti ti-x x"></i></span>
+          <button class="clear">Limpiar</button>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--text-3);margin:8px 2px 0">Con varios activos: cada botón muestra su valor. Alerta y Bulto abren un menú corto: Todos / Con / Sin.</p>
+    </div>
+    <div class="pros">
+      <div><b>A favor</b><ul><li>No suma filas: la pantalla queda igual de liviana.</li><li>Lo activo se lee de un vistazo y se saca con un clic.</li><li>Proveedores pueden ser muchos: el menú los aguanta.</li></ul></div>
+      <div><b>En contra</b><ul><li>Elegir un valor son 2 clics (abrir + elegir).</li><li>Sin conteos por opción (se pueden sumar después).</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ───────────── B ───────────── -->
+  <section class="option">
+    <h2>B · Una fila de controles segmentados</h2>
+    <p>Debajo de los chips de stock, una segunda fila con cada filtro a la vista: Alerta y Bulto como segmentados de 3 (Todos / Con / Sin), Proveedor como desplegable.</p>
+    <div class="stage">
+      <div class="tabs">
+        <button class="tab active">Todos <span class="cnt">412</span></button>
+        <button class="tab">Stock distinto <span class="cnt warn">18</span></button>
+        <button class="tab">Mismo stock <span class="cnt ok">394</span></button>
+        <button class="tab">Sin stock <span class="cnt">37</span></button>
+        <button class="tab">Con stock <span class="cnt ok">375</span></button>
+      </div>
+      <div class="facets">
+        <span class="facet">Proveedor
+          <select class="select"><option>Todos</option><option>Sin proveedor</option><option selected>Punto Cero</option><option>Bic</option></select></span>
+        <span class="facet">Alerta <span class="seg"><button>Todas</button><button>Con</button><button class="sel">Sin</button></span></span>
+        <span class="facet">Bulto <span class="seg"><button class="sel">Todos</button><button>Con</button><button>Sin</button></span></span>
+      </div>
+      <div class="search-card" style="margin:0">
+        <div class="search"><i class="ti ti-search"></i> Buscar por título, SKU o variante…</div>
+        <div class="stock-chip"><i class="ti ti-package"></i> <strong>140</strong> unidades · 31 productos</div>
+      </div>
+    </div>
+    <div class="pros">
+      <div><b>A favor</b><ul><li>Todo a un clic y siempre visible.</li><li>Fácil de entender sin abrir nada.</li></ul></div>
+      <div><b>En contra</b><ul><li>Suma una fila más: tres hileras de controles antes de ver un producto.</li><li>Con todo en "Todos" ocupa lugar sin aportar.</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ───────────── C ───────────── -->
+  <section class="option">
+    <h2>C · Botón "Filtros" con panel (rediseño)</h2>
+    <p>Los chips de stock se mudan a un panel junto con los nuevos. Arriba queda solo el buscador y un botón "Filtros" con la cantidad activa; lo aplicado se ve como chips removibles debajo.</p>
+    <div class="stage">
+      <div class="search-card">
+        <div class="search"><i class="ti ti-search"></i> Buscar por título, SKU o variante…</div>
+        <button class="btn"><i class="ti ti-adjustments-horizontal"></i> Filtros <span class="badge">2</span></button>
+        <div class="stock-chip"><i class="ti ti-package"></i> <strong>23</strong> unidades · 6 productos</div>
+      </div>
+      <div class="panel">
+        <div><label>Stock</label><span class="seg"><button>Todos</button><button class="sel">Distinto</button><button>Igual</button><button>Sin</button><button>Con</button></span></div>
+        <div><label>Proveedor</label><select class="select" style="width:100%"><option>Todos</option><option selected>Sin proveedor</option><option>Punto Cero</option></select></div>
+        <div><label>Alerta</label><span class="seg"><button class="sel">Todas</button><button>Con</button><button>Sin</button></span></div>
+        <div><label>Bulto</label><span class="seg"><button class="sel">Todos</button><button>Con</button><button>Sin</button></span></div>
+        <div class="foot"><button class="clear">Limpiar todo</button><button class="btn primary">Ver 6 productos</button></div>
+      </div>
+      <div class="filters-row">
+        <span class="fbtn on">Stock distinto <i class="ti ti-x x"></i></span>
+        <span class="fbtn on">Sin proveedor <i class="ti ti-x x"></i></span>
+      </div>
+    </div>
+    <div class="pros">
+      <div><b>A favor</b><ul><li>La pantalla más limpia de las tres.</li><li>Todos los filtros juntos, con el mismo lenguaje.</li></ul></div>
+      <div><b>En contra</b><ul><li>Se pierden los conteos de stock a la vista (hoy se usan para ver cuántos están desincronizados).</li><li>Cambia algo que ya funciona y se usa todos los días.</li></ul></div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

@@ -46,13 +46,12 @@
       @if ((stockSummary()?.total ?? 0) === 0) {
         <p class="empty">No hay productos que coincidan por SKU. Vinculá pares desde <a routerLink="/conflictos">Conflictos</a>.</p>
       } @else {
-        <zc-stock-filter-tabs
-          [filter]="stockFilter()"
+        <zc-product-filters
+          [value]="filters()"
           [summary]="stockSummary()"
-          (filterChange)="stockFilter.set($event)"
-        />
-
-        <div class="search-card">
+          [suppliers]="suppliersQuery.data()?.suppliers ?? []"
+          (valueChange)="onFiltersChange($event)"
+        >
           <zc-search-bar
             [value]="searchQuery()"
             (valueChange)="searchQuery.set($event)"
@@ -68,7 +67,7 @@
               <span>{{ st.products }} producto{{ st.products === 1 ? '' : 's' }}</span>
             </div>
           }
-        </div>
+        </zc-product-filters>
 
         <section aria-label="Productos">
           @if (currentPagePairs().length === 0) {
@@ -181,13 +180,13 @@
   @if (supplierEdit(); as se) {
     <zc-product-supplier-dialog [title]="'Proveedores de ' + se.sku" [skus]="[se.sku]" [info]="se.info" [note]="se.note"
                                 [suppliers]="suppliersQuery.data()?.suppliers ?? []"
-                                (closed)="supplierEdit.set(null)" />
+                                (saved)="onSupplierSaved()" (closed)="supplierEdit.set(null)" />
   }
 
   @if (bulkSupplierOpen()) {
     <zc-product-supplier-dialog title="Proveedores de los seleccionados" [skus]="selectedSkuList()" [bulk]="true"
                                 [note]="bulkSupplierNote()" [suppliers]="suppliersQuery.data()?.suppliers ?? []"
                                 [bySku]="suppliersQuery.data()?.bySku ?? {}"
-                                (saved)="clearSelection()" (closed)="bulkSupplierOpen.set(false)" />
+                                (saved)="clearSelection(); onSupplierSaved()" (closed)="bulkSupplierOpen.set(false)" />
   }
 </div>
