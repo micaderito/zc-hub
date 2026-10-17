@@ -268,6 +268,12 @@
     <button type="button" class="btn" [disabled]="selectedCount() === 0 || store.suppliers().length === 0" (click)="assignMode.set('vigente')">
       <i class="ti ti-building-store"></i> Proveedor vigente…
     </button>
+    @if (store.currentSupplier(); as sup) {
+      <button type="button" class="btn" [disabled]="selectedCount() === 0" (click)="assignMode.set('remove')"
+              [title]="'Dejar de comprarle estos productos a ' + sup.name">
+        <i class="ti ti-unlink"></i> Quitar de {{ sup.name }}…
+      </button>
+    }
     <div class="spacer"></div>
     <button type="button" class="btn pri" [disabled]="selectedCount() === 0 || applying()" (click)="apply()">
       <i class="ti ti-rocket"></i>

@@ -1236,12 +1236,35 @@ export async function assignDiscount({ supplierKey, targets, profileId = null } 
   return { ok: true, assigned: list.length };
 }
 
-/** Da de baja packs/productos de un proveedor (el costo y los códigos quedan). */
+/**
+ * Deja de comprarle a `supplierKey` estos packs/productos: borra la asignación (también la de los
+ * modelos de un pack) y saca su código de ese proveedor dejando la marca de "sacado a mano" — si no,
+ * el código mapeado lo seguiría contando como proveedor y el mapeo automático lo volvería a poner
+ * con la próxima lista. Lo que tenía a ese proveedor de vigente queda sin vigente (el costo no se
+ * toca, pero ya no lleva su descuento): vuelve en `lostVigente` para avisar.
+ */
+async function detachSupplier(supplierKey, targets, packs) {
+  const skus = new Set();
+  for (const t of targets) {
+    if (t.type === 'sku') skus.add(t.id);
+    else for (const s of packs.find((pk) => String(pk.id) === t.id)?.skus ?? []) skus.add(s);
+  }
+  const skuTargets = [...skus].map((id) => ({ type: 'sku', id }));
+  await deleteProductSuppliers(supplierKey, [...targets.filter((t) => t.type === 'pack'), ...skuTargets]);
+  for (const t of targets) if (t.type === 'pack') await markPackCodeRemoved(Number(t.id), supplierKey);
+  for (const sku of skus) await markSkuCodeRemoved(sku, supplierKey);
+  const lostVigente = [];
+  for (const sku of skus) if ((await getProductCost(sku))?.supplierKey === supplierKey) lostVigente.push(sku);
+  if (lostVigente.length) await setCostSupplier(lostVigente, null);
+  return { lostVigente };
+}
+
+/** Saca packs/productos de un proveedor (Precios → "Quitar de este proveedor"). */
 export async function unassignSupplier({ supplierKey, targets } = {}) {
   const list = cleanTargets(targets);
   if (!supplierKey || list.length === 0) throw httpError(400, 'Faltan el proveedor o los productos');
-  await deleteProductSuppliers(supplierKey, list);
-  return { ok: true };
+  const { lostVigente } = await detachSupplier(supplierKey, list, await listPacks());
+  return { ok: true, lostVigente, changedSkus: lostVigente };
 }
 
 /** Costo de un SKU tal como lo muestra el form de un producto (sin descuentos: salen de la config). */
@@ -1278,6 +1301,8 @@ export async function getProductSupplierOverview({ skus = null } = {}) {
       vigente,
       suppliers: all,
       discount: resolveDiscount(sku, ctx, vigente ?? all[0] ?? null),
+      // La config que le toca con CADA proveedor (para editarlas todas en el diálogo de Productos).
+      discounts: Object.fromEntries(all.map((k) => [k, resolveDiscount(sku, ctx, k)])),
       cost: costSummary(costBySku.get(sku)),
     };
   }
@@ -1303,41 +1328,36 @@ const positive = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && N
  * = "sin proveedor": solo deja el costo sin vigente (sin descuento). Idempotente: todo es upsert.
  * `bulk: true` = varios productos a la vez (selección de Productos): cada SKU de un pack asigna su
  * pack y los sueltos van por SKU (`bulkSupplierTargets`), en vez de tratar la lista como UN producto.
+ * Ahí `makeVigente: false` lo suma como un proveedor más sin cambiar de dónde sale el costo.
+ *
+ * `suppliers` = la lista COMPLETA de proveedores de UN producto (diálogo de Productos, Crear/Editar),
+ * cada uno con su config; `supplierKey` es el vigente (tiene que estar en la lista). Los que tenía y
+ * ya no están se sacan (`detachSupplier`), y si el vigente cambia sin costo cargado, toma el precio
+ * de la última lista del nuevo (`setVigenteSupplier`, igual que "Proveedor vigente…" en Precios).
  *
  * @param {{ skus: string[], packId?: number|null, supplierKey: string|null, profileId?: number|null,
  *   cost?: { mode: 'bulk'|'unit', bulkPrice?, bulkQty?, unitCost?, marginPct? } | null, label?: string|null,
- *   bulk?: boolean }} input
- * @returns {Promise<{ ok: true, targets, changedSkus: string[] }>}
+ *   bulk?: boolean, makeVigente?: boolean,
+ *   suppliers?: Array<{ supplierKey: string, profileId?: number|null }> }} input
+ * @returns {Promise<{ ok: true, targets, changedSkus: string[], withoutPrice?: string[] }>}
  */
-export async function setProductSupplier({ skus, packId = null, supplierKey = null, profileId = null, cost = null, label = null, bulk = false } = {}) {
+export async function setProductSupplier({
+  skus, packId = null, supplierKey = null, profileId = null, cost = null, label = null, bulk = false,
+  makeVigente = true, suppliers = null,
+} = {}) {
   const packs = await listPacks();
   let list = [...new Set((Array.isArray(skus) ? skus : []).map((s) => String(s ?? '').trim()).filter(Boolean))];
   if (packId != null && list.length === 0) list = packs.find((pk) => String(pk.id) === String(packId))?.skus ?? [];
   if (list.length === 0) throw httpError(400, 'Faltan los productos');
   const targets = bulk && packId == null ? bulkSupplierTargets(list, packs) : supplierTargets(list, packs, packId);
+  if (Array.isArray(suppliers)) return setProductSupplierSet({ list, targets, packs, supplierKey, suppliers, cost, label });
   if (supplierKey) await assignDiscount({ supplierKey, targets, profileId });
+  if (!makeVigente) return { ok: true, targets, changedSkus: [] };
 
   const changedSkus = [];
-  const validCost = cost && (cost.mode === 'unit'
-    ? positive(cost.unitCost)
-    : positive(cost.bulkPrice) && positive(cost.bulkQty));
-  if (validCost) {
-    const db = await getPricingSettings();
-    const defaultMargin = db?.defaultMarginPct ?? DEFAULT_SETTINGS.defaultMarginPct ?? 100;
-    const margin = cost.marginPct == null || cost.marginPct === '' || !Number.isFinite(Number(cost.marginPct)) ? null : Number(cost.marginPct);
-    for (const sku of list) {
-      const prev = await getProductCost(sku);
-      await upsertCost(sku, {
-        source: 'manual',
-        bulkPrice: cost.mode === 'unit' ? null : Number(cost.bulkPrice),
-        bulkQty: cost.mode === 'unit' ? null : Number(cost.bulkQty),
-        unitCost: cost.mode === 'unit' ? Number(cost.unitCost) : null,
-        marginOverride: margin != null && margin !== defaultMargin ? margin : null,
-        label: prev?.label ?? label ?? null,
-        supplierKey: supplierKey ?? null,
-      });
-      changedSkus.push(sku);
-    }
+  if (isValidCost(cost)) {
+    await saveManualCost(list, cost, supplierKey, label);
+    changedSkus.push(...list);
   } else {
     const moved = [];
     for (const sku of list) {
@@ -1351,6 +1371,87 @@ export async function setProductSupplier({ skus, packId = null, supplierKey = nu
     for (const sku of list) if (!changedSkus.includes(sku) && (await getProductCost(sku))?.supplierKey === supplierKey) changedSkus.push(sku);
   }
   return { ok: true, targets, changedSkus };
+}
+
+/** Costo cargado a mano en Crear/Editar producto o Productos, con `supplierKey` como vigente. */
+async function saveManualCost(list, cost, supplierKey, label) {
+  const db = await getPricingSettings();
+  const defaultMargin = db?.defaultMarginPct ?? DEFAULT_SETTINGS.defaultMarginPct ?? 100;
+  const margin = cost.marginPct == null || cost.marginPct === '' || !Number.isFinite(Number(cost.marginPct)) ? null : Number(cost.marginPct);
+  for (const sku of list) {
+    const prev = await getProductCost(sku);
+    await upsertCost(sku, {
+      source: 'manual',
+      bulkPrice: cost.mode === 'unit' ? null : Number(cost.bulkPrice),
+      bulkQty: cost.mode === 'unit' ? null : Number(cost.bulkQty),
+      unitCost: cost.mode === 'unit' ? Number(cost.unitCost) : null,
+      marginOverride: margin != null && margin !== defaultMargin ? margin : null,
+      label: prev?.label ?? label ?? null,
+      supplierKey: supplierKey ?? null,
+    });
+  }
+}
+
+const isValidCost = (cost) => !!cost && (cost.mode === 'unit'
+  ? positive(cost.unitCost)
+  : positive(cost.bulkPrice) && positive(cost.bulkQty));
+
+/** `setProductSupplier` con la lista completa de proveedores de un producto (ver arriba). */
+async function setProductSupplierSet({ list, targets, packs, supplierKey, suppliers, cost, label }) {
+  const known = new Set((await listSuppliers()).map((s) => s.key));
+  const wanted = new Map();
+  for (const s of suppliers) {
+    const key = s?.supplierKey ? String(s.supplierKey) : null;
+    if (!key) continue;
+    if (!known.has(key)) throw httpError(404, 'El proveedor no existe');
+    if (!wanted.has(key)) wanted.set(key, s.profileId == null ? null : Number(s.profileId));
+  }
+  const vigente = supplierKey ? String(supplierKey) : null;
+  if (vigente && !wanted.has(vigente)) wanted.set(vigente, null);
+  if (!vigente && wanted.size > 0) throw httpError(400, 'Elegí cuál es el proveedor vigente');
+
+  const ctx = await loadDiscountContext({ packs });
+  const current = new Set(list.flatMap((sku) => suppliersOf(sku, ctx)));
+  for (const [key, profileId] of wanted) await assignDiscount({ supplierKey: key, targets, profileId });
+
+  const changed = new Set();
+  let withoutPrice = [];
+  if (isValidCost(cost)) {
+    await saveManualCost(list, cost, vigente, label);
+    list.forEach((s) => changed.add(s));
+  } else if (vigente) {
+    const toMove = list.filter((sku) => ctx.vigenteBySku.get(sku) !== vigente);
+    if (toMove.length) {
+      const hadCost = new Set();
+      for (const sku of toMove) if (await getProductCost(sku)) hadCost.add(sku);
+      const res = await setVigenteSupplier({ supplierKey: vigente, targets: toMove.map((id) => ({ type: 'sku', id })) });
+      res.changedSkus.forEach((s) => changed.add(s));
+      withoutPrice = res.withoutPrice.filter((s) => hadCost.has(s));
+    }
+  }
+  for (const key of current) {
+    if (wanted.has(key)) continue;
+    const { lostVigente } = await detachSupplier(key, targets, packs);
+    lostVigente.forEach((s) => changed.add(s));
+  }
+  // Cambiar una config mueve el precio de lo que tiene costo con ese proveedor (el vigente).
+  if (vigente) for (const sku of list) if ((await getProductCost(sku))?.supplierKey === vigente) changed.add(sku);
+  return { ok: true, targets, changedSkus: [...changed], withoutPrice };
+}
+
+/**
+ * Deja de comprarle `supplierKey` a uno o varios productos (Productos → "Quitar proveedor"). Mismos
+ * targets que `setProductSupplier`: un pack entero, o con `bulk` el pack de cada modelo.
+ */
+export async function removeProductSupplier({ skus, packId = null, supplierKey = null, bulk = false } = {}) {
+  if (!supplierKey) throw httpError(400, 'Falta el proveedor');
+  const packs = await listPacks();
+  let list = [...new Set((Array.isArray(skus) ? skus : []).map((s) => String(s ?? '').trim()).filter(Boolean))];
+  if (packId != null && list.length === 0) list = packs.find((pk) => String(pk.id) === String(packId))?.skus ?? [];
+  if (list.length === 0) throw httpError(400, 'Faltan los productos');
+  const targets = bulk && packId == null ? bulkSupplierTargets(list, packs) : supplierTargets(list, packs, packId);
+  const { lostVigente } = await detachSupplier(String(supplierKey), targets, packs);
+  return { ok: true, targets, lostVigente, changedSkus: lostVigente };
 }
 
 /**

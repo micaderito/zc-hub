@@ -68,6 +68,14 @@ export interface ProductCostSummary {
   marginOverride: number | null;
 }
 
+export interface SkuDiscount {
+  profileId: number | null;
+  name: string | null;
+  discount1: number;
+  discount2: number;
+  level: 'sku' | 'pack' | 'default' | 'none';
+}
+
 /** Proveedor de un SKU fuera de Precios (Productos, Crear/Editar producto). */
 export interface SkuSupplierInfo {
   /** El que manda el costo (`null` = todavía sin costo). */
@@ -75,7 +83,9 @@ export interface SkuSupplierInfo {
   /** Todos a los que se le compra, el vigente primero. */
   suppliers: string[];
   /** Config que le toca (para el vigente o, sin costo, para el primero). `level` = de dónde sale. */
-  discount: { profileId: number | null; name: string | null; discount1: number; discount2: number; level: 'sku' | 'pack' | 'default' | 'none' };
+  discount: SkuDiscount;
+  /** La config que le toca con cada uno de sus proveedores. */
+  discounts?: Record<string, SkuDiscount>;
   cost: ProductCostSummary | null;
 }
 
@@ -95,6 +105,20 @@ export interface ProductSupplierInput {
   label?: string | null;
   /** Varios productos a la vez (selección de Productos): cada SKU de un pack asigna su pack, los sueltos van por SKU. */
   bulk?: boolean;
+  /** Con `bulk`: `false` lo suma como un proveedor más sin cambiar de dónde sale el costo. */
+  makeVigente?: boolean;
+  /** Lista COMPLETA de proveedores de un producto (los que no están se sacan); `supplierKey` = el vigente. */
+  suppliers?: Array<{ supplierKey: string; profileId: number | null }>;
+}
+
+export interface ProductSupplierResult {
+  ok: boolean;
+  targets: PricingTarget[];
+  changedSkus: string[];
+  /** Cambió el vigente pero no hay precio de lista de ese proveedor: quedó el costo de antes. */
+  withoutPrice?: string[];
+  /** Al sacar un proveedor: los que lo tenían de vigente y quedaron sin vigente. */
+  lostVigente?: string[];
 }
 
 /** Resultado de sincronizar comisiones con la API de ML. */
@@ -535,9 +559,17 @@ export class PricingService {
 
   /** Proveedor + config (+ costo) de un producto; un pack entero se asigna como pack. */
   setProductSupplier(body: ProductSupplierInput) {
-    return this.http.put<{ ok: boolean; targets: PricingTarget[]; changedSkus: string[] }>(
-      `${this.api.baseUrl}/pricing/product-supplier`, body,
-    );
+    return this.http.put<ProductSupplierResult>(`${this.api.baseUrl}/pricing/product-supplier`, body);
+  }
+
+  /** Deja de comprarle `supplierKey` a uno o varios productos (también saca su código de ese proveedor). */
+  removeProductSupplier(body: { skus: string[]; packId?: number | null; supplierKey: string; bulk?: boolean }) {
+    return this.http.post<ProductSupplierResult>(`${this.api.baseUrl}/pricing/product-supplier/remove`, body);
+  }
+
+  /** Saca packs/productos de un proveedor desde la planilla de Precios. */
+  unassignSupplier(supplierKey: string, targets: PricingTarget[]) {
+    return this.http.post<ProductSupplierResult>(`${this.api.baseUrl}/pricing/assignments/remove`, { supplierKey, targets });
   }
 
   /** Ajuste manual del precio publicado de un SKU en un canal. `value: null` lo saca (vuelve al calculado). */

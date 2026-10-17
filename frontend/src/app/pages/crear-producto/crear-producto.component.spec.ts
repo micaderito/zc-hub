@@ -716,6 +716,38 @@ describe('CrearProductoComponent', () => {
       });
     });
 
+    it('"también se compra a": el vigente no se repite, cambiar el vigente pasa el anterior a la lista y se manda el set completo', () => {
+      component.store.suppliers.set([
+        ...PRICING_CONFIG.suppliers,
+        { key: 'bic', name: 'Bic', profiles: [{ id: 9, supplierKey: 'bic', name: 'General', discount1: 0, discount2: 0, isDefault: true, productCount: 0 }] },
+      ] as never);
+      const d = component.draft();
+      d.common.baseName = 'Lapicera';
+      d.common.sku = 'LAP';
+      d.cost = { mode: 'bulk', bulkPrice: null, bulkQty: null, discount1: 0, discount2: 0, unitCost: null, marginPct: 100, supplierKey: 'punto_cero', profileId: 2, otherSuppliers: [] };
+      component.touch();
+      expect(component.store.addableSuppliers().map((s) => s.key)).toEqual(['bic']);
+      component.store.addOtherSupplier('bic');
+      component.store.addOtherSupplier('punto_cero'); // el vigente no se agrega dos veces
+      expect(component.draft().cost.otherSuppliers).toEqual([{ supplierKey: 'bic', profileId: null }]);
+      expect((component.buildPayloads().supplier as { suppliers?: unknown }).suppliers).toEqual([
+        { supplierKey: 'punto_cero', profileId: 2 }, { supplierKey: 'bic', profileId: null },
+      ]);
+
+      component.store.setCostSupplier('bic');
+      expect(component.draft().cost.otherSuppliers).toEqual([{ supplierKey: 'punto_cero', profileId: null }]);
+      component.store.removeOtherSupplier('punto_cero');
+      expect((component.buildPayloads().supplier as { suppliers?: unknown }).suppliers).toEqual([{ supplierKey: 'bic', profileId: null }]);
+    });
+
+    it('un borrador viejo sin "otros" manda solo el vigente (no saca los que tenga en Precios)', () => {
+      const d = component.draft();
+      d.common.sku = 'LAP';
+      d.cost = { mode: 'bulk', bulkPrice: null, bulkQty: null, discount1: 0, discount2: 0, unitCost: null, marginPct: 100, supplierKey: 'punto_cero', profileId: null };
+      component.touch();
+      expect((component.buildPayloads().supplier as { suppliers?: unknown }).suppliers).toBeUndefined();
+    });
+
     it('buildPayloads() sin proveedor ni costo no manda nada', () => {
       const d = component.draft();
       d.common.sku = 'AG27';

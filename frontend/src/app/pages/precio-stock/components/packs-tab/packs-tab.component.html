@@ -267,7 +267,7 @@
 </div>
 
 @if (supplierPack(); as sp) {
-  <zc-product-supplier-dialog [title]="'Proveedor del pack ' + sp.pack.name" [skus]="skusOf(sp.pack)" [packId]="sp.pack.id"
+  <zc-product-supplier-dialog [title]="'Proveedores del pack ' + sp.pack.name" [skus]="skusOf(sp.pack)" [packId]="sp.pack.id"
                               [info]="sp.info" note="Se asigna al pack entero: sus modelos lo heredan."
                               [suppliers]="suppliersQuery.data()?.suppliers ?? []"
                               (closed)="supplierPack.set(null)" />

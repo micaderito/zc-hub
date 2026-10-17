@@ -1,7 +1,7 @@
 <div class="modal-backdrop" (click)="closed.emit()">
   <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
     <div class="modal-head">
-      <h2>{{ mode() === 'discount' ? 'Asignar descuento' : 'Proveedor vigente' }}</h2>
+      <h2>{{ mode() === 'discount' ? 'Asignar descuento' : mode() === 'remove' ? 'Quitar de un proveedor' : 'Proveedor vigente' }}</h2>
       <button type="button" class="icon-btn" (click)="closed.emit()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
@@ -9,6 +9,7 @@
         <i class="ti ti-list-check" aria-hidden="true"></i>
         {{ selectedCount() }} producto{{ selectedCount() === 1 ? '' : 's' }} seleccionado{{ selectedCount() === 1 ? '' : 's' }}.
         @if (mode() === 'discount') { Un pack seleccionado entero toma la configuración como pack. }
+        @if (mode() === 'remove') { Un pack seleccionado entero se saca como pack. }
       </p>
       <label class="fld">Proveedor
         <select [ngModel]="supplierKey()" (ngModelChange)="setSupplier($event)">
@@ -28,7 +29,9 @@
             }
           </div>
         </div>
-        <p class="modal-note"><i class="ti ti-info-circle"></i> Solo cuenta cuando ese proveedor es el vigente del producto.</p>
+        <p class="modal-note"><i class="ti ti-info-circle"></i> Se suma a los proveedores que ya tenga cada producto (un producto puede tener varios). Solo cuenta cuando ese proveedor es el vigente.</p>
+      } @else if (mode() === 'remove') {
+        <p class="modal-note"><i class="ti ti-info-circle"></i> Dejan de ser productos de este proveedor y se les saca su código (el mapeo automático no lo vuelve a poner). Sus otros proveedores no cambian; si este era el vigente, el costo queda pero sin descuento.</p>
       } @else {
         <p class="modal-note"><i class="ti ti-info-circle"></i> El costo pasa a salir de la última lista de este proveedor (con su código para cada producto). Si no hay precio de lista, queda el costo de ahora.</p>
       }
@@ -44,7 +47,7 @@
       } @else {
         <button type="button" class="btn" (click)="closed.emit()">Cancelar</button>
         <button type="button" class="btn pri" [disabled]="saving() || !supplierKey()" (click)="confirm()">
-          {{ saving() ? 'Guardando…' : (mode() === 'discount' ? 'Asignar' : 'Cambiar proveedor') }}
+          {{ saving() ? 'Guardando…' : (mode() === 'discount' ? 'Asignar' : mode() === 'remove' ? 'Quitar' : 'Cambiar proveedor') }}
         </button>
       }
     </div>

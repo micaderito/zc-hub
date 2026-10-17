@@ -304,8 +304,8 @@ export class PrecioStockComponent {
   readonly bulkSupplierNote = computed(() => {
     const n = this.selectedSkus().size;
     const inPacks = this.selectedInPacks();
-    const base = `Se asigna a ${n} producto${n === 1 ? '' : 's'}.`;
-    return inPacks ? `${base} ${inPacks === 1 ? 'Uno es' : `${inPacks} son`} de un pack: se asigna al pack entero (sus modelos lo heredan).` : base;
+    const base = `${n} producto${n === 1 ? '' : 's'} seleccionado${n === 1 ? '' : 's'}.`;
+    return inPacks ? `${base} ${inPacks === 1 ? 'Uno es' : `${inPacks} son`} de un pack: se aplica al pack entero (sus modelos lo heredan).` : base;
   });
 
   openHistory(pair: { ml: MlRow; tn: TnRow; sku?: string }): void {

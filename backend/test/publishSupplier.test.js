@@ -42,3 +42,11 @@ test('applyPublishSupplier: pasa el pack y no tira si falla', async () => {
   const bad = await mod.applyPublishSupplier({ skus: ['A'], supplierKey: 'pc' });
   assert.equal(bad.applied, false);
 });
+
+test('normalizePublishSupplier: pasa la lista de proveedores (y un borrador viejo sin lista sigue igual)', () => {
+  const n = mod.normalizePublishSupplier({
+    skus: ['A'], supplierKey: 'pc', suppliers: [{ supplierKey: 'pc', profileId: '2' }, { supplierKey: 'filgo' }, { profileId: 3 }],
+  });
+  assert.deepEqual(n.suppliers, [{ supplierKey: 'pc', profileId: 2 }, { supplierKey: 'filgo', profileId: null }]);
+  assert.equal('suppliers' in mod.normalizePublishSupplier({ skus: ['A'], supplierKey: 'pc' }), false);
+});

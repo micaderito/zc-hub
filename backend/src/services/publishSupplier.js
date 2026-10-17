@@ -6,7 +6,9 @@
  *
  * Forma de `payload.supplier`:
  *   { skus: string[], supplierKey: string|null, profileId: number|null, label?: string,
+ *     suppliers?: [{ supplierKey, profileId }],   // todos a los que se le compra (supplierKey = vigente)
  *     cost: null | { mode: 'bulk'|'unit', bulkPrice, bulkQty, unitCost, marginPct } }
+ * Un borrador viejo trae solo `supplierKey` (un proveedor): se aplica como antes.
  *
  * Idempotente (todo upsert en setProductSupplier): reintentar el job lo vuelve a aplicar igual.
  */
@@ -24,7 +26,16 @@ export function normalizePublishSupplier(raw) {
     ? { mode: c.mode === 'unit' ? 'unit' : 'bulk', bulkPrice: c.bulkPrice ?? null, bulkQty: c.bulkQty ?? null, unitCost: c.unitCost ?? null, marginPct: c.marginPct ?? null }
     : null;
   if (!supplierKey && !cost) return null;
-  return { skus, supplierKey, profileId, cost, label: raw.label ? String(raw.label).trim() : null };
+  const out = { skus, supplierKey, profileId, cost, label: raw.label ? String(raw.label).trim() : null };
+  if (Array.isArray(raw.suppliers)) {
+    out.suppliers = raw.suppliers
+      .filter((x) => x && x.supplierKey)
+      .map((x) => ({
+        supplierKey: String(x.supplierKey),
+        profileId: x.profileId != null && Number.isInteger(Number(x.profileId)) ? Number(x.profileId) : null,
+      }));
+  }
+  return out;
 }
 
 /** No tira: un fallo acá no puede cambiar el resultado de una publicación que ya se hizo. */
