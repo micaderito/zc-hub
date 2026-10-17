@@ -8,6 +8,7 @@ import {
 import { persistSkuToChannels } from '../services/syncService.js';
 import { setTnStockManual, setTnPriceManual } from '../services/tnManualWrites.js';
 import { enqueueMlTask, getMlTaskStatus, listStockAlerts } from '../db.js';
+import { getSkuFilterFacets } from '../services/pricingService.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
 
@@ -25,6 +26,10 @@ let updatePricesTail = Promise.resolve();
  *  &withoutAlertRule=1 (solo coincidencias): saca los SKUs que ya tienen regla de alerta de stock —
  *  lo usa el buscador de Alertas → Reglas. Va ANTES de paginar: filtrar después en el front dejaba
  *  la página vacía si las primeras N coincidencias ya tenían regla.
+ *  &supplier=<key>|none (solo coincidencias): los que se le compran a ese proveedor (cualquiera de
+ *  los suyos, no solo el vigente) / los que no tienen ninguno. &bulk=with|without: con o sin las
+ *  unidades del bulto cargadas en Precios. &alert=with|without: con o sin regla de alerta de stock.
+ *  Mismo motivo: antes de paginar.
  */
 conflictsRoutes.get('/', async (req, res) => {
   try {
@@ -83,9 +88,23 @@ conflictsRoutes.get('/', async (req, res) => {
         });
       }
 
-      if (req.query.withoutAlertRule === '1') {
+      // alert=with|without (filtro de Productos); withoutAlertRule=1 es el alias viejo de Alertas → Reglas.
+      const alertParam = req.query.withoutAlertRule === '1' ? 'without' : req.query.alert;
+      if (alertParam === 'with' || alertParam === 'without') {
         const withRule = new Set((await listStockAlerts()).map(a => a.sku));
-        filtered = filtered.filter(p => !withRule.has(p.sku || p.ml?.sku));
+        const has = (p) => withRule.has(p.sku || p.ml?.sku);
+        filtered = filtered.filter(p => (alertParam === 'with') === has(p));
+      }
+
+      const supplierParam = String(req.query.supplier || '').trim();
+      const bulkParam = req.query.bulk;
+      if (supplierParam || bulkParam === 'with' || bulkParam === 'without') {
+        const facets = await getSkuFilterFacets();
+        const skuOf = (p) => p.sku || p.ml?.sku || p.tn?.sku || '';
+        if (supplierParam === 'none') filtered = filtered.filter(p => facets.suppliersOf(skuOf(p)).length === 0);
+        else if (supplierParam) filtered = filtered.filter(p => facets.suppliersOf(skuOf(p)).includes(supplierParam));
+        if (bulkParam === 'with') filtered = filtered.filter(p => facets.bulkSkus.has(skuOf(p)));
+        else if (bulkParam === 'without') filtered = filtered.filter(p => !facets.bulkSkus.has(skuOf(p)));
       }
 
       total = filtered.length;
