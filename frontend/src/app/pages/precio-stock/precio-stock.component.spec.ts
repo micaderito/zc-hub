@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
 import { of, throwError, Subject } from 'rxjs';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
@@ -257,6 +257,44 @@ describe('PrecioStockComponent', () => {
       expect(el.querySelector('zc-product-filters zc-search-bar')).not.toBeNull();
       expect(el.querySelector('zc-product-filters .sseg')?.textContent).toContain('Stock distinto');
       expect(el.textContent).toContain('Proveedor');
+    });
+  });
+
+  describe('filtros en la URL', () => {
+    it('restaura pestaña, búsqueda, filtros y página desde la URL', async () => {
+      await TestBed.inject(Router).navigateByUrl('/?tab=packs&q=agenda&stock=no-stock&proveedor=none&alerta=with&pack=without&pagina=3');
+      await createAndLoad(buildAnalysis({ paging: { page: 3, limit: 25, total: 80, pages: 4 } }));
+
+      expect(component.activeSubTab()).toBe('packs');
+      expect(component.searchQuery()).toBe('agenda');
+      expect(component.filters()).toEqual({ stock: 'no-stock', supplier: 'none', alert: 'with', pack: 'without' });
+      expect(component.currentPage()).toBe(3);
+      expect(conflictsSpy.getAnalysisPromise).toHaveBeenCalledWith(jasmine.objectContaining({
+        page: 3, filter: 'no-stock', search: 'agenda', supplier: 'none', alert: 'with', pack: 'without',
+      }));
+    });
+
+    it('ignora valores inválidos de la URL', async () => {
+      await TestBed.inject(Router).navigateByUrl('/?stock=cualquiera&alerta=x&pagina=-2');
+      await createAndLoad();
+
+      expect(component.filters()).toEqual({ stock: 'all', supplier: '', alert: 'all', pack: 'all' });
+      expect(component.currentPage()).toBe(1);
+    });
+
+    it('escribe los filtros en la URL y saca los que vuelven al default', async () => {
+      const router = TestBed.inject(Router);
+      await createAndLoad();
+
+      component.onFiltersChange({ stock: 'mismatch', supplier: 'bic', alert: 'without', pack: 'all' });
+      fixture.detectChanges();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(router.url).toBe('/?stock=mismatch&proveedor=bic&alerta=without');
+
+      component.onFiltersChange({ stock: 'all', supplier: '', alert: 'all', pack: 'all' });
+      fixture.detectChanges();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(router.url).toBe('/');
     });
   });
 
