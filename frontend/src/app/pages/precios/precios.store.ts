@@ -16,6 +16,11 @@ export interface CostPrefill {
   skus: string[];
   label: string | null;
   supplierKey: string | null;
+  /**
+   * Carga masiva (varios productos tildados en la planilla): el nombre de cada SKU se conserva
+   * (no se le pone a todos el mismo) y la config de descuento arranca en "mantener la de cada uno".
+   */
+  bulkLabels?: Record<string, string | null>;
 }
 
 /** El diálogo abierto de la página (uno a la vez) con lo que necesita. */

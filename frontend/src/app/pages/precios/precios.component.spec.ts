@@ -279,6 +279,41 @@ describe('PreciosComponent', () => {
     });
   });
 
+  it('carga el mismo costo a lo tildado (con costo y sin costo), cada uno con su nombre', async () => {
+    withBic();
+    const pack = { packId: 9, name: 'Resaltadores x6', sku: null, unitCount: 6, mode: 'assorted' as const, modelCount: 3 };
+    pricing.getPreview.and.callFake(() => of({
+      rows: rows(),
+      uncosted: [
+        { sku: 'RES-AM', name: 'Resaltador amarillo', suppliers: ['bic'], pack },
+        { sku: 'RES-VE', name: 'Resaltador verde', suppliers: ['bic'], pack },
+        { sku: 'CORR', name: 'Corrector', suppliers: ['bic'], pack: null },
+      ],
+    }));
+    await render();
+    const p = planilla();
+    p.toggleUncostedGroup(p.uncostedGroups()[0]);
+    p.toggleRow('CORR');
+    p.toggleRow('30700');
+    expect(p.selectedCosted()).toEqual(['30700']);
+
+    p.loadCostForSelected();
+    expect(store().dialog()).toEqual({
+      kind: 'cost', row: null,
+      prefill: {
+        skus: ['30700', 'RES-AM', 'RES-VE', 'CORR'], label: null, supplierKey: 'punto_cero',
+        bulkLabels: { '30700': 'Descr. de la lista', 'RES-AM': 'Resaltadores x6', 'RES-VE': 'Resaltadores x6', CORR: 'Corrector' },
+      },
+    });
+  });
+
+  it('con un solo tildado "Cargar costo…" abre el formulario de siempre', async () => {
+    await render();
+    planilla().toggleRow('30700');
+    planilla().loadCostForSelected();
+    expect(store().dialog()).toEqual({ kind: 'cost', row: rows()[0] });
+  });
+
   it('cambiar de pestaña de proveedor limpia la selección', async () => {
     await render();
     planilla().toggleRow('30700');

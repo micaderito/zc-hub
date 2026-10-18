@@ -399,6 +399,10 @@ texto extraído con pdfjs igual que el front) destaparon cuatro problemas:
    coincide con un código de alguna lista importada (`price_list_items`, no `supplier_codes`) y no
    tiene mapeo, y le vuelca el costo de la lista más reciente. Nunca pisa un mapeo existente. Si un
    pack con SKU propio no matchea, prueba con cada modelo.
+   **Modelos sumados a un pack ya mapeado** (2026-10-18): como el mapeo del pack ya existía, no era
+   "nuevo" y a esos modelos nunca se les volcaba el precio — quedaban "del pack · sin costo".
+   `fillPackMembersWithoutCost` (en el mismo pase) les vuelca el de la lista más reciente, solo si no
+   tienen ningún costo, ni mapeo propio, ni el código sacado a mano.
 3. **`savedMap` indexado por SKU**: los packs no tienen SKU único (Viejos/Nuevos comparten `39000`)
    y el mapeo de uno se le pegaba al otro como "ya confirmado" → nunca se guardaba. Ahora la clave
    es `entityKey` (`pack:<id>` / `sku:<sku>`).
@@ -536,6 +540,12 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   proveedor arranca en **De X** (sus productos) si tiene alguno; **Toda la tienda** es la vista de
   siempre, para asignarle códigos a lo que todavía no es suyo. Ojo: "Punto Cero" = todo lo que tenía
   costo antes de que existieran los proveedores (la migración lo dejó de vigente).
+- **Cargar costo masivo** (2026-10-18): en la planilla se pueden tildar también los productos de
+  "Sin costo cargado" (por fila, por pack o todos) y la barra suma **Cargar costo…**: abre el mismo
+  `zc-cost-form-dialog` con `prefill.bulkLabels` y guarda el mismo bulto/costo en cada SKU tildado
+  (con o sin costo previo). Cada SKU conserva su nombre (el campo Nombre no se muestra) y la config de
+  descuento arranca en "Mantener la de cada uno" (no se manda `profileId`). Con uno solo tildado es el
+  formulario de siempre. "Aplicar a ML y TN" solo toma lo tildado que ya tiene costo.
 - `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
   usar `track a + '|' + b`.
 - **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de
