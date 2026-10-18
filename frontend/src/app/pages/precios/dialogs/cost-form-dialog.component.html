@@ -8,21 +8,24 @@
       @if (prefill(); as pf) {
         <p class="modal-note">
           <i class="ti ti-info-circle"></i>
-          @if (pf.skus.length > 1) {
+          @if (pf.bulkLabels) {
+            Se carga el mismo costo a los {{ pf.skus.length }} productos seleccionados.
+          } @else if (pf.skus.length > 1) {
             Se carga el mismo costo a los {{ pf.skus.length }} modelos del pack ({{ pf.skus.join(', ') }}).
           } @else {
-            SKU <b>{{ pf.skus[0] }}</b>.
+            SKU <b>{{ pf.skus[0] }}</b>
           }
-          Con un proveedor elegido queda como su vigente y aparece en su planilla.
         </p>
       } @else {
         <label class="fld">SKU
           <input type="text" [ngModel]="form().sku" (ngModelChange)="update('sku', $event)" placeholder="El mismo SKU que en ML/TN" />
         </label>
       }
-      <label class="fld">Nombre (opcional)
-        <input type="text" [ngModel]="form().label" (ngModelChange)="update('label', $event)" />
-      </label>
+      @if (!bulk()) {
+        <label class="fld">Nombre (opcional)
+          <input type="text" [ngModel]="form().label" (ngModelChange)="update('label', $event)" />
+        </label>
+      }
 
       <div class="seg">
         <button type="button" [class.on]="form().mode === 'unit'" (click)="update('mode', 'unit')">Costo unitario</button>
@@ -54,7 +57,8 @@
         @if (form().mode === 'bulk' && form().supplierKey) {
           <label class="fld">Descuento
             <select [ngModel]="form().profileId" (ngModelChange)="update('profileId', $event)">
-              <option [ngValue]="null">{{ inheritedLabel() }}</option>
+              @if (bulk()) { <option ngValue="keep">Mantener la de cada uno</option> }
+              <option [ngValue]="null">{{ bulk() ? 'La del pack o la default del proveedor' : inheritedLabel() }}</option>
               @for (p of profiles(); track p.id) {
                 <option [ngValue]="p.id">{{ p.name }} · {{ discountPcts(p) }}</option>
               }

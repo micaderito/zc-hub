@@ -903,13 +903,14 @@ async function autoMapSupplier(supplierKey, latest, { entities: all, packs }, na
   const second = buildMappingSuggestions(orphanMembers, codes, savedMap);
 
   const fresh = [...first.auto, ...second.auto].filter((e) => e.suggestion.matchSource !== 'saved');
-  if (fresh.length === 0) return none;
 
   const individual = new Set([
     ...Object.keys(savedMap).filter((k) => k.startsWith('sku:')).map((k) => k.slice(4)),
     ...fresh.filter((e) => !e.isPack).map((e) => e.sku),
   ]);
   const out = { ...none, mapped: [], changedSkus: [] };
+  await fillPackMembersWithoutCost(supplierKey, latest, packs, individual, removed, out);
+  if (fresh.length === 0) return out;
   for (const e of fresh) {
     const { code, matchSource } = e.suggestion;
     const ok = e.isPack
@@ -926,6 +927,33 @@ async function autoMapSupplier(supplierKey, latest, { entities: all, packs }, na
   }
   if (out.newMappings > 0) console.log(`[Pricing] mapeo automático (${supplierKey}): ${out.mapped.map((m) => `${m.sku}→${m.code}`).join(', ')}`);
   return out;
+}
+
+/**
+ * Modelos sumados a un pack DESPUÉS de que el pack tomó su código: el mapeo del pack ya existía (no
+ * es "nuevo"), así que nunca se les volcaba el precio y quedaban "sin costo" con el código del pack
+ * a la vista. Les vuelca el de la lista más reciente — solo a los que no tienen ningún costo (no pisa
+ * nada), ni mapeo propio, ni el código sacado a mano.
+ */
+async function fillPackMembersWithoutCost(supplierKey, latest, packs, individual, removed, out) {
+  const packMap = await getPackCodeMap(supplierKey);
+  if (packMap.length === 0) return;
+  const byCode = new Map(latest.map((i) => [i.code, i]));
+  const packsById = new Map(packs.map((pk) => [pk.id, pk]));
+  const withCost = new Set((await getAllProductCosts()).map((c) => c.sku));
+  for (const { packId, code } of packMap) {
+    const item = byCode.get(code);
+    const pack = packsById.get(packId);
+    if (!pack || !hasBulkPrice(item)) continue;
+    const skus = pack.skus.filter((sku) => !withCost.has(sku) && !individual.has(sku) && !removed.has(`sku:${sku}`));
+    for (const sku of skus) {
+      const r = await applyItemCost(sku, item, supplierKey, item.description || pack.name);
+      if (!r.ok) continue;
+      withCost.add(sku);
+      out.costsUpdated++;
+      out.changedSkus.push(sku);
+    }
+  }
 }
 
 /** Olvida el throttle de autoMapFromLists (en los tests). */
