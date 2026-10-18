@@ -54,7 +54,7 @@
         @if (form().mode === 'bulk' && form().supplierKey) {
           <label class="fld">Descuento
             <select [ngModel]="form().profileId" (ngModelChange)="update('profileId', $event)">
-              <option [ngValue]="null">La del pack o la default</option>
+              <option [ngValue]="null">{{ inheritedLabel() }}</option>
               @for (p of profiles(); track p.id) {
                 <option [ngValue]="p.id">{{ p.name }} · {{ discountPcts(p) }}</option>
               }

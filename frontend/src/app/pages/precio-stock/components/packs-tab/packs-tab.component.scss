@@ -36,6 +36,29 @@
     margin: 0.5rem 0;
   }
 
+  .alert.warn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--warn-bg);
+    color: var(--warn);
+    border-radius: var(--radius-md);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.78rem;
+    margin: 0 0 0.75rem;
+
+    .icon-btn { margin-left: auto; }
+  }
+
+  .pack-edit-suppliers {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0 0.85rem 0.75rem 2.6rem;
+
+    .lbl { font-size: 0.68rem; font-weight: 500; color: var(--text-2); }
+  }
+
   // ── Alta de pack ─────────────────────────────────────────────────────────
   .new-pack-form {
     display: flex;
@@ -58,7 +81,8 @@
       min-width: 120px;
     }
 
-    .new-pack-products {
+    .new-pack-products,
+    .pack-suppliers {
       flex: 1 1 100%;
     }
 

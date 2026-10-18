@@ -1334,10 +1334,14 @@ export async function getProductSupplierOverview({ skus = null } = {}) {
     if (a.type !== 'pack') continue;
     (byPack[a.id] ||= []).push({ supplierKey: a.supplierKey, profileId: a.profileId ?? null });
   }
+  // SKU → pack (para decir qué config le tocaría sin una propia: la del pack o la default).
+  const packBySku = {};
+  for (const pk of packs) for (const sku of pk.skus || []) packBySku[sku] = pk.id;
   return {
     suppliers: suppliers.map((s) => ({ key: s.key, name: s.name, profiles: s.profiles })),
     bySku,
     byPack,
+    packBySku,
   };
 }
 
@@ -1387,8 +1391,10 @@ export async function setProductSupplier({
 } = {}) {
   const packs = await listPacks();
   let list = [...new Set((Array.isArray(skus) ? skus : []).map((s) => String(s ?? '').trim()).filter(Boolean))];
-  if (packId != null && list.length === 0) list = packs.find((pk) => String(pk.id) === String(packId))?.skus ?? [];
-  if (list.length === 0) throw httpError(400, 'Faltan los productos');
+  const pack = packId != null ? packs.find((pk) => String(pk.id) === String(packId)) : null;
+  if (pack && list.length === 0) list = pack.skus ?? [];
+  // Un pack recién creado (Productos → Packs) todavía puede no tener modelos: igual lleva proveedor.
+  if (list.length === 0 && !pack) throw httpError(400, 'Faltan los productos');
   const targets = bulk && packId == null ? bulkSupplierTargets(list, packs) : supplierTargets(list, packs, packId);
   if (Array.isArray(suppliers)) return setProductSupplierSet({ list, targets, packs, supplierKey, suppliers, cost, label });
   if (supplierKey && keepProfile) {
@@ -1455,6 +1461,11 @@ async function setProductSupplierSet({ list, targets, packs, supplierKey, suppli
 
   const ctx = await loadDiscountContext({ packs });
   const current = new Set(list.flatMap((sku) => suppliersOf(sku, ctx)));
+  // Lo asignado al pack mismo (un pack sin modelos no tiene SKUs de donde sacarlo).
+  const packTargets = new Set(targets.filter((t) => t.type === 'pack').map((t) => t.id));
+  if (packTargets.size) {
+    for (const a of await listProductSuppliers()) if (a.type === 'pack' && packTargets.has(String(a.id))) current.add(a.supplierKey);
+  }
   for (const [key, profileId] of wanted) await assignDiscount({ supplierKey: key, targets, profileId });
 
   const changed = new Set();

@@ -500,6 +500,25 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   a poner con la próxima lista. Lo que lo tenía de vigente queda sin vigente (costo intacto, sin
   descuento) y vuelve en `lostVigente` para avisar. Sacar un SKU suelto de un pack cuyo pack tiene
   código de ese proveedor no alcanza (el pack lo sigue trayendo): se saca el pack.
+- **Proveedor al crear/editar un pack** (2026-10-18). El formulario de alta y el de edición de
+  Productos → Packs traen la misma lista de proveedores con tilde + config + vigente que el diálogo
+  `zc-product-supplier-dialog`: la lista y sus reglas (qué arranca tildado, el ciclo del tilde a
+  medias, quién queda de vigente, el pedido a mandar, el aviso de `withoutPrice`/`lostVigente`) viven
+  en `SupplierPicker` + `<zc-supplier-picker>` (`shared/components/product-supplier-dialog/supplier-picker.ts`)
+  y el diálogo es solo la cáscara. Al crear, si se tildó alguno, después de sumar los modelos va
+  `PUT /pricing/product-supplier` con `packId` y `skus: []` (el backend toma los modelos del pack);
+  nada tildado = no se toca nada. Al editar solo se manda si la lista cambió (`picker.dirty()`). Si el
+  proveedor falla, el pack queda creado/guardado y se avisa arriba de la lista. **Un pack sin modelos
+  ya puede tener proveedor**: `setProductSupplier` acepta `packId` de un pack existente con la lista
+  vacía (antes 400 "Faltan los productos"), y para saber qué proveedores sacar también mira lo
+  asignado al pack mismo (un pack vacío no tiene SKUs de donde leerlo). Del lado del front, un pack
+  vacío lee sus proveedores de `byPack` (chip e ícono de tienda, que ya no está deshabilitado).
+- **"Costo del producto" dice qué config se aplica** (2026-10-18). La opción sin config propia del
+  select Descuento decía "La del pack o la default". Ahora dice cuál en concreto, con el mismo orden
+  que `discountResolver` (sin config propia del SKU → la del pack para ese proveedor → la default):
+  "La del pack (Agendas · −30% −5%)" / "La default del proveedor (General · −25% −5%)" / "Sin
+  descuento" (`inheritedDiscountLabel`, `cost-form-dialog.component.ts`). El pack sale de
+  `row.pack` o de `packBySku`, que ahora devuelve `GET /pricing/product-suppliers` junto a `byPack`.
 - **Filtros de Productos** (2026-10-17, `components/product-filters/`, diseño en
   `docs/prototype/productos-filtros.html`, opción D): una sola tarjeta con el buscador arriba y una
   hilera abajo — Stock como segmentado con sus conteos de siempre y botones Proveedor (uno o "Sin
@@ -1400,7 +1419,11 @@ y marca pendiente, asignar a un pack limpia sus modelos, el import aplica la con
 propia, la lista de otro proveedor no pisa al vigente, cambiar el vigente toma su lista, ABM con 409) y
 el SQL real en `publishJobsRealDb.test.js` (configs, `onlyIfMissing`, default que se desasigna, código por
 proveedor, borrado en cascada); en el front `precios.component.spec.ts` (pestañas, columnas, asignación,
-import con proveedor/config) y `mapeo-proveedor.component.spec.ts` ("Todos" de solo lectura).
+import con proveedor/config) y `mapeo-proveedor.component.spec.ts` ("Todos" de solo lectura). Proveedor al
+crear/editar un pack: `pricingService.test.js` (pack sin modelos con proveedor, `packBySku`),
+`packs-tab.component.spec.ts` (crear con/sin proveedor, falla del proveedor, edición sin cambios no
+manda nada, pack vacío desde `byPack`) y `cost-form-dialog.component.spec.ts` (rótulo de la config
+heredada: pack / default / sin configs).
 
 "Para despachar" está cubierto en `backend/test/dispatchService.test.js` (pendiente vs. despachado y
 Full, carrito = un paquete con un solo GET de envío, buckets atrasado/hoy/próximos con `now`

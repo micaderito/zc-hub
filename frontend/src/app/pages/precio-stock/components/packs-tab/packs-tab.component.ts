@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
-import { injectQuery } from '@tanstack/angular-query-experimental';
+import { QueryClient, injectQuery } from '@tanstack/angular-query-experimental';
 import { PacksService, Pack, PACKS_QUERY_KEY } from '../../../../core/services/packs.service';
 import { ConflictsService, mlLabel } from '../../../../core/services/conflicts.service';
 import { SearchBarComponent } from '../../../../shared/components/search-bar/search-bar.component';
@@ -12,7 +12,9 @@ import { PaginationComponent } from '../../../../shared/components/pagination/pa
 import { CanWriteDirective } from '../../../../shared/directives/can-write.directive';
 import { firstValueFrom } from 'rxjs';
 import { PRODUCT_SUPPLIERS_QUERY_KEY, PricingService, SkuSupplierInfo } from '../../../../core/services/pricing.service';
-import { ProductSupplierDialogComponent, supplierChipLabel } from '../../../../shared/components/product-supplier-dialog/product-supplier-dialog.component';
+import {
+  ProductSupplierDialogComponent, SupplierPicker, SupplierPickerComponent, supplierChipLabel,
+} from '../../../../shared/components/product-supplier-dialog/product-supplier-dialog.component';
 
 /** Resultado del buscador de productos (para agregar al pack). */
 interface ProductOption {
@@ -35,7 +37,7 @@ const NEW_PACK_ID = -1;
 @Component({
   selector: 'zc-packs-tab',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent, ProductSupplierDialogComponent],
+  imports: [CanWriteDirective, CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent, ProductSupplierDialogComponent, SupplierPickerComponent],
   templateUrl: './packs-tab.component.html',
   styleUrl: './packs-tab.component.scss',
 })
@@ -59,9 +61,49 @@ export class PacksTabComponent {
     refetchOnWindowFocus: false,
   }));
 
+  private readonly queryClient = inject(QueryClient);
+  private readonly supplierList = computed(() => this.suppliersQuery.data()?.suppliers ?? []);
+
+  /**
+   * Proveedores del pack: los de su primer modelo con alguno. Un pack sin modelos (recién creado)
+   * no tiene SKUs de donde leerlo: sale de lo asignado al pack mismo (`byPack`).
+   */
   private packSupplierInfo(pack: Pack): SkuSupplierInfo | null {
-    const bySku = this.suppliersQuery.data()?.bySku ?? {};
-    return pack.products.map((p) => bySku[p.sku]).find((i) => i && (i.vigente || i.suppliers.length)) ?? null;
+    const data = this.suppliersQuery.data();
+    const bySku = data?.bySku ?? {};
+    const fromModels = pack.products.map((p) => bySku[p.sku]).find((i) => i && (i.vigente || i.suppliers.length)) ?? null;
+    if (fromModels || pack.products.length) return fromModels;
+    const assigned = data?.byPack?.[pack.id] ?? [];
+    if (!assigned.length) return null;
+    const discountOf = (a: { supplierKey: string; profileId: number | null }) => {
+      const profiles = this.supplierList().find((s) => s.key === a.supplierKey)?.profiles ?? [];
+      const pr = profiles.find((x) => x.id === a.profileId) ?? profiles.find((x) => x.isDefault);
+      return {
+        profileId: pr?.id ?? null, name: pr?.name ?? null, discount1: pr?.discount1 ?? 0, discount2: pr?.discount2 ?? 0,
+        level: (a.profileId != null ? 'pack' : pr ? 'default' : 'none') as SkuSupplierInfo['discount']['level'],
+      };
+    };
+    const discounts = Object.fromEntries(assigned.map((a) => [a.supplierKey, discountOf(a)]));
+    return { vigente: null, suppliers: assigned.map((a) => a.supplierKey), discount: discounts[assigned[0].supplierKey], discounts, cost: null };
+  }
+
+  /** Aviso del proveedor después de crear/guardar un pack (queda visible con el form cerrado). */
+  readonly supplierNotice = signal<string | null>(null);
+
+  /**
+   * Guarda los proveedores elegidos en el form del pack, por el mismo camino que el diálogo
+   * (`PUT /pricing/product-supplier` con `packId`; el backend toma los modelos del pack).
+   */
+  private async savePackSuppliers(packId: number, picker: SupplierPicker, verb: 'creó' | 'guardó'): Promise<void> {
+    try {
+      const res = await firstValueFrom(this.pricingSvc.setProductSupplier({ skus: [], packId, ...picker.singleRequest() }));
+      this.supplierNotice.set(picker.resultMessage([res]));
+    } catch (e: unknown) {
+      const err = e as { error?: { error?: string }; message?: string };
+      this.supplierNotice.set(`El pack se ${verb}, pero no se pudo guardar el proveedor: ${err?.error?.error || err?.message || 'error desconocido'}. Probá de nuevo con el ícono de tienda.`);
+    } finally {
+      void this.queryClient.invalidateQueries({ queryKey: PRODUCT_SUPPLIERS_QUERY_KEY });
+    }
   }
 
   packSupplierLabel(pack: Pack): string | null {
@@ -129,6 +171,8 @@ export class PacksTabComponent {
   newPackSku = '';
   readonly savingNewPack = signal(false);
   newPackError: string | null = null;
+  /** Proveedores del pack nuevo (ninguno tildado = sin proveedor: no se toca nada). */
+  readonly newPackPicker = computed(() => (this.showNewPackForm() ? new SupplierPicker({ suppliers: this.supplierList() }) : null));
 
   /** Abre/cierra el form de alta; reusa el buscador de productos con el sentinel `NEW_PACK_ID`. */
   toggleNewPackForm(): void {
@@ -146,6 +190,8 @@ export class PacksTabComponent {
     if (!name) { this.newPackError = 'Ingresá un nombre para el pack.'; return; }
     this.savingNewPack.set(true);
     this.newPackError = null;
+    this.supplierNotice.set(null);
+    const picker = this.newPackPicker();
     try {
       const id = await this.packsSvc.createPack({ name, unitCount: this.newPackUnitCount, mode: this.newPackMode, sku: this.newPackSku.trim() || null });
       const skus = [...this.selectedSkus()];
@@ -154,6 +200,8 @@ export class PacksTabComponent {
       } catch {
         // El pack ya se creó igual; los productos que no se pudieron sumar se agregan a mano desde la tarjeta.
       }
+      // Después de sumar los modelos, así el vigente se mueve también en ellos.
+      if (picker?.onRows().length) await this.savePackSuppliers(id, picker, 'creó');
       this.newPackName = '';
       this.newPackUnitCount = 8;
       this.newPackMode = 'assorted';
@@ -177,6 +225,11 @@ export class PacksTabComponent {
   editSku = '';
   readonly savingEdit = signal(false);
   editError: string | null = null;
+  /** Proveedores del pack en edición; solo se guardan si se tocaron. */
+  readonly editPicker = computed(() => {
+    const pack = this.packs().find((p) => p.id === this.editingPackId());
+    return pack ? new SupplierPicker({ suppliers: this.supplierList(), info: this.packSupplierInfo(pack) }) : null;
+  });
 
   startEditPack(pack: Pack): void {
     this.editingPackId.set(pack.id);
@@ -196,8 +249,12 @@ export class PacksTabComponent {
     if (!name) return;
     this.savingEdit.set(true);
     this.editError = null;
+    this.supplierNotice.set(null);
+    // Se toma antes de guardar: el pack se refresca y la lista se volvería a armar desde cero.
+    const picker = this.editPicker();
     try {
       await this.packsSvc.updatePack(pack.id, { name, unitCount: this.editUnitCount, mode: this.editMode, sku: this.editSku.trim() || null });
+      if (picker?.dirty()) await this.savePackSuppliers(pack.id, picker, 'guardó');
       this.editingPackId.set(null);
     } catch (e: unknown) {
       const err = e as { error?: { error?: string }; message?: string };
