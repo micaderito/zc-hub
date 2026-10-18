@@ -12,22 +12,22 @@ export interface StockSummary {
 
 /** `''` = todos, `'none'` = sin proveedor, si no la `key` del proveedor. */
 export type SupplierFilter = string;
-/** Con / sin regla de alerta de stock, o con / sin unidades del bulto cargadas en Precios. */
+/** Con / sin regla de alerta de stock, o modelo de algún pack del hub (Productos → Packs) o no. */
 export type PresenceFilter = 'all' | 'with' | 'without';
 
 export interface ProductFiltersValue {
   stock: StockFilter;
   supplier: SupplierFilter;
   alert: PresenceFilter;
-  bulk: PresenceFilter;
+  pack: PresenceFilter;
 }
 
-type Menu = 'supplier' | 'alert' | 'bulk';
+type Menu = 'supplier' | 'alert' | 'pack';
 
 /**
  * Panel de filtros de Productos: una sola tarjeta con el buscador arriba (proyectado) y una hilera
  * abajo. Stock es un segmentado con sus conteos siempre a la vista (es lo de todos los días);
- * Proveedor, Alerta y Bulto son botones que abren un menú corto y, con algo elegido, muestran el
+ * Proveedor, Alerta y Pack son botones que abren un menú corto y, con algo elegido, muestran el
  * valor y una × para sacarlo. Diseño: docs/prototype/productos-filtros.html (opción D).
  */
 @Component({
@@ -104,7 +104,7 @@ type Menu = 'supplier' | 'alert' | 'bulk';
         }
 
         @if (anyExtra()) {
-          <button type="button" class="clear" (click)="set({ supplier: '', alert: 'all', bulk: 'all' })">Limpiar</button>
+          <button type="button" class="clear" (click)="set({ supplier: '', alert: 'all', pack: 'all' })">Limpiar</button>
         }
       </div>
     </div>
@@ -122,7 +122,7 @@ export class ProductFiltersComponent {
 
   readonly presenceFilters = [
     { key: 'alert' as const, label: 'Alerta', icon: 'ti-bell', all: 'Todas', with: 'Con alerta', without: 'Sin alerta' },
-    { key: 'bulk' as const, label: 'Bulto', icon: 'ti-box', all: 'Todos', with: 'Con bulto', without: 'Sin bulto' },
+    { key: 'pack' as const, label: 'Pack', icon: 'ti-packages', all: 'Todos', with: 'En un pack', without: 'Sin pack' },
   ];
 
   readonly stockOptions = computed(() => {
@@ -144,14 +144,14 @@ export class ProductFiltersComponent {
 
   readonly anyExtra = computed(() => {
     const v = this.value();
-    return !!v.supplier || v.alert !== 'all' || v.bulk !== 'all';
+    return !!v.supplier || v.alert !== 'all' || v.pack !== 'all';
   });
 
   presenceOptions(f: (typeof this.presenceFilters)[number]): Array<{ key: PresenceFilter; label: string }> {
     return [{ key: 'all', label: f.all }, { key: 'with', label: f.with }, { key: 'without', label: f.without }];
   }
 
-  presence(key: 'alert' | 'bulk', v: PresenceFilter): Partial<ProductFiltersValue> {
+  presence(key: 'alert' | 'pack', v: PresenceFilter): Partial<ProductFiltersValue> {
     return { [key]: v };
   }
 

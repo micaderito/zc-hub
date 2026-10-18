@@ -27,8 +27,8 @@ let updatePricesTail = Promise.resolve();
  *  lo usa el buscador de Alertas → Reglas. Va ANTES de paginar: filtrar después en el front dejaba
  *  la página vacía si las primeras N coincidencias ya tenían regla.
  *  &supplier=<key>|none (solo coincidencias): los que se le compran a ese proveedor (cualquiera de
- *  los suyos, no solo el vigente) / los que no tienen ninguno. &bulk=with|without: con o sin las
- *  unidades del bulto cargadas en Precios. &alert=with|without: con o sin regla de alerta de stock.
+ *  los suyos, no solo el vigente) / los que no tienen ninguno. &pack=with|without: modelo de algún
+ *  pack del hub (Productos → Packs) o no. &alert=with|without: con o sin regla de alerta de stock.
  *  Mismo motivo: antes de paginar.
  */
 conflictsRoutes.get('/', async (req, res) => {
@@ -97,14 +97,14 @@ conflictsRoutes.get('/', async (req, res) => {
       }
 
       const supplierParam = String(req.query.supplier || '').trim();
-      const bulkParam = req.query.bulk;
-      if (supplierParam || bulkParam === 'with' || bulkParam === 'without') {
+      const packParam = req.query.pack;
+      if (supplierParam || packParam === 'with' || packParam === 'without') {
         const facets = await getSkuFilterFacets();
         const skuOf = (p) => p.sku || p.ml?.sku || p.tn?.sku || '';
         if (supplierParam === 'none') filtered = filtered.filter(p => facets.suppliersOf(skuOf(p)).length === 0);
         else if (supplierParam) filtered = filtered.filter(p => facets.suppliersOf(skuOf(p)).includes(supplierParam));
-        if (bulkParam === 'with') filtered = filtered.filter(p => facets.bulkSkus.has(skuOf(p)));
-        else if (bulkParam === 'without') filtered = filtered.filter(p => !facets.bulkSkus.has(skuOf(p)));
+        if (packParam === 'with') filtered = filtered.filter(p => facets.packSkus.has(skuOf(p)));
+        else if (packParam === 'without') filtered = filtered.filter(p => !facets.packSkus.has(skuOf(p)));
       }
 
       total = filtered.length;

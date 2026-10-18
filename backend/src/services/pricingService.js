@@ -1342,16 +1342,18 @@ export async function getProductSupplierOverview({ skus = null } = {}) {
 }
 
 /**
- * Para filtrar Productos por proveedor y por bulto (`GET /api/conflicts?supplier=&bulk=`): a qué
+ * Para filtrar Productos por proveedor y por pack (`GET /api/conflicts?supplier=&pack=`): a qué
  * proveedores se le compra cada SKU (mismo criterio que el chip: asignación, código mapeado o
- * vigente) y qué SKUs tienen cargadas las unidades del bulto en Precios. No le pega a ML/TN.
+ * vigente) y qué SKUs son modelo de algún pack del hub (Productos → Packs). Antes el filtro miraba
+ * las unidades del bulto de Precios (`bulk_qty`), y un modelo de pack sin bulto cargado salía como
+ * "sin". No le pega a ML/TN.
  */
 export async function getSkuFilterFacets() {
-  const costs = await getAllProductCosts();
-  const ctx = await loadDiscountContext({ costs });
+  const [costs, packs] = await Promise.all([getAllProductCosts(), listPacks()]);
+  const ctx = await loadDiscountContext({ costs, packs });
   return {
     suppliersOf: (sku) => suppliersOf(sku, ctx),
-    bulkSkus: new Set(costs.filter((c) => positive(c.bulkQty)).map((c) => c.sku)),
+    packSkus: new Set(packs.flatMap((pk) => pk.skus)),
   };
 }
 
