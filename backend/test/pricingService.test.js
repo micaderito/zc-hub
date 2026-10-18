@@ -908,6 +908,23 @@ test('autoMapFromLists: nunca pisa un mapeo existente (tampoco uno a mano)', asy
   assert.deepEqual(listState.map, [{ sku: '39000-CORAZONES', code: 'OTRO', matchSource: 'manual' }]);
 });
 
+test('autoMapFromLists: un modelo sumado a un pack ya mapeado toma el costo del pack (sin pisar a los que tienen)', async () => {
+  packState.packs = [{ ...PACK_39000, skus: ['39000-CORAZONES', '39000-LUNA', '39000-NUEVO', '39000-PROPIO'] }];
+  listState.packMap = [{ packId: 7, code: '39000', matchSource: 'exact' }];
+  listState.map = [{ sku: '39000-PROPIO', code: 'OTRO', matchSource: 'manual' }];
+  latestState.items = [ITEM_39000];
+  dbState.storeCosts = true;
+  dbState.costs['39000-CORAZONES'] = { sku: '39000-CORAZONES', source: 'manual', bulkPrice: 1, bulkQty: 1, supplierKey: PC };
+
+  const r = await svc.autoMapFromLists();
+
+  assert.equal(r.newMappings, 0);
+  assert.deepEqual(r.changedSkus.sort(), ['39000-LUNA', '39000-NUEVO']);
+  assert.equal(dbState.costs['39000-NUEVO'].bulkPrice, 119200);
+  assert.equal(dbState.costs['39000-CORAZONES'].bulkPrice, 1, 'no pisa un costo cargado');
+  assert.equal(dbState.costs['39000-PROPIO'], undefined, 'un modelo con mapeo propio no toma el del pack');
+});
+
 test('autoMapFromLists: un código que no está en ninguna lista importada no mapea', async () => {
   packState.packs = [PACK_39000];
   listState.codes = [{ code: '39000' }]; // quedó en supplier_codes, pero su lista se borró

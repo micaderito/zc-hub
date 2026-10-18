@@ -181,6 +181,7 @@
     <table class="pr-table">
       <thead>
         <tr>
+          <th class="col-check"><input type="checkbox" [checked]="allUncostedSelected()" (change)="toggleAllUncosted()" aria-label="Seleccionar todos los sin costo" /></th>
           <th>Producto</th>
           <th class="col-actions"></th>
         </tr>
@@ -189,6 +190,15 @@
         @for (g of uncostedGroups(); track g.key) {
           @if (g.pack; as pk) {
             <tr class="group-row">
+              <td class="col-check">
+                <input
+                  type="checkbox"
+                  [checked]="uncostedGroupSelection(g) === 'all'"
+                  [indeterminate]="uncostedGroupSelection(g) === 'some'"
+                  (change)="toggleUncostedGroup(g)"
+                  [attr.aria-label]="'Seleccionar todo el pack ' + pk.name"
+                />
+              </td>
               <td>
                 <div class="group-row-inner">
                   <i class="ti ti-stack-2" aria-hidden="true"></i>
@@ -218,6 +228,9 @@
 
 <ng-template #uncostedRowTpl let-u let-inPack="inPack">
   <tr [class.row-in-pack]="inPack">
+    <td class="col-check">
+      <input type="checkbox" [checked]="selected().has(u.sku)" (change)="toggleRow(u.sku)" [attr.aria-label]="'Seleccionar ' + u.sku" />
+    </td>
     <td>
       <div class="pr-prod">
         <span class="pr-prod-name">{{ u.name || u.sku }}</span>
@@ -328,9 +341,12 @@
 </ng-template>
 
 <!-- Barra de acción -->
-@if (store.rows().length > 0) {
+@if (store.rows().length > 0 || store.uncosted().length > 0) {
   <div class="pr-actionbar">
     <div class="pr-sel"><b>{{ selectedCount() }}</b> seleccionados</div>
+    <button type="button" class="btn" [disabled]="selectedCount() === 0" (click)="loadCostForSelected()" title="El mismo costo para todo lo seleccionado">
+      <i class="ti ti-coin"></i> Cargar costo…
+    </button>
     <button type="button" class="btn" [disabled]="selectedCount() === 0 || store.suppliers().length === 0" (click)="assignMode.set('discount')">
       <i class="ti ti-discount"></i> Asignar descuento…
     </button>
@@ -344,7 +360,7 @@
       </button>
     }
     <div class="spacer"></div>
-    <button type="button" class="btn pri" [disabled]="selectedCount() === 0 || applying()" (click)="apply()">
+    <button type="button" class="btn pri" [disabled]="selectedCosted().length === 0 || applying()" (click)="apply()">
       <i class="ti ti-rocket"></i>
       {{ applying() ? 'Encolando…' : 'Aplicar a ML y TN' }}
     </button>

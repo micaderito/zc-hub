@@ -17,8 +17,11 @@ export interface CostForm {
   marginOverride: number | null;
   /** Proveedor vigente (`''` = sin proveedor: sin descuento). */
   supplierKey: string;
-  /** Config propia del SKU (`null` = la del pack o la default del proveedor). */
-  profileId: number | null;
+  /**
+   * Config propia del SKU (`null` = la del pack o la default del proveedor; `'keep'` = en una
+   * carga masiva, no tocar la que ya tiene cada uno).
+   */
+  profileId: number | null | 'keep';
 }
 
 /**
@@ -54,6 +57,8 @@ export class CostFormDialogComponent implements OnInit {
 
   /** SKUs a los que se guarda el costo: los del prefill, o el del formulario. */
   readonly targetSkus = computed(() => this.prefill()?.skus ?? [this.form().sku.trim()].filter(Boolean));
+  /** Varios productos tildados: el mismo costo para todos, cada uno con su nombre. */
+  readonly bulk = computed(() => !!this.prefill()?.bulkLabels);
 
   readonly discountPcts = discountPcts;
   readonly form = signal<CostForm>(emptyCostForm());
@@ -98,6 +103,7 @@ export class CostFormDialogComponent implements OnInit {
         sku: prefill.skus[0] ?? '',
         label: prefill.label ?? base.label,
         supplierKey: row ? base.supplierKey : (prefill.supplierKey ?? ''),
+        ...(prefill.bulkLabels ? { profileId: 'keep' as const } : {}),
       });
       return;
     }
@@ -110,7 +116,8 @@ export class CostFormDialogComponent implements OnInit {
 
   update<K extends keyof CostForm>(key: K, value: CostForm[K]): void {
     // Cambiar de proveedor saca la config propia elegida: las configs son de cada proveedor.
-    this.form.update((f) => ({ ...f, [key]: value, ...(key === 'supplierKey' ? { profileId: null } : {}) }));
+    const reset = this.bulk() ? 'keep' as const : null;
+    this.form.update((f) => ({ ...f, [key]: value, ...(key === 'supplierKey' ? { profileId: reset } : {}) }));
   }
 
   async save(): Promise<void> {
@@ -120,11 +127,16 @@ export class CostFormDialogComponent implements OnInit {
     this.errorMsg.set(null);
     try {
       const supplier = { supplierKey: f.supplierKey || null };
+      // Sin `profileId` el backend no toca la config del SKU ("mantener la de cada uno").
+      const profile = f.supplierKey && f.profileId !== 'keep' ? { profileId: f.profileId } : {};
       const payload = f.mode === 'bulk'
-        ? { source: 'manual' as const, bulkPrice: f.bulkPrice, bulkQty: f.bulkQty, marginOverride: f.marginOverride, label: f.label, ...supplier, ...(f.supplierKey ? { profileId: f.profileId } : {}) }
+        ? { source: 'manual' as const, bulkPrice: f.bulkPrice, bulkQty: f.bulkQty, marginOverride: f.marginOverride, label: f.label, ...supplier, ...profile }
         : { source: 'manual' as const, unitCost: f.unitCost, marginOverride: f.marginOverride, label: f.label, ...supplier };
       const skus = this.targetSkus();
-      for (const sku of skus) await firstValueFrom(this.pricing.saveCost(sku, payload));
+      const labels = this.prefill()?.bulkLabels;
+      for (const sku of skus) {
+        await firstValueFrom(this.pricing.saveCost(sku, labels ? { ...payload, label: labels[sku] ?? null } : payload));
+      }
       this.store.markChanged(skus);
       await Promise.all([
         this.store.refreshAll(),

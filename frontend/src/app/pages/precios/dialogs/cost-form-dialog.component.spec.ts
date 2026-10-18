@@ -86,4 +86,28 @@ describe('CostFormDialogComponent', () => {
     expect(fixture.componentInstance.form().profileId).toBeNull();
     expect(fixture.componentInstance.inheritedLabel()).toBe('La del pack (Agendas · −30% −5%)');
   });
+
+  it('carga masiva: mismo costo para todos, cada uno con su nombre y sin tocar su config', async () => {
+    const fixture = await create({
+      prefill: { skus: ['A', 'B'], label: null, supplierKey: 'pc', bulkLabels: { A: 'Agenda', B: null } },
+    });
+    const c = fixture.componentInstance;
+    const el: HTMLElement = fixture.nativeElement;
+    expect(c.form().profileId).toBe('keep');
+    expect(el.textContent).toContain('Se carga el mismo costo a los 2 productos seleccionados');
+    expect(el.textContent).not.toContain('Nombre (opcional)');
+    expect(firstOption(el)).toBe('Mantener la de cada uno');
+
+    c.update('bulkPrice', 1000);
+    c.update('bulkQty', 10);
+    await c.save();
+    const calls = pricing.saveCost.calls.allArgs();
+    expect(calls.map(([sku, body]) => [sku, body.label, 'profileId' in body])).toEqual([['A', 'Agenda', false], ['B', null, false]]);
+    expect(calls[0][1]).toEqual(jasmine.objectContaining({ bulkPrice: 1000, bulkQty: 10, supplierKey: 'pc' }));
+
+    pricing.saveCost.calls.reset();
+    c.update('profileId', 2);
+    await c.save();
+    expect(pricing.saveCost.calls.allArgs().every(([, body]) => body.profileId === 2)).toBeTrue();
+  });
 });

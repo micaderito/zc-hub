@@ -93,10 +93,69 @@ export class PreciosPlanillaComponent {
   /** Costo nuevo para lo sin costo, con el proveedor de la pestaña (o el suyo) como vigente. */
   loadCost(g: UncostedGroup): void {
     const supplierKey = this.store.currentSupplier()?.key ?? g.items[0].suppliers[0] ?? null;
-    const label = g.pack?.name ?? g.items[0].name ?? null;
+    const label = uncostedLabel(g.items[0]);
     this.store.open({ kind: 'cost', row: null, prefill: { skus: g.items.map((u) => u.sku), label, supplierKey } });
   }
+
+  /**
+   * El mismo costo para todo lo tildado (con costo o sin): cada SKU conserva su nombre. Con uno
+   * solo es el formulario de siempre.
+   */
+  loadCostForSelected(): void {
+    const sel = this.selected();
+    const rows = this.store.allRows().filter((r) => sel.has(r.sku));
+    const uncosted = this.store.allUncosted().filter((u) => sel.has(u.sku));
+    if (rows.length + uncosted.length === 1) {
+      if (rows[0]) this.store.open({ kind: 'cost', row: rows[0] });
+      else this.loadCostFor(uncosted[0]);
+      return;
+    }
+    const vigentes = new Set(rows.map((r) => r.supplierKey).filter(Boolean));
+    const supplierKey = this.store.currentSupplier()?.key
+      ?? (vigentes.size === 1 ? [...vigentes][0] : null)
+      ?? uncosted[0]?.suppliers[0] ?? null;
+    const bulkLabels: Record<string, string | null> = {};
+    for (const r of rows) bulkLabels[r.sku] = r.label;
+    for (const u of uncosted) bulkLabels[u.sku] = uncostedLabel(u);
+    this.store.open({ kind: 'cost', row: null, prefill: { skus: Object.keys(bulkLabels), label: null, supplierKey, bulkLabels } });
+  }
+
+  readonly allUncostedSelected = computed(() => {
+    const items = this.store.uncosted();
+    const sel = this.selected();
+    return items.length > 0 && items.every((u) => sel.has(u.sku));
+  });
+
+  toggleAllUncosted(): void {
+    const skus = this.store.uncosted().map((u) => u.sku);
+    const selectAll = !this.allUncostedSelected();
+    this.selected.update((set) => {
+      const next = new Set(set);
+      for (const sku of skus) if (selectAll) next.add(sku); else next.delete(sku);
+      return next;
+    });
+  }
+
+  uncostedGroupSelection(g: UncostedGroup): 'all' | 'some' | 'none' {
+    const sel = this.selected();
+    const n = g.items.filter((u) => sel.has(u.sku)).length;
+    return n === 0 ? 'none' : n === g.items.length ? 'all' : 'some';
+  }
+
+  toggleUncostedGroup(g: UncostedGroup): void {
+    const selectAll = this.uncostedGroupSelection(g) !== 'all';
+    this.selected.update((set) => {
+      const next = new Set(set);
+      for (const u of g.items) if (selectAll) next.add(u.sku); else next.delete(u.sku);
+      return next;
+    });
+  }
   readonly selectedCount = computed(() => this.selected().size);
+  /** Lo tildado que ya tiene costo: lo único que se puede aplicar a ML y TN. */
+  readonly selectedCosted = computed(() => {
+    const sel = this.selected();
+    return this.store.allRows().filter((r) => sel.has(r.sku)).map((r) => r.sku);
+  });
   readonly allSelected = computed(() => {
     const rows = this.filteredRows();
     const sel = this.selected();
@@ -222,7 +281,7 @@ export class PreciosPlanillaComponent {
   }
 
   async apply(): Promise<void> {
-    const skus = [...this.selected()];
+    const skus = this.selectedCosted();
     if (skus.length === 0) return;
     this.applying.set(true);
     this.store.notice.set(null);
@@ -239,6 +298,11 @@ export class PreciosPlanillaComponent {
       this.applying.set(false);
     }
   }
+}
+
+/** Nombre con el que se guarda el costo de algo sin costo: el del pack, si no el de la publicación. */
+function uncostedLabel(u: UncostedProduct): string | null {
+  return u.pack?.name ?? u.name ?? null;
 }
 
 function toggled<T>(set: Set<T>, value: T): Set<T> {
