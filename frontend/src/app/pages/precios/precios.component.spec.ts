@@ -91,6 +91,7 @@ class PricingMock {
     { id: 3, label: 'LISTA BE POSITIVE', sourceFilename: null, discount1: 0, discount2: 0, importedAt: null, itemCount: 46 },
   ] }));
   saveCost = jasmine.createSpy('saveCost').and.returnValue(of({}));
+  getProductSuppliers = jasmine.createSpy('getProductSuppliers').and.returnValue(of({ suppliers: [], bySku: {}, byPack: {}, packBySku: {} }));
   deleteList = jasmine.createSpy('deleteList').and.returnValue(of({ ok: true }));
 }
 

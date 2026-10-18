@@ -94,6 +94,8 @@ export interface ProductSupplierOverview {
   bySku: Record<string, SkuSupplierInfo>;
   /** Asignaciones a nivel pack (por id de pack). */
   byPack: Record<string, Array<{ supplierKey: string; profileId: number | null }>>;
+  /** SKU → id del pack al que pertenece. */
+  packBySku?: Record<string, number>;
 }
 
 export interface ProductSupplierInput {

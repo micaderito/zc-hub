@@ -1320,6 +1320,19 @@ test('setProductSupplier con lista: con proveedores pero sin vigente es 400; lis
   assert.deepEqual(res.changedSkus, ['LAP']);
 });
 
+test('setProductSupplier: un pack sin modelos (recién creado) igual lleva proveedor; sacarlo lo saca del pack', async () => {
+  supplierState.suppliers.push(FILGO());
+  packState.packs = [{ ...AGENDA_PACK, id: 8, skus: [] }];
+
+  const res = await svc.setProductSupplier({ skus: [], packId: 8, supplierKey: 'filgo', suppliers: [{ supplierKey: 'filgo', profileId: 6 }] });
+
+  assert.deepEqual(res.targets, [{ type: 'pack', id: '8' }]);
+  assert.deepEqual(supplierState.assignments, [{ type: 'pack', id: '8', supplierKey: 'filgo', profileId: 6 }]);
+  await svc.setProductSupplier({ skus: [], packId: 8, supplierKey: null, suppliers: [] });
+  assert.deepEqual(supplierState.assignments, [], 'lo asignado al pack cuenta como proveedor actual aunque no tenga modelos');
+  await assert.rejects(svc.setProductSupplier({ skus: [], packId: 99, supplierKey: PC, suppliers: [{ supplierKey: PC }] }), { status: 400 });
+});
+
 test('setProductSupplier bulk con makeVigente false: suma el proveedor sin mover el costo', async () => {
   dbState.storeCosts = true;
   supplierState.suppliers.push(FILGO());
@@ -1393,6 +1406,7 @@ test('getProductSupplierOverview: vigente, config que le toca y costo; sin costo
   assert.equal(ov.bySku['AG-AZUL'].vigente, null); // sin costo todavía
   assert.equal(ov.bySku['AG-AZUL'].discount.name, 'Agendas');
   assert.deepEqual(ov.byPack['7'], [{ supplierKey: PC, profileId: 2 }]);
+  assert.equal(ov.packBySku['AG-AZUL'], 7, 'a qué pack pertenece cada SKU');
   const solo = await svc.getProductSupplierOverview({ skus: ['AG-ROSA'] });
   assert.deepEqual(Object.keys(solo.bySku), ['AG-ROSA']);
 });
