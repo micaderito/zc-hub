@@ -1,6 +1,6 @@
 import { Component, inject, effect, signal, computed, untracked, DestroyRef } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { debounceTime, distinctUntilChanged, switchMap, takeUntil } from 'rxjs/operators';
 import { timer, Subject, firstValueFrom } from 'rxjs';
@@ -37,6 +37,11 @@ type SubTab = 'stock' | 'packs';
 /** 'all' no viaja: el backend solo entiende with/without. */
 const presenceParam = (v: PresenceFilter): 'with' | 'without' | undefined => (v === 'all' ? undefined : v);
 
+const STOCK_FILTERS: StockFilter[] = ['all', 'mismatch', 'synced', 'no-stock', 'with-stock'];
+const parseStock = (v: string | null): StockFilter => (STOCK_FILTERS.includes(v as StockFilter) ? (v as StockFilter) : 'all');
+const parsePresence = (v: string | null): PresenceFilter => (v === 'with' || v === 'without' ? v : 'all');
+const parsePage = (v: string | null): number => Math.max(1, Math.floor(Number(v)) || 1);
+
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
@@ -49,8 +54,12 @@ export class PrecioStockComponent {
   private readonly packsSvc = inject(PacksService);
   private readonly alertsSvc = inject(AlertsService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  /** Pestaña, búsqueda, filtros y página viven en la URL: refrescar o compartir el link los conserva. */
+  private readonly initialParams = this.route.snapshot.queryParamMap;
 
-  readonly activeSubTab = signal<SubTab>('stock');
+  readonly activeSubTab = signal<SubTab>(this.initialParams.get('tab') === 'packs' ? 'packs' : 'stock');
   readonly subTabs: TabDef[] = [
     { key: 'stock', label: 'Precio y stock' },
     { key: 'packs', label: 'Packs' },
@@ -60,13 +69,13 @@ export class PrecioStockComponent {
     this.activeSubTab.set(key as SubTab);
   }
 
-  readonly currentPage = signal(1);
-  readonly stockFilter = signal<StockFilter>('all');
-  readonly searchQuery = signal('');
+  readonly currentPage = signal(parsePage(this.initialParams.get('pagina')));
+  readonly stockFilter = signal<StockFilter>(parseStock(this.initialParams.get('stock')));
+  readonly searchQuery = signal(this.initialParams.get('q') ?? '');
   /** `''` = todos, `'none'` = sin proveedor, si no la key del proveedor. */
-  readonly supplierFilter = signal('');
-  readonly alertFilter = signal<PresenceFilter>('all');
-  readonly packFilter = signal<PresenceFilter>('all');
+  readonly supplierFilter = signal(this.initialParams.get('proveedor') ?? '');
+  readonly alertFilter = signal<PresenceFilter>(parsePresence(this.initialParams.get('alerta')));
+  readonly packFilter = signal<PresenceFilter>(parsePresence(this.initialParams.get('pack')));
 
   readonly filters = computed<ProductFiltersValue>(() => ({
     stock: this.stockFilter(),
@@ -84,7 +93,7 @@ export class PrecioStockComponent {
 
   readonly debouncedSearch = toSignal(
     toObservable(this.searchQuery).pipe(debounceTime(350), distinctUntilChanged()),
-    { initialValue: '' }
+    { initialValue: this.searchQuery() }
   );
 
   private get currentQueryKey() {
@@ -364,13 +373,31 @@ export class PrecioStockComponent {
   }
 
   constructor() {
+    // La primera corrida es la carga: no pisa la página que vino en la URL.
+    let firstRun = true;
     effect(() => {
       this.stockFilter();
       this.debouncedSearch();
       this.supplierFilter();
       this.alertFilter();
       this.packFilter();
+      if (firstRun) { firstRun = false; return; }
       untracked(() => this.currentPage.set(1));
+    });
+
+    // Espejo en la URL (los valores por defecto no viajan). La búsqueda va con su debounce, para no
+    // reescribir la URL en cada tecla.
+    effect(() => {
+      const queryParams = {
+        tab: this.activeSubTab() === 'packs' ? 'packs' : null,
+        q: this.debouncedSearch() || null,
+        stock: this.stockFilter() === 'all' ? null : this.stockFilter(),
+        proveedor: this.supplierFilter() || null,
+        alerta: presenceParam(this.alertFilter()) ?? null,
+        pack: presenceParam(this.packFilter()) ?? null,
+        pagina: this.currentPage() > 1 ? String(this.currentPage()) : null,
+      };
+      untracked(() => void this.router.navigate([], { relativeTo: this.route, queryParams, queryParamsHandling: 'merge', replaceUrl: true }));
     });
 
     effect(() => {

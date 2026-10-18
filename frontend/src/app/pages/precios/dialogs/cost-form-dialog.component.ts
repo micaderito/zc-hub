@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { QueryClient } from '@tanstack/angular-query-experimental';
+import { QueryClient, injectQuery } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
-import { DiscountProfile, PreviewRow, PricingService } from '../../../core/services/pricing.service';
+import { DiscountProfile, PRODUCT_SUPPLIERS_QUERY_KEY, PreviewRow, PricingService } from '../../../core/services/pricing.service';
 import { CostPrefill, PreciosStore } from '../precios.store';
 import { apiError, discountPcts } from '../precios.utils';
 
@@ -19,6 +19,18 @@ export interface CostForm {
   supplierKey: string;
   /** Config propia del SKU (`null` = la del pack o la default del proveedor). */
   profileId: number | null;
+}
+
+/**
+ * Qué config toma un SKU SIN config propia para un proveedor: la del pack si el pack tiene una
+ * elegida para ese proveedor, si no la default del proveedor (mismo orden que `discountResolver.js`).
+ */
+export function inheritedDiscountLabel(profiles: DiscountProfile[], packProfileId: number | null | undefined): string {
+  const pack = packProfileId != null ? profiles.find((p) => p.id === packProfileId) : null;
+  if (pack) return `La del pack (${pack.name} · ${discountPcts(pack)})`;
+  const def = profiles.find((p) => p.isDefault) ?? profiles[0];
+  if (def) return `La default del proveedor (${def.name} · ${discountPcts(def)})`;
+  return 'Sin descuento (el proveedor no tiene configs)';
 }
 
 /** Alta / edición manual del costo de un SKU (por bulto o unitario), con proveedor y config. */
@@ -52,6 +64,28 @@ export class CostFormDialogComponent implements OnInit {
   readonly profiles = computed<DiscountProfile[]>(
     () => this.store.suppliers().find((s) => s.key === this.form().supplierKey)?.profiles ?? [],
   );
+
+  /** Pack de cada SKU y config de cada pack (el mismo dato que usa Productos). */
+  private readonly overviewQuery = injectQuery(() => ({
+    queryKey: PRODUCT_SUPPLIERS_QUERY_KEY,
+    queryFn: () => firstValueFrom(this.pricing.getProductSuppliers()),
+    // Se refresca al abrir: en Precios se cambian configs y asignaciones sin invalidar esta query.
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  }));
+
+  /**
+   * Rótulo de la opción "sin config propia": cuál se aplica en concreto ("La del pack (Agendas ·
+   * −30% −5%)" / "La default del proveedor (General · −25% −5%)"). Mientras carga, el genérico.
+   */
+  readonly inheritedLabel = computed(() => {
+    const ov = this.overviewQuery.data();
+    if (!ov) return 'La del pack o la default';
+    const key = this.form().supplierKey;
+    const packId = this.row()?.pack?.packId ?? ov.packBySku?.[this.targetSkus()[0] ?? ''];
+    const packProfileId = packId != null ? ov.byPack[packId]?.find((a) => a.supplierKey === key)?.profileId : null;
+    return inheritedDiscountLabel(this.profiles(), packProfileId);
+  });
 
   ngOnInit(): void {
     const row = this.row();

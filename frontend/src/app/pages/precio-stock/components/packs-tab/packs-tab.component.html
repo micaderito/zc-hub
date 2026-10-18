@@ -79,12 +79,27 @@
         }
       </div>
 
+      @if (newPackPicker(); as np) {
+        <div class="fld pack-suppliers">
+          <label class="lbl">Proveedores y descuento (opcional)</label>
+          <zc-supplier-picker [picker]="np" />
+          <span class="hint">Sin tildar ninguno, el pack queda sin proveedor. Sus modelos heredan la config del pack.</span>
+        </div>
+      }
+
       <button type="button" class="zc-btn primary" [disabled]="savingNewPack()" (click)="createPack()">Crear</button>
       <button type="button" class="zc-btn" (click)="toggleNewPackForm()">Cancelar</button>
     </div>
     @if (newPackError) {
       <p class="alert error">{{ newPackError }}</p>
     }
+  }
+
+  @if (supplierNotice(); as msg) {
+    <p class="alert warn supplier-notice">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i> {{ msg }}
+      <button type="button" class="icon-btn" title="Cerrar" (click)="supplierNotice.set(null)"><i class="ti ti-x" aria-hidden="true"></i></button>
+    </p>
   }
 
   @if (loading()) {
@@ -130,12 +145,20 @@
               </div>
               <span class="zc-badge">{{ pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
               <div class="pack-head-actions" *zcCanWrite (click)="$event.stopPropagation()">
-                <button type="button" class="icon-btn" title="Proveedor y descuento" [disabled]="!pack.products.length" (click)="openSupplier(pack)"><i class="ti ti-building-store" aria-hidden="true"></i></button>
+                <button type="button" class="icon-btn" title="Proveedor y descuento" (click)="openSupplier(pack)"><i class="ti ti-building-store" aria-hidden="true"></i></button>
                 <button type="button" class="icon-btn" title="Editar" (click)="startEditPack(pack)"><i class="ti ti-pencil" aria-hidden="true"></i></button>
                 <button type="button" class="icon-btn danger" title="Eliminar pack" (click)="deletingPackId.set(pack.id)"><i class="ti ti-trash" aria-hidden="true"></i></button>
               </div>
             }
           </div>
+
+          @if (editingPackId() === pack.id && editPicker(); as ep) {
+            <div class="pack-edit-suppliers">
+              <span class="lbl">Proveedores y descuento</span>
+              <zc-supplier-picker [picker]="ep" />
+              <span class="hint">Se guarda con "Guardar". Se asigna al pack entero: sus modelos lo heredan.</span>
+            </div>
+          }
 
           @if (isExpanded(pack.id)) {
             <div class="pack-body">
