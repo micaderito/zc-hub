@@ -23,8 +23,8 @@ const analysisState = {
   },
 };
 
-// Proveedores por SKU y SKUs con bulto cargado (filtros supplier/bulk de GET /).
-const facetsState = { suppliersBySku: {}, bulkSkus: [] };
+// Proveedores por SKU y SKUs que son modelo de un pack (filtros supplier/pack de GET /).
+const facetsState = { suppliersBySku: {}, packSkus: [] };
 const syncServiceState = { persistResult: { ml: true, tn: true } };
 const dbState = { enqueueResult: 5, taskStatus: null, auditRows: [], priceAuditRows: [], enqueued: [], stockAlerts: [] };
 // tnSnapshotRow: lo que readTnSnapshotRow devuelve como fila previa (null = no está en el snapshot).
@@ -80,7 +80,7 @@ before(async () => {
     exports: {
       getSkuFilterFacets: async () => ({
         suppliersOf: (sku) => facetsState.suppliersBySku[sku] || [],
-        bulkSkus: new Set(facetsState.bulkSkus),
+        packSkus: new Set(facetsState.packSkus),
       }),
     },
   });
@@ -239,15 +239,15 @@ test('GET /: supplier=none deja solo los que no tienen ningún proveedor', async
   assert.deepEqual(body.matched.map((p) => p.sku), ['Z']);
 });
 
-test('GET /: bulk=with / bulk=without según tenga las unidades del bulto cargadas', async () => {
+test('GET /: pack=with / pack=without según sea modelo de un pack del hub', async () => {
   analysisState.result.matched = [
     { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'A' },
     { ml: { stock: 1 }, tn: { stock: 1 }, sku: 'B' },
   ];
-  facetsState.bulkSkus = ['A'];
-  const withBulk = await (await fetch(`${baseUrl}/?tab=coincidencias&bulk=with`)).json();
-  assert.deepEqual(withBulk.matched.map((p) => p.sku), ['A']);
-  const without = await (await fetch(`${baseUrl}/?tab=coincidencias&bulk=without`)).json();
+  facetsState.packSkus = ['A'];
+  const withPack = await (await fetch(`${baseUrl}/?tab=coincidencias&pack=with`)).json();
+  assert.deepEqual(withPack.matched.map((p) => p.sku), ['A']);
+  const without = await (await fetch(`${baseUrl}/?tab=coincidencias&pack=without`)).json();
   assert.deepEqual(without.matched.map((p) => p.sku), ['B']);
 });
 
