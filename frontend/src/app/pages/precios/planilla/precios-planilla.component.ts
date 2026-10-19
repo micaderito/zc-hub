@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, u
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { PreviewRow, PreviewRowPack, PricingService, PricingTarget, UncostedProduct } from '../../../core/services/pricing.service';
+import { ApplyResult, PreviewRow, PreviewRowPack, PricingService, PricingTarget, UncostedProduct } from '../../../core/services/pricing.service';
 import { ProductHistoryDialogComponent } from '../../precio-stock/components/product-history-dialog/product-history-dialog.component';
 import { AssignDialogComponent, AssignMode } from '../dialogs/assign-dialog.component';
 import { PreciosStore } from '../precios.store';
@@ -45,6 +45,8 @@ export class PreciosPlanillaComponent {
   readonly expandedPacks = signal<Set<number>>(new Set());
   readonly applying = signal(false);
   readonly errorMsg = signal<string | null>(null);
+  /** Lo que no se pudo aplicar con el último "Aplicar" (SKU, canal y por qué). */
+  readonly applyFailures = signal<ApplyResult['results']>([]);
   readonly historySku = signal<string | null>(null);
   readonly assignMode = signal<AssignMode | null>(null);
 
@@ -286,11 +288,13 @@ export class PreciosPlanillaComponent {
     this.applying.set(true);
     this.store.notice.set(null);
     this.errorMsg.set(null);
+    this.applyFailures.set([]);
     try {
       const res = await firstValueFrom(this.pricing.apply(skus));
       const parts = [`${res.enqueuedMl} en cola para ML`, `${res.appliedTn} aplicados en TN`];
       if (res.failed > 0) parts.push(`${res.failed} con problemas`);
       this.store.notice.set(parts.join(' · '));
+      this.applyFailures.set(res.results.filter((r) => !r.ok));
       await this.store.previewQuery.refetch();
     } catch (e) {
       this.errorMsg.set(apiError(e, 'No se pudo aplicar'));

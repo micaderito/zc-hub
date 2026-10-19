@@ -1,0 +1,46 @@
+.ap-intro { font-size: 12px; color: var(--text-2); margin: 0 0 12px; max-width: 760px; }
+.ap-notice {
+  font-size: 12px; color: var(--ok); background: var(--ok-bg); border-radius: 8px; padding: 8px 12px;
+  margin-bottom: 11px; display: flex; align-items: center; gap: 6px;
+}
+.pr-empty {
+  text-align: center; padding: 40px 20px; color: var(--text-2);
+  border: 1px dashed var(--border); border-radius: 12px; background: var(--surface);
+}
+
+.ap-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ap-run {
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; overflow: hidden;
+  &.open { border-color: var(--border-strong, var(--border)); }
+}
+.ap-head { display: flex; align-items: center; gap: 12px; padding: 10px 12px; flex-wrap: wrap; }
+.ap-toggle {
+  border: none; background: none; font: inherit; color: var(--text); cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; gap: 8px; text-align: left;
+  i { color: var(--text-3); font-size: 14px; }
+}
+.ap-when { font-weight: 500; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ap-meta { font-size: 12px; color: var(--text-2); }
+.ap-channels { display: flex; flex-wrap: wrap; gap: 6px 14px; flex: 1; min-width: 0; }
+.ap-channel { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+
+.st {
+  font-size: 11px; padding: 1px 7px; border-radius: 6px; white-space: nowrap;
+  &.ok { background: var(--ok-bg); color: var(--ok); }
+  &.queued { background: var(--surface-2); color: var(--text-2); }
+  &.retrying { background: var(--warn-bg); color: var(--warn); }
+  &.failed { background: var(--err-bg); color: var(--err); }
+  &.skipped { background: var(--surface-2); color: var(--text-3); }
+}
+
+.ap-detail { border-top: 0.5px solid var(--border); padding: 10px 12px 12px; }
+.ap-filter { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer; }
+.ap-table-wrap { overflow-x: auto; }
+.ap-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  th { text-align: left; font-weight: 500; color: var(--text-3); padding: 5px 8px; border-bottom: 0.5px solid var(--border); white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 0.5px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+}
+.ap-reason { color: var(--text-2); max-width: 360px; overflow-wrap: anywhere; }

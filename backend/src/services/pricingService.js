@@ -16,7 +16,8 @@ import {
   getSkuCodeMap, upsertSkuCodeMap, upsertProductCost as upsertCost,
   getPackCodeMap, upsertPackCodeMap, listPacks,
   getPriceOverrides, upsertPriceOverride, deletePriceOverride, getLatestPriceListItems,
-  getActiveMlTasks, markSkuCodeRemoved, markPackCodeRemoved, getRemovedCodeMapKeys, deletePriceList,
+  getActiveMlTasks, recordPriceApplyRun, listPriceApplyRuns, getPriceApplyItems, updatePriceApplyItem,
+  markSkuCodeRemoved, markPackCodeRemoved, getRemovedCodeMapKeys, deletePriceList,
   listSuppliers, createSupplier, renameSupplier, deleteSupplier, getSupplierUsage,
   createDiscountProfile, updateDiscountProfile, deleteDiscountProfile,
   listProductSuppliers, upsertProductSuppliers, clearSkuProfiles, deleteProductSuppliers, setCostSupplier,
@@ -379,24 +380,30 @@ export async function getPriceHistory(sku, limit = 50, offset = 0) {
 /**
  * Aplicación masiva. Para cada SKU: calcula el precio y lo ENCOLA (no aplica de una) —
  * un `price_ml` por SKU en la cola durable (sobrevive 429 y reinicios, ver mlTaskQueue.js) y el
- * bulk de TN. Devuelve el detalle por SKU (encolado / omitido y por qué).
+ * bulk de TN. Devuelve el detalle por SKU (encolado / omitido y por qué) y deja todo registrado en
+ * price_apply_runs/items, para verlo en "Aplicaciones" y reintentar lo que falle.
  *
  * @param {string[]} skus SKUs a aplicar (deben tener costo cargado).
  * @param {{ ml?: boolean, tn?: boolean }} channels qué canales aplicar (default ambos).
+ * @param {{ createdBy?: string|null }} opts quién aplicó (va al registro).
  */
-export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
+export async function enqueueApply(skus, channels = { ml: true, tn: true }, { createdBy = null } = {}) {
   if (getResolvedSkus().length === 0) await loadCatalogContext();
   const db = await getPricingSettings();
   const settings = buildSettings(db);
   const overridesBySku = await buildOverridesBySku();
   const ctx = await loadDiscountContext();
   const results = [];
+  const runItems = [];
   const tnBatch = [];
 
   for (const sku of skus) {
     const cost = await getProductCost(sku);
     if (!cost) {
       results.push({ sku, ok: false, reason: 'sin costo cargado' });
+      for (const ch of ['ml', 'tn']) {
+        if (channels[ch] !== false) runItems.push({ sku, channel: ch, status: 'skipped', reason: 'sin costo cargado' });
+      }
       continue;
     }
     const prices = computePrices(costToInput(cost, db, resolveDiscount(sku, ctx)), settings);
@@ -404,22 +411,25 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
     const overrides = overridesBySku[sku] || {};
     const mlPrice = overrides.ml ?? prices.ml;
     const tnPrice = overrides.tn ?? prices.tn.list;
+    const label = cost.label ?? null;
 
     // ── Mercado Libre: encolar price_ml ──
     if (channels.ml !== false) {
       const mlItem = getMlItemBySku(sku);
       if (!mlItem) {
         results.push({ sku, channel: 'ml', ok: false, reason: 'sin ítem de ML mapeado' });
+        runItems.push({ sku, channel: 'ml', status: 'skipped', price: mlPrice, reason: 'sin ítem de ML mapeado', productLabel: label });
       } else {
-        const taskId = await enqueueMlTask({
-          kind: 'price_ml',
-          itemId: mlItem.itemId,
-          variationId: mlItem.variationId ?? null,
-          targetPrice: mlPrice,
-          idempotencyKey: `price_ml:${mlItem.itemId}:${mlPrice}`,
-          contextJson: JSON.stringify({ sku, source: 'bulk' }),
+        const taskId = await enqueueMlPrice(sku, mlItem.itemId, mlItem.variationId ?? null, mlPrice);
+        const ok = taskId != null;
+        results.push(ok
+          ? { sku, channel: 'ml', ok: true, taskId, price: mlPrice }
+          : { sku, channel: 'ml', ok: false, reason: 'no se pudo encolar', price: mlPrice });
+        runItems.push({
+          sku, channel: 'ml', status: ok ? 'queued' : 'failed', price: mlPrice,
+          reason: ok ? null : 'no se pudo encolar', productLabel: label,
+          mlTaskId: taskId, itemId: mlItem.itemId, variationId: mlItem.variationId ?? null,
         });
-        results.push({ sku, channel: 'ml', ok: true, taskId, price: mlPrice });
       }
     }
 
@@ -428,87 +438,172 @@ export async function enqueueApply(skus, channels = { ml: true, tn: true }) {
       const tnVariant = getTnVariantBySku(sku);
       if (!tnVariant) {
         results.push({ sku, channel: 'tn', ok: false, reason: 'sin variante de TN mapeada' });
+        runItems.push({ sku, channel: 'tn', status: 'skipped', price: tnPrice, reason: 'sin variante de TN mapeada', productLabel: label });
       } else {
-        tnBatch.push({
-          productId: tnVariant.productId, variantId: tnVariant.variantId,
-          price: tnPrice, sku, label: cost.label ?? null,
-        });
-        results.push({ sku, channel: 'tn', ok: true, price: tnPrice });
+        tnBatch.push({ productId: tnVariant.productId, variantId: tnVariant.variantId, price: tnPrice, sku, label });
       }
     }
   }
 
-  // El bulk de TN se manda de una (updateVariantsStockPrice ya parte en chunks de 50 y respeta
-  // tnLimiter). Si falla, se marca el lote como fallido en el resultado.
   if (tnBatch.length > 0) {
-    const { access_token, store_id } = tokens.tiendanube || {};
-    if (!access_token) {
-      for (const r of results) if (r.channel === 'tn' && r.ok) { r.ok = false; r.reason = 'sin token TN'; }
-    } else {
-      // El precio previo se lee de la foto ANTES del bulk, no después: la escritura dispara el
-      // webhook `product/updated` de TN por cada variante casi en el acto, y ese refresh puede
-      // mover la foto al valor nuevo antes de que este loop llegue a leerla (mismo motivo que en
-      // ML — ver readTnSnapshotRow).
-      const beforeByKey = new Map();
-      for (const b of tnBatch) {
-        const before = await readTnSnapshotRow(b.productId, b.variantId).catch((e) => {
-          console.error('[Pricing] readTnSnapshotRow:', e.message);
-          return null;
-        });
-        beforeByKey.set(`${b.productId}:${b.variantId}`, before);
-        // Eco antes del bulk: el refresh por `product/updated` no tiene que registrar esta
-        // escritura como "Cambio en TN" (ver stockEcho.js).
-        rememberPriceWrite(tnPriceEchoKey(b.productId, b.variantId), b.price);
-      }
-      try {
-        await tn.updateVariantsStockPrice(access_token, store_id, tnBatch.map((b) => ({
-          productId: b.productId, variantId: b.variantId, price: b.price,
-        })));
-        // Aplicado en TN: parchamos el snapshot por variante para que quede al día. La foto ya
-        // puede estar al día por el webhook; el historial usa el valor previo leído arriba, no lo
-        // que devuelva este parche.
-        for (const b of tnBatch) {
-          await patchTnPrice(b.productId, b.variantId, b.price).catch((e) => console.error('[Pricing] patchTnPrice:', e.message));
-          const before = beforeByKey.get(`${b.productId}:${b.variantId}`);
-          if (before && before.price !== b.price) {
-            await insertPriceAudit({
-              sku: b.sku,
-              channel: 'tiendanube',
-              priceBefore: before.price,
-              priceAfter: b.price,
-              source: 'bulk',
-              productLabel: b.label ?? null,
-            }).catch((e) => console.error('[Pricing] insertPriceAudit:', e.message));
-          } else if (!before) {
-            // Sin fila en la foto no hay "antes", pero el SKU lo conocemos: el "a cuánto quedó"
-            // ya es información útil (insertPriceAudit admite priceBefore null).
-            await insertPriceAudit({
-              sku: b.sku,
-              channel: 'tiendanube',
-              priceBefore: null,
-              priceAfter: b.price,
-              source: 'bulk',
-              productLabel: b.label ?? null,
-            }).catch((e) => console.error('[Pricing] insertPriceAudit:', e.message));
-          }
-        }
-      } catch (e) {
-        for (const b of tnBatch) forgetPriceWrite(tnPriceEchoKey(b.productId, b.variantId));
-        for (const r of results) if (r.channel === 'tn' && r.ok) { r.ok = false; r.reason = `bulk TN falló: ${e.message}`; }
-      }
-    }
+    const outcomes = await applyTnPrices(tnBatch);
+    tnBatch.forEach((b, i) => {
+      const o = outcomes[i];
+      results.push(o.ok
+        ? { sku: b.sku, channel: 'tn', ok: true, price: b.price }
+        : { sku: b.sku, channel: 'tn', ok: false, reason: o.reason, price: b.price });
+      runItems.push({
+        sku: b.sku, channel: 'tn', status: o.ok ? 'ok' : 'failed', price: b.price,
+        reason: o.ok ? null : o.reason, productLabel: b.label,
+        tnProductId: b.productId, tnVariantId: b.variantId,
+      });
+    });
   }
 
   // Lo publicado cambió (TN ya, ML al terminar la cola): la próxima lectura no usa la foto cacheada.
   _resetCatalogCache();
 
+  // El registro no puede frenar lo ya aplicado: si falla, el resultado vuelve igual (sin runId).
+  const runId = runItems.length > 0
+    ? await recordPriceApplyRun({ createdBy, total: skus.length, items: runItems }).catch((e) => {
+      console.error('[Pricing] recordPriceApplyRun:', e.message);
+      return null;
+    })
+    : null;
+
   return {
+    runId,
     total: skus.length,
     enqueuedMl: results.filter((r) => r.channel === 'ml' && r.ok).length,
     appliedTn: results.filter((r) => r.channel === 'tn' && r.ok).length,
     failed: results.filter((r) => r.ok === false).length,
     results,
   };
+}
+
+/** Encola el price_ml de un SKU. La clave colapsa SKUs del mismo ítem con el mismo precio en una tarea. */
+function enqueueMlPrice(sku, itemId, variationId, price) {
+  return enqueueMlTask({
+    kind: 'price_ml',
+    itemId,
+    variationId,
+    targetPrice: price,
+    idempotencyKey: `price_ml:${itemId}:${price}`,
+    contextJson: JSON.stringify({ sku, source: 'bulk' }),
+  });
+}
+
+/** Variantes por request del bulk de TN (el tope de `PATCH /products/stock-price`). */
+const TN_APPLY_CHUNK = 50;
+
+/**
+ * Manda los precios a TN de a tandas de 50 y devuelve, en el mismo orden, `{ ok, reason }` por
+ * variante. Cada tanda es independiente: si falla la 5.ª, las 4 anteriores ya quedaron aplicadas
+ * en TN y se registran (historial + foto) como tales, y las siguientes se siguen intentando — antes
+ * un fallo marcaba TODO como fallido aunque la mayoría ya estuviera publicada.
+ */
+async function applyTnPrices(batch) {
+  const { access_token, store_id } = tokens.tiendanube || {};
+  if (!access_token) return batch.map(() => ({ ok: false, reason: 'sin token TN' }));
+
+  // El precio previo se lee de la foto ANTES del bulk, no después: la escritura dispara el
+  // webhook `product/updated` de TN por cada variante casi en el acto, y ese refresh puede
+  // mover la foto al valor nuevo antes de que este loop llegue a leerla (mismo motivo que en
+  // ML — ver readTnSnapshotRow).
+  const before = [];
+  for (const b of batch) {
+    before.push(await readTnSnapshotRow(b.productId, b.variantId).catch((e) => {
+      console.error('[Pricing] readTnSnapshotRow:', e.message);
+      return null;
+    }));
+  }
+
+  const outcomes = new Array(batch.length);
+  for (let i = 0; i < batch.length; i += TN_APPLY_CHUNK) {
+    const chunk = batch.slice(i, i + TN_APPLY_CHUNK);
+    // Eco antes del bulk: el refresh por `product/updated` no tiene que registrar esta
+    // escritura como "Cambio en TN" (ver stockEcho.js).
+    for (const b of chunk) rememberPriceWrite(tnPriceEchoKey(b.productId, b.variantId), b.price);
+    try {
+      await tn.updateVariantsStockPrice(access_token, store_id, chunk.map((b) => ({
+        productId: b.productId, variantId: b.variantId, price: b.price,
+      })));
+    } catch (e) {
+      for (const b of chunk) forgetPriceWrite(tnPriceEchoKey(b.productId, b.variantId));
+      console.error('[Pricing] bulk TN falló (tanda %d-%d): %s', i + 1, i + chunk.length, e.message);
+      chunk.forEach((_, j) => { outcomes[i + j] = { ok: false, reason: `bulk TN falló: ${e.message}` }; });
+      continue;
+    }
+    // Aplicado en TN: parchamos el snapshot por variante para que quede al día. La foto ya
+    // puede estar al día por el webhook; el historial usa el valor previo leído arriba, no lo
+    // que devuelva este parche.
+    for (let j = 0; j < chunk.length; j++) {
+      const b = chunk[j];
+      outcomes[i + j] = { ok: true };
+      await patchTnPrice(b.productId, b.variantId, b.price).catch((e) => console.error('[Pricing] patchTnPrice:', e.message));
+      const prev = before[i + j];
+      // Sin fila en la foto no hay "antes", pero el SKU lo conocemos: el "a cuánto quedó" ya es
+      // información útil (insertPriceAudit admite priceBefore null). Sin cambio, no se registra.
+      if (prev && prev.price === b.price) continue;
+      await insertPriceAudit({
+        sku: b.sku,
+        channel: 'tiendanube',
+        priceBefore: prev ? prev.price : null,
+        priceAfter: b.price,
+        source: 'bulk',
+        productLabel: b.label ?? null,
+      }).catch((e) => console.error('[Pricing] insertPriceAudit:', e.message));
+    }
+  }
+  return outcomes;
+}
+
+/** Aplicaciones masivas, más recientes primero (página "Aplicaciones" de Precios). */
+export async function listApplyRuns(limit = 20, offset = 0) {
+  return listPriceApplyRuns(limit, offset);
+}
+
+/** Detalle de una aplicación: una fila por SKU y canal con su estado. */
+export async function getApplyRunItems(runId) {
+  return getPriceApplyItems(runId);
+}
+
+/**
+ * Reintenta lo que falló de una aplicación (o solo `itemIds`), con el MISMO precio que se mandó esa
+ * vez. ML: reactiva su tarea (misma clave → la cola la vuelve a `pending` con los intentos en 0).
+ * TN: vuelve a mandar esas variantes en bulk. Las omitidas (sin costo, sin mapeo) no se reintentan:
+ * hay que corregir el dato y aplicar de nuevo desde la planilla.
+ */
+export async function retryApplyRun(runId, itemIds = null) {
+  const wanted = itemIds ? new Set(itemIds.map(Number)) : null;
+  const items = (await getPriceApplyItems(runId))
+    .filter((it) => it.status === 'failed' && (!wanted || wanted.has(Number(it.id))));
+  let retriedMl = 0;
+  let appliedTn = 0;
+  let failedTn = 0;
+
+  for (const it of items.filter((x) => x.channel === 'ml')) {
+    if (!it.itemId || !(it.price > 0)) continue;
+    const taskId = await enqueueMlPrice(it.sku, it.itemId, it.variationId ?? null, it.price);
+    if (taskId == null) continue;
+    await updatePriceApplyItem(it.id, { status: 'queued', reason: null, mlTaskId: taskId });
+    retriedMl++;
+  }
+
+  const tnItems = items.filter((x) => x.channel === 'tn' && x.tnProductId && x.tnVariantId && x.price > 0);
+  if (tnItems.length > 0) {
+    const outcomes = await applyTnPrices(tnItems.map((it) => ({
+      productId: it.tnProductId, variantId: it.tnVariantId, price: it.price, sku: it.sku, label: it.productLabel,
+    })));
+    for (let i = 0; i < tnItems.length; i++) {
+      const o = outcomes[i];
+      await updatePriceApplyItem(tnItems[i].id, { status: o.ok ? 'ok' : 'failed', reason: o.ok ? null : o.reason });
+      if (o.ok) appliedTn++; else failedTn++;
+    }
+    _resetCatalogCache();
+  }
+
+  return { retriedMl, appliedTn, failedTn };
 }
 
 // ── Importación de listas y mapeo (fase 4) ────────────────────────────────────

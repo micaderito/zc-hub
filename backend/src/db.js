@@ -307,6 +307,38 @@ export async function initDb() {
       );
     `);
 
+    // Cada "Aplicar a ML y TN" de Precios queda registrado: qué se mandó a cada canal y cómo
+    // terminó, para poder verlo después y reintentar lo que falló. El estado de ML se lee en vivo
+    // de su tarea en ml_pending_tasks (ml_task_id); el de TN se guarda acá porque TN se escribe en
+    // el momento. `channel` corto ('ml'|'tn'), como price_overrides.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_apply_runs (
+        id SERIAL PRIMARY KEY,
+        created_by VARCHAR(128),
+        total INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS price_apply_items (
+        id SERIAL PRIMARY KEY,
+        run_id INTEGER NOT NULL REFERENCES price_apply_runs(id) ON DELETE CASCADE,
+        sku VARCHAR(128) NOT NULL,
+        channel VARCHAR(8) NOT NULL,
+        status VARCHAR(16) NOT NULL,
+        price NUMERIC(15,2),
+        reason TEXT,
+        product_label VARCHAR(512),
+        ml_task_id INTEGER,
+        item_id VARCHAR(64),
+        variation_id VARCHAR(64),
+        tn_product_id VARCHAR(64),
+        tn_variant_id VARCHAR(64),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_price_apply_items_run ON price_apply_items (run_id);`);
+
     // ── Listas del proveedor y mapeo (fase 4) ──────────────────────────────────
     // Catálogo de códigos del proveedor. Vive aparte de las listas importadas para que el mapeo
     // SKU↔código sobreviva a cada importación nueva: cuando entra la lista de marzo, los códigos
@@ -2084,6 +2116,169 @@ export async function getPriceHistoryBySku(sku, limit = 50, offset = 0) {
   } catch (e) {
     console.error('getPriceHistoryBySku:', e.message);
     return { rows: [], total: 0 };
+  }
+}
+
+// ── Aplicaciones masivas de precios (price_apply_runs / price_apply_items) ─────
+
+/**
+ * Estado efectivo de una fila: TN guarda el suyo; ML queda 'queued' y se resuelve con su tarea de
+ * la cola — 'ok' cuando terminó, 'retrying' mientras la cola la sigue reintentando sola y 'failed'
+ * recién cuando agotó los intentos (los mismos 5 que mira claimNextMlTask).
+ */
+const APPLY_ITEM_STATUS_SQL = `
+  CASE
+    WHEN i.channel = 'ml' AND i.status = 'queued' THEN
+      CASE
+        WHEN t.status = 'done' THEN 'ok'
+        WHEN t.status = 'failed' AND t.attempts >= 5 THEN 'failed'
+        WHEN t.status = 'failed' THEN 'retrying'
+        WHEN t.status = 'processing' AND t.attempts >= 5 THEN 'failed'
+        ELSE 'queued'
+      END
+    ELSE i.status
+  END`;
+
+/**
+ * Registra un "Aplicar" con una fila por SKU y canal. items: [{ sku, channel: 'ml'|'tn', status:
+ * 'queued'|'ok'|'failed'|'skipped', price, reason, productLabel, mlTaskId, itemId, variationId,
+ * tnProductId, tnVariantId }]. Devuelve el id del registro (null sin base o si falla).
+ */
+export async function recordPriceApplyRun({ createdBy = null, total = 0, items = [] }) {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      'INSERT INTO price_apply_runs (created_by, total) VALUES ($1, $2) RETURNING id',
+      [createdBy, total]
+    );
+    const runId = r.rows[0].id;
+    const COLS = 12;
+    for (let i = 0; i < items.length; i += 200) {
+      const chunk = items.slice(i, i + 200);
+      const values = [];
+      const params = [];
+      chunk.forEach((it, j) => {
+        const b = j * COLS;
+        values.push(`(${Array.from({ length: COLS }, (_, k) => `$${b + k + 1}`).join(', ')})`);
+        params.push(
+          runId, it.sku, it.channel, it.status, it.price ?? null, it.reason ?? null,
+          it.productLabel ?? null, it.mlTaskId ?? null,
+          it.itemId != null ? String(it.itemId) : null, it.variationId != null ? String(it.variationId) : null,
+          it.tnProductId != null ? String(it.tnProductId) : null, it.tnVariantId != null ? String(it.tnVariantId) : null,
+        );
+      });
+      await client.query(
+        `INSERT INTO price_apply_items (run_id, sku, channel, status, price, reason, product_label,
+                                        ml_task_id, item_id, variation_id, tn_product_id, tn_variant_id)
+         VALUES ${values.join(', ')}`,
+        params
+      );
+    }
+    await client.query('COMMIT');
+    return runId;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('recordPriceApplyRun:', e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Aplicaciones, más reciente primero, con los conteos por canal y estado efectivo. */
+export async function listPriceApplyRuns(limit = 20, offset = 0) {
+  const p = getPool();
+  if (!p) return { runs: [], total: 0 };
+  try {
+    const countResult = await p.query('SELECT COUNT(*)::int AS total FROM price_apply_runs');
+    const r = await p.query(
+      `WITH page AS (
+         SELECT id, created_by, total, created_at FROM price_apply_runs
+         ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2
+       ),
+       eff AS (
+         SELECT i.run_id, i.channel, ${APPLY_ITEM_STATUS_SQL} AS status
+         FROM price_apply_items i
+         LEFT JOIN ml_pending_tasks t ON t.id = i.ml_task_id
+         WHERE i.run_id IN (SELECT id FROM page)
+       )
+       SELECT page.id, page.created_by AS "createdBy", page.total, page.created_at AS "createdAt",
+              COALESCE((SELECT json_agg(json_build_object('channel', channel, 'status', status, 'n', n))
+                        FROM (SELECT channel, status, COUNT(*)::int AS n FROM eff
+                              WHERE eff.run_id = page.id GROUP BY channel, status) c), '[]') AS counts
+       FROM page ORDER BY page.created_at DESC, page.id DESC`,
+      [Math.min(limit, 100), offset]
+    );
+    return {
+      runs: r.rows.map((row) => {
+        const counts = { ml: {}, tn: {} };
+        for (const c of row.counts || []) {
+          if (!counts[c.channel]) continue;
+          counts[c.channel][c.status] = c.n;
+        }
+        return {
+          id: row.id,
+          createdBy: row.createdBy,
+          total: row.total,
+          createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+          counts,
+        };
+      }),
+      total: countResult.rows[0]?.total ?? 0,
+    };
+  } catch (e) {
+    console.error('listPriceApplyRuns:', e.message);
+    return { runs: [], total: 0 };
+  }
+}
+
+/** Filas de una aplicación con su estado efectivo (ML resuelto contra su tarea de la cola). */
+export async function getPriceApplyItems(runId) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(
+      `SELECT i.id, i.sku, i.channel, ${APPLY_ITEM_STATUS_SQL} AS status, i.price,
+              CASE WHEN i.channel = 'ml' AND i.status = 'queued' THEN t.last_error ELSE i.reason END AS reason,
+              i.product_label AS "productLabel", i.ml_task_id AS "mlTaskId", t.attempts AS "mlAttempts",
+              i.item_id AS "itemId", i.variation_id AS "variationId",
+              i.tn_product_id AS "tnProductId", i.tn_variant_id AS "tnVariantId",
+              COALESCE(t.updated_at, i.updated_at) AS "updatedAt"
+       FROM price_apply_items i
+       LEFT JOIN ml_pending_tasks t ON t.id = i.ml_task_id
+       WHERE i.run_id = $1
+       ORDER BY i.sku, i.channel`,
+      [runId]
+    );
+    return r.rows.map((row) => ({
+      ...row,
+      price: row.price == null ? null : Number(row.price),
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+    }));
+  } catch (e) {
+    console.error('getPriceApplyItems:', e.message);
+    return [];
+  }
+}
+
+/** Actualiza una fila tras reintentarla (TN: resultado del bulk; ML: la tarea nueva o reactivada). */
+export async function updatePriceApplyItem(id, { status, reason = null, mlTaskId }) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(
+      `UPDATE price_apply_items
+       SET status = $2, reason = $3, ml_task_id = COALESCE($4, ml_task_id), updated_at = NOW()
+       WHERE id = $1`,
+      [id, status, reason, mlTaskId ?? null]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('updatePriceApplyItem:', e.message);
+    return false;
   }
 }
 

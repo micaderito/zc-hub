@@ -1,0 +1,99 @@
+<p class="ap-intro">
+  Cada vez que tocás <b>Aplicar a ML y TN</b> queda acá. ML se aplica por la cola: si ML está saturado
+  la cola reintenta sola (hasta 5 veces); lo que igual falla, o lo que falló en TN, se reintenta desde acá
+  con el mismo precio de esa vez.
+</p>
+
+@if (notice()) {
+  <div class="ap-notice"><i class="ti ti-circle-check"></i> {{ notice() }}</div>
+}
+@if (errorMsg()) {
+  <div class="pr-error">{{ errorMsg() }}</div>
+}
+
+@if (runsQuery.isLoading()) {
+  <p class="pr-msg">Cargando…</p>
+} @else if (runsQuery.isError()) {
+  <p class="pr-msg err">No se pudo cargar el historial de aplicaciones.</p>
+} @else if (runs().length === 0) {
+  <div class="pr-empty">Todavía no se aplicó ningún precio desde acá.</div>
+} @else {
+  <ul class="ap-list">
+    @for (run of runs(); track run.id) {
+      <li class="ap-run" [class.open]="expanded() === run.id">
+        <div class="ap-head">
+          <button type="button" class="ap-toggle" (click)="toggle(run)" [attr.aria-expanded]="expanded() === run.id">
+            <i class="ti" [class.ti-chevron-down]="expanded() === run.id" [class.ti-chevron-right]="expanded() !== run.id"></i>
+            <span class="ap-when">{{ run.createdAt | date: 'dd/MM/yy HH:mm' }}</span>
+            <span class="ap-meta">{{ run.total }} producto{{ run.total === 1 ? '' : 's' }}@if (run.createdBy) { · {{ run.createdBy }} }</span>
+          </button>
+
+          <div class="ap-channels">
+            @for (ch of ['ml', 'tn']; track ch) {
+              @let c = ch === 'ml' ? run.counts.ml : run.counts.tn;
+              @if (channelTotal(c) > 0) {
+                <span class="ap-channel">
+                  <span class="badge" [class.ml]="ch === 'ml'" [class.tn]="ch === 'tn'">{{ ch === 'ml' ? 'ML' : 'TN' }}</span>
+                  @if (count(c, 'ok')) { <span class="st ok">{{ count(c, 'ok') }} aplicados</span> }
+                  @if (count(c, 'queued')) { <span class="st queued">{{ count(c, 'queued') }} en cola</span> }
+                  @if (count(c, 'retrying')) { <span class="st retrying">{{ count(c, 'retrying') }} reintentando</span> }
+                  @if (count(c, 'failed')) { <span class="st failed">{{ count(c, 'failed') }} fallaron</span> }
+                  @if (count(c, 'skipped')) { <span class="st skipped">{{ count(c, 'skipped') }} omitidos</span> }
+                </span>
+              }
+            }
+          </div>
+
+          @if (failedCount(run) > 0) {
+            <button type="button" class="btn btn-s" [disabled]="retrying() === run.id" (click)="retry(run)">
+              <i class="ti ti-refresh"></i> {{ retrying() === run.id ? 'Reintentando…' : 'Reintentar fallidos (' + failedCount(run) + ')' }}
+            </button>
+          }
+        </div>
+
+        @if (expanded() === run.id) {
+          <div class="ap-detail">
+            <label class="ap-filter">
+              <input type="checkbox" [checked]="onlyProblems()" (change)="onlyProblems.set(!onlyProblems())" />
+              Solo con problemas
+            </label>
+            @if (itemsQuery.isLoading()) {
+              <p class="pr-msg">Cargando…</p>
+            } @else if (items().length === 0) {
+              <p class="pr-msg">{{ allItemsCount() > 0 ? 'Sin problemas: todo se aplicó o sigue en la cola.' : 'Sin filas.' }}</p>
+            } @else {
+              <div class="ap-table-wrap">
+                <table class="ap-table">
+                  <thead>
+                    <tr><th>SKU</th><th>Producto</th><th>Canal</th><th class="num">Precio</th><th>Estado</th><th>Motivo</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    @for (it of items(); track it.id) {
+                      <tr>
+                        <td class="sku">{{ it.sku }}</td>
+                        <td class="muted">{{ it.productLabel || '—' }}</td>
+                        <td><span class="badge" [class.ml]="it.channel === 'ml'" [class.tn]="it.channel === 'tn'">{{ it.channel === 'ml' ? 'ML' : 'TN' }}</span></td>
+                        <td class="num">{{ it.price != null ? (it.price | currency: 'ARS':'symbol':'1.0-0') : '—' }}</td>
+                        <td>
+                          <span [class]="'st ' + it.status">{{ statusLabel[it.status] }}</span>
+                          @if (it.status === 'retrying' && it.mlAttempts) { <span class="muted"> · intento {{ it.mlAttempts }} de 5</span> }
+                        </td>
+                        <td class="ap-reason">{{ it.reason || '' }}</td>
+                        <td>
+                          @if (it.status === 'failed') {
+                            <button type="button" class="link" [disabled]="retrying() === run.id" (click)="retry(run, [it.id])">Reintentar</button>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        }
+      </li>
+    }
+  </ul>
+  <zc-pagination [currentPage]="page()" [totalPages]="totalPages()" [total]="total()" (prev)="prevPage()" (next)="nextPage()" />
+}

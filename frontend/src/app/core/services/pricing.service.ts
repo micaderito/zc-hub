@@ -426,11 +426,50 @@ export interface ImportedList {
 }
 
 export interface ApplyResult {
+  /** Id del registro en "Aplicaciones" (null si no se pudo guardar). */
+  runId: number | null;
   total: number;
   enqueuedMl: number;
   appliedTn: number;
   failed: number;
   results: Array<{ sku: string; channel?: 'ml' | 'tn'; ok: boolean; reason?: string; taskId?: number; price?: number }>;
+}
+
+/**
+ * Estado de una fila de una aplicación. ML: `queued` (en la cola), `retrying` (la cola la está
+ * reintentando sola), `ok`, `failed` (agotó los intentos). TN: `ok` / `failed`. `skipped` = no se
+ * mandó (sin costo, sin publicación mapeada): se corrige el dato y se aplica de nuevo.
+ */
+export type ApplyItemStatus = 'queued' | 'retrying' | 'ok' | 'failed' | 'skipped';
+
+export type ApplyChannelCounts = Partial<Record<ApplyItemStatus, number>>;
+
+export interface ApplyRun {
+  id: number;
+  createdBy: string | null;
+  total: number;
+  createdAt: string | null;
+  counts: { ml: ApplyChannelCounts; tn: ApplyChannelCounts };
+}
+
+export interface ApplyRunItem {
+  id: number;
+  sku: string;
+  channel: 'ml' | 'tn';
+  status: ApplyItemStatus;
+  price: number | null;
+  reason: string | null;
+  productLabel: string | null;
+  mlTaskId: number | null;
+  mlAttempts: number | null;
+  itemId: string | null;
+  updatedAt: string | null;
+}
+
+export interface ApplyRetryResult {
+  retriedMl: number;
+  appliedTn: number;
+  failedTn: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -468,6 +507,22 @@ export class PricingService {
 
   apply(skus: string[], channels: { ml: boolean; tn: boolean } = { ml: true, tn: true }) {
     return this.http.post<ApplyResult>(`${this.api.baseUrl}/pricing/apply`, { skus, channels });
+  }
+
+  /** Historial de aplicaciones masivas ("Aplicar a ML y TN"), más recientes primero. */
+  listApplyRuns(limit = 20, offset = 0) {
+    return this.http.get<{ runs: ApplyRun[]; total: number }>(`${this.api.baseUrl}/pricing/apply-runs`, {
+      params: { limit: String(limit), offset: String(offset) },
+    });
+  }
+
+  getApplyRun(id: number) {
+    return this.http.get<{ items: ApplyRunItem[] }>(`${this.api.baseUrl}/pricing/apply-runs/${id}`);
+  }
+
+  /** Reintenta lo que falló de una aplicación (o solo esas filas). */
+  retryApplyRun(id: number, itemIds?: number[]) {
+    return this.http.post<ApplyRetryResult>(`${this.api.baseUrl}/pricing/apply-runs/${id}/retry`, itemIds ? { itemIds } : {});
   }
 
   /** Preview de una importación: parsea y sugiere mapeos, sin guardar nada. */

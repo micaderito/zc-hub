@@ -6,7 +6,13 @@ import { DiscountProfile, PreviewRow, PricingConfig, PricingService, Supplier, U
 import { TabDef } from '../../shared/components/tabs/tabs.component';
 import { ALL_SUPPLIERS } from './precios.utils';
 
-export type PreciosView = 'precios' | 'mapeo';
+export type PreciosView = 'precios' | 'mapeo' | 'aplicaciones';
+
+const VIEWS: PreciosView[] = ['precios', 'mapeo', 'aplicaciones'];
+
+function toView(key: string | null): PreciosView {
+  return VIEWS.includes(key as PreciosView) ? (key as PreciosView) : 'precios';
+}
 
 /**
  * Costo nuevo abierto desde Mapeo con el proveedor: los SKUs a los que se le carga (un pack con
@@ -103,13 +109,13 @@ export class PreciosStore {
     this.navigate({ proveedor: key === ALL_SUPPLIERS ? null : key });
   }
 
-  // ── Vista: planilla / mapeo con el proveedor (?tab=mapeo) ──
-  readonly view = signal<PreciosView>(this.route.snapshot.queryParamMap.get('tab') === 'mapeo' ? 'mapeo' : 'precios');
+  // ── Vista: planilla / mapeo con el proveedor / aplicaciones (?tab=mapeo|aplicaciones) ──
+  readonly view = signal<PreciosView>(toView(this.route.snapshot.queryParamMap.get('tab')));
 
   setView(key: string): void {
-    const view: PreciosView = key === 'mapeo' ? 'mapeo' : 'precios';
+    const view = toView(key);
     this.view.set(view);
-    this.navigate({ tab: view === 'mapeo' ? 'mapeo' : null });
+    this.navigate({ tab: view === 'precios' ? null : view });
   }
 
   private navigate(queryParams: Record<string, string | null>): void {
