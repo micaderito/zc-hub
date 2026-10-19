@@ -15,7 +15,9 @@ const dbState = {
   enqueued: [],       // tareas price_ml encoladas
 };
 const storeState = { mlBySku: {}, tnBySku: {}, tnTokens: { access_token: 'tn-tok', store_id: '55' } };
-const tnState = { bulkCalls: [], bulkError: null };
+const tnState = { bulkCalls: [], bulkError: null, failCalls: new Set() };
+// registro de aplicaciones (price_apply_runs/items) y lo que se actualizó al reintentar.
+const runState = { runs: [], items: [], updates: [] };
 // readTnSnapshotRow devuelve la fila previa del snapshot (null = ausente); se lee ANTES del
 // bulk, no después — patchTnPrice ahora solo mantiene la foto al día, su valor de retorno
 // ya no se usa para el historial (ver pricingService.js / conflictsService.js).
@@ -60,6 +62,10 @@ before(async () => {
       },
       deleteProductCost: async () => true,
       enqueueMlTask: async (task) => { dbState.enqueued.push(task); return dbState.enqueued.length; },
+      recordPriceApplyRun: async (run) => { runState.runs.push(run); return runState.runs.length; },
+      listPriceApplyRuns: async () => ({ runs: [], total: 0 }),
+      getPriceApplyItems: async () => runState.items,
+      updatePriceApplyItem: async (id, patch) => { runState.updates.push({ id, ...patch }); return true; },
       insertPriceAudit: async (row) => { auditState.priceRows.push(row); return true; },
       getPriceHistoryBySku: async () => ({ rows: [], total: 0 }),
       // fase 4: listas y mapeo
@@ -198,6 +204,8 @@ before(async () => {
     exports: {
       updateVariantsStockPrice: async (_t, _s, updates) => {
         if (tnState.bulkError) throw tnState.bulkError;
+        tnState.calls = (tnState.calls ?? 0) + 1;
+        if (tnState.failCalls.has(tnState.calls)) throw new Error('429 agotado');
         tnState.bulkCalls.push(updates);
         return true;
       },
@@ -226,6 +234,11 @@ beforeEach(() => {
   storeState.access_token = undefined;
   tnState.bulkCalls = [];
   tnState.bulkError = null;
+  tnState.failCalls = new Set();
+  tnState.calls = 0;
+  runState.runs = [];
+  runState.items = [];
+  runState.updates = [];
   patchState.tnSnapshotRow = null;
   patchState.readCalls = [];
   patchState.calls = [];
@@ -425,6 +438,105 @@ test('enqueueApply: lee el precio previo de TN ANTES del bulk, no después', asy
 
   assert.equal(patchState.readCalls.length, 1, 'debe leer el snapshot antes de mandar el bulk');
   assert.equal(tnState.bulkCalls.length, 1, 'el bulk se manda una vez confirmado el valor previo');
+});
+
+// ── tandas de TN, registro de aplicaciones y reintento ─────────────────────
+
+function seedTn(n, prefix = 'T') {
+  const skus = [];
+  for (let i = 0; i < n; i++) {
+    const sku = `${prefix}${i}`;
+    dbState.costs[sku] = { sku, source: 'manual', unitCost: 1000, label: `Prod ${sku}` };
+    storeState.tnBySku[sku] = { productId: 1000 + i, variantId: 2000 + i };
+    skus.push(sku);
+  }
+  return skus;
+}
+
+test('enqueueApply: TN va en tandas de 50 y una tanda caída no tumba a las demás', async () => {
+  const skus = seedTn(120);
+  patchState.tnSnapshotRow = { price: 1, sku: 'x' };
+  tnState.failCalls = new Set([2]); // falla la 2.ª tanda (SKUs 50-99)
+
+  const res = await svc.enqueueApply(skus, { ml: false, tn: true });
+
+  assert.equal(tnState.bulkCalls.length, 2, 'se mandaron la 1.ª y la 3.ª tanda');
+  assert.deepEqual(tnState.bulkCalls.map((c) => c.length), [50, 20]);
+  assert.equal(res.appliedTn, 70);
+  assert.equal(res.failed, 50);
+  const failed = res.results.filter((r) => !r.ok).map((r) => r.sku);
+  assert.deepEqual(failed, skus.slice(50, 100));
+  assert.match(res.results.find((r) => !r.ok).reason, /bulk TN falló: 429 agotado/);
+  // Lo que sí se aplicó queda en el historial y en la foto; lo fallido no.
+  assert.equal(auditState.priceRows.length, 70);
+  assert.equal(patchState.calls.length, 70);
+  assert.ok(!auditState.priceRows.some((r) => skus.slice(50, 100).includes(r.sku)));
+});
+
+test('enqueueApply: registra la aplicación con una fila por SKU y canal', async () => {
+  dbState.costs['R1'] = { sku: 'R1', source: 'manual', unitCost: 1000, label: 'Uno' };
+  storeState.mlBySku['R1'] = { itemId: 'MLA1', variationId: 77 };
+  storeState.tnBySku['R1'] = { productId: 5, variantId: 6 };
+  dbState.costs['R2'] = { sku: 'R2', source: 'manual', unitCost: 1000 };
+
+  const res = await svc.enqueueApply(['R1', 'R2', 'R3'], { ml: true, tn: true }, { createdBy: 'mica' });
+
+  assert.equal(res.runId, 1);
+  const run = runState.runs[0];
+  assert.equal(run.createdBy, 'mica');
+  assert.equal(run.total, 3);
+  const by = (sku, ch) => run.items.find((i) => i.sku === sku && i.channel === ch);
+  assert.equal(by('R1', 'ml').status, 'queued');
+  assert.equal(by('R1', 'ml').mlTaskId, 1);
+  assert.equal(by('R1', 'ml').itemId, 'MLA1');
+  assert.equal(by('R1', 'ml').variationId, 77);
+  assert.equal(by('R1', 'tn').status, 'ok');
+  assert.equal(by('R1', 'tn').tnProductId, 5);
+  assert.equal(by('R2', 'ml').status, 'skipped');
+  assert.match(by('R2', 'ml').reason, /sin ítem de ML/);
+  assert.equal(by('R2', 'tn').status, 'skipped');
+  assert.equal(by('R3', 'ml').reason, 'sin costo cargado');
+  assert.equal(by('R3', 'tn').status, 'skipped');
+});
+
+test('retryApplyRun: reencola ML y reenvía TN con el precio de esa vez, solo lo fallido', async () => {
+  runState.items = [
+    { id: 1, sku: 'A', channel: 'ml', status: 'failed', price: 1500, itemId: 'MLA9', variationId: '3' },
+    { id: 2, sku: 'A', channel: 'tn', status: 'failed', price: 1400, tnProductId: '10', tnVariantId: '20', productLabel: 'A' },
+    { id: 3, sku: 'B', channel: 'tn', status: 'ok', price: 900, tnProductId: '11', tnVariantId: '21' },
+    { id: 4, sku: 'C', channel: 'ml', status: 'skipped', price: 800 },
+    { id: 5, sku: 'D', channel: 'ml', status: 'retrying', price: 700, itemId: 'MLA8' },
+  ];
+
+  const res = await svc.retryApplyRun(7);
+
+  assert.deepEqual(res, { retriedMl: 1, appliedTn: 1, failedTn: 0 });
+  assert.equal(dbState.enqueued.length, 1);
+  assert.equal(dbState.enqueued[0].itemId, 'MLA9');
+  assert.equal(dbState.enqueued[0].targetPrice, 1500);
+  assert.equal(dbState.enqueued[0].idempotencyKey, 'price_ml:MLA9:1500');
+  assert.equal(tnState.bulkCalls.length, 1);
+  assert.deepEqual(tnState.bulkCalls[0], [{ productId: '10', variantId: '20', price: 1400 }]);
+  assert.deepEqual(runState.updates, [
+    { id: 1, status: 'queued', reason: null, mlTaskId: 1 },
+    { id: 2, status: 'ok', reason: null },
+  ]);
+});
+
+test('retryApplyRun: con itemIds solo reintenta esas filas, y un TN que vuelve a fallar queda fallido', async () => {
+  runState.items = [
+    { id: 1, sku: 'A', channel: 'tn', status: 'failed', price: 1400, tnProductId: '10', tnVariantId: '20' },
+    { id: 2, sku: 'B', channel: 'tn', status: 'failed', price: 1300, tnProductId: '11', tnVariantId: '21' },
+  ];
+  tnState.bulkError = new Error('503');
+
+  const res = await svc.retryApplyRun(7, [2]);
+
+  assert.deepEqual(res, { retriedMl: 0, appliedTn: 0, failedTn: 1 });
+  assert.equal(runState.updates.length, 1);
+  assert.equal(runState.updates[0].id, 2);
+  assert.equal(runState.updates[0].status, 'failed');
+  assert.match(runState.updates[0].reason, /bulk TN falló: 503/);
 });
 
 // ── importación de listas y mapeo (fase 4) ─────────────────────────────────

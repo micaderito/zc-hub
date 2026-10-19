@@ -377,3 +377,72 @@ test(
     }
   },
 );
+
+test(
+  'aplicaciones de precios: registro, estado de ML según su tarea y reintento contra Postgres real',
+  { skip: hasDb ? false : 'requiere DATABASE_URL' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined,
+    });
+    assert.equal(await db.initDb(), true);
+    const suffix = Date.now();
+    const taskIds = [];
+    let runId = null;
+    try {
+      // Tres tareas de ML: terminada, reintentándose sola y con los intentos agotados.
+      for (const [status, attempts] of [['done', 0], ['failed', 2], ['failed', 5]]) {
+        const r = await pool.query(
+          `INSERT INTO ml_pending_tasks (kind, item_id, target_price, status, attempts, last_error, idempotency_key)
+           VALUES ('price_ml', 'MLA-T', 100, $1, $2, $3, $4) RETURNING id`,
+          [status, attempts, status === 'failed' ? `error ${attempts}` : null, `t-apply-${suffix}-${status}-${attempts}`]
+        );
+        taskIds.push(r.rows[0].id);
+      }
+      runId = await db.recordPriceApplyRun({
+        createdBy: 'test',
+        total: 4,
+        items: [
+          { sku: `A-${suffix}`, channel: 'ml', status: 'queued', price: 100, mlTaskId: taskIds[0], itemId: 'MLA-T', variationId: 5 },
+          { sku: `B-${suffix}`, channel: 'ml', status: 'queued', price: 100, mlTaskId: taskIds[1], itemId: 'MLA-T' },
+          { sku: `C-${suffix}`, channel: 'ml', status: 'queued', price: 100, mlTaskId: taskIds[2], itemId: 'MLA-T' },
+          { sku: `A-${suffix}`, channel: 'tn', status: 'failed', price: 90, reason: 'bulk TN falló', tnProductId: 1, tnVariantId: 2 },
+          { sku: `D-${suffix}`, channel: 'tn', status: 'skipped', reason: 'sin costo cargado' },
+        ],
+      });
+      assert.ok(runId > 0);
+
+      const items = await db.getPriceApplyItems(runId);
+      const st = (sku, ch) => items.find((i) => i.sku === sku && i.channel === ch);
+      assert.equal(st(`A-${suffix}`, 'ml').status, 'ok');
+      assert.equal(st(`A-${suffix}`, 'ml').variationId, '5');
+      assert.equal(st(`B-${suffix}`, 'ml').status, 'retrying');
+      assert.equal(st(`C-${suffix}`, 'ml').status, 'failed');
+      assert.equal(st(`C-${suffix}`, 'ml').reason, 'error 5', 'el motivo de ML sale del último error de la tarea');
+      assert.equal(st(`A-${suffix}`, 'tn').status, 'failed');
+      assert.equal(st(`A-${suffix}`, 'tn').price, 90);
+      assert.equal(st(`D-${suffix}`, 'tn').status, 'skipped');
+
+      const { runs } = await db.listPriceApplyRuns(50, 0);
+      const mine = runs.find((r) => r.id === runId);
+      assert.equal(mine.createdBy, 'test');
+      assert.deepEqual(mine.counts, { ml: { ok: 1, retrying: 1, failed: 1 }, tn: { failed: 1, skipped: 1 } });
+
+      // Reintento: la fila de TN pasa a ok.
+      const tnRow = st(`A-${suffix}`, 'tn');
+      assert.equal(await db.updatePriceApplyItem(tnRow.id, { status: 'ok', reason: null }), true);
+      const after = (await db.getPriceApplyItems(runId)).find((i) => i.id === tnRow.id);
+      assert.equal(after.status, 'ok');
+      assert.equal(after.reason, null);
+    } finally {
+      if (runId) await pool.query('DELETE FROM price_apply_runs WHERE id = $1', [runId]);
+      if (taskIds.length) await pool.query('DELETE FROM ml_pending_tasks WHERE id = ANY($1)', [taskIds]);
+      const left = runId ? await pool.query('SELECT COUNT(*)::int AS n FROM price_apply_items WHERE run_id = $1', [runId]) : { rows: [{ n: 0 }] };
+      assert.equal(left.rows[0].n, 0, 'borrar la aplicación borra sus filas en cascada');
+      await pool.end();
+    }
+  },
+);

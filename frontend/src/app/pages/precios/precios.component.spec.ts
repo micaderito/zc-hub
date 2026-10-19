@@ -4,11 +4,12 @@ import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
-import { ImportPreview, ImportResult, PreviewRow, PricingService } from '../../core/services/pricing.service';
+import { ApplyRun, ApplyRunItem, ImportPreview, ImportResult, PreviewRow, PricingService } from '../../core/services/pricing.service';
 import { PdfTextService } from '../../core/services/pdf-text.service';
 import { PreciosComponent } from './precios.component';
 import { PreciosStore } from './precios.store';
 import { PreciosPlanillaComponent } from './planilla/precios-planilla.component';
+import { PreciosAplicacionesComponent } from './aplicaciones/precios-aplicaciones.component';
 import { CostFormDialogComponent } from './dialogs/cost-form-dialog.component';
 import { AssignDialogComponent } from './dialogs/assign-dialog.component';
 import { ImportListDialogComponent } from './dialogs/import-list-dialog.component';
@@ -63,6 +64,26 @@ const RESULT: ImportResult = {
   },
 };
 
+const APPLY_RUNS: ApplyRun[] = [
+  { id: 4, createdBy: 'mica', total: 361, createdAt: '2026-10-18T15:00:00.000Z',
+    counts: { ml: { ok: 350, failed: 1, retrying: 2 }, tn: { ok: 359, failed: 2 } } },
+  { id: 3, createdBy: 'mica', total: 5, createdAt: '2026-10-10T15:00:00.000Z', counts: { ml: { ok: 5 }, tn: { ok: 5 } } },
+];
+
+function applyItem(over: Partial<ApplyRunItem>): ApplyRunItem {
+  return {
+    id: 1, sku: '30700', channel: 'ml', status: 'ok', price: 3000, reason: null, productLabel: 'Cuaderno',
+    mlTaskId: 1, mlAttempts: 0, itemId: 'MLA1', updatedAt: null, ...over,
+  };
+}
+
+const APPLY_ITEMS: ApplyRunItem[] = [
+  applyItem({ id: 1 }),
+  applyItem({ id: 2, sku: 'A', status: 'failed', reason: 'HTTP 429' }),
+  applyItem({ id: 3, sku: 'B', channel: 'tn', status: 'failed', reason: 'bulk TN falló: 503', mlTaskId: null }),
+  applyItem({ id: 4, sku: 'C', status: 'retrying', reason: 'HTTP 429', mlAttempts: 2 }),
+];
+
 class PricingMock {
   getConfig = jasmine.createSpy('getConfig').and.returnValue(of({
     settings: { commissionPct: 14, taxes: 0, shippingCost: 0, freeShippingThreshold: 33000, cardMultiplier: 1.1, roundStep: 100, defaultMarginPct: 100, defaultDiscount1: 25, defaultDiscount2: 5 },
@@ -93,6 +114,17 @@ class PricingMock {
   saveCost = jasmine.createSpy('saveCost').and.returnValue(of({}));
   getProductSuppliers = jasmine.createSpy('getProductSuppliers').and.returnValue(of({ suppliers: [], bySku: {}, byPack: {}, packBySku: {} }));
   deleteList = jasmine.createSpy('deleteList').and.returnValue(of({ ok: true }));
+  apply = jasmine.createSpy('apply').and.returnValue(of({
+    runId: 4, total: 2, enqueuedMl: 1, appliedTn: 0, failed: 2,
+    results: [
+      { sku: '30700', channel: 'ml', ok: true, taskId: 1, price: 3000 },
+      { sku: '30700', channel: 'tn', ok: false, reason: 'bulk TN falló: 429' },
+      { sku: 'REP-AZUL', ok: false, reason: 'sin costo cargado' },
+    ],
+  }));
+  listApplyRuns = jasmine.createSpy('listApplyRuns').and.returnValue(of({ runs: APPLY_RUNS, total: 2 }));
+  getApplyRun = jasmine.createSpy('getApplyRun').and.returnValue(of({ items: APPLY_ITEMS }));
+  retryApplyRun = jasmine.createSpy('retryApplyRun').and.returnValue(of({ retriedMl: 1, appliedTn: 1, failedTn: 0 }));
 }
 
 describe('PreciosComponent', () => {
@@ -484,5 +516,71 @@ describe('PreciosComponent', () => {
     expect(pricing.deleteList).toHaveBeenCalledWith(3);
     expect(dlg.confirmDeleteId()).toBeNull();
     expect(dlg.deleteError()).toBeNull();
+  });
+
+  // ── Aplicar: detalle de lo que no se aplicó ──
+
+  it('al aplicar muestra qué SKU no se aplicó, en qué canal y por qué', async () => {
+    await render();
+    const p = planilla();
+    p.selected.set(new Set(['30700', 'REP-ROJO']));
+    await p.apply();
+    fixture.detectChanges();
+
+    expect(store().notice()).toBe('1 en cola para ML · 0 aplicados en TN · 2 con problemas');
+    const panel = (fixture.nativeElement as HTMLElement).querySelector('.pr-apply-failures')!;
+    expect(panel.textContent).toContain('2 cambios no se aplicaron');
+    expect(panel.textContent).toContain('bulk TN falló: 429');
+    expect(panel.textContent).toContain('sin costo cargado');
+    expect(panel.textContent).toContain('ML y TN');
+
+    (Array.from(panel.querySelectorAll('button')).find((b) => b.textContent?.includes('Ver en Aplicaciones')) as HTMLButtonElement).click();
+    expect(store().view()).toBe('aplicaciones');
+  });
+
+  // ── Aplicaciones ──
+
+  async function openAplicaciones(): Promise<PreciosAplicacionesComponent> {
+    await render();
+    store().setView('aplicaciones');
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    return child(PreciosAplicacionesComponent);
+  }
+
+  it('Aplicaciones lista cada aplicación con el estado por canal', async () => {
+    await openAplicaciones();
+    expect(pricing.listApplyRuns).toHaveBeenCalledWith(20, 0);
+    expect(text()).toContain('361 productos');
+    expect(text()).toContain('350 aplicados');
+    expect(text()).toContain('2 reintentando');
+    expect(text()).toContain('Reintentar fallidos (3)');
+  });
+
+  it('al abrir una aplicación muestra solo lo que tuvo problemas, con el motivo', async () => {
+    const ap = await openAplicaciones();
+    ap.toggle(APPLY_RUNS[0]);
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+
+    expect(pricing.getApplyRun).toHaveBeenCalledWith(4);
+    expect(ap.items().map((i) => i.id)).toEqual([2, 3, 4]);
+    expect(text()).toContain('bulk TN falló: 503');
+    expect(text()).toContain('intento 2 de 5');
+
+    ap.onlyProblems.set(false);
+    expect(ap.items().length).toBe(4);
+  });
+
+  it('reintenta todo lo fallido de una aplicación, o una sola fila', async () => {
+    const ap = await openAplicaciones();
+    await ap.retry(APPLY_RUNS[0]);
+    expect(pricing.retryApplyRun).toHaveBeenCalledWith(4, undefined);
+    expect(ap.notice()).toBe('1 vuelven a la cola de ML · 1 aplicados en TN');
+
+    await ap.retry(APPLY_RUNS[0], [3]);
+    expect(pricing.retryApplyRun).toHaveBeenCalledWith(4, [3]);
   });
 });

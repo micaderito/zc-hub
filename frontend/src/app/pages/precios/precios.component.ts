@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, ViewEncapsulation, inject } from '@
 import { TabDef, TabsComponent } from '../../shared/components/tabs/tabs.component';
 import { MapeoProveedorComponent } from './mapeo/mapeo-proveedor.component';
 import { PreciosPlanillaComponent } from './planilla/precios-planilla.component';
+import { PreciosAplicacionesComponent } from './aplicaciones/precios-aplicaciones.component';
 import { SupplierPanelComponent } from './proveedor/supplier-panel.component';
 import { PricingSettingsDialogComponent } from './dialogs/pricing-settings-dialog.component';
 import { ImportListDialogComponent } from './dialogs/import-list-dialog.component';
@@ -29,7 +30,7 @@ import { PreciosStore } from './precios.store';
   encapsulation: ViewEncapsulation.None,
   providers: [PreciosStore],
   imports: [
-    TabsComponent, MapeoProveedorComponent, PreciosPlanillaComponent, SupplierPanelComponent,
+    TabsComponent, MapeoProveedorComponent, PreciosPlanillaComponent, PreciosAplicacionesComponent, SupplierPanelComponent,
     PricingSettingsDialogComponent, ImportListDialogComponent, CostFormDialogComponent,
     PriceListsDialogComponent, SupplierFormDialogComponent, ProfileFormDialogComponent,
   ],
@@ -42,6 +43,7 @@ export class PreciosComponent {
   readonly viewTabs: TabDef[] = [
     { key: 'precios', label: 'Planilla' },
     { key: 'mapeo', label: 'Mapeo con el proveedor' },
+    { key: 'aplicaciones', label: 'Aplicaciones' },
   ];
 
   /** Lo que cambió desde la pestaña de mapeo (código asignado a mano) se resalta en la planilla. */
