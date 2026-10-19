@@ -112,6 +112,7 @@ class PricingMock {
     { id: 3, label: 'LISTA BE POSITIVE', sourceFilename: null, discount1: 0, discount2: 0, importedAt: null, itemCount: 46 },
   ] }));
   saveCost = jasmine.createSpy('saveCost').and.returnValue(of({}));
+  saveOverrides = jasmine.createSpy('saveOverrides').and.returnValue(of({ ok: true, saved: 2 }));
   getProductSuppliers = jasmine.createSpy('getProductSuppliers').and.returnValue(of({ suppliers: [], bySku: {}, byPack: {}, packBySku: {} }));
   deleteList = jasmine.createSpy('deleteList').and.returnValue(of({ ok: true }));
   apply = jasmine.createSpy('apply').and.returnValue(of({
@@ -264,6 +265,39 @@ describe('PreciosComponent', () => {
     const tn = fixture.nativeElement.querySelector('tr.group-row td.tn .trend') as HTMLElement;
     expect(tn.classList).toContain('down');
     expect(tn.textContent).toContain('−16,7%');
+  });
+
+  it('el precio de la línea del pack se aplica a todos sus modelos (sin ajuste donde ya es el calculado)', async () => {
+    await render();
+    const p = planilla();
+    const g = p.priceGroups().groups[0];
+    // Los dos calculan ML 3000, pero REP-AZUL está ajustado a 3100 → vacío con el rango de placeholder.
+    expect(p.packPriceValue(g.ml)).toBeNull();
+    expect(p.packPriceValue(g.tn)).toBe(2500);
+
+    await p.updatePackPrice(g, 'ml', 3200);
+    expect(pricing.saveOverrides).toHaveBeenCalledWith('ml', [
+      { sku: 'REP-ROJO', value: 3200 },
+      { sku: 'REP-AZUL', value: 3200 },
+    ]);
+
+    // Volver al calculado no deja ajuste (el de REP-AZUL se saca).
+    await p.updatePackPrice(g, 'ml', 3000);
+    expect(pricing.saveOverrides).toHaveBeenCalledWith('ml', [
+      { sku: 'REP-ROJO', value: null },
+      { sku: 'REP-AZUL', value: null },
+    ]);
+
+    // Vacío: saca los ajustes de todo el pack.
+    await p.updatePackPrice(g, 'tn', '');
+    expect(pricing.saveOverrides).toHaveBeenCalledWith('tn', [
+      { sku: 'REP-ROJO', value: null },
+      { sku: 'REP-AZUL', value: null },
+    ]);
+
+    pricing.saveOverrides.calls.reset();
+    await p.updatePackPrice(g, 'tn', -5);
+    expect(pricing.saveOverrides).not.toHaveBeenCalled();
   });
 
   it('lo que ya está en la cola de ML no cuenta como pendiente', async () => {

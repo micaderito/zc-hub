@@ -149,12 +149,34 @@
               </button>
             </td>
             <td class="num tn group-price">
-              {{ group.tn.min | currency:'ARS':'symbol':'1.0-0' }}@if (group.tn.max !== group.tn.min) { – {{ group.tn.max | currency:'ARS':'symbol':'1.0-0' }} }
-              <ng-container *ngTemplateOutlet="trendTpl; context: { $implicit: group.tnTrend }" />
+              <div class="price-cell">
+                <input
+                  class="zc-input price-input"
+                  type="number"
+                  [ngModel]="packPriceValue(group.tn)"
+                  [placeholder]="(group.tn.min | currency:'ARS':'symbol':'1.0-0') + ' – ' + (group.tn.max | currency:'ARS':'symbol':'1.0-0')"
+                  [ngModelOptions]="{ updateOn: 'blur' }"
+                  (ngModelChange)="updatePackPrice(group, 'tn', $event)"
+                  [attr.aria-label]="'Precio de Tienda Nube para todo el pack ' + group.pack.name"
+                  title="El mismo precio para todos los modelos del pack (vacío = vuelve cada uno a su calculado)"
+                />
+                <ng-container *ngTemplateOutlet="trendTpl; context: { $implicit: group.tnTrend }" />
+              </div>
             </td>
             <td class="num ml group-price">
-              {{ group.ml.min | currency:'ARS':'symbol':'1.0-0' }}@if (group.ml.max !== group.ml.min) { – {{ group.ml.max | currency:'ARS':'symbol':'1.0-0' }} }
-              <ng-container *ngTemplateOutlet="trendTpl; context: { $implicit: group.mlTrend }" />
+              <div class="price-cell">
+                <input
+                  class="zc-input price-input"
+                  type="number"
+                  [ngModel]="packPriceValue(group.ml)"
+                  [placeholder]="(group.ml.min | currency:'ARS':'symbol':'1.0-0') + ' – ' + (group.ml.max | currency:'ARS':'symbol':'1.0-0')"
+                  [ngModelOptions]="{ updateOn: 'blur' }"
+                  (ngModelChange)="updatePackPrice(group, 'ml', $event)"
+                  [attr.aria-label]="'Precio de Mercado Libre para todo el pack ' + group.pack.name"
+                  title="El mismo precio para todos los modelos del pack (vacío = vuelve cada uno a su calculado)"
+                />
+                <ng-container *ngTemplateOutlet="trendTpl; context: { $implicit: group.mlTrend }" />
+              </div>
             </td>
             <td colspan="2"></td>
           </tr>

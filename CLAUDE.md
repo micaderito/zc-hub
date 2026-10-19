@@ -381,7 +381,11 @@ filtro **Solo pendientes** (abre los packs) y **Seleccionar pendientes**. Hasta 
 delta existía pero nunca se mostraba: la ruta no le pasaba los precios actuales a `getPreview`.
 La línea de cada pack (aunque esté plegado) lleva por canal un chip **sube** (verde) / **baja**
 (rojo) / mezcla (ámbar) con el % o el rango de lo pendiente contra lo publicado hoy (`priceTrend` en
-`precios.utils.ts`; lo que está en cola de ML no cuenta). La barra de acciones de la planilla es
+`precios.utils.ts`; lo que está en cola de ML no cuenta). En esa misma línea, TN y ML son inputs:
+un precio ahí es el ajuste de TODOS los modelos del pack (`PUT /api/pricing/override` con
+`items`, `saveOverrides`); en un modelo cuyo calculado ya es ese precio no queda ajuste, y vacío
+saca los ajustes del pack. Con modelos a distinto precio el input va vacío con el rango de
+placeholder. La barra de acciones de la planilla es
 `sticky` dentro del contenido, no `fixed` contra la ventana: así tapaba el pie del menú lateral.
 
 #### Códigos con letras y mapeo automático (2026-10-14)

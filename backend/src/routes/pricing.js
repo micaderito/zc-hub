@@ -89,6 +89,28 @@ pricingRoutes.delete('/cost/:sku', async (req, res) => {
 });
 
 /**
+ * El mismo ajuste de precio para varios SKUs (todo un pack) en un canal.
+ * Body: { channel, items: [{ sku, value }] } — `value: null` saca el ajuste de ese SKU.
+ */
+pricingRoutes.put('/override', async (req, res) => {
+  const channel = req.body?.channel;
+  const raw = req.body?.items;
+  if ((channel !== 'ml' && channel !== 'tn') || !Array.isArray(raw) || raw.length === 0) {
+    return res.status(400).json({ error: "channel ('ml'|'tn') e items requeridos" });
+  }
+  const items = raw.map((i) => ({ sku: String(i?.sku ?? '').trim(), value: i?.value ?? null }));
+  if (items.some((i) => !i.sku || (i.value != null && !(Number(i.value) > 0)))) {
+    return res.status(400).json({ error: 'Cada ítem necesita sku y un precio mayor a 0 (o null)' });
+  }
+  try {
+    const saved = await pricing.saveOverrides(channel, items.map((i) => ({ sku: i.sku, value: i.value == null ? null : Number(i.value) })));
+    res.json({ ok: true, saved });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * Ajuste manual del precio publicado de un SKU en un canal ('ml' o 'tn'). Body: { channel, value }.
  * `value: null` (o ausente) saca el ajuste y el precio vuelve a ser el calculado.
  */

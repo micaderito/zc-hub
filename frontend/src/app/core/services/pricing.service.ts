@@ -651,6 +651,11 @@ export class PricingService {
     );
   }
 
+  /** El mismo ajuste para varios SKUs de un canal (todo un pack). `value: null` saca el de ese SKU. */
+  saveOverrides(channel: 'ml' | 'tn', items: { sku: string; value: number | null }[]) {
+    return this.http.put<{ ok: boolean; saved: number }>(`${this.api.baseUrl}/pricing/override`, { channel, items });
+  }
+
   /** Historial de precios de un producto (ambos canales). */
   getPriceHistoryBySku(sku: string, limit = 50, offset = 0) {
     return this.http.get<PriceHistoryResponse>(
