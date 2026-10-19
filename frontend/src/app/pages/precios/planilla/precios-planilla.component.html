@@ -51,6 +51,33 @@
   <div class="pr-error">{{ errorMsg() }}</div>
 }
 
+<!-- Lo que no se aplicó con el último "Aplicar": qué SKU, en qué canal y por qué -->
+@if (applyFailures().length > 0) {
+  <div class="pr-apply-failures">
+    <div class="paf-head">
+      <i class="ti ti-alert-triangle"></i>
+      <b>{{ applyFailures().length }} {{ applyFailures().length === 1 ? 'cambio no se aplicó' : 'cambios no se aplicaron' }}</b>
+      <span class="spacer"></span>
+      <button type="button" class="link" (click)="store.setView('aplicaciones')">Ver en Aplicaciones</button>
+      <button type="button" class="link" (click)="applyFailures.set([])">ocultar</button>
+    </div>
+    <ul class="paf-list">
+      @for (f of applyFailures(); track f.sku + '|' + f.channel) {
+        <li>
+          <span class="sku">{{ f.sku }}</span>
+          @if (f.channel) {
+            <span class="badge" [class.ml]="f.channel === 'ml'" [class.tn]="f.channel === 'tn'">{{ f.channel === 'ml' ? 'ML' : 'TN' }}</span>
+          } @else {
+            <span class="badge neu">ML y TN</span>
+          }
+          <span class="paf-reason">{{ f.reason }}</span>
+        </li>
+      }
+    </ul>
+    <p class="paf-hint">Lo que falló en TN o al encolar en ML se reintenta desde <b>Aplicaciones</b>. Lo que no tiene costo o publicación asociada hay que corregirlo y volver a aplicar.</p>
+  </div>
+}
+
 <!-- Tabla -->
 @if (store.previewQuery.isLoading()) {
   <p class="pr-msg">Cargando…</p>

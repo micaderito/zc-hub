@@ -425,6 +425,29 @@ lectura vuelve en `autoMapped` y la UI lo avisa.
 ya volcados no se tocan. Las importaciones de Be Positive / Escolar anteriores a este fix tienen
 códigos inventados: hay que borrarlas y volver a importar.
 
+#### Aplicar a ML y TN: tandas de TN, detalle de fallos y pestaña "Aplicaciones" (2026-10-18)
+
+Antes de aplicar 361 productos de una, tres huecos de `enqueueApply` (`pricingService.js`):
+
+- **TN por tanda** (`applyTnPrices`): el bulk va de a 50 variantes y cada tanda es independiente.
+  Antes, si fallaba la 5.ª tanda, las 4 anteriores ya estaban publicadas en TN pero TODO se marcaba
+  fallido, se olvidaban los ecos y no se escribía `price_audit` (el webhook las registraba como
+  "externo"). Ahora lo aplicado se registra y parchea en la foto, y las tandas siguientes se siguen
+  mandando.
+- **Detalle de lo que falló**: la planilla mostraba solo "N con problemas"; ahora lista SKU, canal y
+  motivo (`applyFailures`) con link a Aplicaciones.
+- **Registro de cada "Aplicar"** (`price_apply_runs` + `price_apply_items`, una fila por SKU y canal,
+  con el precio que se mandó y los ids de ML/TN). El estado de ML NO se copia: se resuelve en vivo
+  contra su tarea de `ml_pending_tasks` (`APPLY_ITEM_STATUS_SQL` en `db.js`: `queued` → `retrying`
+  mientras la cola reintenta sola → `ok` / `failed` con 5 intentos, el motivo es su `last_error`).
+  TN guarda el suyo. `skipped` = sin costo / sin publicación mapeada (no se reintenta: se corrige y
+  se vuelve a aplicar). Pestaña **Aplicaciones** de Precios (`?tab=aplicaciones`,
+  `pages/precios/aplicaciones/`, se refresca cada 10 s mientras haya algo en cola) con
+  **Reintentar fallidos** por aplicación o por fila (`POST /api/pricing/apply-runs/:id/retry`,
+  `retryApplyRun`): reintenta con el MISMO precio de esa vez — ML reencola con la misma clave
+  (`price_ml:<item>:<precio>`, la cola la vuelve a `pending` con intentos en 0), TN reenvía el bulk.
+  El registro va al final y en su propio `catch`: si falla, lo aplicado no se ve afectado (sin `runId`).
+
 #### Proveedores y configuraciones de descuento (2026-10-15)
 
 Hasta acá "proveedor" era el string fijo `'punto_cero'` y el descuento venía de la lista importada

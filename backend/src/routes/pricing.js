@@ -250,8 +250,44 @@ pricingRoutes.post('/apply', async (req, res) => {
   const skus = Array.isArray(req.body?.skus) ? req.body.skus.filter(Boolean) : [];
   if (skus.length === 0) return res.status(400).json({ error: 'skus requerido (lista no vacía)' });
   try {
-    const result = await pricing.enqueueApply(skus, req.body?.channels || { ml: true, tn: true });
+    const result = await pricing.enqueueApply(skus, req.body?.channels || { ml: true, tn: true }, {
+      createdBy: req.user?.username ?? null,
+    });
     res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Historial de aplicaciones masivas (más recientes primero). Query: limit, offset. */
+pricingRoutes.get('/apply-runs', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    res.json(await pricing.listApplyRuns(limit, offset));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Detalle de una aplicación: una fila por SKU y canal con su estado. */
+pricingRoutes.get('/apply-runs/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  try {
+    res.json({ items: await pricing.getApplyRunItems(id) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Reintenta lo que falló de una aplicación. Body opcional: { itemIds: number[] } (si no, todo lo fallido). */
+pricingRoutes.post('/apply-runs/:id/retry', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  const itemIds = Array.isArray(req.body?.itemIds) ? req.body.itemIds : null;
+  try {
+    res.json(await pricing.retryApplyRun(id, itemIds));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

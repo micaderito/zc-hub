@@ -36,7 +36,9 @@
     <zc-tabs [tabs]="viewTabs" [activeKey]="store.view()" (tabChange)="store.setView($event)" />
   </div>
 
-  @if (store.view() === 'mapeo') {
+  @if (store.view() === 'aplicaciones') {
+    <zc-precios-aplicaciones />
+  } @else if (store.view() === 'mapeo') {
     <zc-mapeo-proveedor [supplierKey]="store.currentSupplier()?.key ?? null" (costsChanged)="onMappingCostsChanged($event)" (editCost)="onMappingEditCost($event)" />
   } @else {
     <zc-precios-planilla />
