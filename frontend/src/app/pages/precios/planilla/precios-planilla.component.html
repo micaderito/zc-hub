@@ -150,9 +150,11 @@
             </td>
             <td class="num tn group-price">
               {{ group.tn.min | currency:'ARS':'symbol':'1.0-0' }}@if (group.tn.max !== group.tn.min) { – {{ group.tn.max | currency:'ARS':'symbol':'1.0-0' }} }
+              <ng-container *ngTemplateOutlet="trendTpl; context: { $implicit: group.tnTrend }" />
             </td>
             <td class="num ml group-price">
               {{ group.ml.min | currency:'ARS':'symbol':'1.0-0' }}@if (group.ml.max !== group.ml.min) { – {{ group.ml.max | currency:'ARS':'symbol':'1.0-0' }} }
+              <ng-container *ngTemplateOutlet="trendTpl; context: { $implicit: group.mlTrend }" />
             </td>
             <td colspan="2"></td>
           </tr>
@@ -393,6 +395,22 @@
     </button>
   </div>
 }
+<!-- Sube / baja lo pendiente de un pack en un canal, en el encabezado del pack -->
+<ng-template #trendTpl let-t>
+  @if (t) {
+    <span
+      class="trend"
+      [class.up]="t.dir === 'up'"
+      [class.down]="t.dir === 'down'"
+      [class.mixed]="t.dir === 'mixed'"
+      [attr.title]="t.dir === 'up' ? 'Pendiente de aplicar: sube de precio' : t.dir === 'down' ? 'Pendiente de aplicar: baja de precio' : 'Pendiente de aplicar: algunos modelos suben y otros bajan'"
+    >
+      <i class="ti" [class.ti-trending-up]="t.dir === 'up'" [class.ti-trending-down]="t.dir === 'down'" [class.ti-arrows-up-down]="t.dir === 'mixed'" aria-hidden="true"></i>
+      {{ pct(t.minPct) }}@if (t.maxPct !== t.minPct) { a {{ pct(t.maxPct) }} }
+    </span>
+  }
+</ng-template>
+
 <!-- Precio publicado hoy en un canal, debajo del precio a aplicar -->
 <ng-template #publishedTpl let-current="current" let-next="next" let-pending="pending" let-queued="queued">
   @if (current != null) {

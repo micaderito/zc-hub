@@ -213,6 +213,11 @@ export class PreciosPlanillaComponent {
     this.selected.set(new Set(this.filteredRows().filter(isPendingRow).map((r) => r.sku)));
   }
 
+  /** "+12%" / "−3,5%". */
+  pct(v: number): string {
+    return `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toLocaleString('es-AR')}%`;
+  }
+
   delta(current: number | null, next: number): { pct: number; dir: 'up' | 'down' | 'same' } | null {
     if (current == null || current === 0) return null;
     const pct = ((next - current) / current) * 100;

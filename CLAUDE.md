@@ -379,6 +379,10 @@ haya alguno la planilla se refresca cada 10 s. La caché de la foto bajó a 15 s
 invalida. En el front: "hoy $X +Y%" bajo cada precio, chip "pendiente de aplicar", conteo por pack,
 filtro **Solo pendientes** (abre los packs) y **Seleccionar pendientes**. Hasta acá la columna de
 delta existía pero nunca se mostraba: la ruta no le pasaba los precios actuales a `getPreview`.
+La línea de cada pack (aunque esté plegado) lleva por canal un chip **sube** (verde) / **baja**
+(rojo) / mezcla (ámbar) con el % o el rango de lo pendiente contra lo publicado hoy (`priceTrend` en
+`precios.utils.ts`; lo que está en cola de ML no cuenta). La barra de acciones de la planilla es
+`sticky` dentro del contenido, no `fixed` contra la ventana: así tapaba el pie del menú lateral.
 
 #### Códigos con letras y mapeo automático (2026-10-14)
 

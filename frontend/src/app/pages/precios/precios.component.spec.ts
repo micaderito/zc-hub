@@ -230,6 +230,42 @@ describe('PreciosComponent', () => {
     expect([...p.selected()]).toEqual(['REP-ROJO']);
   });
 
+  it('el encabezado del pack marca si lo pendiente sube o baja en cada canal', async () => {
+    pricing.getPreview.and.callFake(() => of({ rows: [
+      row({ sku: 'A', pack: PACK, currentTn: 2000, pendingTn: true, currentMl: 3300, pendingMl: true }),
+      row({ sku: 'B', pack: PACK, currentTn: 2000, pendingTn: true, currentMl: 2900, pendingMl: true }),
+    ] }));
+    await render();
+    const g = planilla().priceGroups().groups[0];
+    expect(g.tnTrend).toEqual({ dir: 'up', minPct: 25, maxPct: 25 });
+    expect(g.mlTrend?.dir).toBe('mixed');
+    const tn = fixture.nativeElement.querySelector('tr.group-row td.tn .trend') as HTMLElement;
+    expect(tn.classList).toContain('up');
+    expect(tn.textContent).toContain('+25%');
+    expect(fixture.nativeElement.querySelector('tr.group-row td.ml .trend.mixed')).toBeTruthy();
+  });
+
+  it('sin nada pendiente (o solo en cola ML) el pack no muestra sube/baja', async () => {
+    pricing.getPreview.and.callFake(() => of({ rows: [
+      row({ sku: 'A', pack: PACK, currentMl: 3500, pendingMl: true, mlQueued: true }),
+    ] }));
+    await render();
+    const g = planilla().priceGroups().groups[0];
+    expect(g.tnTrend).toBeNull();
+    expect(g.mlTrend).toBeNull();
+    expect(fixture.nativeElement.querySelector('tr.group-row .trend')).toBeNull();
+  });
+
+  it('baja: rojo', async () => {
+    pricing.getPreview.and.callFake(() => of({ rows: [
+      row({ sku: 'A', pack: PACK, currentTn: 3000, pendingTn: true }),
+    ] }));
+    await render();
+    const tn = fixture.nativeElement.querySelector('tr.group-row td.tn .trend') as HTMLElement;
+    expect(tn.classList).toContain('down');
+    expect(tn.textContent).toContain('−16,7%');
+  });
+
   it('lo que ya está en la cola de ML no cuenta como pendiente', async () => {
     pricing.getPreview.and.callFake(() => of({ rows: [row({ currentMl: 2500, pendingMl: true, mlQueued: true })] }));
     await render();
