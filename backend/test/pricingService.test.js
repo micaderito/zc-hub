@@ -786,6 +786,13 @@ test('saveOverride: guarda el ajuste; con value null lo saca (vuelve al calculad
   assert.equal(overrideState.rows.length, 0);
 });
 
+test('saveOverrides: el mismo precio para todo un pack; null saca el ajuste de ese SKU', async () => {
+  overrideState.rows = [{ sku: 'B', channel: 'ml', value: 100 }];
+  const n = await svc.saveOverrides('ml', [{ sku: 'A', value: 5000 }, { sku: 'B', value: null }, { sku: 'C', value: 5000 }]);
+  assert.equal(n, 3);
+  assert.deepEqual(overrideState.rows, [{ sku: 'A', channel: 'ml', value: 5000 }, { sku: 'C', channel: 'ml', value: 5000 }]);
+});
+
 test('enqueueApply: si hay un ajuste manual, encola/aplica ESE precio, no el calculado', async () => {
   dbState.costs['30700'] = { sku: '30700', source: 'manual', bulkPrice: 70400, bulkQty: 8, discount1: 25, discount2: 5 };
   storeState.mlBySku['30700'] = { itemId: 'MLA123', variationId: null };

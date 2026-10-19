@@ -16,6 +16,31 @@ export interface PriceGroup {
   pending: number;
   /** Config de descuento del pack (la misma en todos sus modelos), o "mixto". */
   discountLabel: string | null;
+  /** Hacia dónde se mueve lo pendiente de aplicar en cada canal (null = nada pendiente). */
+  tnTrend: PriceTrend | null;
+  mlTrend: PriceTrend | null;
+}
+
+/** Sube / baja de lo pendiente de un pack en un canal: % mínimo y máximo contra lo publicado hoy. */
+export interface PriceTrend {
+  dir: 'up' | 'down' | 'mixed';
+  minPct: number;
+  maxPct: number;
+}
+
+/**
+ * Cuánto cambia lo pendiente de aplicar contra lo publicado hoy en un canal. Solo cuentan los
+ * modelos pendientes con precio publicado conocido (0 / null = desconocido).
+ */
+export function priceTrend(pairs: { current: number | null; next: number }[]): PriceTrend | null {
+  const pcts = pairs
+    .filter((p) => p.current != null && p.current > 0 && Math.abs(p.next - p.current) >= 0.5)
+    .map((p) => Math.round(((p.next - p.current!) / p.current!) * 1000) / 10);
+  if (pcts.length === 0) return null;
+  const minPct = Math.min(...pcts);
+  const maxPct = Math.max(...pcts);
+  const dir = minPct > 0 ? 'up' : maxPct < 0 ? 'down' : 'mixed';
+  return { dir, minPct, maxPct };
 }
 
 /** ¿Falta aplicar en algún canal? Lo que ya está en la cola de ML no cuenta como pendiente. */
@@ -42,6 +67,10 @@ export function buildPriceGroups(rows: PreviewRow[]): { groups: PriceGroup[]; no
       unpublished: g.rows.filter((r) => !r.mappedMl && !r.mappedTn).length,
       pending: g.rows.filter(isPendingRow).length,
       discountLabel: groupDiscountLabel(g.rows),
+      tnTrend: priceTrend(g.rows.filter((r) => r.pendingTn).map((r) => ({ current: r.currentTn, next: r.tn.effective }))),
+      mlTrend: priceTrend(
+        g.rows.filter((r) => r.pendingMl && !r.mlQueued).map((r) => ({ current: r.currentMl, next: r.mlEffective })),
+      ),
     }));
   return { groups, noPack };
 }

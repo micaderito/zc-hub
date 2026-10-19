@@ -213,6 +213,11 @@ export class PreciosPlanillaComponent {
     this.selected.set(new Set(this.filteredRows().filter(isPendingRow).map((r) => r.sku)));
   }
 
+  /** "+12%" / "−3,5%". */
+  pct(v: number): string {
+    return `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toLocaleString('es-AR')}%`;
+  }
+
   delta(current: number | null, next: number): { pct: number; dir: 'up' | 'down' | 'same' } | null {
     if (current == null || current === 0) return null;
     const pct = ((next - current) / current) * 100;
@@ -270,6 +275,30 @@ export class PreciosPlanillaComponent {
     } catch (e) {
       this.errorMsg.set(apiError(e, 'No se pudo guardar el ajuste'));
     }
+  }
+
+  /**
+   * El mismo precio para todos los modelos del pack en un canal. En un modelo cuyo calculado ya es
+   * ese precio no queda ajuste; vacío saca los ajustes del pack (vuelve cada uno a su calculado).
+   */
+  async updatePackPrice(group: PriceGroup, channel: 'ml' | 'tn', value: number | string | null): Promise<void> {
+    const num = value === '' || value == null ? null : Number(value);
+    if (num != null && !(Number.isFinite(num) && num > 0)) return;
+    const items = group.rows.map((r) => {
+      const calculated = channel === 'tn' ? r.tn.list : r.ml;
+      return { sku: r.sku, value: num != null && num !== calculated ? num : null };
+    });
+    try {
+      await firstValueFrom(this.pricing.saveOverrides(channel, items));
+      await this.store.previewQuery.refetch();
+    } catch (e) {
+      this.errorMsg.set(apiError(e, 'No se pudo guardar el precio del pack'));
+    }
+  }
+
+  /** Precio que muestra el input del pack: el de todos si coinciden; si no, vacío (el rango va de placeholder). */
+  packPriceValue(r: { min: number; max: number }): number | null {
+    return r.min === r.max ? r.min : null;
   }
 
   async removeCost(sku: string): Promise<void> {

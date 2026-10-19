@@ -6,7 +6,7 @@
 app-precios { display: block; }
 
 .pr-page {
-  padding: 18px 20px 90px;
+  padding: 18px 20px;
 
   // ── Encabezado y pestañas (de esta página) ──
   .pr-head {
@@ -123,7 +123,7 @@ app-precios { display: block; }
 
 @media (max-width: 640px) {
   .pr-page {
-    padding: 14px 16px 150px;
+    padding: 14px 16px;
     .pr-head { flex-direction: column; align-items: flex-start; }
   }
   :where(.pr-page) .grid2 { grid-template-columns: 1fr; }

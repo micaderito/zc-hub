@@ -110,6 +110,7 @@
   border: 0.5px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
   text-align: right; font-variant-numeric: tabular-nums;
 }
+.group-price .price-input { width: 128px; }
 .calc-ref { font-size: 9.5px; color: var(--text-3); white-space: nowrap; }
 
 /* Precio publicado hoy, debajo del input */
@@ -119,15 +120,25 @@
   &.pending { color: var(--warn); }
   &.ok { color: var(--ok); }
 }
+/* Sube / baja de lo pendiente, en el encabezado de un pack */
+.trend {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px; white-space: nowrap;
+  border-radius: 999px; font-size: 10px; font-weight: 600; vertical-align: 1px;
+  i { font-size: 12px; }
+  &.up { background: var(--ok-bg); color: var(--ok); }
+  &.down { background: var(--err-bg); color: var(--err); }
+  &.mixed { background: var(--warn-bg); color: var(--warn); }
+}
 .delta {
   font-size: 10px; margin-left: 4px;
   &.up { color: var(--ok); }
   &.down { color: var(--err); }
 }
 
-/* Barra de acción fija */
+/* Barra de acción: sticky dentro del contenido (no fixed contra la ventana, que tapaba el pie del
+   menú lateral — abierto o colapsado). */
 .pr-actionbar {
-  position: fixed; bottom: 0; left: var(--sidebar-w, 0); right: 0;
+  position: sticky; bottom: 0; margin: 16px -20px 0;
   border-top: 0.5px solid var(--border); background: var(--surface);
   padding: 11px 20px; display: flex; align-items: center; gap: 13px; z-index: 5;
   .btn i { margin-right: 2px; }
@@ -137,7 +148,7 @@
 @media (max-width: 640px) {
   .pr-search { flex: 1 1 100%; input { width: 100%; } }
   .pr-actionbar {
-    flex-wrap: wrap; gap: 8px; padding: 9px 12px;
+    flex-wrap: wrap; gap: 8px; padding: 9px 12px; margin-inline: -16px;
     .spacer { display: none; }
     .btn.pri { flex-basis: 100%; justify-content: center; }
   }

@@ -355,6 +355,16 @@ export async function saveOverride(sku, channel, value) {
 }
 
 /**
+ * El mismo ajuste para varios SKUs de un canal (precio de todo un pack). `items: [{ sku, value }]`;
+ * el front manda `value: null` en los modelos cuyo calculado ya es ese precio, así no queda un
+ * ajuste que repite el calculado.
+ */
+export async function saveOverrides(channel, items) {
+  for (const { sku, value } of items) await saveOverride(sku, channel, value ?? null);
+  return items.length;
+}
+
+/**
  * Alta/edición manual de un costo. `supplierKey` = proveedor vigente (`null` = sin proveedor: sin
  * descuento); `profileId` (si viene) asigna la config de descuento del SKU para ese proveedor
  * (`null` = la default / la del pack). Los % sueltos ya no se guardan: el descuento sale de la config.
