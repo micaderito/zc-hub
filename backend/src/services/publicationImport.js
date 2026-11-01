@@ -529,31 +529,30 @@ const changedFields = (before, after) => Object.keys(before).filter((k) => befor
 
 /**
  * ¿Alguien cambió las publicaciones desde que se abrió la edición? Compara la huella del contenido
- * (`fingerprint`, ver mlFingerprint/tnFingerprint) y devuelve qué cambió (`fields`). Una edición
- * abierta antes de que existiera la huella cae a comparar `last_updated` (ML) / `updated_at` (TN).
- * Devuelve la lista de publicaciones cambiadas (vacía = nada cambió).
+ * (`fingerprint`, ver mlFingerprint/tnFingerprint) y devuelve qué cambió (`fields`); vacía = nada.
+ *
+ * Una edición abierta antes de que existiera la huella no se compara por `last_updated` (daba el
+ * aviso de más): se le toma la huella de ahora, se guarda con `saveRefs` y desde ahí se compara.
  */
-export async function checkRemoteChanges(refs) {
+export async function checkRemoteChanges(refs, { saveRefs } = {}) {
   const changed = [];
+  let backfilled = false;
   const mlRefs = refs?.ml?.items || [];
   if (mlRefs.length) {
     const token = await getMlToken();
     if (token) {
-      const legacy = mlRefs.filter((r) => !r.fingerprint);
-      const items = legacy.length ? await ml.getItems(token, legacy.map((r) => r.itemId), 'id,last_updated,title') : [];
       for (const r of mlRefs) {
-        if (r.fingerprint) {
-          // Mismo endpoint que al importar: el multiget no trae los mismos atributos.
-          const { item } = await ml.getItemOrStatus(token, r.itemId);
-          if (!item) continue;
-          const fields = changedFields(r.fingerprint, mlFingerprint(item));
-          if (fields.length) changed.push({ channel: 'ml', id: r.itemId, name: r.title, fields });
+        // Mismo endpoint que al importar: el multiget no trae los mismos atributos.
+        const { item } = await ml.getItemOrStatus(token, r.itemId);
+        if (!item) continue;
+        const now = mlFingerprint(item);
+        if (!r.fingerprint) {
+          r.fingerprint = now;
+          backfilled = true;
           continue;
         }
-        const cur = items.find((it) => it?.id === r.itemId);
-        if (cur && r.lastUpdated && cur.last_updated && cur.last_updated !== r.lastUpdated) {
-          changed.push({ channel: 'ml', id: r.itemId, name: r.title });
-        }
+        const fields = changedFields(r.fingerprint, now);
+        if (fields.length) changed.push({ channel: 'ml', id: r.itemId, name: r.title, fields });
       }
     }
   }
@@ -562,12 +561,15 @@ export async function checkRemoteChanges(refs) {
     if (!t?.access_token) break;
     const cur = await tn.getProduct(t.access_token, t.store_id, r.productId).catch(() => null);
     if (!cur) continue;
-    if (r.fingerprint) {
-      const fields = changedFields(r.fingerprint, tnFingerprint(cur));
-      if (fields.length) changed.push({ channel: 'tn', id: r.productId, name: r.name, fields });
-    } else if (r.updatedAt && cur.updated_at && cur.updated_at !== r.updatedAt) {
-      changed.push({ channel: 'tn', id: r.productId, name: r.name });
+    const now = tnFingerprint(cur);
+    if (!r.fingerprint) {
+      r.fingerprint = now;
+      backfilled = true;
+      continue;
     }
+    const fields = changedFields(r.fingerprint, now);
+    if (fields.length) changed.push({ channel: 'tn', id: r.productId, name: r.name, fields });
   }
+  if (backfilled && saveRefs) await saveRefs(refs);
   return changed;
 }

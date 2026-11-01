@@ -4,5 +4,7 @@
  */
 export const environment = {
   production: true,
-  apiUrl: '__BACKEND_API_URL__'
+  apiUrl: '__BACKEND_API_URL__',
+  /** Lo inyecta deploy-pages.yml: la versión sale del merge "release vN" (ver agente go-to-prod). */
+  build: { version: '__BUILD_VERSION__', sha: '__BUILD_SHA__', date: '__BUILD_DATE__' },
 };

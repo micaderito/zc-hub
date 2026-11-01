@@ -14,6 +14,7 @@ import {
   createPublicationEdit,
   updatePublicationEditDraft,
   setPublicationEditStatus,
+  setPublicationEditRefs,
   createPublishJob,
   getPublishJob,
 } from '../db.js';
@@ -95,7 +96,7 @@ publicationEditsRoutes.post('/:id/apply', async (req, res) => {
   const ops = planPublicationUpdate(edit.baseline, draft, edit.refs);
   if (!ops.length) return res.status(400).json({ error: 'No hay cambios para guardar.' });
   if (!req.body?.force) {
-    const changed = await checkRemoteChanges(edit.refs).catch(() => []);
+    const changed = await checkRemoteChanges(edit.refs, { saveRefs: (r) => setPublicationEditRefs(edit.id, r) }).catch(() => []);
     if (changed.length) {
       return res.status(409).json({ code: 'remote_changed', changed, error: 'La publicación cambió en el canal desde que empezaste a editar.' });
     }
@@ -173,7 +174,7 @@ publicationEditsRoutes.get('/:id/remote-check', async (req, res) => {
   const edit = await getPublicationEdit(req.params.id);
   if (!edit) return res.status(404).json({ error: 'Edición no encontrada' });
   try {
-    res.json({ changed: await checkRemoteChanges(edit.refs) });
+    res.json({ changed: await checkRemoteChanges(edit.refs, { saveRefs: (r) => setPublicationEditRefs(edit.id, r) }) });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }

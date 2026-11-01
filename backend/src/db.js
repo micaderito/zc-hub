@@ -4863,6 +4863,19 @@ export async function updatePublicationEditDraft(id, draft) {
   }
 }
 
+/** Reemplaza los ids externos/huellas de una edición (`refs_json`), sin tocar el borrador. */
+export async function setPublicationEditRefs(id, refs) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const r = await p.query(`UPDATE publication_edits SET refs_json = $2 WHERE id = $1`, [id, JSON.stringify(refs)]);
+    return (r.rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('setPublicationEditRefs:', e.message);
+    return false;
+  }
+}
+
 /** Cambia el estado de una edición (editing → saving → done, o → discarded). */
 export async function setPublicationEditStatus(id, status, { jobId } = {}) {
   const p = getPool();
