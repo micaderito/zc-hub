@@ -246,7 +246,7 @@ test('crear un ítem en una ficha copia el hermano y manda family_name sin títu
   assert.equal(reports[0].externalId, 'MLA-NEW');
 });
 
-test('crear un ítem: atributos libres del hermano van por texto, UNITS_PER_PACK completo y envío del form', async () => {
+test('crear un ítem: los atributos del hermano van tal cual (id + texto), UNITS_PER_PACK completo y envío del form', async () => {
   state.items.MLA1 = {
     ...state.items.MLA1, variations: undefined, family_name: 'Agenda 2027', shipping: { mode: 'me1' },
     attributes: [
@@ -263,11 +263,11 @@ test('crear un ítem: atributos libres del hermano van por texto, UNITS_PER_PACK
   const body = callsOf('createItem')[0][1];
   const byId = Object.fromEntries(body.attributes.map((a) => [a.id, a]));
   assert.deepEqual(byId.SHEET_TYPE, { id: 'SHEET_TYPE', value_id: '1', value_name: 'Rayada' }, 'de la lista de la categoría: va el id');
-  assert.deepEqual(byId.DESIGN, { id: 'DESIGN', value_name: 'Floral' }, 'valor libre: va el texto');
-  assert.deepEqual(byId.SALE_FORMAT, { id: 'SALE_FORMAT', value_name: 'Unidad' });
+  assert.deepEqual(byId.DESIGN, { id: 'DESIGN', value_id: '55501', value_name: 'Floral' }, 'valor propio de la cuenta: id + texto');
+  assert.deepEqual(byId.SALE_FORMAT, { id: 'SALE_FORMAT', value_id: '1359391', value_name: 'Unidad' });
   assert.deepEqual(byId.UNITS_PER_PACK, { id: 'UNITS_PER_PACK', value_name: '1' });
   assert.deepEqual(byId.IS_WASHABLE, { id: 'IS_WASHABLE', value_id: '-1', value_name: null }, '"No aplica" se conserva');
-  assert.deepEqual(body.sale_terms, [{ id: 'WARRANTY_TIME', value_name: '90 días' }]);
+  assert.deepEqual(body.sale_terms, [{ id: 'WARRANTY_TIME', value_id: '9', value_name: '90 días' }]);
   assert.equal(body.shipping.mode, 'me2', 'el modo del form, nunca me1');
 });
 
@@ -286,13 +286,16 @@ test('crear un ítem: las características generales salen del form (con número
   assert.deepEqual(byId.SELLER_PACKAGE_LENGTH, { id: 'SELLER_PACKAGE_LENGTH', value_name: '12 cm' });
 });
 
-test('crear un ítem: un número del hermano que el form no trae sale de value_struct, sin value_id', async () => {
+test('crear un ítem: un valor del hermano con id va tal cual ("1-5mm" que ML no acepta como texto); sin id, el número sale de value_struct', async () => {
   state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Resaltador', sale_terms: [],
-    attributes: [{ id: 'STROKE_THICKNESS', value_id: '888', value_name: '0,5 mm', value_struct: { number: 0.5, unit: 'mm' } }] };
-  state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', value_type: 'number_unit', default_unit: 'mm' }];
-  await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]));
-  const attr = callsOf('createItem')[0][1].attributes.find((a) => a.id === 'STROKE_THICKNESS');
-  assert.deepEqual(attr, { id: 'STROKE_THICKNESS', value_name: '0.5 mm' });
+    attributes: [{ id: 'STROKE_THICKNESS', value_id: '888', value_name: '1-5mm' }, { id: 'WIDTH', value_name: '0,5 cm', value_struct: { number: 0.5, unit: 'cm' } }] };
+  state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', value_type: 'string', tags: { multivalued: true } }];
+  const pl = payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]);
+  pl.draft.ml.attributes = [{ id: 'STROKE_THICKNESS', value: '1-5mm', valueId: '888' }];
+  await run('ml', pl);
+  const byId = Object.fromEntries(callsOf('createItem')[0][1].attributes.map((a) => [a.id, a]));
+  assert.deepEqual(byId.STROKE_THICKNESS, { id: 'STROKE_THICKNESS', value_id: '888', value_name: '1-5mm' }, 'sin tocar en el form: tal cual el hermano');
+  assert.deepEqual(byId.WIDTH, { id: 'WIDTH', value_name: '0.5 cm' });
 });
 
 test('TN: agregar una variante a un producto con variantes le pone la foto elegida, no la portada', async () => {
@@ -303,12 +306,12 @@ test('TN: agregar una variante a un producto con variantes le pone la foto elegi
   assert.equal(callsOf('tn.deleteProductImage').length, 0, 'no borra fotos del producto');
 });
 
-test('crear un ítem: un multivalor del hermano viaja con todos sus valores separados por coma, sin value_id', async () => {
+test('crear un ítem: un multivalor (chips) del hermano viaja con todos sus valores e ids', async () => {
   state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Resaltador', sale_terms: [],
     attributes: [{ id: 'STROKE_THICKNESS', value_id: '901', value_name: '1 mm', values: [{ id: '901', name: '1 mm' }, { id: '902', name: '5 mm' }] }] };
   state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_type: 'string', tags: { multivalued: true } }];
   await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]));
-  assert.deepEqual(callsOf('createItem')[0][1].attributes.find((a) => a.id === 'STROKE_THICKNESS'), { id: 'STROKE_THICKNESS', value_name: '1 mm,5 mm' });
+  assert.deepEqual(callsOf('createItem')[0][1].attributes.find((a) => a.id === 'STROKE_THICKNESS'), { id: 'STROKE_THICKNESS', values: [{ id: '901', name: '1 mm' }, { id: '902', name: '5 mm' }] });
 });
 
 test('crear un ítem: si ML rechaza el valor de una característica, falla (no se crea sin ella) diciendo qué se mandó', async () => {
