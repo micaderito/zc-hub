@@ -16,6 +16,7 @@
  *
  * `buildEditDraft` es puro (testeable sin red); `importHubProduct` hace el I/O.
  */
+import crypto from 'node:crypto';
 import { tokens, getMlToken } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
@@ -377,6 +378,7 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
         soldQuantity: Number(it.sold_quantity) || 0,
         status: it.status || null,
         lastUpdated: it.last_updated || null,
+        fingerprint: mlFingerprint(it),
         title: it.title,
         // Cómo estaba ESTA publicación: el form muestra lo de la primera, y un cambio común solo va
         // a las que tenían ese mismo valor (publicationDiff.js, `spread`).
@@ -394,6 +396,7 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
       products: tnProducts.map((p) => ({
         productId: p.id,
         updatedAt: p.updated_at || null,
+        fingerprint: tnFingerprint(p),
         name: tnText(p.name),
         current: {
           name: tnText(p.name),
@@ -476,9 +479,59 @@ export async function importHubProduct(groupKey) {
 }
 
 /**
- * ¿Alguien cambió las publicaciones desde que se abrió la edición? Compara `last_updated` (ML) y
- * `updated_at` (TN) actuales contra los guardados en `refs`. ML no tiene ETag para /items: esto es
- * lo que hay. Devuelve la lista de publicaciones cambiadas (vacía = nada cambió).
+ * Huella de lo que una edición puede pisar, por campo (hash corto para que `refs` no pese). Sirve para
+ * avisar "cambió desde que empezaste a editar" mirando el contenido y no `last_updated`/`updated_at`:
+ * ML mueve `last_updated` por procesos propios (calidad, envío, moderación, la ficha) aunque nadie
+ * toque la publicación, y el aviso salía de más. No cubre la descripción de ML (es otro endpoint).
+ */
+const hash = (v) => crypto.createHash('sha1').update(JSON.stringify(v ?? null)).digest('hex').slice(0, 12);
+const attrPairs = (attrs) =>
+  (attrs || []).filter((a) => a.id && a.id !== 'SELLER_SKU').map((a) => `${a.id}=${a.value_id ?? ''}|${a.value_name ?? ''}`).sort();
+
+export function mlFingerprint(it) {
+  const vars = (it.variations || []).map((v) => ({
+    id: v.id, sku: mlSku(v), combos: (v.attribute_combinations || []).map((c) => `${c.id || c.name}=${c.value_name ?? ''}`), pics: v.picture_ids || [],
+  }));
+  return {
+    title: hash(it.title),
+    price: hash([it.price, ...(it.variations || []).map((v) => v.price)]),
+    stock: hash([it.available_quantity, ...(it.variations || []).map((v) => v.available_quantity)]),
+    pictures: hash((it.pictures || []).map((p) => p.id)),
+    attributes: hash(attrPairs(it.attributes)),
+    variants: hash([mlSku(it), vars]),
+    shipping: hash([!!it.shipping?.free_shipping, !!it.shipping?.local_pick_up]),
+    warranty: hash((it.sale_terms || []).map((t) => `${t.id}=${t.value_name ?? ''}`).sort()),
+    listing: hash(it.listing_type_id),
+    status: hash(it.status),
+  };
+}
+
+export function tnFingerprint(p) {
+  const variants = p.variants || [];
+  return {
+    title: hash(p.name),
+    description: hash(p.description),
+    price: hash(variants.map((v) => [v.id, v.price, v.promotional_price])),
+    stock: hash(variants.map((v) => [v.id, v.stock])),
+    pictures: hash([(p.images || []).map((i) => [i.id, i.position]), variants.map((v) => v.image_id ?? null)]),
+    variants: hash(variants.map((v) => [v.id, v.sku, (v.values || []).map(tnText)])),
+    categories: hash((p.categories || []).map((c) => c.id ?? c)),
+    status: hash(p.published),
+  };
+}
+
+const FIELD_LABELS = {
+  title: 'el nombre', description: 'la descripción', price: 'el precio', stock: 'el stock', pictures: 'las fotos',
+  attributes: 'las características', variants: 'las variantes', shipping: 'el envío', warranty: 'la garantía',
+  listing: 'el tipo de publicación', status: 'el estado', categories: 'las categorías',
+};
+const changedFields = (before, after) => Object.keys(before).filter((k) => before[k] !== after[k]).map((k) => FIELD_LABELS[k] || k);
+
+/**
+ * ¿Alguien cambió las publicaciones desde que se abrió la edición? Compara la huella del contenido
+ * (`fingerprint`, ver mlFingerprint/tnFingerprint) y devuelve qué cambió (`fields`). Una edición
+ * abierta antes de que existiera la huella cae a comparar `last_updated` (ML) / `updated_at` (TN).
+ * Devuelve la lista de publicaciones cambiadas (vacía = nada cambió).
  */
 export async function checkRemoteChanges(refs) {
   const changed = [];
@@ -486,8 +539,17 @@ export async function checkRemoteChanges(refs) {
   if (mlRefs.length) {
     const token = await getMlToken();
     if (token) {
-      const items = await ml.getItems(token, mlRefs.map((r) => r.itemId), 'id,last_updated,title');
+      const legacy = mlRefs.filter((r) => !r.fingerprint);
+      const items = legacy.length ? await ml.getItems(token, legacy.map((r) => r.itemId), 'id,last_updated,title') : [];
       for (const r of mlRefs) {
+        if (r.fingerprint) {
+          // Mismo endpoint que al importar: el multiget no trae los mismos atributos.
+          const { item } = await ml.getItemOrStatus(token, r.itemId);
+          if (!item) continue;
+          const fields = changedFields(r.fingerprint, mlFingerprint(item));
+          if (fields.length) changed.push({ channel: 'ml', id: r.itemId, name: r.title, fields });
+          continue;
+        }
         const cur = items.find((it) => it?.id === r.itemId);
         if (cur && r.lastUpdated && cur.last_updated && cur.last_updated !== r.lastUpdated) {
           changed.push({ channel: 'ml', id: r.itemId, name: r.title });
@@ -499,7 +561,13 @@ export async function checkRemoteChanges(refs) {
   for (const r of refs?.tn?.products || []) {
     if (!t?.access_token) break;
     const cur = await tn.getProduct(t.access_token, t.store_id, r.productId).catch(() => null);
-    if (cur && r.updatedAt && cur.updated_at && cur.updated_at !== r.updatedAt) changed.push({ channel: 'tn', id: r.productId, name: r.name });
+    if (!cur) continue;
+    if (r.fingerprint) {
+      const fields = changedFields(r.fingerprint, tnFingerprint(cur));
+      if (fields.length) changed.push({ channel: 'tn', id: r.productId, name: r.name, fields });
+    } else if (r.updatedAt && cur.updated_at && cur.updated_at !== r.updatedAt) {
+      changed.push({ channel: 'tn', id: r.productId, name: r.name });
+    }
   }
   return changed;
 }
