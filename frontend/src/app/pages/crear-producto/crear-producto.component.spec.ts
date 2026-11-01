@@ -932,10 +932,40 @@ describe('CrearProductoComponent', () => {
       // ya llegó al máximo (1): no agrega la segunda.
       component.toggleVariantMlImage(v, 'b');
       expect(v.ml.pictureIds).toEqual(['a']);
-      expect(component.imageError()).toContain('variación');
+      expect(component.imageError()).toContain('variante');
       // togglear la misma la quita.
       component.toggleVariantMlImage(v, 'a');
       expect(v.ml.pictureIds).toEqual([]);
+    });
+
+    it('en ML "una publicación por variante" el tope es por variante y la galería es un banco', () => {
+      component.addAxis();
+      component.addVariant();
+      component.mlMaxPictures.set(2);
+      component.mlMaxPicturesPerVar.set(1);
+      expect(component.store.mlGalleryLimit()).toBe(2);
+      expect(component.store.mlVariantPictureLimit()).toBe(1);
+
+      component.setMode('ml', 'one_per_variant');
+      // 2 variantes × 2 fotos por ítem: la galería no corta en 2.
+      expect(component.store.mlGalleryIsPool()).toBeTrue();
+      expect(component.store.mlGalleryLimit()).toBe(4);
+      expect(component.store.imageLimit('ml')).toBe(4);
+      expect(component.store.mlVariantPictureLimit()).toBe(2);
+
+      ['a', 'b', 'c'].forEach((id) => seedImage(component, 'ml', id));
+      const [v1, v2] = component.draft().variants;
+      component.toggleVariantMlImage(v1, 'a');
+      component.toggleVariantMlImage(v1, 'b');
+      expect(v1.ml.pictureIds).toEqual(['a', 'b']);
+      component.toggleVariantMlImage(v1, 'c');
+      expect(v1.ml.pictureIds).toEqual(['a', 'b']);
+      expect(component.imageError()).toContain('Máximo 2 fotos por variante');
+
+      // Con más fotos en el banco que el tope de un ítem, una variante sin las suyas no se puede publicar.
+      expect(component.store.publishBlockers().some((b) => b.includes('sin fotos de Mercado Libre'))).toBeTrue();
+      component.toggleVariantMlImage(v2, 'c');
+      expect(component.store.publishBlockers().some((b) => b.includes('sin fotos de Mercado Libre'))).toBeFalse();
     });
 
     it('toggleVariantTnImage() en single_with_variants deja SOLO UNA foto (TN limita a image_id)', () => {
@@ -997,7 +1027,7 @@ describe('CrearProductoComponent', () => {
       component.toggleVariantMlImage(v, 'b');
 
       expect(v.ml.pictureIds).toEqual(['a']);
-      expect(component.imageError()).toContain('variación');
+      expect(component.imageError()).toContain('variante');
       expect(component.imageErrorScope()).toBe('variant');
     });
 

@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, HostListener, computed, inject, input, output, signal } from '@angular/core';
 import { PaginationComponent } from '../../../../shared/components/pagination/pagination.component';
 import { ProductThumbComponent } from '../../../../shared/components/product-thumb/product-thumb.component';
-import { Channel, DraftImage, ProductVariant, positiveLimit } from '../../product-draft.model';
-import { ML_MAX_PICTURES_PER_VAR_FALLBACK, ProductDraftStore } from '../../product-draft.store';
+import { Channel, DraftImage, ProductVariant } from '../../product-draft.model';
+import { ProductDraftStore } from '../../product-draft.store';
 
 /** Fotos por página dentro del modal: acota el DOM sin necesitar virtual scroll. */
 const PAGE_SIZE = 24;
@@ -50,10 +50,8 @@ export class VariantPhotosDialogComponent {
     return this.store.draft().variants.find((v) => v.id === this.variant().id) ?? this.variant();
   }
 
-  /** Tope real de fotos por variación en ML (el 0 que informa ML no es un límite válido). */
-  protected readonly mlLimit = computed(() =>
-    positiveLimit(this.store.mlMaxPicturesPerVar(), ML_MAX_PICTURES_PER_VAR_FALLBACK)
-  );
+  /** Tope real de fotos de la variante en ML (ver `mlVariantPictureLimit`). */
+  protected readonly mlLimit = this.store.mlVariantPictureLimit;
   protected readonly mlSelectedCount = computed(() => this.liveVariant().ml.pictureIds.length);
   protected readonly tnSelectedCount = computed(() => this.liveVariant().tn.imageIds.length);
   protected readonly mlAtLimit = computed(() => this.mlSelectedCount() >= this.mlLimit());

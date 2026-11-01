@@ -20,7 +20,8 @@
 import { tokens, getMlToken } from '../store.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
-import { enqueueMlTask } from '../db.js';
+import { enqueueMlTask, getMlTaskStatus } from '../db.js';
+import { isUserProductSeller } from '../lib/mlUserProducts.js';
 import { getImage, getImageUrl } from './imageStore.js';
 import { plainTextToHtml, toMlPlainText } from '../lib/richText.js';
 import { packageAttributes } from './productPublish.js';
@@ -28,6 +29,11 @@ import { refreshMlItemInSnapshot, refreshTnProductInSnapshot } from './conflicts
 import { setTnStockManual, setTnPriceManual } from './tnManualWrites.js';
 
 const ML_NA = '-1';
+/** Cuánto espera cada cambio de stock/precio/SKU a que la Cola ML lo aplique antes de dar el resultado. */
+const ML_TASK_WAIT_MS = 45 * 1000;
+const ML_TASK_POLL_MS = 1000;
+const ML_TASK_MAX_ATTEMPTS = 5; // mismo tope que claimNextMlTask
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const effective = (field, common) => (field?.inherited ? common : field?.value ?? '');
 const base = (kind) => String(kind || '').split(':')[0];
 
@@ -135,9 +141,13 @@ async function mergedMlAttributes(ctx, item, op) {
     return !!(tags.read_only || tags.fixed || tags.inferred);
   };
   const out = new Map();
+  // ML NO hace merge: un PUT de `attributes` tiene que llevar también los que ya tenía el ítem o se
+  // pierden (doc de Atributos). Uno con varios valores va solo con su `id`, que ML conserva tal cual
+  // (reenviarlo con el valor de arriba le borraría los demás).
   for (const a of item.attributes || []) {
     if (!a.id || isReadOnly(a.id) || a.id === 'SELLER_SKU') continue;
-    out.set(a.id, a.value_id ? { id: a.id, value_id: String(a.value_id) } : { id: a.id, value_name: a.value_name ?? null });
+    if ((a.values || []).length > 1) out.set(a.id, { id: a.id });
+    else out.set(a.id, a.value_id ? { id: a.id, value_id: String(a.value_id) } : { id: a.id, value_name: a.value_name ?? null });
   }
   for (const a of op.payload.attributes || []) {
     if (isReadOnly(a.id)) continue;
@@ -165,6 +175,12 @@ async function syncLegacyPictures(ctx, itemId) {
     for (const id of ids) if (!gallery.includes(id)) gallery.push(id);
     overrides[ref.variationId] = { picture_ids: ids };
   }
+  // Una variación que no está en el borrador (se borra en este mismo guardado, después) sigue en el
+  // ítem hasta entonces: sus fotos tienen que seguir en la galería o ML rechaza el PUT.
+  for (const v of item.variations || []) {
+    if (overrides[String(v.id)]) continue;
+    for (const id of v.picture_ids || []) if (!gallery.includes(String(id))) gallery.push(String(id));
+  }
   await ml.updateItem(ctx.token, itemId, { pictures: gallery.map((id) => ({ id })), variations: ml.mlVariationsBody(item, overrides) });
   ctx.picturesSynced.add(itemId);
   ctx.forget(itemId);
@@ -173,6 +189,67 @@ async function syncLegacyPictures(ctx, itemId) {
 
 const axisCombination = (axes, values) =>
   (axes || []).map((ax, i) => (ax.mlAttributeId ? { id: ax.mlAttributeId, value_name: values[i] } : { name: ax.name, value_name: values[i] }));
+
+/** Body de POST /items para una variante nueva, copiando lo que no es de la variante de un ítem hermano. */
+async function newItemBody(ctx, p, v) {
+  const d = ctx.payload.draft;
+  const refItems = ctx.payload.refs.ml.items || [];
+  const sibling = await ctx.item(refItems[0].itemId);
+  const cat = await ctx.categoryAttrs(sibling.category_id);
+  const axisIds = new Set((d.axes || []).map((ax) => ax.mlAttributeId).filter(Boolean));
+  const skip = new Set(['SELLER_SKU', 'GTIN', ...axisIds]);
+  const attributes = (sibling.attributes || [])
+    .filter((a) => a.id && !skip.has(a.id) && !(cat.get(a.id)?.tags?.read_only))
+    .map((a) => (a.value_id ? { id: a.id, value_id: String(a.value_id) } : { id: a.id, value_name: a.value_name }));
+  for (const c of axisCombination(d.axes, v.values)) if (c.id) attributes.push(c);
+  attributes.push({ id: 'SELLER_SKU', value_name: v.sku });
+  if (v.barcode) attributes.push({ id: 'GTIN', value_name: v.barcode });
+  const pictures = [];
+  for (const id of v.ml.pictureIds || []) pictures.push({ id: await ctx.pictureId(id) });
+  const body = {
+    category_id: sibling.category_id,
+    price: v.ml.price ?? sibling.price,
+    currency_id: sibling.currency_id || 'ARS',
+    available_quantity: Math.max(0, Math.floor(Number(v.stock) || 0)),
+    buying_mode: sibling.buying_mode || 'buy_it_now',
+    listing_type_id: d.ml.listingType || sibling.listing_type_id,
+    condition: sibling.condition,
+    pictures,
+    attributes,
+    sale_terms: sibling.sale_terms,
+    shipping: { mode: sibling.shipping?.mode, free_shipping: !!sibling.shipping?.free_shipping, local_pick_up: !!sibling.shipping?.local_pick_up },
+  };
+  // User Products: ML rechaza `title` y agrupa por `family_name` (ver CLAUDE.md). Si el grupo es UNA
+  // ficha, el ítem nuevo entra a esa familia; si son ítems sueltos, arma la suya con su título.
+  const families = new Set(refItems.map((x) => x.familyName || (x.itemId === sibling.id ? sibling.family_name : null)));
+  const oneFamily = families.size === 1 && !families.has(null) && !families.has(undefined);
+  if (oneFamily) body.family_name = [...families][0];
+  else if (await isUserProductSeller(ctx.token)) body.family_name = p.title;
+  else body.title = p.title;
+  return body;
+}
+
+/** Espera a que la Cola ML aplique una tarea (o la dé por fallada) hasta `ML_TASK_WAIT_MS`. */
+async function waitForMlTask(taskId) {
+  const start = Date.now();
+  for (;;) {
+    const t = await getMlTaskStatus(taskId);
+    if (!t || t.status === 'done') return t;
+    if ((t.status === 'failed' || t.status === 'processing') && Number(t.attempts) >= ML_TASK_MAX_ATTEMPTS) return t;
+    if (Date.now() - start >= ML_TASK_WAIT_MS) return t;
+    await sleep(ML_TASK_POLL_MS);
+  }
+}
+
+/** Resultado de un cambio que fue por la Cola ML: "ok" solo si la cola lo aplicó (o sigue en curso, avisado). */
+function queuedResult(taskId, t) {
+  if (t?.status === 'done') return { detail: `Aplicado por la Cola ML (#${taskId})` };
+  if (t && Number(t.attempts) >= ML_TASK_MAX_ATTEMPTS && t.status !== 'pending') {
+    throw new Error(`La Cola ML no pudo aplicarlo (#${taskId})${t.lastError ? `: ${t.lastError}` : ''}. Se puede reintentar desde Cola ML.`);
+  }
+  const why = t?.lastError ? `, reintentando: ${t.lastError}` : '';
+  return { detail: `Sigue en la Cola ML (#${taskId}${why}): el resultado se ve en Cola ML` };
+}
 
 async function runMlOp(ctx, op) {
   const k = base(op.kind);
@@ -201,15 +278,38 @@ async function runMlOp(ctx, op) {
       ctx.forget(itemId);
       return {};
     case 'shipping': {
-      const item = await ctx.item(itemId);
-      await ml.updateItem(ctx.token, itemId, { shipping: { mode: item.shipping?.mode, free_shipping: !!p.free_shipping, local_pick_up: !!p.local_pick_up } });
+      // Solo viene el dato que cambió; el otro queda como lo tiene el ítem.
+      const item = await ctx.item(itemId, { fresh: true });
+      const cur = item.shipping || {};
+      const res = await ml.updateItem(ctx.token, itemId, {
+        shipping: {
+          mode: cur.mode,
+          free_shipping: p.free_shipping !== undefined ? !!p.free_shipping : !!cur.free_shipping,
+          local_pick_up: p.local_pick_up !== undefined ? !!p.local_pick_up : !!cur.local_pick_up,
+        },
+      });
       ctx.forget(itemId);
+      // ML ignora en silencio sacar el envío gratis cuando es obligatorio por precio: se mira el ítem
+      // que devuelve el PUT (si no vino, no hay con qué comparar).
+      const after = res?.shipping;
+      if (!after) return {};
+      const missed = [];
+      if (p.free_shipping !== undefined && !!after.free_shipping !== !!p.free_shipping) missed.push('envío gratis');
+      if (p.local_pick_up !== undefined && !!after.local_pick_up !== !!p.local_pick_up) missed.push('retiro en persona');
+      if (missed.length) {
+        const mandatory = [...(res.tags || []), ...(after.tags || []), ...(item.tags || [])].includes('mandatory_free_shipping');
+        throw new Error(`ML no cambió ${missed.join(' ni ')}${mandatory && missed.includes('envío gratis') ? ': por su precio el envío gratis es obligatorio' : ''}.`);
+      }
       return {};
     }
     case 'warranty': {
-      const sale_terms = p.type === 'Sin garantía'
-        ? [{ id: 'WARRANTY_TYPE', value_name: 'Sin garantía' }]
-        : [{ id: 'WARRANTY_TYPE', value_name: p.type }, { id: 'WARRANTY_TIME', value_name: p.time }];
+      // Un sale_term se borra mandando value_id y value_name en null (doc de ML); sin eso, "Sin
+      // garantía" dejaba el tiempo de la garantía anterior.
+      const time = String(p.time ?? '').trim();
+      const sale_terms = [
+        { id: 'WARRANTY_TYPE', value_name: p.type },
+        p.type !== 'Sin garantía' && time ? { id: 'WARRANTY_TIME', value_name: time } : { id: 'WARRANTY_TIME', value_id: null, value_name: null },
+      ];
       await ml.updateItem(ctx.token, itemId, { sale_terms });
       ctx.forget(itemId);
       return {};
@@ -228,6 +328,17 @@ async function runMlOp(ctx, op) {
     }
     case 'values': {
       const item = await ctx.item(itemId, { fresh: true });
+      if (!p.variationId) {
+        // Ítem de una ficha (User Products) o suelto: no tiene `variations`; el valor de la variante
+        // es un atributo del propio ítem (ej. COLOR).
+        const attributes = (p.axes || [])
+          .map((ax, i) => (ax.mlAttributeId ? { id: ax.mlAttributeId, value: p.values?.[i] ?? '' } : null))
+          .filter(Boolean);
+        if (!attributes.length) throw new Error('Esta publicación no tiene un atributo de ML para la variante: cambiá su título en su lugar.');
+        await ml.updateItem(ctx.token, itemId, { attributes: await mergedMlAttributes(ctx, item, { payload: { attributes } }) });
+        ctx.forget(itemId);
+        return {};
+      }
       await ml.updateItem(ctx.token, itemId, {
         variations: ml.mlVariationsBody(item, { [p.variationId]: { attribute_combinations: axisCombination(p.axes, p.values) } }),
       });
@@ -250,12 +361,13 @@ async function runMlOp(ctx, op) {
         idempotencyKey: `${kind}:${itemId}:${vid || 'item'}`,
       });
       if (!taskId) throw new Error('No se pudo encolar el cambio en la Cola de ML.');
-      return { detail: `En la Cola ML (#${taskId})` };
+      return queuedResult(taskId, await waitForMlTask(taskId));
     }
     case 'add_variation': {
       const v = p.variant;
       let item = await ctx.item(itemId, { fresh: true });
-      const existing = (item.variations || []).find((x) => attrText(x.attributes, 'SELLER_SKU') === v.sku);
+      // Sin SKU no hay cómo reconocer una ya creada (se adoptaría cualquiera sin SKU).
+      const existing = v.sku ? (item.variations || []).find((x) => attrText(x.attributes, 'SELLER_SKU') === v.sku) : null;
       if (existing) return { externalId: String(existing.id), detail: 'Ya existía: se usó la que estaba' };
       // Las fotos de la variación tienen que estar en el ítem antes de referenciarlas.
       const pictureIds = [];
@@ -282,39 +394,39 @@ async function runMlOp(ctx, op) {
     }
     case 'create_item': {
       const v = p.variant;
-      const sibling = await ctx.item(ctx.payload.refs.ml.items[0].itemId);
-      const cat = await ctx.categoryAttrs(sibling.category_id);
-      const axisIds = new Set((d.axes || []).map((ax) => ax.mlAttributeId).filter(Boolean));
-      const skip = new Set(['SELLER_SKU', 'GTIN', ...axisIds]);
-      const attributes = (sibling.attributes || [])
-        .filter((a) => a.id && !skip.has(a.id) && !(cat.get(a.id)?.tags?.read_only))
-        .map((a) => (a.value_id ? { id: a.id, value_id: String(a.value_id) } : { id: a.id, value_name: a.value_name }));
-      for (const c of axisCombination(d.axes, v.values)) if (c.id) attributes.push(c);
-      attributes.push({ id: 'SELLER_SKU', value_name: v.sku });
-      if (v.barcode) attributes.push({ id: 'GTIN', value_name: v.barcode });
-      const pictures = [];
-      for (const id of v.ml.pictureIds || []) pictures.push({ id: await ctx.pictureId(id) });
-      const body = {
-        category_id: sibling.category_id,
-        price: v.ml.price ?? sibling.price,
-        currency_id: sibling.currency_id || 'ARS',
-        available_quantity: Math.max(0, Math.floor(Number(v.stock) || 0)),
-        buying_mode: sibling.buying_mode || 'buy_it_now',
-        listing_type_id: sibling.listing_type_id,
-        condition: sibling.condition,
-        pictures,
-        attributes,
-        sale_terms: sibling.sale_terms,
-        shipping: { mode: sibling.shipping?.mode, free_shipping: !!sibling.shipping?.free_shipping, local_pick_up: !!sibling.shipping?.local_pick_up },
+      const known = new Set((ctx.payload.refs.ml.items || []).map((x) => x.itemId));
+      // Idempotencia: si ya hay una publicación con este SKU (un intento anterior que ML creó aunque
+      // respondió con error o se cortó), se adopta en vez de duplicarla.
+      const findExisting = async () => {
+        const ids = await ml.findItemIdsBySellerSku(ctx.token, tokens.mercadolibre?.user_id, v.sku);
+        if (ids === null) return null;
+        return { id: ids.find((id) => !known.has(id)) || '' };
       };
-      // User Products: ML rechaza `title` y agrupa por `family_name` (ver CLAUDE.md).
-      if (sibling.family_name) body.family_name = sibling.family_name;
-      else body.title = p.title;
-      const created = await ml.createItem(ctx.token, body);
+      let found = v.sku ? await findExisting() : { id: '' };
+      if (!found) throw new Error('No pudimos consultar en Mercado Libre si la publicación ya existe; reintentá en un rato (así no se duplica).');
+      let itemIdNew = found.id;
+      const adopted = !!itemIdNew;
+      if (!itemIdNew) {
+        const body = await newItemBody(ctx, p, v);
+        try {
+          const created = await ml.createItem(ctx.token, body);
+          itemIdNew = created?.id || '';
+        } catch (e) {
+          // ML a veces crea el ítem y contesta con error: antes de dar por fallado, se busca.
+          await sleep(2000);
+          found = v.sku ? await findExisting() : null;
+          if (!found?.id) throw e;
+          itemIdNew = found.id;
+        }
+      }
+      if (!itemIdNew) throw new Error('Mercado Libre no devolvió el id de la publicación creada.');
+      ctx.touched.add(itemIdNew);
       const desc = effective(d.ml.description, '');
-      if (desc && created?.id) await ml.setItemDescription(ctx.token, created.id, toMlPlainText(desc));
-      if (created?.id) ctx.touched.add(created.id);
-      return { externalId: created?.id || null };
+      if (desc.trim()) {
+        const r = await ml.setItemDescription(ctx.token, itemIdNew, toMlPlainText(desc));
+        if (!r.ok) throw new Error(`Se creó la publicación ${itemIdNew}, pero ML no aceptó la descripción (${r.error}). Reintentá: no se duplica.`);
+      }
+      return { externalId: itemIdNew, detail: adopted ? 'Ya existía: se usó la que estaba' : undefined };
     }
     case 'delete_variation': {
       try {
@@ -451,16 +563,19 @@ async function runTnOp(ctx, op) {
       return {};
     case 'variants_common': {
       const product = await ctx.product(productId, { fresh: true });
-      const body = { weight: p.weight, height: p.height, width: p.width, depth: p.depth, age_group: p.age_group, gender: p.gender };
-      if (p.mpn) body.mpn = p.mpn;
+      // Solo los campos que vienen (los que cambiaron) y nunca un null: cada variante conserva lo demás.
+      const body = {};
+      for (const k of ['weight', 'height', 'width', 'depth', 'mpn', 'age_group', 'gender']) if (p[k] != null && p[k] !== '') body[k] = p[k];
+      if (!Object.keys(body).length) return { detail: 'Nada que cambiar' };
       for (const v of product.variants || []) await tn.updateVariant(ctx.token, ctx.storeId, productId, v.id, body);
       ctx.forget(productId);
       return { detail: `${(product.variants || []).length} variantes` };
     }
     case 'images': {
       const ids = p.image_ids || [];
-      if (p.variantId != null && d.tn.mappingMode === 'single_with_variants') {
-        // Producto con variantes: TN admite UNA foto por variante (la primera elegida).
+      if (p.variantId != null && (p.multiVariant || d.tn.mappingMode === 'single_with_variants')) {
+        // Producto con variantes: TN admite UNA foto por variante (la primera elegida). Las fotos del
+        // producto son de todas sus variantes: no se borra ninguna.
         if (!ids.length) return { detail: 'Sin foto elegida: no se cambia' };
         const product = await ctx.product(productId, { fresh: true });
         const gallery = [...(product.images || []).map((img) => `tn-${img.id}`)];
@@ -475,8 +590,13 @@ async function runTnOp(ctx, op) {
     }
     case 'variant': {
       const product = await ctx.product(productId);
-      const body = { sku: p.sku, barcode: p.barcode || '' };
-      if ((product.attributes || []).length) body.values = (p.values || []).map((value) => ({ es: value }));
+      // Solo lo que cambió (`fields`); una operación vieja sin `fields` manda lo de antes.
+      const f = p.fields ? new Set(p.fields) : new Set(['sku', 'barcode', 'values']);
+      const body = {};
+      if (f.has('sku')) body.sku = p.sku;
+      if (f.has('barcode')) body.barcode = p.barcode || '';
+      if (f.has('values') && (product.attributes || []).length) body.values = (p.values || []).map((value) => ({ es: value }));
+      if (!Object.keys(body).length) return { detail: 'Nada que cambiar' };
       await tn.updateVariant(ctx.token, ctx.storeId, productId, p.variantId, body);
       ctx.forget(productId);
       return {};
@@ -504,7 +624,7 @@ async function runTnOp(ctx, op) {
     case 'add_variant': {
       const v = p.variant;
       const product = await ctx.product(productId, { fresh: true });
-      const existing = (product.variants || []).find((x) => String(x.sku || '').trim() === v.sku);
+      const existing = v.sku ? (product.variants || []).find((x) => String(x.sku || '').trim() === v.sku) : null;
       if (existing) return { externalId: String(existing.id), detail: 'Ya existía: se usó la que estaba' };
       const created = await tn.createVariant(ctx.token, ctx.storeId, productId, {
         ...tnVariantBody(d, v),
@@ -515,7 +635,7 @@ async function runTnOp(ctx, op) {
     }
     case 'create_product': {
       const v = p.variant;
-      const existing = await tn.findProductBySku(ctx.token, ctx.storeId, v.sku);
+      const existing = v.sku ? await tn.findProductBySku(ctx.token, ctx.storeId, v.sku) : null;
       let productIdNew;
       if (existing) {
         productIdNew = existing.id;

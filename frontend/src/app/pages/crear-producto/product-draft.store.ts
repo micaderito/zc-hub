@@ -411,6 +411,25 @@ export class ProductDraftStore {
   readonly mlMaxPictures = signal(ML_MAX_PICTURES_FALLBACK);
   readonly mlMaxPicturesPerVar = signal(ML_MAX_PICTURES_PER_VAR_FALLBACK);
   /**
+   * En "una publicación por variante" cada variante es un ítem de ML propio: el tope de fotos de la
+   * categoría (`max_pictures`) es POR VARIANTE, y la galería de ML es solo el banco de fotos de
+   * donde cada una elige las suyas. Con el tope en la galería, una publicación de 6 ítems con
+   * 4 fotos cada uno (24 en el banco) ya no dejaba subir ninguna más.
+   */
+  readonly mlGalleryIsPool = computed(() => {
+    const d = this.draft();
+    return d.variants.length > 1 && d.ml.mappingMode === 'one_per_variant';
+  });
+  /** Tope de fotos de cada variante en ML: el del ítem si es su propia publicación, el de variación si no. */
+  readonly mlVariantPictureLimit = computed(() => this.mlGalleryIsPool()
+    ? positiveLimit(this.mlMaxPictures(), ML_MAX_PICTURES_FALLBACK)
+    : positiveLimit(this.mlMaxPicturesPerVar(), ML_MAX_PICTURES_PER_VAR_FALLBACK));
+  /** Tope de la galería de ML: el de la categoría, o el de cada variante × variantes si es un banco. */
+  readonly mlGalleryLimit = computed(() => {
+    const max = positiveLimit(this.mlMaxPictures(), ML_MAX_PICTURES_FALLBACK);
+    return this.mlGalleryIsPool() ? max * this.draft().variants.length : max;
+  });
+  /**
    * Atributos de la categoría de ML que ML permite variar (`allowVariations`, ej. COLOR, SIZE) —
    * candidatos a mapear un eje de variante (`VariantAxis.mlAttributeId`). Los carga la página al
    * traer los atributos de categoría (`loadMlAttributes`); vive en el store (no en la página)
@@ -908,6 +927,13 @@ export class ProductDraftStore {
       if (noTn) out.push(`${noTn} variante(s) sin precio de Tienda Nube`);
       const skus = d.variants.map((v) => v.sku.trim()).filter(Boolean);
       if (new Set(skus).size !== skus.length) out.push('Hay SKUs de variante repetidos');
+      // Una variante sin fotos propias se publica con toda la galería: en un banco más grande que
+      // el tope de un ítem, ML la rechazaría.
+      const maxMl = positiveLimit(this.mlMaxPictures(), ML_MAX_PICTURES_FALLBACK);
+      if (this.mlGalleryIsPool() && d.ml.images.length > maxMl) {
+        const noPics = n((v) => v.ml.pictureIds.length === 0);
+        if (noPics) out.push(`${noPics} variante(s) sin fotos de Mercado Libre (con más de ${maxMl} en la galería, cada una tiene que elegir las suyas)`);
+      }
     }
 
     out.push(...this.alertBlockers());
@@ -1068,7 +1094,7 @@ export class ProductDraftStore {
 
   /** Tope de fotos de la galería del canal (ML depende de la categoría; TN es fijo). */
   imageLimit(channel: Channel): number {
-    return channel === 'ml' ? this.mlMaxPictures() : this.TN_MAX_PICTURES;
+    return channel === 'ml' ? this.mlGalleryLimit() : this.TN_MAX_PICTURES;
   }
 
   /**
@@ -1289,11 +1315,11 @@ export class ProductDraftStore {
     if (v.ml.pictureIds.includes(imageId)) {
       v.ml.pictureIds = v.ml.pictureIds.filter((id) => id !== imageId);
     } else {
-      // positiveLimit y no el valor crudo: ML devuelve 0 en categorías mal configuradas, y con un
-      // 0 la comparación daba `0 >= 0` y bloqueaba en silencio TODA selección de fotos de ML.
-      const max = positiveLimit(this.mlMaxPicturesPerVar(), ML_MAX_PICTURES_PER_VAR_FALLBACK);
+      // positiveLimit (dentro de mlVariantPictureLimit) y no el valor crudo: ML devuelve 0 en
+      // categorías mal configuradas, y con un 0 la comparación bloqueaba TODA selección de fotos.
+      const max = this.mlVariantPictureLimit();
       if (v.ml.pictureIds.length >= max) {
-        this.setImageError('variant', `Máximo ${max} fotos por variación en Mercado Libre.`);
+        this.setImageError('variant', `Máximo ${max} fotos por variante en Mercado Libre.`);
         return;
       }
       v.ml.pictureIds = [...v.ml.pictureIds, imageId];
