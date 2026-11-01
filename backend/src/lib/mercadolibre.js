@@ -496,6 +496,24 @@ export async function getCategoryAttributes(accessToken, categoryId) {
 }
 
 /**
+ * Ficha técnica del dominio (`GET /domains/{id}/technical_specs/input`): cómo valida ML cada
+ * característica en un alta. Puede no coincidir con `/categories/{id}/attributes` (un atributo que
+ * la categoría da como texto libre el dominio lo puede pedir como número con unidad). `null` si falla.
+ */
+export async function getDomainTechnicalSpecs(accessToken, domainId) {
+  const res = await fetchWith429Retry(
+    `${BASE}/domains/${encodeURIComponent(domainId)}/technical_specs/input`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'getDomainTechnicalSpecs'
+  );
+  if (!res.ok) {
+    console.warn('[ML] getDomainTechnicalSpecs falló:', res.status, domainId);
+    return null;
+  }
+  return res.json();
+}
+
+/**
  * Predictor de categoría por título: GET /sites/{site}/domain_discovery/search?q={título}
  * → array ordenado por confianza [{ domain_id, domain_name, category_id, category_name,
  * attributes: [{ id, name, value_id, value_name }] }]. Siempre devuelve categorías HOJA,

@@ -333,6 +333,34 @@ function attrEncodings(a) {
   });
 }
 
+/** La definición de un atributo dentro de la ficha técnica del dominio (está anidada en grupos/componentes). */
+function findSpecAttr(node, attrId) {
+  if (!node || typeof node !== 'object') return null;
+  if (!Array.isArray(node) && node.id === attrId && (node.value_type || node.values || node.allowed_units || node.units)) return node;
+  for (const v of Object.values(node)) {
+    const found = findSpecAttr(v, attrId);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Qué formato pide la ficha técnica para un atributo, en castellano, o null si no lo sabemos. */
+export function specHint(spec) {
+  if (!spec) return null;
+  const names = (list) => (Array.isArray(list) ? list.map((x) => x?.name ?? x?.id ?? x).filter(Boolean).map(String) : []);
+  const units = names(spec.allowed_units || spec.units);
+  const values = names(spec.values);
+  const multi = Array.isArray(spec.tags) ? spec.tags.includes('multivalued') : !!spec.tags?.multivalued;
+  const more = multi ? ' (admite varios valores)' : '';
+  if (values.length && (spec.value_type === 'list' || spec.value_type === 'boolean' || !spec.value_type)) {
+    return `ML espera uno de estos valores${more}: ${values.slice(0, 12).join(', ')}${values.length > 12 ? '…' : ''}.`;
+  }
+  if (spec.value_type === 'number_unit') return `ML espera un número con unidad${units.length ? ` (${units.join(', ')})` : ''}, ej. "3 ${units[0] || 'mm'}"${more}.`;
+  if (spec.value_type === 'number') return `ML espera un número${more}.`;
+  if (values.length) return `ML sugiere: ${values.slice(0, 12).join(', ')}${values.length > 12 ? '…' : ''}${more}.`;
+  return spec.value_type ? `ML espera un valor de tipo "${spec.value_type}"${more}.` : null;
+}
+
 /**
  * `POST /items` del ítem nuevo. Si ML rechaza el valor de una característica copiada ("El valor que
  * ingresaste en "Grosor del trazo" es incorrecto"), no se saca ni se cambia el valor: se prueba ESE
@@ -353,7 +381,8 @@ async function createItemExplained(ctx, body) {
   const show = (a) => JSON.stringify(Object.fromEntries(Object.entries(a).filter(([k]) => k !== 'id')));
   let attributes = body.attributes;
   const unresolved = [];
-  for (const a of body.attributes.filter((x) => names.includes(normName(nameOf(x))))) {
+  const rejectedAttrs = body.attributes.filter((x) => names.includes(normName(nameOf(x))));
+  for (const a of rejectedAttrs) {
     const tried = [show(a)];
     let chosen = null;
     for (const alt of attrEncodings(a).slice(1)) {
@@ -371,7 +400,23 @@ async function createItemExplained(ctx, body) {
     else unresolved.push(`"${nameOf(a)}" (se probó ${tried.join(' · ')})`);
   }
   if (unresolved.length) {
-    throw Object.assign(new Error(`${first.message} ML no aceptó el valor en ningún formato: ${unresolved.join('; ')}`), { mlStatus: first.mlStatus });
+    // El valor ya no pasa la validación de ML (el ítem viejo lo conserva porque se cargó antes): se
+    // dice qué pide la ficha técnica del dominio para que se corrija en el form, que lo aplica a toda la ficha.
+    const hints = [];
+    try {
+      const sibling = await ctx.item(ctx.payload.refs.ml.items[0].itemId);
+      const specs = sibling.domain_id ? await ml.getDomainTechnicalSpecs(ctx.token, sibling.domain_id) : null;
+      for (const a of rejectedAttrs) {
+        const spec = findSpecAttr(specs, a.id);
+        console.log('[Edit] ficha técnica de "%s" (%s): %s', nameOf(a), sibling.domain_id, JSON.stringify(spec)?.slice(0, 1500));
+        const hint = specHint(spec);
+        if (hint) hints.push(`"${nameOf(a)}": ${hint}`);
+      }
+    } catch (e) {
+      console.warn('[Edit] no se pudo leer la ficha técnica:', e.message);
+    }
+    const fix = 'ML ya no acepta ese valor en una publicación nueva: cerrá esta edición, abrila de nuevo, corregí la característica (se aplica a toda la ficha) y guardá.';
+    throw Object.assign(new Error(`${first.message} ML no aceptó el valor en ningún formato: ${unresolved.join('; ')}. ${hints.join(' ')} ${fix}`.replace(/\s+/g, ' ').trim()), { mlStatus: first.mlStatus });
   }
   return ml.createItem(ctx.token, { ...body, attributes });
 }

@@ -43,6 +43,7 @@ before(async () => {
         if (state.failCreateItem) { const e = state.failCreateItem; state.mlBySku = e.createdAs ? { [body.attributes.find((a) => a.id === 'SELLER_SKU').value_name]: [e.createdAs] } : state.mlBySku; throw new Error(e.message); }
         return { id: 'MLA-NEW' };
       },
+      getDomainTechnicalSpecs: async () => state.domainSpecs ?? null,
       validateItem: async (_t, body) => { log('validateItem', body); return rejects(body) ? { ok: false, error: `El valor que ingresaste en "${state.rejectAttr.name}" es incorrecto.` } : { ok: true }; },
       uploadPicture: async (_t, _buf, name) => { log('uploadPicture', name); return `UP-${callsOf('uploadPicture').length}`; },
       getCategoryAttributes: async () => state.catAttrs,
@@ -131,6 +132,7 @@ beforeEach(() => {
   state.descOk = true;
   state.updateResponse = null;
   state.rejectAttr = null;
+  state.domainSpecs = null;
 });
 
 function payload(ops, draftOver = {}) {
@@ -343,6 +345,24 @@ test('crear un ítem: si ML no acepta el valor en ningún formato, falla (no se 
   assert.equal(reports[0].status, 'error');
   assert.match(reports[0].detail, /ningún formato: "Grosor del trazo" \(se probó \{"value_name":"1-5mm"\}/);
   assert.match(reports[0].detail, /1-5 mm/);
+});
+
+test('crear un ítem: si ML no acepta el valor, el error dice qué pide la ficha técnica del dominio y cómo corregirlo', async () => {
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Resaltador', domain_id: 'MLA-MARKERS_AND_HIGHLIGHTERS', sale_terms: [], attributes: [{ id: 'STROKE_THICKNESS', value_name: '1-3mm' }] };
+  state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_type: 'string' }];
+  state.rejectAttr = { id: 'STROKE_THICKNESS', name: 'Grosor del trazo' };
+  state.domainSpecs = { groups: [{ components: [{ attributes: [{ id: 'STROKE_THICKNESS', value_type: 'number_unit', allowed_units: [{ id: 'mm', name: 'mm' }], tags: ['multivalued'] }] }] }] };
+  const { reports } = await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]));
+  assert.equal(reports[0].status, 'error');
+  assert.match(reports[0].detail, /"Grosor del trazo": ML espera un número con unidad \(mm\), ej\. "3 mm" \(admite varios valores\)/);
+  assert.match(reports[0].detail, /abrila de nuevo, corregí la característica/);
+});
+
+test('specHint: lista de valores, número y sin dato', async () => {
+  const { specHint } = await import('../src/services/publicationUpdate.js');
+  assert.equal(specHint({ value_type: 'list', values: [{ name: 'Fino' }, { name: 'Grueso' }] }), 'ML espera uno de estos valores: Fino, Grueso.');
+  assert.equal(specHint({ value_type: 'number' }), 'ML espera un número.');
+  assert.equal(specHint(null), null);
 });
 
 test('un error en una operación no frena las demás y lo ya hecho se saltea', async () => {
