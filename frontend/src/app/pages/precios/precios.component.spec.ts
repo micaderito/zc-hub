@@ -381,6 +381,41 @@ describe('PreciosComponent', () => {
     });
   });
 
+  it('el buscador también filtra lo sin costo (un proveedor con todo sin costo)', async () => {
+    withBic();
+    const pack = { packId: 9, name: 'Resaltadores x6', sku: null, unitCount: 6, mode: 'assorted' as const, modelCount: 3 };
+    pricing.getPreview.and.callFake(() => of({
+      rows: rows(),
+      uncosted: [
+        { sku: 'RES-AM', name: 'Resaltador amarillo', suppliers: ['bic'], pack },
+        { sku: 'RES-VE', name: 'Resaltador verde', suppliers: ['bic'], pack },
+        { sku: 'CORR', name: 'Corrector', suppliers: ['bic'], pack: null },
+      ],
+    }));
+    await render();
+    store().setSupplierTab('bic');
+    const p = planilla();
+
+    p.search.set('corrector');
+    fixture.detectChanges();
+    expect(p.filteredUncosted().map((u) => u.sku)).toEqual(['CORR']);
+    expect(text()).toContain('Corrector');
+    expect(text()).not.toContain('Resaltadores x6');
+
+    // "Todos" tilda solo lo que se ve.
+    p.toggleAllUncosted();
+    expect([...p.selected()]).toEqual(['CORR']);
+
+    p.search.set('resaltadores');
+    fixture.detectChanges();
+    expect(p.uncostedGroups().map((g) => g.key)).toEqual(['pack:9']);
+
+    p.search.set('nada que ver');
+    fixture.detectChanges();
+    expect(text()).toContain('No hay productos que coincidan con la búsqueda.');
+    expect(text()).not.toContain('Sin costo cargado');
+  });
+
   it('carga el mismo costo a lo tildado (con costo y sin costo), cada uno con su nombre', async () => {
     withBic();
     const pack = { packId: 9, name: 'Resaltadores x6', sku: null, unitCount: 6, mode: 'assorted' as const, modelCount: 3 };
