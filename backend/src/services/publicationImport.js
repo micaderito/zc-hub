@@ -95,8 +95,14 @@ function uniqueImages(list) {
   return list.filter((img) => (seen.has(img.id) ? false : (seen.add(img.id), true)));
 }
 
-/** Ejes de variante de ML: los `attribute_combinations` (legacy) o los atributos que cambian entre ítems de una ficha (User Products). */
-function mlAxes(items) {
+/**
+ * Ejes de variante de ML: los `attribute_combinations` (legacy) o los atributos que cambian entre
+ * ítems de una ficha (User Products). En el segundo caso no alcanza con "cambia entre ítems": una
+ * característica cargada en unos y vacía en otros ("Es lavable: No") también cambia y no es un eje.
+ * Por eso un valor vacío no cuenta, el atributo tiene que estar cargado en todos los ítems y, si se
+ * conocen los atributos de variación de la categoría (`allow_variations`), solo cuentan esos.
+ */
+function mlAxes(items, variationAttrIds = null) {
   const legacy = items.find((it) => it.variations?.length);
   if (legacy) {
     return (legacy.variations[0].attribute_combinations || []).map((c) => ({ name: c.name || c.id, mlAttributeId: c.id || undefined }));
@@ -106,21 +112,25 @@ function mlAxes(items) {
   for (const it of items) {
     for (const a of it.attributes || []) {
       const id = up(a.id);
-      if (!id || ML_ATTRS_HANDLED_ELSEWHERE.has(id)) continue;
-      if (!ids.has(id)) ids.set(id, { name: a.name || id, values: new Set() });
-      ids.get(id).values.add(String(a.value_name ?? ''));
+      const value = String(a.value_name ?? '').trim();
+      if (!id || ML_ATTRS_HANDLED_ELSEWHERE.has(id) || !value || a.value_id === '-1') continue;
+      if (!ids.has(id)) ids.set(id, { name: a.name || id, values: new Set(), items: new Set() });
+      ids.get(id).values.add(value.toLowerCase());
+      ids.get(id).items.add(it.id);
     }
   }
-  return [...ids.entries()]
-    .filter(([, v]) => v.values.size > 1)
-    .map(([id, v]) => ({ name: v.name, mlAttributeId: id }));
+  const candidates = [...ids.entries()].filter(([, v]) => v.values.size > 1 && v.items.size === items.length);
+  const allowed = variationAttrIds ? new Set([...variationAttrIds].map(up)) : null;
+  const ofCategory = allowed ? candidates.filter(([id]) => allowed.has(id)) : candidates;
+  // Si la categoría no marca ninguno de los que cambian, se usa lo que cambia (mejor que ningún eje).
+  return (ofCategory.length ? ofCategory : candidates).map(([id, v]) => ({ name: v.name, mlAttributeId: id }));
 }
 
 /**
  * Convierte publicaciones reales en un ProductDraft para el form.
  * @param {{ mlItems: object[], mlDescriptions?: Record<string,string>, tnProducts: object[], categoryName?: string }} input
  */
-export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts = [], categoryName = '' }) {
+export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts = [], categoryName = '', variationAttrIds = null }) {
   const notes = [];
   const hasMl = mlItems.length > 0;
   const hasTn = tnProducts.length > 0;
@@ -160,7 +170,7 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
   }
 
   // ── Ejes ──
-  let axes = mlAxes(mlItems);
+  let axes = mlAxes(mlItems, variationAttrIds);
   if (!axes.length && tnProducts.length === 1) {
     axes = (tnProducts[0].attributes || []).map((a) => ({ name: tnText(a) })).filter((a) => a.name);
   }
@@ -417,6 +427,7 @@ export async function importHubProduct(groupKey) {
   const mlItems = [];
   const mlDescriptions = {};
   let categoryName = '';
+  let variationAttrIds = null;
   if (group.ml.length) {
     const token = await getMlToken();
     if (!token) throw Object.assign(new Error('Mercado Libre no está conectado.'), { status: 409 });
@@ -432,6 +443,16 @@ export async function importHubProduct(groupKey) {
       mlDescriptions[pub.itemId] = desc;
     }
     if (mlItems[0]?.category_id) categoryName = (await ml.getCategory(token, mlItems[0].category_id))?.name || '';
+    // Varios ítems sin variations[] (ficha o sueltos): el eje sale de los atributos de variación de
+    // la categoría. Si no se pueden leer, se cae a "lo que cambia entre ítems".
+    if (mlItems.length > 1 && !mlItems.some((it) => it.variations?.length) && mlItems[0]?.category_id) {
+      try {
+        const attrs = await ml.getCategoryAttributes(token, mlItems[0].category_id);
+        if (attrs?.length) variationAttrIds = attrs.filter((a) => a.tags?.allow_variations).map((a) => a.id);
+      } catch (e) {
+        console.warn('[Edit] no se pudieron leer los atributos de la categoría:', e.message);
+      }
+    }
   }
 
   const tnProducts = [];
@@ -451,7 +472,7 @@ export async function importHubProduct(groupKey) {
   if (!mlItems.length && !tnProducts.length) {
     throw Object.assign(new Error('Las publicaciones de este producto ya no existen en ML ni en TN.'), { status: 404 });
   }
-  return { group, ...buildEditDraft({ mlItems, mlDescriptions, tnProducts, categoryName }) };
+  return { group, ...buildEditDraft({ mlItems, mlDescriptions, tnProducts, categoryName, variationAttrIds }) };
 }
 
 /**
