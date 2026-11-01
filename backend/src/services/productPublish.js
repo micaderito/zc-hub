@@ -229,7 +229,7 @@ async function withSanitizedMlAttributes(payload, mlToken) {
   return { ...payload, ml: { ...payload.ml, attributes: sanitizeMlAttributeValues(payload.ml.attributes, defs) } };
 }
 
-function withUnitsPerPack(attributes) {
+export function withUnitsPerPack(attributes) {
   const attrs = attributes || [];
   const hasSaleFormat = attrs.some((a) => a.id === 'SALE_FORMAT' && !isNotApplicable(a) && (a.value_id || a.value_name));
   if (!hasSaleFormat) return attrs;

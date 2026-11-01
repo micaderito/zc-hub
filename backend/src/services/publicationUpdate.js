@@ -24,7 +24,7 @@ import { enqueueMlTask, getMlTaskStatus } from '../db.js';
 import { isUserProductSeller } from '../lib/mlUserProducts.js';
 import { getImage, getImageUrl } from './imageStore.js';
 import { plainTextToHtml, toMlPlainText } from '../lib/richText.js';
-import { packageAttributes } from './productPublish.js';
+import { packageAttributes, withUnitsPerPack } from './productPublish.js';
 import { refreshMlItemInSnapshot, refreshTnProductInSnapshot } from './conflictsService.js';
 import { setTnStockManual, setTnPriceManual } from './tnManualWrites.js';
 
@@ -190,6 +190,26 @@ async function syncLegacyPictures(ctx, itemId) {
 const axisCombination = (axes, values) =>
   (axes || []).map((ax, i) => (ax.mlAttributeId ? { id: ax.mlAttributeId, value_name: values[i] } : { name: ax.name, value_name: values[i] }));
 
+/**
+ * Un atributo (o `sale_term`) leído de `GET /items` como va en un `POST /items`. El GET trae
+ * `value_id` también en atributos libres (números, textos, valores propios de la cuenta) y ML no lo
+ * resuelve de vuelta: "Value name of attribute X was not provided and couldn't be resolved". El
+ * `value_id` solo viaja si está en la lista cerrada de la categoría; si no, va el texto.
+ */
+function siblingAttrValue(a, catAttr) {
+  if (String(a.value_id ?? '') === ML_NA) return { id: a.id, value_id: ML_NA, value_name: null };
+  const name = a.value_name != null && String(a.value_name).trim() ? String(a.value_name) : null;
+  const listed = a.value_id && (catAttr?.values || []).some((x) => String(x.id) === String(a.value_id));
+  if (listed) return { id: a.id, value_id: String(a.value_id), ...(name ? { value_name: name } : {}) };
+  return name ? { id: a.id, value_name: name } : null;
+}
+
+/** Modo de envío del ítem nuevo: el del form (el mismo que usa Crear producto); `me1` la cuenta no lo tiene. */
+function shippingMode(d, sibling) {
+  const mode = d.ml?.shippingMode || sibling.shipping?.mode;
+  return mode === 'custom' || mode === 'not_specified' ? mode : 'me2';
+}
+
 /** Body de POST /items para una variante nueva, copiando lo que no es de la variante de un ítem hermano. */
 async function newItemBody(ctx, p, v) {
   const d = ctx.payload.draft;
@@ -200,7 +220,8 @@ async function newItemBody(ctx, p, v) {
   const skip = new Set(['SELLER_SKU', 'GTIN', ...axisIds]);
   const attributes = (sibling.attributes || [])
     .filter((a) => a.id && !skip.has(a.id) && !(cat.get(a.id)?.tags?.read_only))
-    .map((a) => (a.value_id ? { id: a.id, value_id: String(a.value_id) } : { id: a.id, value_name: a.value_name }));
+    .map((a) => siblingAttrValue(a, cat.get(a.id)))
+    .filter(Boolean);
   for (const c of axisCombination(d.axes, v.values)) if (c.id) attributes.push(c);
   attributes.push({ id: 'SELLER_SKU', value_name: v.sku });
   if (v.barcode) attributes.push({ id: 'GTIN', value_name: v.barcode });
@@ -215,9 +236,9 @@ async function newItemBody(ctx, p, v) {
     listing_type_id: d.ml.listingType || sibling.listing_type_id,
     condition: sibling.condition,
     pictures,
-    attributes,
-    sale_terms: sibling.sale_terms,
-    shipping: { mode: sibling.shipping?.mode, free_shipping: !!sibling.shipping?.free_shipping, local_pick_up: !!sibling.shipping?.local_pick_up },
+    attributes: withUnitsPerPack(attributes),
+    sale_terms: (sibling.sale_terms || []).map((t) => siblingAttrValue(t, null)).filter(Boolean),
+    shipping: { mode: shippingMode(d, sibling), free_shipping: !!sibling.shipping?.free_shipping, local_pick_up: !!sibling.shipping?.local_pick_up },
   };
   // User Products: ML rechaza `title` y agrupa por `family_name` (ver CLAUDE.md). Si el grupo es UNA
   // ficha, el ítem nuevo entra a esa familia; si son ítems sueltos, arma la suya con su título.
