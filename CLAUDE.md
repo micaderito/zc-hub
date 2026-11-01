@@ -1234,6 +1234,10 @@ el panel `zc-edit-review` "Cambios a aplicar").
   forma real (1 ítem con `variations[]` → `single_with_variants`; N ítems/productos →
   `one_per_variant`), los ejes de `attribute_combinations` (legacy), de los atributos que cambian
   entre ítems de una ficha (User Products) o de `attributes` de TN, y las variantes se unen por SKU.
+  En una ficha, "cambia entre ítems" no alcanza (2026-11-01: "Es lavable" cargado en unos y vacío en
+  otros salió como segundo eje y los nombres quedaron "Pastel No"): un valor vacío no cuenta, el
+  atributo tiene que estar en todos los ítems y solo cuentan los `allow_variations` de la categoría
+  (`variationAttrIds`, con caída a lo que cambia si la categoría no marca ninguno).
   Si un canal no contesta (429/5xx), no se arma la edición (502): nunca se edita con datos a medias.
 - **Lo que se guarda** es la edición a medio terminar (`publication_edits`: `draft_json`,
   `baseline_json` = cómo estaba al importarla, `refs_json` = ids externos + `last_updated`/`updated_at`

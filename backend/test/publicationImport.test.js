@@ -214,3 +214,20 @@ test('checkRemoteChanges avisa qué publicación cambió desde que se abrió la 
   });
   assert.deepEqual(changed, [{ channel: 'ml', id: 'MLA1', name: 'Cuaderno' }]);
 });
+
+test('ficha de User Products: una característica cargada en unos ítems y vacía en otros ("Es lavable") no es un eje', () => {
+  const item = (id, color, washable) => ({
+    id, title: `Marcadores ${color}`, family_name: 'Marcadores Filgo', user_product_id: `U${id}`, price: 1, available_quantity: 1, pictures: [],
+    attributes: [
+      { id: 'COLOR', name: 'Color', value_name: color }, { id: 'SELLER_SKU', value_name: color },
+      { id: 'IS_WASHABLE', name: 'Es lavable', value_name: washable },
+    ],
+  });
+  const items = [item('MLA1', 'Piel', 'No'), item('MLA2', 'Pastel', null), item('MLA3', 'Frios', 'No')];
+  assert.deepEqual(buildEditDraft({ mlItems: items, tnProducts: [] }).draft.axes, [{ name: 'Color', mlAttributeId: 'COLOR' }]);
+  // Aunque cambie en todos, si la categoría dice cuáles son de variación, solo cuentan esos.
+  items[1].attributes[2].value_name = 'Sí';
+  const { draft } = buildEditDraft({ mlItems: items, tnProducts: [], variationAttrIds: ['COLOR'] });
+  assert.deepEqual(draft.axes, [{ name: 'Color', mlAttributeId: 'COLOR' }]);
+  assert.deepEqual(draft.variants.map((v) => v.values), [['Piel'], ['Pastel'], ['Frios']]);
+});
