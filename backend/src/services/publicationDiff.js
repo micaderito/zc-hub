@@ -254,26 +254,46 @@ export function planPublicationUpdate(baseline, draft, refs) {
   const legacyPriceOps = new Map(); // itemId → { op, prices }: un solo cambio de precio por ítem legacy
   const tnRenamed = new Set();
 
+  // Una variante que se quitó y se volvió a agregar con el mismo SKU es la MISMA: no se borra y se
+  // crea. Sin esto la alta (que corre antes) adoptaba la existente por SKU y después la baja la borraba.
+  const reAddedFrom = new Map(); // id nuevo → id de la variante que ya existía
+  const removedBySku = new Map();
+  for (const prev of b.variants || []) if (!dById.has(prev.id) && norm(prev.sku)) removedBySku.set(norm(prev.sku), prev.id);
   for (const v of d.variants || []) {
-    const prev = bById.get(v.id);
+    if (bById.has(v.id) || !norm(v.sku) || !removedBySku.has(norm(v.sku))) continue;
+    reAddedFrom.set(v.id, removedBySku.get(norm(v.sku)));
+    removedBySku.delete(norm(v.sku));
+  }
+  const reAddedOld = new Set(reAddedFrom.values());
+
+  const createMl = (v, name, why = '') => {
+    if (legacyItem) mlOp(legacyItem.itemId, `add_variation:${v.id}`, `Agregar la variación ${name}${why}`, { variant: v });
+    else add({ key: `ml:new:${v.id}`, channel: 'ml', target: 'new', targetLabel: 'ML nuevo', kind: 'create_item', label: `Crear la publicación ${name}${mlItems.some((x) => x.format === 'up') ? ' en la misma ficha' : ''}${why}`, payload: { variant: v, title: variantTitle(d, 'ml', v) } });
+  };
+  const createTn = (v, name, why = '') => {
+    if (tnAddTarget) tnOp(tnAddTarget.productId, `add_variant:${v.id}`, `Agregar la variante ${name}${why}`, { variant: v });
+    else {
+      add({ key: `tn:new:${v.id}`, channel: 'tn', target: 'new', targetLabel: 'TN nuevo', kind: 'create_product', label: `Crear el producto "${variantTitle(d, 'tn', v)}"${why}`, payload: { variant: v, name: variantTitle(d, 'tn', v) },
+        warn: [...tnVariantCount.values()].some((n) => n > 1) ? 'En Tienda Nube se crea como un producto aparte (el grupo tiene varios productos).' : undefined });
+    }
+  };
+
+  for (const v of d.variants || []) {
+    const prevId = bById.has(v.id) ? v.id : reAddedFrom.get(v.id);
+    const prev = prevId ? bById.get(prevId) : undefined;
     const name = `"${label(v.values) || v.sku || 'variante'}"`;
-    const ref = vrefs[v.id] || { ml: null, tn: null };
+    const ref = (prevId && vrefs[prevId]) || { ml: null, tn: null };
 
     if (!prev) {
       // Variante nueva: se crea en cada canal según cómo está armado.
-      if (hasMl) {
-        if (legacyItem) mlOp(legacyItem.itemId, `add_variation:${v.id}`, `Agregar la variación ${name}`, { variant: v });
-        else add({ key: `ml:new:${v.id}`, channel: 'ml', target: 'new', targetLabel: 'ML nuevo', kind: 'create_item', label: `Crear la publicación ${name}${mlItems.some((x) => x.format === 'up') ? ' en la misma ficha' : ''}`, payload: { variant: v, title: variantTitle(d, 'ml', v) } });
-      }
-      if (hasTn) {
-        if (tnAddTarget) tnOp(tnAddTarget.productId, `add_variant:${v.id}`, `Agregar la variante ${name}`, { variant: v });
-        else {
-          add({ key: `tn:new:${v.id}`, channel: 'tn', target: 'new', targetLabel: 'TN nuevo', kind: 'create_product', label: `Crear el producto "${variantTitle(d, 'tn', v)}"`, payload: { variant: v, name: variantTitle(d, 'tn', v) },
-            warn: [...tnVariantCount.values()].some((n) => n > 1) ? 'En Tienda Nube se crea como un producto aparte (el grupo tiene varios productos).' : undefined });
-        }
-      }
+      if (hasMl) createMl(v, name);
+      if (hasTn) createTn(v, name);
       continue;
     }
+
+    // Variante que ya existe en un solo canal: se publica en el que le falta.
+    if (hasMl && !ref.ml && ref.tn) createMl(v, name, ' (hoy está solo en Tienda Nube)');
+    if (hasTn && !ref.tn && ref.ml) createTn(v, name, ' (hoy está solo en Mercado Libre)');
 
     if (ref.ml) {
       const t = ref.ml.itemId;
@@ -343,7 +363,7 @@ export function planPublicationUpdate(baseline, draft, refs) {
     (d.variants || []).some((v) => (bById.has(v.id) ? tnPid(v.id) === pid : tnAddTarget && String(tnAddTarget.productId) === pid));
   const tnDeleted = new Set();
   for (const prev of b.variants || []) {
-    if (dById.has(prev.id)) continue;
+    if (dById.has(prev.id) || reAddedOld.has(prev.id)) continue;
     const name = `"${label(prev.values) || prev.sku || 'variante'}"`;
     const ref = vrefs[prev.id] || {};
     if (ref.ml) {

@@ -496,18 +496,17 @@ export async function getCategoryAttributes(accessToken, categoryId) {
 }
 
 /**
- * Ficha técnica del dominio (`GET /domains/{id}/technical_specs/input`): cómo valida ML cada
- * característica en un alta. Puede no coincidir con `/categories/{id}/attributes` (un atributo que
- * la categoría da como texto libre el dominio lo puede pedir como número con unidad). `null` si falla.
+ * Buscador del catálogo de ML (`GET /products/search`): productos de catálogo con sus atributos.
+ * `null` si falla. Lo usa el diagnóstico de una característica rechazada (publicationUpdate.js).
  */
-export async function getDomainTechnicalSpecs(accessToken, domainId) {
+export async function searchCatalogProducts(accessToken, q, siteId = 'MLA') {
   const res = await fetchWith429Retry(
-    `${BASE}/domains/${encodeURIComponent(domainId)}/technical_specs/input`,
+    `${BASE}/products/search?status=active&site_id=${siteId}&q=${encodeURIComponent(q)}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
-    'getDomainTechnicalSpecs'
+    'searchCatalogProducts'
   );
   if (!res.ok) {
-    console.warn('[ML] getDomainTechnicalSpecs falló:', res.status, domainId);
+    console.warn('[ML] searchCatalogProducts falló:', res.status);
     return null;
   }
   return res.json();
