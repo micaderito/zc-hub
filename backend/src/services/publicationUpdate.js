@@ -221,6 +221,16 @@ function itemAttrValue(a, catAttr) {
   return name ? { id: a.id, value_name: name } : null;
 }
 
+/**
+ * Atributo multivalor (tag `multivalued`, ej. "Grosor del trazo" en resaltadores) con varios
+ * valores: en un ítem NUEVO van todos en `value_name` separados por coma (doc de Atributos). El
+ * `value_id` de cada uno es propio del ítem viejo y no sirve para otro.
+ */
+function multiValue(a) {
+  const names = (a.values || []).map((x) => String(x.name ?? '').trim()).filter(Boolean);
+  return names.length ? { id: a.id, value_name: names.join(',') } : null;
+}
+
 /** Modo de envío del ítem nuevo: el del form (el mismo que usa Crear producto); `me1` la cuenta no lo tiene. */
 function shippingMode(d, sibling) {
   const mode = d.ml?.shippingMode || sibling.shipping?.mode;
@@ -244,8 +254,8 @@ async function newItemBody(ctx, p, v) {
   // generales del form: son las que la usuaria ve (y pudo cambiar en esta misma edición, cambio que a
   // los hermanos les llega por su propia operación, no antes de que se cree este ítem).
   for (const a of sibling.attributes || []) {
-    if (!a.id || skip.has(a.id) || isReadOnly(a.id) || (a.values || []).length > 1) continue;
-    const val = itemAttrValue(a, cat.get(a.id));
+    if (!a.id || skip.has(a.id) || isReadOnly(a.id)) continue;
+    const val = (a.values || []).length > 1 ? multiValue(a) : itemAttrValue(a, cat.get(a.id));
     if (val) byId.set(a.id, val);
   }
   for (const a of d.ml.attributes || []) {
@@ -288,12 +298,11 @@ async function newItemBody(ctx, p, v) {
 const normName = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 
 /**
- * `POST /items` del ítem nuevo. Si ML rechaza el valor de una característica que copiamos de la
- * ficha ("El valor que ingresaste en "Grosor del trazo" es incorrecto", que ML acepta en el ítem
- * viejo pero no en uno nuevo), se reintenta UNA vez sin ella, salvo que sea obligatoria: así la
- * variante se crea igual y el resultado dice qué quedó afuera (`onDropped`) y con qué valor.
+ * `POST /items` del ítem nuevo. Si ML rechaza el valor de una característica ("El valor que
+ * ingresaste en "Grosor del trazo" es incorrecto"), el error suma QUÉ valor se mandó en cada una:
+ * ML no lo dice y sin eso no hay forma de saber qué corregir.
  */
-async function createItemDroppingRejectedAttrs(ctx, body, onDropped) {
+async function createItemExplained(ctx, body) {
   try {
     return await ml.createItem(ctx.token, body);
   } catch (e) {
@@ -301,17 +310,12 @@ async function createItemDroppingRejectedAttrs(ctx, body, onDropped) {
     if (!names.length) throw e;
     const cat = await ctx.categoryAttrs(body.category_id);
     const nameOf = (a) => cat.get(a.id)?.name || a.name || a.id;
-    const rejected = body.attributes.filter((a) => names.includes(normName(nameOf(a))));
-    const shown = rejected.map((a) => `"${nameOf(a)}" = "${a.value_name ?? a.value_id ?? ''}"`).join(', ');
-    const droppable = rejected.filter((a) => !cat.get(a.id)?.tags?.required && a.id !== 'SELLER_SKU');
-    if (!droppable.length || droppable.length < rejected.length) {
-      throw new Error(`${e.message}${shown ? ` (se mandó ${shown})` : ''}`);
-    }
-    console.warn('[Edit] ML rechazó %s: se crea el ítem sin esas características', shown);
-    const ids = new Set(droppable.map((a) => a.id));
-    const created = await ml.createItem(ctx.token, { ...body, attributes: body.attributes.filter((a) => !ids.has(a.id)) });
-    onDropped(droppable.map((a) => ({ id: a.id, name: nameOf(a), value: a.value_name ?? a.value_id ?? '' })));
-    return created;
+    const shown = body.attributes
+      .filter((a) => names.includes(normName(nameOf(a))))
+      .map((a) => `"${nameOf(a)}" = ${JSON.stringify(a.value_id != null ? { value_id: a.value_id, value_name: a.value_name ?? null } : a.value_name ?? null)}`)
+      .join(', ');
+    console.warn('[Edit] ML rechazó %s', shown || names.join(', '));
+    throw Object.assign(new Error(`${e.message}${shown ? ` (se mandó ${shown})` : ''}`), { mlStatus: e.mlStatus });
   }
 }
 
@@ -497,11 +501,10 @@ async function runMlOp(ctx, op) {
       if (!found) throw new Error('No pudimos consultar en Mercado Libre si la publicación ya existe; reintentá en un rato (así no se duplica).');
       let itemIdNew = found.id;
       const adopted = !!itemIdNew;
-      let dropped = [];
       if (!itemIdNew) {
         const body = await newItemBody(ctx, p, v);
         try {
-          const created = await createItemDroppingRejectedAttrs(ctx, body, (list) => { dropped = list; });
+          const created = await createItemExplained(ctx, body);
           itemIdNew = created?.id || '';
         } catch (e) {
           // ML a veces crea el ítem y contesta con error: antes de dar por fallado, se busca.
@@ -518,10 +521,7 @@ async function runMlOp(ctx, op) {
         const r = await ml.setItemDescription(ctx.token, itemIdNew, toMlPlainText(desc));
         if (!r.ok) throw new Error(`Se creó la publicación ${itemIdNew}, pero ML no aceptó la descripción (${r.error}). Reintentá: no se duplica.`);
       }
-      const droppedNote = dropped.length
-        ? `ML no aceptó ${dropped.map((x) => `"${x.name}" (${x.value})`).join(', ')}: se creó sin ${dropped.length > 1 ? 'esas características' : 'esa característica'}. Cargala desde el panel de ML.`
-        : undefined;
-      return { externalId: itemIdNew, detail: adopted ? 'Ya existía: se usó la que estaba' : droppedNote };
+      return { externalId: itemIdNew, detail: adopted ? 'Ya existía: se usó la que estaba' : undefined };
     }
     case 'delete_variation': {
       try {

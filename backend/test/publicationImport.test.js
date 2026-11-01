@@ -205,6 +205,14 @@ test('importHubProduct: grupo inexistente → 404; ML que no contesta → 502 (n
   await assert.rejects(importHubProduct('ml:MLA1'), (e) => e.status === 502 && e.message.includes('descripción'));
 });
 
+test('un atributo multivalor se importa con todos sus valores separados por coma', () => {
+  const item = { id: 'MLA1', title: 'Resaltador', price: 1, available_quantity: 1, pictures: [],
+    attributes: [{ id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_id: '901', value_name: '1 mm', values: [{ id: '901', name: '1 mm' }, { id: '902', name: '5 mm' }] }] };
+  const attr = buildEditDraft({ mlItems: [item], tnProducts: [] }).draft.ml.attributes.find((a) => a.id === 'STROKE_THICKNESS');
+  assert.equal(attr.value, '1 mm,5 mm');
+  assert.equal(attr.valueId, undefined);
+});
+
 test('checkRemoteChanges: una edición vieja sin huella no avisa por last_updated; toma la huella de ahora y la guarda', async () => {
   state.items.MLA1 = { id: 'MLA1', title: 'Cuaderno', price: 1, available_quantity: 2, last_updated: '2026-10-05T00:00:00Z' };
   state.products[1] = { id: 1, updated_at: '2026-10-09T10:00:00Z', variants: [] };

@@ -297,15 +297,20 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
     description: own(mlDesc),
     attributes: (firstMl?.attributes || [])
       .filter((a) => a.id && !ML_ATTRS_HANDLED_ELSEWHERE.has(up(a.id)) && !axisAttrIds.has(up(a.id)))
-      .map((a) => ({
-        id: a.id,
-        name: a.name || a.id,
-        value: a.value_id === '-1' ? '' : String(a.value_name ?? ''),
-        valueId: a.value_id && a.value_id !== '-1' ? String(a.value_id) : undefined,
-        required: false,
-        inherited: up(a.id) === 'BRAND',
-        notApplicable: a.value_id === '-1' || undefined,
-      })),
+      .map((a) => {
+        // Multivalor (ej. "Grosor del trazo"): todos sus valores separados por coma, como los carga
+        // ML; `value_name` solo trae el primero y el `value_id` es de ese ítem.
+        const multi = (a.values || []).length > 1;
+        return {
+          id: a.id,
+          name: a.name || a.id,
+          value: a.value_id === '-1' ? '' : multi ? a.values.map((x) => x.name).filter(Boolean).join(',') : String(a.value_name ?? ''),
+          valueId: !multi && a.value_id && a.value_id !== '-1' ? String(a.value_id) : undefined,
+          required: false,
+          inherited: up(a.id) === 'BRAND',
+          notApplicable: a.value_id === '-1' || undefined,
+        };
+      }),
     images: uniqueImages(mlItems.flatMap((it) => (it.pictures || []).map(mlImage))),
     basePrice: simple && single.m ? Number(single.m.price) : null,
   };

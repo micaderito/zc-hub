@@ -303,23 +303,20 @@ test('TN: agregar una variante a un producto con variantes le pone la foto elegi
   assert.equal(callsOf('tn.deleteProductImage').length, 0, 'no borra fotos del producto');
 });
 
-test('crear un ítem: si ML rechaza el valor de una característica opcional, se crea sin ella y lo avisa', async () => {
+test('crear un ítem: un multivalor del hermano viaja con todos sus valores separados por coma, sin value_id', async () => {
   state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Resaltador', sale_terms: [],
-    attributes: [{ id: 'STROKE_THICKNESS', value_name: '1-5 mm' }, { id: 'BRAND', value_name: 'Filgo' }] };
-  state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_type: 'number_unit', default_unit: 'mm' }];
-  state.rejectAttr = { id: 'STROKE_THICKNESS', name: 'Grosor del trazo' };
-  const { reports } = await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]));
-  assert.equal(callsOf('createItem').length, 2);
-  assert.ok(!callsOf('createItem')[1][1].attributes.some((a) => a.id === 'STROKE_THICKNESS'));
-  assert.equal(reports[0].status, 'ok');
-  assert.match(reports[0].detail, /Grosor del trazo" \(1-5 mm\)/);
+    attributes: [{ id: 'STROKE_THICKNESS', value_id: '901', value_name: '1 mm', values: [{ id: '901', name: '1 mm' }, { id: '902', name: '5 mm' }] }] };
+  state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_type: 'string', tags: { multivalued: true } }];
+  await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]));
+  assert.deepEqual(callsOf('createItem')[0][1].attributes.find((a) => a.id === 'STROKE_THICKNESS'), { id: 'STROKE_THICKNESS', value_name: '1 mm,5 mm' });
 });
 
-test('crear un ítem: si la característica rechazada es obligatoria, falla diciendo qué valor se mandó', async () => {
+test('crear un ítem: si ML rechaza el valor de una característica, falla (no se crea sin ella) diciendo qué se mandó', async () => {
   state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Resaltador', sale_terms: [], attributes: [{ id: 'STROKE_THICKNESS', value_name: '1-5 mm' }] };
-  state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', tags: { required: true } }];
+  state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_type: 'string' }];
   state.rejectAttr = { id: 'STROKE_THICKNESS', name: 'Grosor del trazo' };
   const { reports } = await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]));
+  assert.equal(callsOf('createItem').length, 1, 'no reintenta sin la característica');
   assert.equal(reports[0].status, 'error');
   assert.match(reports[0].detail, /se mandó "Grosor del trazo" = "1-5 mm"/);
 });
