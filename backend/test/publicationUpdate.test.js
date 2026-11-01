@@ -11,6 +11,12 @@ const log = (name, ...args) => { calls.push([name, ...args]); };
 const callsOf = (name) => calls.filter((c) => c[0] === name);
 
 let runChannelOps, orderOps;
+/** ML "rechaza" el atributo `state.rejectAttr.id` salvo en el formato que acepta `state.rejectAttr.accepts`. */
+const rejects = (body) => {
+  const r = state.rejectAttr;
+  const a = r && body.attributes.find((x) => x.id === r.id);
+  return !!a && !(r.accepts && r.accepts(a));
+};
 
 before(async () => {
   mock.module('../src/store.js', { exports: { tokens: { tiendanube: { access_token: 'tn', store_id: 1 }, mercadolibre: { user_id: 77 } }, getMlToken: async () => 'ml' } });
@@ -33,10 +39,11 @@ before(async () => {
       },
       createItem: async (_t, body) => {
         log('createItem', body);
-        if (state.rejectAttr && body.attributes.some((a) => a.id === state.rejectAttr.id)) throw new Error(`El valor que ingresaste en "${state.rejectAttr.name}" es incorrecto.`);
+        if (rejects(body)) throw new Error(`El valor que ingresaste en "${state.rejectAttr.name}" es incorrecto.`);
         if (state.failCreateItem) { const e = state.failCreateItem; state.mlBySku = e.createdAs ? { [body.attributes.find((a) => a.id === 'SELLER_SKU').value_name]: [e.createdAs] } : state.mlBySku; throw new Error(e.message); }
         return { id: 'MLA-NEW' };
       },
+      validateItem: async (_t, body) => { log('validateItem', body); return rejects(body) ? { ok: false, error: `El valor que ingresaste en "${state.rejectAttr.name}" es incorrecto.` } : { ok: true }; },
       uploadPicture: async (_t, _buf, name) => { log('uploadPicture', name); return `UP-${callsOf('uploadPicture').length}`; },
       getCategoryAttributes: async () => state.catAttrs,
       mlVariationsBody: (item, overrides = {}) => (item?.variations || []).map((v) => (overrides[String(v.id)] ? { id: v.id, ...overrides[String(v.id)] } : { id: v.id })),
@@ -314,14 +321,28 @@ test('crear un ítem: un multivalor (chips) del hermano viaja con todos sus valo
   assert.deepEqual(callsOf('createItem')[0][1].attributes.find((a) => a.id === 'STROKE_THICKNESS'), { id: 'STROKE_THICKNESS', values: [{ id: '901', name: '1 mm' }, { id: '902', name: '5 mm' }] });
 });
 
-test('crear un ítem: si ML rechaza el valor de una característica, falla (no se crea sin ella) diciendo qué se mandó', async () => {
-  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Resaltador', sale_terms: [], attributes: [{ id: 'STROKE_THICKNESS', value_name: '1-5 mm' }] };
+test('crear un ítem: si ML rechaza el valor copiado, prueba el MISMO valor en otro formato y crea con el que acepta', async () => {
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Resaltador', sale_terms: [],
+    attributes: [{ id: 'STROKE_THICKNESS', value_id: null, value_name: '1-3mm', values: [{ id: null, name: '1-3mm' }] }] };
+  state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_type: 'string', tags: { multivalued: true } }];
+  state.rejectAttr = { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', accepts: (a) => Array.isArray(a.values) };
+  const { reports } = await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]));
+  assert.equal(reports[0].status, 'ok');
+  const created = callsOf('createItem');
+  assert.equal(created.length, 2);
+  assert.deepEqual(created[1][1].attributes.find((a) => a.id === 'STROKE_THICKNESS'), { id: 'STROKE_THICKNESS', values: [{ name: '1-3mm' }] }, 'mismo valor, otro formato');
+});
+
+test('crear un ítem: si ML no acepta el valor en ningún formato, falla (no se crea sin él) listando lo que se probó', async () => {
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Resaltador', sale_terms: [], attributes: [{ id: 'STROKE_THICKNESS', value_name: '1-5mm' }] };
   state.catAttrs = [...state.catAttrs, { id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_type: 'string' }];
   state.rejectAttr = { id: 'STROKE_THICKNESS', name: 'Grosor del trazo' };
   const { reports } = await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Pastel' } }]));
-  assert.equal(callsOf('createItem').length, 1, 'no reintenta sin la característica');
+  assert.equal(callsOf('createItem').length, 1, 'no crea sin la característica');
+  assert.ok(callsOf('validateItem').length >= 2);
   assert.equal(reports[0].status, 'error');
-  assert.match(reports[0].detail, /se mandó "Grosor del trazo" = "1-5 mm"/);
+  assert.match(reports[0].detail, /ningún formato: "Grosor del trazo" \(se probó \{"value_name":"1-5mm"\}/);
+  assert.match(reports[0].detail, /1-5 mm/);
 });
 
 test('un error en una operación no frena las demás y lo ya hecho se saltea', async () => {
