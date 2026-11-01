@@ -123,14 +123,25 @@ function mlAttrValue(a, catAttr) {
   if (a.notApplicable) return { id: a.id, value_id: ML_NA, value_name: null };
   const allowed = catAttr?.values || [];
   if (a.valueId && allowed.some((v) => String(v.id) === String(a.valueId))) return { id: a.id, value_id: String(a.valueId) };
-  let text = String(a.value ?? '').trim();
+  const text = String(a.value ?? '').trim();
   if (!text) return { id: a.id, value_id: null, value_name: null };
-  if (catAttr?.value_type === 'number_unit') {
-    const m = text.match(/^(\d+(?:[.,]\d+)?)\s*(\S*)$/);
-    const unit = m?.[2] || catAttr.default_unit;
-    if (m && unit) text = `${m[1].replace(',', '.')} ${unit}`;
-  }
-  return { id: a.id, value_name: text };
+  return { id: a.id, value_name: numberText(text, catAttr) };
+}
+
+/**
+ * Un número como lo acepta ML en un `POST`/`PUT`: punto decimal y, en un `number_unit`, con unidad
+ * ("0,5" → "0.5 mm"). El panel y el `GET` pueden mostrarlo con coma, y con coma ML contesta
+ * "El valor que ingresaste en X es incorrecto". Un texto que no es un número pasa tal cual.
+ */
+function numberText(text, catAttr) {
+  const type = catAttr?.value_type;
+  if (type !== 'number_unit' && type !== 'number') return text;
+  const m = String(text).trim().match(/^(\d+(?:[.,]\d+)?)\s*(\S*)$/);
+  if (!m) return text;
+  const num = m[1].replace(',', '.');
+  if (type === 'number') return num;
+  const unit = m[2] || catAttr.default_unit?.id || catAttr.default_unit || catAttr.allowed_units?.[0]?.id;
+  return unit ? `${num} ${unit}` : num;
 }
 
 /** Atributos de un ítem: los que ya tenía, con los cambios del borrador encima. Sin los de solo lectura. */
@@ -147,7 +158,10 @@ async function mergedMlAttributes(ctx, item, op) {
   for (const a of item.attributes || []) {
     if (!a.id || isReadOnly(a.id) || a.id === 'SELLER_SKU') continue;
     if ((a.values || []).length > 1) out.set(a.id, { id: a.id });
-    else out.set(a.id, a.value_id ? { id: a.id, value_id: String(a.value_id) } : { id: a.id, value_name: a.value_name ?? null });
+    else {
+      const v = itemAttrValue(a, cat.get(a.id));
+      if (v) out.set(a.id, v);
+    }
   }
   for (const a of op.payload.attributes || []) {
     if (isReadOnly(a.id)) continue;
@@ -191,14 +205,17 @@ const axisCombination = (axes, values) =>
   (axes || []).map((ax, i) => (ax.mlAttributeId ? { id: ax.mlAttributeId, value_name: values[i] } : { name: ax.name, value_name: values[i] }));
 
 /**
- * Un atributo (o `sale_term`) leído de `GET /items` como va en un `POST /items`. El GET trae
+ * Un atributo (o `sale_term`) leído de `GET /items` como va en un `POST`/`PUT /items`. El GET trae
  * `value_id` también en atributos libres (números, textos, valores propios de la cuenta) y ML no lo
  * resuelve de vuelta: "Value name of attribute X was not provided and couldn't be resolved". El
- * `value_id` solo viaja si está en la lista cerrada de la categoría; si no, va el texto.
+ * `value_id` solo viaja si está en la lista cerrada de la categoría; si no, va el texto. Un número
+ * sale de `value_struct` (ver numberText). `null` = no tiene valor: no se manda.
  */
-function siblingAttrValue(a, catAttr) {
+function itemAttrValue(a, catAttr) {
   if (String(a.value_id ?? '') === ML_NA) return { id: a.id, value_id: ML_NA, value_name: null };
-  const name = a.value_name != null && String(a.value_name).trim() ? String(a.value_name) : null;
+  const st = a.value_struct;
+  let name = st?.number != null ? `${st.number}${st.unit ? ` ${st.unit}` : ''}` : a.value_name;
+  name = name != null && String(name).trim() ? numberText(String(name).trim(), catAttr) : null;
   const listed = a.value_id && (catAttr?.values || []).some((x) => String(x.id) === String(a.value_id));
   if (listed) return { id: a.id, value_id: String(a.value_id), ...(name ? { value_name: name } : {}) };
   return name ? { id: a.id, value_name: name } : null;
@@ -218,10 +235,28 @@ async function newItemBody(ctx, p, v) {
   const cat = await ctx.categoryAttrs(sibling.category_id);
   const axisIds = new Set((d.axes || []).map((ax) => ax.mlAttributeId).filter(Boolean));
   const skip = new Set(['SELLER_SKU', 'GTIN', ...axisIds]);
-  const attributes = (sibling.attributes || [])
-    .filter((a) => a.id && !skip.has(a.id) && !(cat.get(a.id)?.tags?.read_only))
-    .map((a) => siblingAttrValue(a, cat.get(a.id)))
-    .filter(Boolean);
+  const isReadOnly = (id) => {
+    const tags = cat.get(id)?.tags || {};
+    return !!(tags.read_only || tags.fixed || tags.inferred);
+  };
+  const byId = new Map();
+  // Base: lo que tiene el hermano (incluye lo que el form no muestra). Encima, las características
+  // generales del form: son las que la usuaria ve (y pudo cambiar en esta misma edición, cambio que a
+  // los hermanos les llega por su propia operación, no antes de que se cree este ítem).
+  for (const a of sibling.attributes || []) {
+    if (!a.id || skip.has(a.id) || isReadOnly(a.id) || (a.values || []).length > 1) continue;
+    const val = itemAttrValue(a, cat.get(a.id));
+    if (val) byId.set(a.id, val);
+  }
+  for (const a of d.ml.attributes || []) {
+    if (!a.id || skip.has(a.id) || isReadOnly(a.id)) continue;
+    const val = mlAttrValue(a, cat.get(a.id));
+    if (val.value_id == null && val.value_name == null) byId.delete(a.id);
+    else byId.set(a.id, val);
+  }
+  if (d.common?.brand) byId.set('BRAND', { id: 'BRAND', value_name: d.common.brand });
+  for (const a of packageAttributes(d.common || {})) byId.set(a.id, a);
+  const attributes = [...byId.values()];
   for (const c of axisCombination(d.axes, v.values)) if (c.id) attributes.push(c);
   attributes.push({ id: 'SELLER_SKU', value_name: v.sku });
   if (v.barcode) attributes.push({ id: 'GTIN', value_name: v.barcode });
@@ -237,7 +272,7 @@ async function newItemBody(ctx, p, v) {
     condition: sibling.condition,
     pictures,
     attributes: withUnitsPerPack(attributes),
-    sale_terms: (sibling.sale_terms || []).map((t) => siblingAttrValue(t, null)).filter(Boolean),
+    sale_terms: (sibling.sale_terms || []).map((t) => itemAttrValue(t, null)).filter(Boolean),
     shipping: { mode: shippingMode(d, sibling), free_shipping: !!sibling.shipping?.free_shipping, local_pick_up: !!sibling.shipping?.local_pick_up },
   };
   // User Products: ML rechaza `title` y agrupa por `family_name` (ver CLAUDE.md). Si el grupo es UNA
@@ -389,7 +424,12 @@ async function runMlOp(ctx, op) {
       let item = await ctx.item(itemId, { fresh: true });
       // Sin SKU no hay cómo reconocer una ya creada (se adoptaría cualquiera sin SKU).
       const existing = v.sku ? (item.variations || []).find((x) => attrText(x.attributes, 'SELLER_SKU') === v.sku) : null;
-      if (existing) return { externalId: String(existing.id), detail: 'Ya existía: se usó la que estaba' };
+      if (existing) {
+        // Un intento anterior la creó pero se cortó antes de la foto: se completa.
+        const photo = (v.tn?.imageIds || [])[0];
+        if (photo && existing.image_id == null) await setTnVariantImage(ctx, productId, existing.id, photo);
+        return { externalId: String(existing.id), detail: 'Ya existía: se usó la que estaba' };
+      }
       // Las fotos de la variación tienen que estar en el ítem antes de referenciarlas.
       const pictureIds = [];
       for (const id of v.ml.pictureIds || []) pictureIds.push(await ctx.pictureId(id));
@@ -537,6 +577,18 @@ async function syncTnImages(ctx, productId, desiredIds) {
   return finalIds;
 }
 
+/**
+ * Foto de una variante en un producto de TN con varias variantes: TN admite UNA por variante y tiene
+ * que estar en la galería del producto (que es de todas sus variantes: no se borra ninguna).
+ */
+async function setTnVariantImage(ctx, productId, variantId, imageId) {
+  const product = await ctx.product(productId, { fresh: true });
+  const gallery = (product.images || []).map((img) => `tn-${img.id}`);
+  if (!gallery.includes(imageId)) gallery.push(imageId);
+  const finalIds = await syncTnImages(ctx, productId, gallery);
+  await tn.updateVariantImage(ctx.token, ctx.storeId, productId, variantId, Number(finalIds[gallery.indexOf(imageId)]));
+}
+
 function tnVariantBody(d, v) {
   const c = d.common;
   const body = {
@@ -598,12 +650,7 @@ async function runTnOp(ctx, op) {
         // Producto con variantes: TN admite UNA foto por variante (la primera elegida). Las fotos del
         // producto son de todas sus variantes: no se borra ninguna.
         if (!ids.length) return { detail: 'Sin foto elegida: no se cambia' };
-        const product = await ctx.product(productId, { fresh: true });
-        const gallery = [...(product.images || []).map((img) => `tn-${img.id}`)];
-        if (!gallery.includes(ids[0])) gallery.push(ids[0]);
-        const finalIds = await syncTnImages(ctx, productId, gallery);
-        const imageId = finalIds[gallery.indexOf(ids[0])];
-        await tn.updateVariantImage(ctx.token, ctx.storeId, productId, p.variantId, Number(imageId));
+        await setTnVariantImage(ctx, productId, p.variantId, ids[0]);
         return {};
       }
       const finalIds = await syncTnImages(ctx, productId, ids);
@@ -652,7 +699,17 @@ async function runTnOp(ctx, op) {
         values: (v.values || []).map((value) => ({ es: value })),
       });
       ctx.forget(productId);
-      return { externalId: created?.id != null ? String(created.id) : null };
+      const variantId = created?.id != null ? String(created.id) : null;
+      // Sin foto propia TN le muestra la portada del producto: se le pone la que se eligió.
+      const photo = (v.tn?.imageIds || [])[0];
+      if (variantId && photo) {
+        try {
+          await setTnVariantImage(ctx, productId, variantId, photo);
+        } catch (e) {
+          throw new Error(`Se creó la variante (${variantId}), pero no se le pudo poner la foto: ${e.message}. Reintentá: no se duplica.`);
+        }
+      }
+      return { externalId: variantId };
     }
     case 'create_product': {
       const v = p.variant;

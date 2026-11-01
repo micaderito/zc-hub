@@ -44,6 +44,8 @@ export interface RemoteChange {
   channel: 'ml' | 'tn';
   id: string | number;
   name: string;
+  /** Qué cambió ("el stock", "las fotos"…). Una edición abierta antes de la huella no lo trae. */
+  fields?: string[];
 }
 
 @Injectable({ providedIn: 'root' })

@@ -68,9 +68,9 @@ import { ProductDraftStore } from '../../product-draft.store';
         <div class="er-confirm" role="alert">
           <p>
             <i class="ti ti-alert-triangle"></i>
-            Desde que empezaste a editar cambió
-            @for (c of changed; track c.channel + c.id; let last = $last) { <strong>{{ c.name }}</strong> ({{ c.channel === 'ml' ? 'ML' : 'TN' }}){{ last ? '' : ', ' }} }
-            en el canal (puede ser una venta, que mueve el stock). Se mandan solo tus cambios; si tocaste lo mismo, gana lo tuyo.
+            Desde que empezaste a editar cambió en el canal
+            @for (c of changed; track c.channel + c.id; let last = $last) { <strong>{{ c.name }}</strong> ({{ c.channel === 'ml' ? 'ML' : 'TN' }}@if (c.fields?.length) {: {{ c.fields!.join(', ') }}}){{ last ? '' : '; ' }} }
+            (si es el stock, puede ser una venta). Se mandan solo tus cambios; si tocaste lo mismo, gana lo tuyo.
           </p>
           <div class="er-actions">
             <button type="button" class="zc-btn" (click)="store.editConfirmRemote.set(null)">Revisar primero</button>
