@@ -192,6 +192,48 @@ describe('PairCardComponent', () => {
     expect(tnCard?.querySelector('.no-thumb')).not.toBeNull();
   });
 
+  it('debería abrir el zoom de la foto desde ML (en grande) y poder pasar a la de TN', () => {
+    setInputs({
+      pair: {
+        ml: makeMlRow({ thumbnail: 'https://http2.mlstatic.com/D_123-I.jpg' }),
+        tn: makeTnRow({ thumbnail: 'https://tn.example.com/foto.jpg' }),
+      },
+    });
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('zc-photo-lightbox')).toBeNull();
+
+    (el.querySelector('.ml-card .thumb-btn') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const img = el.querySelector('zc-photo-lightbox .lb-stage img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('https://http2.mlstatic.com/D_123-O.jpg');
+    expect(el.querySelector('zc-photo-lightbox .lb-count')?.textContent).toContain('1 / 2');
+  });
+
+  it('debería abrir el zoom en la foto de TN al clickear la miniatura de TN y cerrarlo', () => {
+    setInputs({
+      pair: {
+        ml: makeMlRow({ thumbnail: 'https://http2.mlstatic.com/D_123-I.jpg' }),
+        tn: makeTnRow({ thumbnail: 'https://tn.example.com/foto.jpg' }),
+      },
+    });
+    const el: HTMLElement = fixture.nativeElement;
+    (el.querySelector('.tn-card .thumb-btn') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const img = el.querySelector('zc-photo-lightbox .lb-stage img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('https://tn.example.com/foto.jpg');
+
+    (el.querySelector('zc-photo-lightbox .lb-icon') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(el.querySelector('zc-photo-lightbox')).toBeNull();
+  });
+
+  it('no debería ofrecer zoom en un canal sin foto', () => {
+    setInputs({ pair: { ml: makeMlRow({ thumbnail: null }), tn: makeTnRow({ thumbnail: null }) } });
+    expect(fixture.nativeElement.querySelector('.thumb-btn')).toBeNull();
+  });
+
   it('debería mostrar el nombre del producto de cada canal usando mlLabel/tnLabel', () => {
     setInputs({
       pair: {

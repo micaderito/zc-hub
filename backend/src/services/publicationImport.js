@@ -330,7 +330,8 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
 
   // ── Lo que ML no deja cambiar ──
   const sold = mlItems.reduce((a, it) => a + (Number(it.sold_quantity) || 0), 0);
-  const isFamily = mlItems.some((it) => !it.variations?.length && it.user_product_id) && mlItems.length > 1;
+  const isUp = mlItems.some((it) => !it.variations?.length && it.user_product_id);
+  const isFamily = isUp && mlItems.length > 1;
   const locks = {
     mappingMode: 'Cómo está armado cada canal (una publicación con variantes o una por variante) no se cambia desde acá: implicaría volver a publicar.',
     mlCategory: 'La categoría de una publicación existente no se cambia desde acá: implicaría volver a publicar.',
@@ -342,6 +343,8 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
     locks.condition = `ML no deja cambiar la condición (nuevo/usado) de una publicación con ventas (${sold}).`;
   } else if (isFamily) {
     locks.mlTitle = 'En las publicaciones agrupadas en una ficha el título lo arma ML a partir del nombre y las características.';
+  } else if (isUp) {
+    locks.mlTitle = 'En las publicaciones del modelo nuevo de ML (User Products) el título lo arma ML a partir del nombre y las características.';
   }
   if (!hasMl) notes.push('Este producto no está publicado en Mercado Libre: lo que cargues en esa sección no se guarda.');
   if (!hasTn) notes.push('Este producto no está publicado en Tienda Nube: lo que cargues en esa sección no se guarda.');
@@ -365,9 +368,37 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
         status: it.status || null,
         lastUpdated: it.last_updated || null,
         title: it.title,
+        // Cómo estaba ESTA publicación: el form muestra lo de la primera, y un cambio común solo va
+        // a las que tenían ese mismo valor (publicationDiff.js, `spread`).
+        current: {
+          description: mlDescriptions[it.id] ?? '',
+          freeShipping: !!it.shipping?.free_shipping,
+          localPickup: !!it.shipping?.local_pick_up,
+          warrantyType: (it.sale_terms || []).find((t) => t.id === 'WARRANTY_TYPE')?.value_name || 'Sin garantía',
+          warrantyTime: (it.sale_terms || []).find((t) => t.id === 'WARRANTY_TIME')?.value_name || '',
+          listingType: ['gold_special', 'gold_pro', 'free'].includes(it.listing_type_id) ? it.listing_type_id : 'gold_special',
+        },
       })),
     },
-    tn: { products: tnProducts.map((p) => ({ productId: p.id, updatedAt: p.updated_at || null, name: tnText(p.name) })) },
+    tn: {
+      products: tnProducts.map((p) => ({
+        productId: p.id,
+        updatedAt: p.updated_at || null,
+        name: tnText(p.name),
+        current: {
+          name: tnText(p.name),
+          description: tnText(p.description),
+          categories: (p.categories || []).map((c) => Number(c.id ?? c)).filter(Number.isFinite),
+          brand: p.brand || '',
+          seoTitle: tnText(p.seo_title),
+          seoDescription: tnText(p.seo_description),
+          tags: p.tags || '',
+          videoUrl: p.video_url || '',
+          freeShipping: !!p.free_shipping,
+          handle: tnText(p.handle),
+        },
+      })),
+    },
     variants: refsVariants,
   };
 

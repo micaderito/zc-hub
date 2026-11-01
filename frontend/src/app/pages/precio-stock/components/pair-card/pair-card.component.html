@@ -59,7 +59,10 @@
         <div class="ch-body">
           <div class="product-info">
             @if (pair().ml.thumbnail) {
-              <img [src]="pair().ml.thumbnail" alt="" class="thumb" />
+              <button type="button" class="thumb-btn" (click)="openPhoto('ml')" [attr.aria-label]="'Ver foto de ' + mlLabel(pair().ml)">
+                <img [src]="pair().ml.thumbnail" alt="" class="thumb" />
+                <span class="zoom" aria-hidden="true"><i class="ti ti-zoom-in"></i></span>
+              </button>
             } @else {
               <span class="no-thumb" aria-hidden="true"><i class="ti ti-photo-off"></i></span>
             }
@@ -93,7 +96,10 @@
         <div class="ch-body">
           <div class="product-info">
             @if (pair().tn.thumbnail) {
-              <img [src]="pair().tn.thumbnail" alt="" class="thumb" />
+              <button type="button" class="thumb-btn" (click)="openPhoto('tn')" [attr.aria-label]="'Ver foto de ' + tnLabel(pair().tn)">
+                <img [src]="pair().tn.thumbnail" alt="" class="thumb" />
+                <span class="zoom" aria-hidden="true"><i class="ti ti-zoom-in"></i></span>
+              </button>
             } @else {
               <span class="no-thumb" aria-hidden="true"><i class="ti ti-photo-off"></i></span>
             }
@@ -150,3 +156,13 @@
     </div>
   }
 </div>
+
+@if (lightbox(); as lb) {
+  <zc-photo-lightbox
+    [photos]="photos()"
+    [startIndex]="lb.start"
+    [title]="mlLabel(pair().ml) || tnLabel(pair().tn)"
+    [subtitle]="photoSubtitle"
+    (closed)="lightbox.set(null)"
+  />
+}

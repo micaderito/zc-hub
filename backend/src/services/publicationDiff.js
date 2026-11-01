@@ -37,6 +37,28 @@ const attrKey = (a) => (a?.notApplicable ? '-1' : norm(a?.value).toLowerCase());
 /** Ids de imagen en orden → ids de ML/TN existentes o `null` para una foto nueva. */
 const imageIds = (images) => (images || []).map((img) => img.id);
 
+/**
+ * A qué publicaciones va un cambio "común" (descripción, envío, categorías…). El form muestra el
+ * valor de la PRIMERA publicación del canal y las demás pueden tener otro: se manda a las que tenían
+ * el valor que se vio (`to`) y las que tenían otro se dejan como estaban (`kept`, se avisa). Sin
+ * `current` (edición abierta antes de que se guardara por publicación) se asume el que se vio.
+ */
+function spread(pubs, curOf, before, after) {
+  const to = [];
+  const kept = [];
+  if (same(before, after)) return { to, kept };
+  for (const p of pubs) {
+    const cur = p.current ? curOf(p.current) : before;
+    if (same(cur, after)) continue;
+    if (same(cur, before)) to.push(p);
+    else kept.push(p);
+  }
+  return { to, kept };
+}
+const keptWarn = (labels, what) =>
+  labels.length ? `${labels.join(', ')} ${labels.length > 1 ? 'tenían' : 'tenía'} otro valor en «${what}»: ahí no se cambia.` : undefined;
+const joinWarn = (...w) => w.filter(Boolean).join(' ') || undefined;
+
 export function planPublicationUpdate(baseline, draft, refs) {
   const ops = [];
   const add = (op) => ops.push(op);
@@ -64,42 +86,71 @@ export function planPublicationUpdate(baseline, draft, refs) {
     const descB = effective(b.ml.description, ''), descD = effective(d.ml.description, '');
     const titleB = effective(b.ml.title, b.common.baseName), titleD = effective(d.ml.title, d.common.baseName);
     const changedAttrs = [];
+    const naKept = []; // ML no deja vaciar un atributo que está en "No aplica": solo cambiarlo por un valor
     const bAttrs = new Map((b.ml.attributes || []).map((a) => [a.id, a]));
     for (const a of d.ml.attributes || []) {
       const prev = bAttrs.get(a.id);
-      if (attrKey(prev) !== attrKey(a)) changedAttrs.push(a);
+      if (attrKey(prev) === attrKey(a)) continue;
+      if (prev?.notApplicable && !attrKey(a)) naKept.push(a.name || a.id);
+      else changedAttrs.push(a);
     }
     for (const a of b.ml.attributes || []) {
-      if (!(d.ml.attributes || []).some((x) => x.id === a.id) && attrKey(a)) changedAttrs.push({ ...a, value: '', removed: true });
+      if ((d.ml.attributes || []).some((x) => x.id === a.id) || !attrKey(a)) continue;
+      if (a.notApplicable) naKept.push(a.name || a.id);
+      else changedAttrs.push({ ...a, value: '', removed: true });
     }
     const brandChanged = norm(b.common.brand) !== norm(d.common.brand);
     const packageChanged = ['weightG', 'lengthCm', 'widthCm', 'heightCm'].some((k) => !same(b.common[k], d.common[k]));
     const gallery = !same(imageIds(b.ml.images), imageIds(d.ml.images));
+    const labels = (list) => list.map((x) => mlLabel(x.itemId));
+
+    // Lo común va a cada ítem que tenía el valor que se vio en el form (ver `spread`).
+    const desc = spread(mlItems, (c) => c.description ?? '', descB, descD);
+    const free = spread(mlItems, (c) => !!c.freeShipping, !!b.ml.freeShipping, !!d.ml.freeShipping);
+    const pickup = spread(mlItems, (c) => !!c.localPickup, !!b.ml.localPickup, !!d.ml.localPickup);
+    const warrantyOf = (x) => ({ type: x.warrantyType ?? '', time: x.warrantyTime ?? '' });
+    const warranty = spread(mlItems, warrantyOf, warrantyOf(b.ml), warrantyOf(d.ml));
+    const listing = spread(mlItems, (c) => c.listingType, b.ml.listingType, d.ml.listingType);
+    const isFirst = (sp, it) => sp.to[0] === it;
 
     for (const it of mlItems) {
-      if (d.ml.mappingMode === 'single_with_variants' && titleB !== titleD) mlOp(it.itemId, 'title', 'Cambiar el título', { title: titleD });
-      if (descB !== descD) mlOp(it.itemId, 'description', 'Cambiar la descripción', { plain_text: descD });
+      // En User Products el título lo arma ML: un PUT con `title` da 400 (también con un solo ítem).
+      if (d.ml.mappingMode === 'single_with_variants' && it.format !== 'up' && titleB !== titleD) mlOp(it.itemId, 'title', 'Cambiar el título', { title: titleD });
+      if (desc.to.includes(it)) {
+        mlOp(it.itemId, 'description', descD.trim() ? 'Cambiar la descripción' : 'Vaciar la descripción', { plain_text: descD },
+          joinWarn(!descD.trim() && 'ML no deja una descripción vacía: va a fallar, dejá al menos una línea.', isFirst(desc, it) && keptWarn(labels(desc.kept), 'descripción')));
+      }
       if (changedAttrs.length || brandChanged || packageChanged) {
         const names = [...changedAttrs.map((a) => a.name), ...(brandChanged ? ['Marca'] : []), ...(packageChanged ? ['medidas del paquete'] : [])];
         mlOp(it.itemId, 'attributes', `Cambiar características: ${[...new Set(names)].join(', ')}`, {
           attributes: changedAttrs.map((a) => ({ id: a.id, name: a.name, value: a.value, valueId: a.valueId, notApplicable: !!a.notApplicable, removed: !!a.removed })),
           brand: brandChanged ? d.common.brand : undefined,
           package: packageChanged ? { weightG: d.common.weightG, lengthCm: d.common.lengthCm, widthCm: d.common.widthCm, heightCm: d.common.heightCm } : undefined,
-        });
+        }, naKept.length ? `ML no deja vaciar lo que está en "No aplica" (${naKept.join(', ')}): queda como estaba.` : undefined);
       }
-      if (b.ml.listingType !== d.ml.listingType) {
-        mlOp(it.itemId, 'listing_type', d.ml.listingType === 'gold_pro' ? 'Pasar a Premium (cuotas sin interés)' : 'Pasar a Clásica', { id: d.ml.listingType });
+      if (listing.to.includes(it)) {
+        mlOp(it.itemId, 'listing_type', d.ml.listingType === 'gold_pro' ? 'Pasar a Premium (cuotas sin interés)' : 'Pasar a Clásica', { id: d.ml.listingType },
+          joinWarn('ML deja cambiar el tipo de publicación una sola vez.', isFirst(listing, it) && keptWarn(labels(listing.kept), 'tipo de publicación')));
       }
-      if (b.ml.freeShipping !== d.ml.freeShipping || b.ml.localPickup !== d.ml.localPickup) {
-        mlOp(it.itemId, 'shipping', 'Cambiar el envío', { free_shipping: d.ml.freeShipping, local_pick_up: d.ml.localPickup });
+      // Solo el dato del envío que cambió: el otro queda como lo tenga cada ítem.
+      const shipping = {};
+      if (free.to.includes(it)) shipping.free_shipping = !!d.ml.freeShipping;
+      if (pickup.to.includes(it)) shipping.local_pick_up = !!d.ml.localPickup;
+      if (Object.keys(shipping).length) {
+        mlOp(it.itemId, 'shipping', 'Cambiar el envío', shipping,
+          joinWarn(isFirst(free, it) && keptWarn(labels(free.kept), 'envío gratis'), isFirst(pickup, it) && keptWarn(labels(pickup.kept), 'retiro en persona')));
       }
-      if (b.ml.warrantyType !== d.ml.warrantyType || b.ml.warrantyTime !== d.ml.warrantyTime) {
-        mlOp(it.itemId, 'warranty', 'Cambiar la garantía', { type: d.ml.warrantyType, time: d.ml.warrantyTime });
+      if (warranty.to.includes(it)) {
+        mlOp(it.itemId, 'warranty', 'Cambiar la garantía', { type: d.ml.warrantyType, time: d.ml.warrantyTime },
+          isFirst(warranty, it) ? keptWarn(labels(warranty.kept), 'garantía') : undefined);
       }
     }
-    if (gallery) {
-      // En una publicación con variaciones la galería es del ítem; en "una por variante" cada ítem
-      // tiene la suya y se arma con las fotos de su variante (eso lo cubre el bloque de variantes).
+    // En "una por variante" con varios ítems la galería es solo el banco de fotos (puede tener más
+    // que el tope de un ítem): cada ítem lleva las de su variante, y eso lo cubre el bloque de variantes.
+    const galleryIsPool = mlItems.length > 1 && d.ml.mappingMode === 'one_per_variant';
+    if (gallery && !galleryIsPool) {
+      // En una publicación con variaciones la galería es del ítem; en una ficha de User Products
+      // cada ítem tiene la suya y se arma con las fotos de su variante (bloque de variantes).
       for (const it of mlItems.filter((x) => x.format !== 'up' || mlItems.length === 1)) {
         mlOp(it.itemId, 'pictures', 'Actualizar las fotos', { image_ids: imageIds(d.ml.images) });
       }
@@ -108,19 +159,26 @@ export function planPublicationUpdate(baseline, draft, refs) {
 
   // ═══ Tienda Nube: lo que es de cada producto ═══
   if (hasTn) {
-    const fields = [];
     const descB = effective(b.tn.description, ''), descD = effective(d.tn.description, '');
-    if (descB !== descD) fields.push(['description', 'descripción']);
-    if (!same(b.tn.categories, d.tn.categories)) fields.push(['categories', 'categorías']);
-    if (norm(b.common.brand) !== norm(d.common.brand)) fields.push(['brand', 'marca']);
-    if (b.tn.seoTitle !== d.tn.seoTitle || b.tn.seoDescription !== d.tn.seoDescription) fields.push(['seo', 'SEO']);
-    if (b.tn.tags !== d.tn.tags) fields.push(['tags', 'etiquetas']);
-    if (b.tn.videoUrl !== d.tn.videoUrl) fields.push(['video', 'video']);
-    if (b.tn.freeShipping !== d.tn.freeShipping) fields.push(['free_shipping', 'envío gratis']);
-    if (b.tn.handle !== d.tn.handle) fields.push(['handle', 'URL']);
     const nameB = effective(b.tn.nameEs, b.common.baseName), nameD = effective(d.tn.nameEs, d.common.baseName);
-    const singleNameChanged = d.tn.mappingMode === 'single_with_variants' && nameB !== nameD;
+    // [campo del body, qué se lee de cada producto, antes, después, cómo se nombra]. La marca es del
+    // producto del hub: va a todo producto que no la tenga ya, sin importar cuál tenía antes.
+    const specs = [
+      ['description', (c) => c.description ?? '', descB, descD, 'descripción'],
+      ['categories', (c) => c.categories ?? [], b.tn.categories ?? [], d.tn.categories ?? [], 'categorías'],
+      ['seo', (c) => [c.seoTitle ?? '', c.seoDescription ?? ''], [b.tn.seoTitle ?? '', b.tn.seoDescription ?? ''], [d.tn.seoTitle ?? '', d.tn.seoDescription ?? ''], 'SEO'],
+      ['tags', (c) => c.tags ?? '', b.tn.tags ?? '', d.tn.tags ?? '', 'etiquetas'],
+      ['video', (c) => c.videoUrl ?? '', b.tn.videoUrl ?? '', d.tn.videoUrl ?? '', 'video'],
+      ['free_shipping', (c) => !!c.freeShipping, !!b.tn.freeShipping, !!d.tn.freeShipping, 'envío gratis'],
+      // La URL es única por producto: con varios, solo la cambia el que la tenía.
+      ['handle', (c) => c.handle ?? '', b.tn.handle ?? '', d.tn.handle ?? '', 'URL'],
+    ];
+    if (d.tn.mappingMode === 'single_with_variants') specs.unshift(['name', (c) => c.name ?? '', nameB, nameD, 'nombre']);
+    const spreads = specs.map(([field, curOf, before, after, what]) => ({ field, what, ...spread(tnProducts, curOf, before, after) }));
+    const brandD = norm(d.common.brand);
+    const brandTo = norm(b.common.brand) === brandD ? [] : tnProducts.filter((p) => (p.current ? norm(p.current.brand) !== brandD : true));
     const payload = {
+      name: { es: nameD },
       description: { es: descD },
       categories: d.tn.categories,
       brand: d.common.brand,
@@ -132,20 +190,23 @@ export function planPublicationUpdate(baseline, draft, refs) {
       handle: d.tn.handle,
     };
     for (const p of tnProducts) {
-      const own = [...fields.map((f) => f[1])];
-      const body = { fields: fields.map((f) => f[0]), ...payload };
-      if (singleNameChanged) { own.unshift('nombre'); body.fields.push('name'); body.name = { es: nameD }; }
-      if (own.length) tnOp(p.productId, 'product', `Cambiar ${own.join(', ')}`, body);
+      const mine = spreads.filter((sp) => sp.to.includes(p));
+      const fields = mine.map((sp) => sp.field);
+      const names = mine.map((sp) => sp.what);
+      if (brandTo.includes(p)) { fields.push('brand'); names.push('marca'); }
+      const warn = joinWarn(...mine.filter((sp) => sp.to[0] === p).map((sp) => keptWarn(sp.kept.map((x) => tnLabel(x.productId)), sp.what)));
+      if (fields.length) tnOp(p.productId, 'product', `Cambiar ${names.join(', ')}`, { fields, ...payload }, warn);
     }
-    const packageChanged = ['weightG', 'lengthCm', 'widthCm', 'heightCm'].some((k) => !same(b.common[k], d.common[k]));
-    const shoppingChanged = b.common.mpn !== d.common.mpn || b.common.ageGroup !== d.common.ageGroup || b.common.gender !== d.common.gender;
-    if (packageChanged || shoppingChanged) {
+    // Medidas y datos de Shopping: solo los campos que cambiaron (sin nulls), así cambiar el género
+    // no reescribe las medidas que tenga cada variante.
+    const variantsCommon = {};
+    const dims = [['weightG', 'weight', (n) => n / 1000], ['lengthCm', 'height'], ['widthCm', 'width'], ['heightCm', 'depth']];
+    for (const [k, field, conv = (n) => n] of dims) if (!same(b.common[k], d.common[k]) && d.common[k] != null && d.common[k] !== '') variantsCommon[field] = conv(Number(d.common[k]));
+    const packageChanged = Object.keys(variantsCommon).length > 0;
+    for (const [k, field] of [['mpn', 'mpn'], ['ageGroup', 'age_group'], ['gender', 'gender']]) if (b.common[k] !== d.common[k] && d.common[k]) variantsCommon[field] = d.common[k];
+    if (Object.keys(variantsCommon).length) {
       for (const p of tnProducts) {
-        tnOp(p.productId, 'variants_common', packageChanged ? 'Cambiar medidas y peso' : 'Cambiar datos de Google/Instagram Shopping', {
-          weight: d.common.weightG != null ? d.common.weightG / 1000 : null,
-          height: d.common.lengthCm, width: d.common.widthCm, depth: d.common.heightCm,
-          mpn: d.common.mpn, age_group: d.common.ageGroup, gender: d.common.gender,
-        });
+        tnOp(p.productId, 'variants_common', packageChanged ? 'Cambiar medidas y peso' : 'Cambiar datos de Google/Instagram Shopping', variantsCommon);
       }
     }
     if (d.tn.mappingMode === 'single_with_variants' && !same(imageIds(b.tn.images), imageIds(d.tn.images))) {
@@ -180,7 +241,18 @@ export function planPublicationUpdate(baseline, draft, refs) {
   const dById = new Map((d.variants || []).map((v) => [v.id, v]));
   const vrefs = refs?.variants || {};
   const legacyItem = mlItems.length === 1 && mlItems[0].format === 'legacy' ? mlItems[0] : null;
-  const tnSingle = tnProducts.length === 1 && d.tn.mappingMode === 'single_with_variants' ? tnProducts[0] : null;
+  const mlFormat = (itemId) => mlItems.find((x) => x.itemId === itemId)?.format;
+  // Qué se hace con una variante de TN depende de SU producto, no de cómo está armado el grupo: un
+  // producto "A4" con 3 colores dentro de un grupo de varios productos sigue teniendo variantes, y
+  // quitar una de ellas no puede borrar el producto entero.
+  const tnPid = (id) => (vrefs[id]?.tn?.productId != null ? String(vrefs[id].tn.productId) : null);
+  const tnVariantCount = new Map();
+  for (const v of b.variants || []) if (tnPid(v.id)) tnVariantCount.set(tnPid(v.id), (tnVariantCount.get(tnPid(v.id)) || 0) + 1);
+  const tnMulti = (pid) => (tnVariantCount.get(String(pid)) || 0) > 1;
+  // Una variante nueva entra como variante si hay un solo producto; con varios, como producto aparte.
+  const tnAddTarget = tnProducts.length === 1 ? tnProducts[0] : null;
+  const legacyPriceOps = new Map(); // itemId → { op, prices }: un solo cambio de precio por ítem legacy
+  const tnRenamed = new Set();
 
   for (const v of d.variants || []) {
     const prev = bById.get(v.id);
@@ -194,8 +266,11 @@ export function planPublicationUpdate(baseline, draft, refs) {
         else add({ key: `ml:new:${v.id}`, channel: 'ml', target: 'new', targetLabel: 'ML nuevo', kind: 'create_item', label: `Crear la publicación ${name}${mlItems.some((x) => x.format === 'up') ? ' en la misma ficha' : ''}`, payload: { variant: v, title: variantTitle(d, 'ml', v) } });
       }
       if (hasTn) {
-        if (tnSingle) tnOp(tnSingle.productId, `add_variant:${v.id}`, `Agregar la variante ${name}`, { variant: v });
-        else add({ key: `tn:new:${v.id}`, channel: 'tn', target: 'new', targetLabel: 'TN nuevo', kind: 'create_product', label: `Crear el producto "${variantTitle(d, 'tn', v)}"`, payload: { variant: v, name: variantTitle(d, 'tn', v) } });
+        if (tnAddTarget) tnOp(tnAddTarget.productId, `add_variant:${v.id}`, `Agregar la variante ${name}`, { variant: v });
+        else {
+          add({ key: `tn:new:${v.id}`, channel: 'tn', target: 'new', targetLabel: 'TN nuevo', kind: 'create_product', label: `Crear el producto "${variantTitle(d, 'tn', v)}"`, payload: { variant: v, name: variantTitle(d, 'tn', v) },
+            warn: [...tnVariantCount.values()].some((n) => n > 1) ? 'En Tienda Nube se crea como un producto aparte (el grupo tiene varios productos).' : undefined });
+        }
       }
       continue;
     }
@@ -205,39 +280,68 @@ export function planPublicationUpdate(baseline, draft, refs) {
       const varPayload = { variationId: ref.ml.variationId };
       if (!same(prev.values, v.values)) {
         mlOp(t, `values:${v.id}`, `Renombrar ${`"${label(prev.values)}"`} → ${name}`, { ...varPayload, values: v.values, axes: d.axes },
-          ref.ml.soldQuantity > 0 && ref.ml.variationId ? 'Con ventas, ML solo deja sumar atributos de variación, no cambiarlos: puede rechazarlo.' : undefined);
+          ref.ml.soldQuantity > 0 ? 'Con ventas, ML puede no dejar cambiar el atributo de la variante.' : undefined);
       }
       if (norm(prev.sku) !== norm(v.sku)) mlOp(t, `sku:${v.id}`, `SKU de ${name} → ${v.sku}`, { ...varPayload, sku: v.sku });
       if (!same(prev.stock, v.stock)) mlOp(t, `stock:${v.id}`, `Stock de ${name}: ${prev.stock ?? '—'} → ${v.stock ?? '—'}`, { ...varPayload, stock: v.stock });
       if (!same(prev.ml.price, v.ml.price)) {
-        mlOp(t, `price:${v.id}`, `Precio de ${name}: ${money(prev.ml.price)} → ${money(v.ml.price)}`, { ...varPayload, price: v.ml.price },
-          legacyItem ? 'Publicación clásica: ML aplica el mismo precio a todas las variaciones.' : undefined);
+        if (mlFormat(t) === 'legacy') {
+          // En una publicación clásica ML aplica UN precio a todas las variaciones: con varios
+          // cambios, cada tarea pisaría a la anterior. Un solo cambio por ítem, con el primero.
+          const cur = legacyPriceOps.get(t);
+          if (!cur) {
+            mlOp(t, `price:${v.id}`, `Precio de ${name}: ${money(prev.ml.price)} → ${money(v.ml.price)}`, { ...varPayload, price: v.ml.price },
+              'Publicación clásica: ML aplica el mismo precio a todas las variaciones.');
+            legacyPriceOps.set(t, { op: ops[ops.length - 1], names: [name], prices: [Number(v.ml.price)] });
+          } else {
+            cur.names.push(name);
+            cur.prices.push(Number(v.ml.price));
+            const distinct = [...new Set(cur.prices)];
+            cur.op.label = `Precio de ${cur.names.join(', ')} → ${money(cur.prices[0])}`;
+            cur.op.warn = distinct.length > 1
+              ? `Pusiste precios distintos (${distinct.map(money).join(', ')}), pero en una publicación clásica ML usa uno solo para todas las variaciones: se aplica ${money(cur.prices[0])}.`
+              : 'Publicación clásica: ML aplica el mismo precio a todas las variaciones.';
+          }
+        } else {
+          mlOp(t, `price:${v.id}`, `Precio de ${name}: ${money(prev.ml.price)} → ${money(v.ml.price)}`, { ...varPayload, price: v.ml.price });
+        }
       }
       if (!same(prev.ml.pictureIds, v.ml.pictureIds)) mlOp(t, `pictures:${v.id}`, `Fotos de ${name}`, { ...varPayload, image_ids: v.ml.pictureIds });
       // En una ficha de User Products el título lo arma ML: un PUT con `title` da 400.
-      const isFamilyItem = mlItems.find((x) => x.itemId === t)?.format === 'up';
-      if (d.ml.mappingMode === 'one_per_variant' && !isFamilyItem && variantTitle(b, 'ml', prev) !== variantTitle(d, 'ml', v)) {
+      if (d.ml.mappingMode === 'one_per_variant' && mlFormat(t) !== 'up' && variantTitle(b, 'ml', prev) !== variantTitle(d, 'ml', v)) {
         mlOp(t, `title:${v.id}`, `Cambiar el título de ${name}`, { title: variantTitle(d, 'ml', v) });
       }
     }
     if (ref.tn) {
       const t = ref.tn.productId;
+      const multi = tnMulti(t);
       const varPayload = { variantId: ref.tn.variantId };
-      const variantChanged = [];
-      if (!same(prev.values, v.values) && tnSingle) variantChanged.push('nombre');
-      if (norm(prev.sku) !== norm(v.sku)) variantChanged.push('SKU');
-      if (norm(prev.barcode) !== norm(v.barcode)) variantChanged.push('código de barras');
-      if (variantChanged.length) tnOp(t, `variant:${v.id}`, `Cambiar ${variantChanged.join(', ')} de ${name}`, { ...varPayload, values: v.values, sku: v.sku, barcode: v.barcode });
+      // Solo los campos que cambiaron: cambiar el SKU no reescribe el nombre ni el código de barras.
+      const fields = [];
+      const names = [];
+      if (!same(prev.values, v.values) && multi) { fields.push('values'); names.push('nombre'); }
+      if (norm(prev.sku) !== norm(v.sku)) { fields.push('sku'); names.push('SKU'); }
+      if (norm(prev.barcode) !== norm(v.barcode)) { fields.push('barcode'); names.push('código de barras'); }
+      if (fields.length) tnOp(t, `variant:${v.id}`, `Cambiar ${names.join(', ')} de ${name}`, { ...varPayload, fields, values: v.values, sku: v.sku, barcode: v.barcode });
       if (!same(prev.stock, v.stock)) tnOp(t, `stock:${v.id}`, `Stock de ${name}: ${prev.stock ?? '—'} → ${v.stock ?? '—'}`, { ...varPayload, stock: v.stock });
       if (!same(prev.tn.price, v.tn.price)) tnOp(t, `price:${v.id}`, `Precio de ${name}: ${money(prev.tn.price)} → ${money(v.tn.price)}`, { ...varPayload, price: v.tn.price });
-      if (!same(prev.tn.imageIds, v.tn.imageIds)) tnOp(t, `images:${v.id}`, `Fotos de ${name}`, { ...varPayload, image_ids: v.tn.imageIds });
+      // En un producto con varias variantes las fotos son del producto: a la variante se le elige una.
+      if (!same(prev.tn.imageIds, v.tn.imageIds)) tnOp(t, `images:${v.id}`, `Fotos de ${name}`, { ...varPayload, image_ids: v.tn.imageIds, multiVariant: multi });
       if (d.tn.mappingMode === 'one_per_variant' && variantTitle(b, 'tn', prev) !== variantTitle(d, 'tn', v)) {
-        tnOp(t, `name:${v.id}`, `Cambiar el nombre de ${name}`, { name: { es: variantTitle(d, 'tn', v) } });
+        if (!multi) tnOp(t, `name:${v.id}`, `Cambiar el nombre de ${name}`, { name: { es: variantTitle(d, 'tn', v) } });
+        else if (!tnRenamed.has(String(t))) {
+          tnRenamed.add(String(t));
+          tnOp(t, 'name', `Cambiar el nombre del producto de ${name}`, { name: { es: variantTitle(d, 'tn', v) } },
+            `Este producto de Tienda Nube tiene ${tnVariantCount.get(String(t))} variantes: el nombre es del producto entero.`);
+        }
       }
     }
   }
 
-  // Variantes que estaban y se quitaron.
+  // Variantes que estaban y se quitaron. En TN se borra el producto solo si no le queda ninguna.
+  const tnStays = (pid) =>
+    (d.variants || []).some((v) => (bById.has(v.id) ? tnPid(v.id) === pid : tnAddTarget && String(tnAddTarget.productId) === pid));
+  const tnDeleted = new Set();
   for (const prev of b.variants || []) {
     if (dById.has(prev.id)) continue;
     const name = `"${label(prev.values) || prev.sku || 'variante'}"`;
@@ -252,8 +356,12 @@ export function planPublicationUpdate(baseline, draft, refs) {
       }
     }
     if (ref.tn) {
-      if (tnSingle) tnOp(ref.tn.productId, `delete_variant:${prev.id}`, `Eliminar la variante ${name}`, { variantId: ref.tn.variantId });
-      else tnOp(ref.tn.productId, 'delete_product', `Eliminar el producto ${name}`, {});
+      const pid = String(ref.tn.productId);
+      if (tnStays(pid)) tnOp(pid, `delete_variant:${prev.id}`, `Eliminar la variante ${name}`, { variantId: ref.tn.variantId });
+      else if (!tnDeleted.has(pid)) {
+        tnDeleted.add(pid);
+        tnOp(pid, 'delete_product', tnMulti(pid) ? `Eliminar el producto de ${name} (se quitaron todas sus variantes)` : `Eliminar el producto ${name}`, {});
+      }
     }
   }
 

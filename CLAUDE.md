@@ -1243,6 +1243,12 @@ el panel `zc-edit-review` "Cambios a aplicar").
 - **Fotos ya publicadas**: `DraftImage.remote = { channel, id, url }`, id `ml-<picture_id>` /
   `tn-<image_id>`, preview = URL del canal. `persistable()` del store las guarda con `remote` (antes
   el autoguardado descartaba todo menos `{id,name}`). Las nuevas se suben como en Crear producto.
+- **Fotos en "una publicación por variante"** (2026-11-01): cada variante es un ítem de ML, así que
+  el tope de la categoría (`max_pictures`) es POR VARIANTE (`mlVariantPictureLimit`) y la galería de
+  ML es solo el banco de fotos (`mlGalleryIsPool`, tope = tope × variantes). Antes el tope estaba en
+  la galería y una publicación de 6 ítems importada (la galería junta las fotos de todos) no dejaba
+  subir ninguna más. En ese modo `publicationDiff` ya no manda la galería entera a cada ítem, y
+  publicar con más fotos en el banco que el tope pide que cada variante tenga las suyas.
 - **Qué cambió** (`publicationDiff.js`, `POST /:id/plan` con el borrador en pantalla, debounce de
   600 ms en el store): una operación por cosa a cambiar en una publicación concreta, con `key`
   estable (será el `unit_key` del job). Lo que no se tocó no genera nada, así guardar no pisa cambios
@@ -1260,6 +1266,36 @@ el panel `zc-edit-review` "Cambios a aplicar").
   (`mlVariationsBody`). Si la publicación cambió afuera, 409 `remote_changed` y la UI pide "Guardar
   igual". Al terminar sin errores la edición queda `done`; con errores sigue `saving` (Reintentar o
   `POST /:id/close`). **Sin probar todavía contra ML/TN reales**: solo con tests.
+- **Revisión de las llamadas (2026-11-01).** Reglas que salieron de revisar cada operación:
+  - **Lo común no se copia de la primera publicación.** El form muestra los datos de la primera, pero
+    descripción, envío, garantía y tipo de publicación (ML) y descripción, categorías, SEO, etiquetas,
+    video, envío gratis, URL y nombre (TN) van solo a las publicaciones que tenían el valor que se vio
+    (`spread` en `publicationDiff.js`, con `refs.*.current` de cada una); a las demás no se les toca y
+    el cambio avisa. La marca va a toda la que no la tenga ya. El envío manda solo el dato que cambió.
+  - **TN se decide por producto, no por grupo**: en un producto con varias variantes (aunque el grupo
+    tenga varios productos) quitar una es `delete_variant`, su foto es la foto de la variante y su
+    nombre es el del producto; `delete_product` solo si al producto no le queda ninguna variante.
+  - TN: `variants_common` y `variant` mandan solo los campos que cambiaron (sin nulls).
+  - ML: un cambio de precio por ítem legacy (con precios distintos avisa cuál se aplica); el título de
+    un ítem User Products no se manda ni con un solo ítem (y queda bloqueado); renombrar la variante
+    de un ítem de ficha cambia su atributo del eje; `create_item` busca por SKU antes y después del
+    POST (`findItemIdsBySellerSku`), usa `family_name` en cuentas User Products (la de la ficha, o el
+    título si son ítems sueltos), toma el tipo de publicación del form y falla si la descripción no entra.
+  - Stock/precio/SKU de ML esperan hasta 45 s a la Cola ML: "ok" solo si la cola lo aplicó, error si
+    agotó los intentos, y si sigue en curso lo dice.
+  - **Confirmado en la doc de ML** (2026-11-01, leída con el navegador; WebFetch da 403):
+    - `PUT attributes` **no hace merge**: hay que reenviar los que ya tenía el ítem o se pierden
+      (`mergedMlAttributes` lo hace; uno con varios valores va solo con `{id}`, que ML conserva).
+    - Vaciar un atributo o un `sale_term` = `value_id` y `value_name` en null (vacíos no cuentan).
+      Uno en "No aplica" no se puede vaciar, solo reemplazar por un valor: el diff no lo manda y avisa.
+      "Sin garantía" borra `WARRANTY_TIME` así.
+    - `GET /users/{id}/items/search?seller_sku=` existe (lo usa `create_item`).
+    - El tipo de publicación se cambia una sola vez: la operación lo avisa.
+    - Sacar el envío gratis cuando es obligatorio por precio (`mandatory_free_shipping`) ML lo ignora
+      en silencio: la operación compara con el ítem que devuelve el PUT y falla si no cambió.
+  - Fotos de un ítem legacy: las de una variación que se borra en el mismo guardado se dejan en la
+    galería hasta que se borra (si no, ML rechaza `picture_ids` que no están en el ítem).
+  - Sigue sin doc: vaciar la descripción de ML (el cliente no lo manda; la operación avisa).
 
 **Historial de publicación** (lo que era toda la página): `product_publish_jobs` +
 `product_publish_units` (incl. `external_id` = id de ML/TN por unidad).
