@@ -37,7 +37,7 @@
         <span>
           Desde que empezaste a editar, alguien cambió
           @for (c of store.editRemoteChanges(); track c.channel + c.id; let last = $last) {
-            <strong>{{ c.name }}</strong> ({{ c.channel === 'ml' ? 'ML' : 'TN' }}){{ last ? '' : ', ' }}
+            <strong>{{ c.name }}</strong> ({{ c.channel === 'ml' ? 'ML' : 'TN' }}@if (c.fields?.length) {: {{ c.fields!.join(', ') }}}){{ last ? '' : '; ' }}
           }
           desde el panel del canal. Al guardar se mandan solo tus cambios, pero si tocaste lo mismo, gana lo tuyo.
         </span>
