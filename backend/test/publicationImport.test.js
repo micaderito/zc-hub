@@ -6,7 +6,7 @@ import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 const state = { catalog: { mlRows: [], tnRows: [] }, items: {}, descs: {}, products: {}, itemStatus: {} };
-let buildEditDraft, importHubProduct, checkRemoteChanges;
+let buildEditDraft, importHubProduct, checkRemoteChanges, mlFingerprint, tnFingerprint;
 
 before(async () => {
   mock.module('../src/store.js', {
@@ -24,7 +24,7 @@ before(async () => {
   mock.module('../src/lib/tiendanube.js', {
     exports: { getProduct: async (_t, _s, id) => state.products[id] ?? null },
   });
-  ({ buildEditDraft, importHubProduct, checkRemoteChanges } = await import('../src/services/publicationImport.js'));
+  ({ buildEditDraft, importHubProduct, checkRemoteChanges, mlFingerprint, tnFingerprint } = await import('../src/services/publicationImport.js'));
 });
 
 beforeEach(() => {
@@ -213,6 +213,24 @@ test('checkRemoteChanges avisa qué publicación cambió desde que se abrió la 
     tn: { products: [{ productId: 1, updatedAt: '2026-10-02T10:00:00Z', name: 'Cuaderno TN' }] },
   });
   assert.deepEqual(changed, [{ channel: 'ml', id: 'MLA1', name: 'Cuaderno' }]);
+});
+
+test('checkRemoteChanges compara el contenido: last_updated movido por ML sin cambios reales no avisa', async () => {
+  const item = { id: 'MLA1', title: 'Resaltador Violeta', price: 100, available_quantity: 5, pictures: [{ id: 'P1' }], attributes: [{ id: 'BRAND', value_name: 'Filgo' }], last_updated: '2026-10-01T10:00:00Z', status: 'active' };
+  state.items.MLA1 = { ...item, last_updated: '2026-11-01T09:00:00Z' };
+  const refs = { ml: { items: [{ itemId: 'MLA1', lastUpdated: item.last_updated, fingerprint: mlFingerprint(item), title: 'Resaltador Violeta' }] }, tn: { products: [] } };
+  assert.deepEqual(await checkRemoteChanges(refs), []);
+  state.items.MLA1 = { ...item, available_quantity: 4, pictures: [{ id: 'P2' }] };
+  assert.deepEqual(await checkRemoteChanges(refs), [{ channel: 'ml', id: 'MLA1', name: 'Resaltador Violeta', fields: ['el stock', 'las fotos'] }]);
+});
+
+test('checkRemoteChanges en TN: updated_at movido sin cambios no avisa; un precio sí', async () => {
+  const p = { id: 1, name: { es: 'Resaltador' }, updated_at: '2026-10-02T10:00:00Z', variants: [{ id: 10, sku: 'A', price: '100', stock: 3, values: [{ es: 'Rosa' }] }], images: [] };
+  const refs = { ml: { items: [] }, tn: { products: [{ productId: 1, updatedAt: p.updated_at, fingerprint: tnFingerprint(p), name: 'Resaltador' }] } };
+  state.products[1] = { ...p, updated_at: '2026-11-01T00:00:00Z' };
+  assert.deepEqual(await checkRemoteChanges(refs), []);
+  state.products[1] = { ...p, variants: [{ ...p.variants[0], price: '120' }] };
+  assert.deepEqual((await checkRemoteChanges(refs))[0].fields, ['el precio']);
 });
 
 test('ficha de User Products: una característica cargada en unos ítems y vacía en otros ("Es lavable") no es un eje', () => {
