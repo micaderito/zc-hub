@@ -64,12 +64,18 @@ export class PreciosPlanillaComponent {
     const q = this.search().trim().toLowerCase();
     const base = this.onlyPending() ? this.store.rows().filter(isPendingRow) : this.store.rows();
     if (!q) return base;
-    return base.filter(
-      (r) => r.sku.toLowerCase().includes(q)
-        || (r.label ?? '').toLowerCase().includes(q)
-        || (r.name ?? '').toLowerCase().includes(q)
-        || (r.pack?.name ?? '').toLowerCase().includes(q),
-    );
+    return base.filter((r) => matchesSearch(q, r.sku, r.label, r.name, r.pack?.name, r.pack?.sku));
+  });
+
+  /**
+   * Lo sin costo también se busca: en un proveedor recién cargado casi todo está acá, y si la
+   * búsqueda solo miraba la planilla con costo parecía que el buscador no andaba.
+   */
+  readonly filteredUncosted = computed(() => {
+    const q = this.search().trim().toLowerCase();
+    const all = this.store.uncosted();
+    if (!q) return all;
+    return all.filter((u) => matchesSearch(q, u.sku, u.name, u.pack?.name, u.pack?.sku));
   });
 
   readonly priceGroups = computed(() => buildPriceGroups(this.filteredRows()));
@@ -78,7 +84,7 @@ export class PreciosPlanillaComponent {
   readonly uncostedGroups = computed<UncostedGroup[]>(() => {
     const groups: UncostedGroup[] = [];
     const byPack = new Map<number, UncostedGroup>();
-    for (const u of this.store.uncosted()) {
+    for (const u of this.filteredUncosted()) {
       if (!u.pack) { groups.push({ key: `sku:${u.sku}`, pack: null, items: [u] }); continue; }
       let g = byPack.get(u.pack.packId);
       if (!g) { g = { key: `pack:${u.pack.packId}`, pack: u.pack, items: [] }; byPack.set(u.pack.packId, g); groups.push(g); }
@@ -123,13 +129,13 @@ export class PreciosPlanillaComponent {
   }
 
   readonly allUncostedSelected = computed(() => {
-    const items = this.store.uncosted();
+    const items = this.filteredUncosted();
     const sel = this.selected();
     return items.length > 0 && items.every((u) => sel.has(u.sku));
   });
 
   toggleAllUncosted(): void {
-    const skus = this.store.uncosted().map((u) => u.sku);
+    const skus = this.filteredUncosted().map((u) => u.sku);
     const selectAll = !this.allUncostedSelected();
     this.selected.update((set) => {
       const next = new Set(set);
@@ -342,4 +348,9 @@ function toggled<T>(set: Set<T>, value: T): Set<T> {
   const next = new Set(set);
   if (next.has(value)) next.delete(value); else next.add(value);
   return next;
+}
+
+/** `q` ya viene en minúsculas y sin espacios en los bordes. */
+function matchesSearch(q: string, ...fields: (string | null | undefined)[]): boolean {
+  return fields.some((f) => (f ?? '').toLowerCase().includes(q));
 }

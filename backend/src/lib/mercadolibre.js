@@ -329,6 +329,24 @@ export async function addItemVariation(accessToken, itemId, variation) {
   return mlWrite(accessToken, 'POST', `/items/${itemId}/variations`, variation, 'addItemVariation');
 }
 
+/**
+ * Ids de los ítems del vendedor con ese SKU: GET /users/{id}/items/search?seller_sku=…
+ * Devuelve `null` si no se pudo consultar (sin vendedor, 429 agotado, 5xx): "no sé" no es "no hay".
+ */
+export async function findItemIdsBySellerSku(accessToken, sellerId, sku) {
+  const s = String(sku || '').trim();
+  if (!s) return [];
+  if (!sellerId) return null;
+  const res = await fetchWith429Retry(
+    `${BASE}/users/${sellerId}/items/search?seller_sku=${encodeURIComponent(s)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'findItemIdsBySellerSku'
+  );
+  if (!res.ok) return null;
+  const json = await res.json().catch(() => null);
+  return Array.isArray(json?.results) ? json.results.map(String) : null;
+}
+
 /** Borra una variación de un ítem legacy: DELETE /items/{id}/variations/{variationId}. */
 export async function deleteItemVariation(accessToken, itemId, variationId) {
   return mlWrite(accessToken, 'DELETE', `/items/${itemId}/variations/${variationId}`, undefined, 'deleteItemVariation');

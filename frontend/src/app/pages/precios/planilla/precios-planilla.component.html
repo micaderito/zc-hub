@@ -198,7 +198,7 @@
             <ng-container *ngTemplateOutlet="priceRowTpl; context: { $implicit: row }" />
           }
         }
-        @if (filteredRows().length === 0) {
+        @if (filteredRows().length === 0 && (onlyPending() || filteredUncosted().length === 0)) {
           <tr>
             <td colspan="9" class="pr-none">
               @if (onlyPending() && !search().trim()) {
@@ -214,12 +214,17 @@
   </div>
 }
 
+<!-- Solo hay productos sin costo y la búsqueda no encontró ninguno (si hay planilla con costo, el aviso va en la tabla) -->
+@if (!store.previewQuery.isLoading() && store.rows().length === 0 && store.uncosted().length > 0 && filteredUncosted().length === 0) {
+  <p class="pr-msg">No hay productos que coincidan con la búsqueda.</p>
+}
+
 <!-- Productos del proveedor que todavía no tienen costo: sin costo no hay precio que calcular -->
 @if (!store.previewQuery.isLoading() && uncostedGroups().length > 0) {
   <div class="pr-uncosted-head">
     <i class="ti ti-alert-circle" aria-hidden="true"></i>
     <b>Sin costo cargado</b>
-    <span class="group-total">{{ store.uncosted().length }}</span>
+    <span class="group-total">{{ filteredUncosted().length }}</span>
     <span class="hint">
       @if (store.currentSupplier(); as sup) {
         Se los comprás a {{ sup.name }} pero no tienen costo, así que todavía no tienen precio: importá su lista o cargalo a mano.

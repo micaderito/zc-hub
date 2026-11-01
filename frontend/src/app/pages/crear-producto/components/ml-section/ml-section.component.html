@@ -163,6 +163,9 @@
 
   <div class="field no-mb">
     <span class="lbl">Imágenes <span class="tag tag-own"><i class="ti ti-pencil"></i> propias de ML</span></span>
-    <zc-image-gallery channel="ml" [limit]="store.mlMaxPictures()" />
+    @if (store.mlGalleryIsPool()) {
+      <span class="hint"><i class="ti ti-info-circle" aria-hidden="true"></i> Cada variante es su propia publicación: el tope de {{ store.mlVariantPictureLimit() }} fotos es por variante (se eligen abajo, en "Fotos por variante"). Acá van todas las fotos de donde eligen.</span>
+    }
+    <zc-image-gallery channel="ml" [limit]="store.mlGalleryLimit()" />
   </div>
 </section>

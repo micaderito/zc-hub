@@ -6,30 +6,36 @@ import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 const calls = [];
-const state = { items: {}, products: {}, images: {}, catAttrs: [], failDeleteVariation: false, tnFindBySku: null, failKeys: new Set() };
+const state = { items: {}, products: {}, images: {}, catAttrs: [], failDeleteVariation: false, tnFindBySku: null, failKeys: new Set(), mlBySku: {}, failCreateItem: null, upSeller: true, taskStatus: { status: 'done', attempts: 1 }, descOk: true };
 const log = (name, ...args) => { calls.push([name, ...args]); };
 const callsOf = (name) => calls.filter((c) => c[0] === name);
 
 let runChannelOps, orderOps;
 
 before(async () => {
-  mock.module('../src/store.js', { exports: { tokens: { tiendanube: { access_token: 'tn', store_id: 1 } }, getMlToken: async () => 'ml' } });
+  mock.module('../src/store.js', { exports: { tokens: { tiendanube: { access_token: 'tn', store_id: 1 }, mercadolibre: { user_id: 77 } }, getMlToken: async () => 'ml' } });
+  mock.module('../src/lib/mlUserProducts.js', { exports: { isUserProductSeller: async () => state.upSeller } });
   mock.module('../src/lib/mercadolibre.js', {
     exports: {
       getItemOrStatus: async (_t, id) => (state.items[id] ? { item: JSON.parse(JSON.stringify(state.items[id])), status: 200 } : { item: null, status: 404 }),
       updateItem: async (_t, id, body) => {
         if (state.failKeys.has(`updateItem:${id}`)) throw new Error('ML dijo que no');
         log('updateItem', id, body);
-        return {};
+        return state.updateResponse ?? {};
       },
-      setItemDescription: async (_t, id, text) => { log('setItemDescription', id, text); return { ok: true }; },
+      setItemDescription: async (_t, id, text) => { log('setItemDescription', id, text); return state.descOk ? { ok: true } : { ok: false, error: 'HTTP 400' }; },
+      findItemIdsBySellerSku: async (_t, seller, sku) => { log('findItemIdsBySellerSku', seller, sku); return state.mlBySku[sku] ?? []; },
       setItemListingType: async (_t, id, lt) => log('setItemListingType', id, lt),
       addItemVariation: async (_t, id, v) => { log('addItemVariation', id, v); return { id: 999 }; },
       deleteItemVariation: async (_t, id, vid) => {
         log('deleteItemVariation', id, vid);
         if (state.failDeleteVariation) throw new Error('has_sales');
       },
-      createItem: async (_t, body) => { log('createItem', body); return { id: 'MLA-NEW' }; },
+      createItem: async (_t, body) => {
+        log('createItem', body);
+        if (state.failCreateItem) { const e = state.failCreateItem; state.mlBySku = e.createdAs ? { [body.attributes.find((a) => a.id === 'SELLER_SKU').value_name]: [e.createdAs] } : state.mlBySku; throw new Error(e.message); }
+        return { id: 'MLA-NEW' };
+      },
       uploadPicture: async (_t, _buf, name) => { log('uploadPicture', name); return `UP-${callsOf('uploadPicture').length}`; },
       getCategoryAttributes: async () => state.catAttrs,
       mlVariationsBody: (item, overrides = {}) => (item?.variations || []).map((v) => (overrides[String(v.id)] ? { id: v.id, ...overrides[String(v.id)] } : { id: v.id })),
@@ -53,7 +59,12 @@ before(async () => {
       updateProductImagePosition: async (_t, _s, pid, id, pos) => log('tn.updateProductImagePosition', pid, id, pos),
     },
   });
-  mock.module('../src/db.js', { exports: { enqueueMlTask: async (task) => { log('enqueueMlTask', task); return 42; } } });
+  mock.module('../src/db.js', {
+    exports: {
+      enqueueMlTask: async (task) => { log('enqueueMlTask', task); return 42; },
+      getMlTaskStatus: async (id) => ({ id, ...state.taskStatus }),
+    },
+  });
   mock.module('../src/services/imageStore.js', {
     exports: {
       getImage: async (id) => (state.images[id] ? { buffer: Buffer.from('x'), filename: `${id}.jpg`, mime: 'image/jpeg' } : null),
@@ -98,6 +109,12 @@ beforeEach(() => {
   state.failDeleteVariation = false;
   state.tnFindBySku = null;
   state.failKeys = new Set();
+  state.mlBySku = {};
+  state.failCreateItem = null;
+  state.upSeller = true;
+  state.taskStatus = { status: 'done', attempts: 1 };
+  state.descOk = true;
+  state.updateResponse = null;
 });
 
 function payload(ops, draftOver = {}) {
@@ -150,8 +167,15 @@ test('stock, precio y SKU de ML van por la Cola ML (historial con valor previo, 
   assert.equal(tasks[0].targetQty, 5);
   assert.equal(tasks[0].idempotencyKey, 'stock_ml_set:MLA1:11');
   assert.equal(tasks[1].targetPrice, 9500);
-  assert.match(reports[0].detail, /Cola ML/);
+  assert.match(reports[0].detail, /Aplicado por la Cola ML/);
   assert.equal(callsOf('updateItem').length, 0);
+});
+
+test('un cambio por la Cola ML que la cola no pudo aplicar queda con error, no "ok"', async () => {
+  state.taskStatus = { status: 'failed', attempts: 5, lastError: 'HTTP 400 item.price.invalid' };
+  const { reports } = await run('ml', payload([op('ml', 'MLA1', 'price:v1', { variationId: '11', price: 1 })]));
+  assert.equal(reports[0].status, 'error');
+  assert.match(reports[0].detail, /item\.price\.invalid/);
 });
 
 test('características: parte de lo que tiene el ítem, aplica los cambios y saca los de solo lectura y el SKU', async () => {
@@ -276,4 +300,126 @@ test('sin token del canal, todas sus operaciones quedan con error y explicación
   } finally {
     mod.tokens.tiendanube.access_token = saved;
   }
+});
+
+test('crear un ítem: si ya hay uno con ese SKU (intento anterior) se adopta y no se duplica', async () => {
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Agenda 2027', sale_terms: [] };
+  state.mlBySku = { COR: ['MLA1', 'MLA-PREV'] };
+  const v = { id: 'v9', sku: 'COR', values: ['Coral'], stock: 2, ml: { price: 1, pictureIds: [] }, tn: {} };
+  const { reports } = await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: v, title: 'Agenda Coral' } }]));
+  assert.equal(callsOf('createItem').length, 0);
+  assert.equal(reports[0].externalId, 'MLA-PREV', 'no adopta un ítem que ya es del grupo');
+  assert.equal(callsOf('setItemDescription')[0][1], 'MLA-PREV', 'le completa la descripción');
+});
+
+test('crear un ítem: ML contesta error pero lo creó → se encuentra por SKU y se adopta', async () => {
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Agenda 2027', sale_terms: [] };
+  state.failCreateItem = { message: 'timeout', createdAs: 'MLA-GHOST' };
+  const v = { id: 'v9', sku: 'COR', values: ['Coral'], stock: 2, ml: { price: 1, pictureIds: [] }, tn: {} };
+  const { reports } = await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: v, title: 'Agenda Coral' } }]));
+  assert.equal(reports[0].status, 'ok');
+  assert.equal(reports[0].externalId, 'MLA-GHOST');
+});
+
+test('crear un ítem en un grupo de ítems sueltos (cuenta User Products) arma su propia familia, sin title', async () => {
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Repuesto Rayada', sale_terms: [] };
+  state.items.MLA2 = { ...state.items.MLA1, id: 'MLA2', family_name: 'Repuesto Lisa' };
+  const pl = payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'CUA', values: ['Cuadriculada'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Repuesto Cuadriculada' } }]);
+  pl.refs.ml.items = [{ itemId: 'MLA1', format: 'up', familyName: 'Repuesto Rayada' }, { itemId: 'MLA2', format: 'up', familyName: 'Repuesto Lisa' }];
+  pl.draft.ml.listingType = 'gold_pro';
+  await run('ml', pl);
+  const body = callsOf('createItem')[0][1];
+  assert.equal(body.family_name, 'Repuesto Cuadriculada');
+  assert.equal(body.title, undefined);
+  assert.equal(body.listing_type_id, 'gold_pro', 'el tipo de publicación del form, no el del hermano');
+});
+
+test('crear un ítem en una cuenta legacy manda title', async () => {
+  state.upSeller = false;
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, sale_terms: [] };
+  const pl = payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: { id: 'v9', sku: 'CUA', values: ['X'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} }, title: 'Repuesto X' } }]);
+  pl.refs.ml.items = [{ itemId: 'MLA1', format: 'simple' }, { itemId: 'MLA2', format: 'simple' }];
+  await run('ml', pl);
+  assert.equal(callsOf('createItem')[0][1].title, 'Repuesto X');
+});
+
+test('crear un ítem: si ML no acepta la descripción queda con error (y reintentar no lo duplica)', async () => {
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, family_name: 'Agenda 2027', sale_terms: [] };
+  state.descOk = false;
+  const v = { id: 'v9', sku: 'COR', values: ['Coral'], stock: 2, ml: { price: 1, pictureIds: [] }, tn: {} };
+  const { reports } = await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: v, title: 'x' } }]));
+  assert.equal(reports[0].status, 'error');
+  assert.match(reports[0].detail, /no se duplica/);
+});
+
+test('agregar variación sin SKU no adopta una variación existente sin SKU', async () => {
+  state.items.MLA1.variations.push({ id: 13, price: 8990, picture_ids: [], attributes: [] });
+  const v = { id: 'v9', sku: '', values: ['Violeta'], stock: 1, ml: { price: 8990, pictureIds: [] }, tn: {} };
+  const { reports } = await run('ml', payload([op('ml', 'MLA1', 'add_variation:v9', { variant: v })]));
+  assert.equal(callsOf('addItemVariation').length, 1);
+  assert.equal(reports[0].externalId, '999');
+});
+
+test('renombrar la variante de un ítem de ficha (sin variations) cambia su atributo, no manda variations vacío', async () => {
+  state.items.MLA1 = { ...state.items.MLA1, variations: undefined, attributes: [...state.items.MLA1.attributes, { id: 'COLOR', value_name: 'Rojo' }] };
+  await run('ml', payload([op('ml', 'MLA1', 'values:v1', { variationId: null, values: ['Bordó'], axes: [{ name: 'Color', mlAttributeId: 'COLOR' }] })]));
+  const body = callsOf('updateItem')[0][2];
+  assert.equal(body.variations, undefined);
+  assert.deepEqual(body.attributes.find((a) => a.id === 'COLOR'), { id: 'COLOR', value_name: 'Bordó' });
+  assert.ok(body.attributes.some((a) => a.id === 'BRAND'), 'el resto de las características queda');
+});
+
+test('envío: solo se cambia el dato que vino; el otro queda como lo tiene el ítem', async () => {
+  state.items.MLA1.shipping = { mode: 'me2', free_shipping: false, local_pick_up: true };
+  await run('ml', payload([op('ml', 'MLA1', 'shipping', { free_shipping: true })]));
+  assert.deepEqual(callsOf('updateItem')[0][2].shipping, { mode: 'me2', free_shipping: true, local_pick_up: true });
+});
+
+test('TN: medidas y Shopping mandan solo los campos que vinieron, sin nulls', async () => {
+  await run('tn', payload([op('tn', 5, 'variants_common', { gender: 'female' })]));
+  assert.deepEqual(callsOf('tn.updateVariant').map((c) => c[3]), [{ gender: 'female' }, { gender: 'female' }]);
+});
+
+test('TN: cambiar el SKU de una variante no reescribe su nombre ni su código de barras', async () => {
+  await run('tn', payload([op('tn', 5, 'variant:v1', { variantId: 501, fields: ['sku'], sku: 'NEW', values: ['Rojo'], barcode: '779' })]));
+  assert.deepEqual(callsOf('tn.updateVariant')[0][3], { sku: 'NEW' });
+});
+
+test('TN: fotos de una variante de un producto con varias variantes (grupo "uno por variante") eligen su foto sin borrar las del producto', async () => {
+  const pl = payload([op('tn', 5, 'images:v1', { variantId: 501, image_ids: ['tn-51'], multiVariant: true })], { tn: { mappingMode: 'one_per_variant', images: [] } });
+  await run('tn', pl);
+  assert.equal(callsOf('tn.deleteProductImage').length, 0);
+  assert.deepEqual(callsOf('tn.updateVariantImage').map((c) => [c[2], c[3]]), [[501, 51]]);
+});
+
+test('características: una con varios valores se reenvía solo con su id (ML no hace merge y si no se pierden)', async () => {
+  state.items.MLA1.attributes.push({ id: 'COLORS', value_name: 'Rojo', values: [{ id: '1', name: 'Rojo' }, { id: '2', name: 'Azul' }] });
+  await run('ml', payload([op('ml', 'MLA1', 'attributes', { attributes: [{ id: 'SHEET_TYPE', value: 'Cuadriculada', valueId: '2' }] })]));
+  const attrs = callsOf('updateItem')[0][2].attributes;
+  assert.deepEqual(attrs.find((a) => a.id === 'COLORS'), { id: 'COLORS' });
+  assert.ok(attrs.some((a) => a.id === 'BRAND'), 'las que ya tenía van en el PUT');
+});
+
+test('garantía: "Sin garantía" borra el tiempo con nulls; un tiempo vacío no viaja como ""', async () => {
+  await run('ml', payload([op('ml', 'MLA1', 'warranty', { type: 'Sin garantía', time: '6 meses' })]));
+  assert.deepEqual(callsOf('updateItem')[0][2].sale_terms, [{ id: 'WARRANTY_TYPE', value_name: 'Sin garantía' }, { id: 'WARRANTY_TIME', value_id: null, value_name: null }]);
+  calls.length = 0;
+  await run('ml', payload([op('ml', 'MLA1', 'warranty', { type: 'Garantía del vendedor', time: '3 meses' })]));
+  assert.deepEqual(callsOf('updateItem')[0][2].sale_terms[1], { id: 'WARRANTY_TIME', value_name: '3 meses' });
+});
+
+test('envío: si ML no sacó el envío gratis (obligatorio por precio) queda con error', async () => {
+  state.items.MLA1.shipping = { mode: 'me2', free_shipping: true, local_pick_up: false };
+  state.updateResponse = { shipping: { mode: 'me2', free_shipping: true, local_pick_up: false }, tags: ['mandatory_free_shipping'] };
+  const { reports } = await run('ml', payload([op('ml', 'MLA1', 'shipping', { free_shipping: false })]));
+  assert.equal(reports[0].status, 'error');
+  assert.match(reports[0].detail, /obligatorio/);
+});
+
+test('fotos de un ítem legacy: las de una variación que se borra en el mismo guardado siguen en la galería', async () => {
+  state.items.MLA1.variations.push({ id: 13, price: 8990, picture_ids: ['P9'], attributes: [{ id: 'SELLER_SKU', value_name: 'VER' }] });
+  await run('ml', payload([op('ml', 'MLA1', 'pictures')]));
+  const body = callsOf('updateItem')[0][2];
+  assert.ok(body.pictures.some((p) => p.id === 'P9'));
+  assert.deepEqual(body.variations.find((v) => v.id === 13), { id: 13 });
 });
