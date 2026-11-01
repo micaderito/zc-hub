@@ -205,30 +205,32 @@ const axisCombination = (axes, values) =>
   (axes || []).map((ax, i) => (ax.mlAttributeId ? { id: ax.mlAttributeId, value_name: values[i] } : { name: ax.name, value_name: values[i] }));
 
 /**
- * Un atributo (o `sale_term`) leído de `GET /items` como va en un `POST`/`PUT /items`. El GET trae
- * `value_id` también en atributos libres (números, textos, valores propios de la cuenta) y ML no lo
- * resuelve de vuelta: "Value name of attribute X was not provided and couldn't be resolved". El
- * `value_id` solo viaja si está en la lista cerrada de la categoría; si no, va el texto. Un número
- * sale de `value_struct` (ver numberText). `null` = no tiene valor: no se manda.
+ * Un atributo (o `sale_term`) leído de `GET /items`, tal cual lo tiene la publicación, para
+ * mandarlo en un `POST`/`PUT /items`: con su `value_id` Y su `value_name`. El id solo no alcanza (un
+ * valor propio de la cuenta: "Value name of attribute DESIGN was not provided and couldn't be
+ * resolved") y el texto solo tampoco (ML rechazó "1-5mm" en "Grosor del trazo", que con su id sí
+ * acepta): con los dos, ML usa el valor que ya conoce. Un multivalor (chips) va con todos sus
+ * valores en `values`. Sin id, un número sale de `value_struct` (ver numberText).
+ * `null` = no tiene valor: no se manda.
  */
 function itemAttrValue(a, catAttr) {
   if (String(a.value_id ?? '') === ML_NA) return { id: a.id, value_id: ML_NA, value_name: null };
+  const values = (a.values || []).filter((x) => x?.id != null || String(x?.name ?? '').trim());
+  if (values.length > 1) {
+    return { id: a.id, values: values.map((x) => ({ ...(x.id != null ? { id: String(x.id) } : {}), name: x.name ?? null })) };
+  }
+  const raw = a.value_name != null && String(a.value_name).trim() ? String(a.value_name) : null;
+  if (a.value_id != null && a.value_id !== '') return { id: a.id, value_id: String(a.value_id), ...(raw ? { value_name: raw } : {}) };
   const st = a.value_struct;
-  let name = st?.number != null ? `${st.number}${st.unit ? ` ${st.unit}` : ''}` : a.value_name;
-  name = name != null && String(name).trim() ? numberText(String(name).trim(), catAttr) : null;
-  const listed = a.value_id && (catAttr?.values || []).some((x) => String(x.id) === String(a.value_id));
-  if (listed) return { id: a.id, value_id: String(a.value_id), ...(name ? { value_name: name } : {}) };
-  return name ? { id: a.id, value_name: name } : null;
+  const name = st?.number != null ? `${st.number}${st.unit ? ` ${st.unit}` : ''}` : raw;
+  return name ? { id: a.id, value_name: numberText(name, catAttr) } : null;
 }
 
-/**
- * Atributo multivalor (tag `multivalued`, ej. "Grosor del trazo" en resaltadores) con varios
- * valores: en un ítem NUEVO van todos en `value_name` separados por coma (doc de Atributos). El
- * `value_id` de cada uno es propio del ítem viejo y no sirve para otro.
- */
-function multiValue(a) {
-  const names = (a.values || []).map((x) => String(x.name ?? '').trim()).filter(Boolean);
-  return names.length ? { id: a.id, value_name: names.join(',') } : null;
+/** El valor de un atributo del ítem como lo muestra el form (los chips, separados por coma). */
+function itemAttrText(a) {
+  if (String(a.value_id ?? '') === ML_NA) return ML_NA;
+  const names = (a.values || []).map((x) => String(x?.name ?? '').trim()).filter(Boolean);
+  return (names.length > 1 ? names.join(',') : String(a.value_name ?? '')).trim().toLowerCase();
 }
 
 /** Modo de envío del ítem nuevo: el del form (el mismo que usa Crear producto); `me1` la cuenta no lo tiene. */
@@ -250,16 +252,22 @@ async function newItemBody(ctx, p, v) {
     return !!(tags.read_only || tags.fixed || tags.inferred);
   };
   const byId = new Map();
-  // Base: lo que tiene el hermano (incluye lo que el form no muestra). Encima, las características
-  // generales del form: son las que la usuaria ve (y pudo cambiar en esta misma edición, cambio que a
-  // los hermanos les llega por su propia operación, no antes de que se cree este ítem).
+  // Base: lo que tiene el hermano, tal cual (incluye lo que el form no muestra). Encima, lo que la
+  // usuaria cambió en el form en esta misma edición (a los hermanos les llega por su propia
+  // operación, no antes de que se cree este ítem).
+  const siblingAttrs = new Map();
   for (const a of sibling.attributes || []) {
     if (!a.id || skip.has(a.id) || isReadOnly(a.id)) continue;
-    const val = (a.values || []).length > 1 ? multiValue(a) : itemAttrValue(a, cat.get(a.id));
+    siblingAttrs.set(a.id, a);
+    const val = itemAttrValue(a, cat.get(a.id));
     if (val) byId.set(a.id, val);
   }
   for (const a of d.ml.attributes || []) {
     if (!a.id || skip.has(a.id) || isReadOnly(a.id)) continue;
+    // Sin tocar en el form (mismo valor que el hermano): queda como lo tiene el hermano, con sus ids.
+    const prev = siblingAttrs.get(a.id);
+    const text = a.notApplicable ? ML_NA : String(a.value ?? '').trim().toLowerCase();
+    if (prev && !a.removed && text === itemAttrText(prev)) continue;
     const val = mlAttrValue(a, cat.get(a.id));
     if (val.value_id == null && val.value_name == null) byId.delete(a.id);
     else byId.set(a.id, val);
