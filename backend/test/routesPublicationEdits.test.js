@@ -38,6 +38,7 @@ before(async () => {
         if (e) { e.status = status; if (jobId) e.jobId = jobId; }
         return !!e;
       },
+      setPublicationEditRefs: async (id, refs) => { const e = state.edits.get(id); if (e) e.refs = refs; return !!e; },
       createPublishJob: async (job) => {
         if (!state.createJobOk) return null;
         state.jobs.set(job.id, { ...job, status: 'pending' });

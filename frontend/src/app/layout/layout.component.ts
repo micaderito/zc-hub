@@ -9,6 +9,7 @@ import { SessionService } from '../core/services/session.service';
 import { ThemeService } from '../core/services/theme.service';
 import { AlertsService, ALERTS_NOTIFICATIONS_QUERY_KEY, StockNotification } from '../core/services/alerts.service';
 import { CanWriteDirective } from '../shared/directives/can-write.directive';
+import { AppVersionComponent } from '../shared/components/app-version/app-version.component';
 
 interface NavItem {
   path: string;
@@ -34,7 +35,7 @@ const CONFIG_OPEN_KEY = 'zc-sidebar-config-open';
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule, RouterOutlet, RouterLink, FormsModule],
+  imports: [CanWriteDirective, CommonModule, RouterOutlet, RouterLink, FormsModule, AppVersionComponent],
   templateUrl: './layout.component.html',
   styleUrl: './layout.component.scss'
 })
