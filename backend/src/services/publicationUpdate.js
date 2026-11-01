@@ -333,32 +333,47 @@ function attrEncodings(a) {
   });
 }
 
-/** La definición de un atributo dentro de la ficha técnica del dominio (está anidada en grupos/componentes). */
-function findSpecAttr(node, attrId) {
-  if (!node || typeof node !== 'object') return null;
-  if (!Array.isArray(node) && node.id === attrId && (node.value_type || node.values || node.allowed_units || node.units)) return node;
-  for (const v of Object.values(node)) {
-    const found = findSpecAttr(v, attrId);
-    if (found) return found;
-  }
-  return null;
-}
+/** El valor de un atributo de ML como texto (uno o varios, separados por coma). */
+const attrValueText = (a) => (a?.values?.length ? a.values.map((x) => x?.name).filter(Boolean).join(', ') : a?.value_name ?? '');
 
-/** Qué formato pide la ficha técnica para un atributo, en castellano, o null si no lo sabemos. */
-export function specHint(spec) {
-  if (!spec) return null;
-  const names = (list) => (Array.isArray(list) ? list.map((x) => x?.name ?? x?.id ?? x).filter(Boolean).map(String) : []);
-  const units = names(spec.allowed_units || spec.units);
-  const values = names(spec.values);
-  const multi = Array.isArray(spec.tags) ? spec.tags.includes('multivalued') : !!spec.tags?.multivalued;
-  const more = multi ? ' (admite varios valores)' : '';
-  if (values.length && (spec.value_type === 'list' || spec.value_type === 'boolean' || !spec.value_type)) {
-    return `ML espera uno de estos valores${more}: ${values.slice(0, 12).join(', ')}${values.length > 12 ? '…' : ''}.`;
+/**
+ * Por qué ML rechaza una característica cuyo texto es válido para la ficha técnica. Todo con
+ * `POST /items/validate` (no crea nada) y lecturas; cada paso queda en los logs. Distingue:
+ * - sin la característica ML acepta el ítem y con otro valor también → choca ESTE valor;
+ * - sin ella acepta pero con otro valor tampoco → ML no deja cargarla en este producto;
+ * y busca en el catálogo de ML el producto de esa marca/modelo/variante para ver qué valor tiene
+ * (una publicación nueva se asocia al catálogo y ML rechaza lo que lo contradice).
+ * Devuelve una frase para el error.
+ */
+async function diagnoseRejectedAttr(ctx, body, a, name) {
+  const notes = [];
+  const without = { ...body, attributes: body.attributes.filter((x) => x.id !== a.id) };
+  const other = { ...body, attributes: body.attributes.map((x) => (x.id === a.id ? { id: a.id, value_name: '1 mm' } : x)) };
+  try {
+    const rWithout = await ml.validateItem(ctx.token, without);
+    const rOther = await ml.validateItem(ctx.token, other);
+    console.log('[Edit] diagnóstico "%s": sin la característica → %s · con "1 mm" → %s', name, rWithout.ok ? 'ok' : rWithout.error, rOther.ok ? 'ok' : rOther.error);
+    const rejectedOther = !rOther.ok && rejectedAttrNames(rOther.error).includes(normName(name));
+    if (rWithout.ok && rejectedOther) notes.push(`ML rechaza cualquier valor de "${name}" en esta publicación (sin la característica sí la acepta).`);
+    else if (rWithout.ok && !rejectedOther) notes.push(`ML acepta otros valores de "${name}", no este.`);
+    else if (!rWithout.ok) notes.push(`Sin "${name}" ML tampoco la acepta: ${rWithout.error}`);
+  } catch (e) {
+    console.warn('[Edit] diagnóstico: no se pudo validar:', e.message);
   }
-  if (spec.value_type === 'number_unit') return `ML espera un número con unidad${units.length ? ` (${units.join(', ')})` : ''}, ej. "3 ${units[0] || 'mm'}"${more}.`;
-  if (spec.value_type === 'number') return `ML espera un número${more}.`;
-  if (values.length) return `ML sugiere: ${values.slice(0, 12).join(', ')}${values.length > 12 ? '…' : ''}${more}.`;
-  return spec.value_type ? `ML espera un valor de tipo "${spec.value_type}"${more}.` : null;
+  try {
+    const val = (id) => attrValueText(body.attributes.find((x) => x.id === id));
+    const axisIds = new Set((ctx.payload.draft.axes || []).map((ax) => ax.mlAttributeId).filter(Boolean));
+    const q = [val('BRAND'), val('MODEL'), ...[...axisIds].map(val)].filter(Boolean).join(' ');
+    const found = q ? await ml.searchCatalogProducts(ctx.token, q) : null;
+    const results = (found?.results || []).slice(0, 3);
+    const lines = results.map((r) => `${r.name || r.id} (${r.id}): ${attrValueText((r.attributes || []).find((x) => x.id === a.id)) || 'sin dato'}`);
+    console.log('[Edit] diagnóstico "%s": catálogo de ML para "%s" → %s', name, q, lines.length ? lines.join(' | ') : 'sin resultados');
+    const withValue = results.map((r) => attrValueText((r.attributes || []).find((x) => x.id === a.id))).filter(Boolean);
+    if (withValue.length) notes.push(`En el catálogo de ML "${results[0].name || results[0].id}" tiene "${name}" = "${withValue[0]}".`);
+  } catch (e) {
+    console.warn('[Edit] diagnóstico: no se pudo buscar en el catálogo:', e.message);
+  }
+  return notes.join(' ');
 }
 
 /**
@@ -400,23 +415,9 @@ async function createItemExplained(ctx, body) {
     else unresolved.push(`"${nameOf(a)}" (se probó ${tried.join(' · ')})`);
   }
   if (unresolved.length) {
-    // El valor ya no pasa la validación de ML (el ítem viejo lo conserva porque se cargó antes): se
-    // dice qué pide la ficha técnica del dominio para que se corrija en el form, que lo aplica a toda la ficha.
-    const hints = [];
-    try {
-      const sibling = await ctx.item(ctx.payload.refs.ml.items[0].itemId);
-      const specs = sibling.domain_id ? await ml.getDomainTechnicalSpecs(ctx.token, sibling.domain_id) : null;
-      for (const a of rejectedAttrs) {
-        const spec = findSpecAttr(specs, a.id);
-        console.log('[Edit] ficha técnica de "%s" (%s): %s', nameOf(a), sibling.domain_id, JSON.stringify(spec)?.slice(0, 1500));
-        const hint = specHint(spec);
-        if (hint) hints.push(`"${nameOf(a)}": ${hint}`);
-      }
-    } catch (e) {
-      console.warn('[Edit] no se pudo leer la ficha técnica:', e.message);
-    }
-    const fix = 'ML ya no acepta ese valor en una publicación nueva: cerrá esta edición, abrila de nuevo, corregí la característica (se aplica a toda la ficha) y guardá.';
-    throw Object.assign(new Error(`${first.message} ML no aceptó el valor en ningún formato: ${unresolved.join('; ')}. ${hints.join(' ')} ${fix}`.replace(/\s+/g, ' ').trim()), { mlStatus: first.mlStatus });
+    const notes = [];
+    for (const a of rejectedAttrs) notes.push(await diagnoseRejectedAttr(ctx, body, a, nameOf(a)));
+    throw Object.assign(new Error(`${first.message} ML no aceptó el valor en ningún formato: ${unresolved.join('; ')}. ${notes.join(' ')}`.replace(/\s+/g, ' ').trim()), { mlStatus: first.mlStatus });
   }
   return ml.createItem(ctx.token, { ...body, attributes });
 }
