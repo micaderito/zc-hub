@@ -305,26 +305,75 @@ async function newItemBody(ctx, p, v) {
 
 const normName = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 
+/** Nombres de las características que ML rechazó por valor ("El valor que ingresaste en "X" es incorrecto"). */
+const rejectedAttrNames = (msg) =>
+  [...String(msg || '').matchAll(/ingresaste en ["“']([^"”']+)["”'] es incorrecto/gi)].map((m) => normName(m[1]));
+
 /**
- * `POST /items` del ítem nuevo. Si ML rechaza el valor de una característica ("El valor que
- * ingresaste en "Grosor del trazo" es incorrecto"), el error suma QUÉ valor se mandó en cada una:
- * ML no lo dice y sin eso no hay forma de saber qué corregir.
+ * El MISMO valor de una característica escrito de las formas que ML puede esperar, empezando por
+ * la que ya se mandó. ML devuelve igual un texto libre cargado como un único texto, como una lista
+ * de valores (los chips) o con la unidad pegada/separada, pero en un alta valida uno solo de esos
+ * formatos según el dominio, y no lo informa.
+ */
+function attrEncodings(a) {
+  const names = a.values?.length ? a.values.map((x) => String(x.name ?? '')).filter(Boolean) : a.value_name != null ? [String(a.value_name)] : [];
+  const text = names.join(',');
+  const out = [a];
+  if (a.value_id != null && a.value_id !== ML_NA && text) out.push({ id: a.id, value_name: text });
+  if (names.length) out.push({ id: a.id, values: names.map((name) => ({ name })) });
+  for (const t of [text.replace(/(\d)\s*([^\d\s,.-]+)(?=,|$)/g, '$1 $2'), text.replace(/(\d)\s+([^\d\s,.-]+)(?=,|$)/g, '$1$2')]) {
+    if (t && t !== text) out.push({ id: a.id, value_name: t });
+  }
+  const seen = new Set();
+  return out.filter((x) => {
+    const k = JSON.stringify(x);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/**
+ * `POST /items` del ítem nuevo. Si ML rechaza el valor de una característica copiada ("El valor que
+ * ingresaste en "Grosor del trazo" es incorrecto"), no se saca ni se cambia el valor: se prueba ESE
+ * valor en los otros formatos (attrEncodings) con `POST /items/validate`, que no crea nada, y se crea
+ * con el que ML acepte. Si no acepta ninguno, el error lista qué se probó y qué contestó ML.
  */
 async function createItemExplained(ctx, body) {
+  let first;
   try {
     return await ml.createItem(ctx.token, body);
   } catch (e) {
-    const names = [...String(e.message || '').matchAll(/ingresaste en ["“']([^"”']+)["”'] es incorrecto/gi)].map((m) => normName(m[1]));
-    if (!names.length) throw e;
-    const cat = await ctx.categoryAttrs(body.category_id);
-    const nameOf = (a) => cat.get(a.id)?.name || a.name || a.id;
-    const shown = body.attributes
-      .filter((a) => names.includes(normName(nameOf(a))))
-      .map((a) => `"${nameOf(a)}" = ${JSON.stringify(a.value_id != null ? { value_id: a.value_id, value_name: a.value_name ?? null } : a.value_name ?? null)}`)
-      .join(', ');
-    console.warn('[Edit] ML rechazó %s', shown || names.join(', '));
-    throw Object.assign(new Error(`${e.message}${shown ? ` (se mandó ${shown})` : ''}`), { mlStatus: e.mlStatus });
+    first = e;
   }
+  const names = rejectedAttrNames(first.message);
+  if (!names.length) throw first;
+  const cat = await ctx.categoryAttrs(body.category_id);
+  const nameOf = (a) => cat.get(a.id)?.name || a.name || a.id;
+  const show = (a) => JSON.stringify(Object.fromEntries(Object.entries(a).filter(([k]) => k !== 'id')));
+  let attributes = body.attributes;
+  const unresolved = [];
+  for (const a of body.attributes.filter((x) => names.includes(normName(nameOf(x))))) {
+    const tried = [show(a)];
+    let chosen = null;
+    for (const alt of attrEncodings(a).slice(1)) {
+      const candidate = attributes.map((x) => (x.id === a.id ? alt : x));
+      const r = await ml.validateItem(ctx.token, { ...body, attributes: candidate });
+      const stillRejected = !r.ok && rejectedAttrNames(r.error).includes(normName(nameOf(a)));
+      console.log('[Edit] validar "%s" como %s → %s', nameOf(a), show(alt), r.ok ? 'ok' : r.error);
+      if (!stillRejected) {
+        chosen = alt;
+        break;
+      }
+      tried.push(show(alt));
+    }
+    if (chosen) attributes = attributes.map((x) => (x.id === a.id ? chosen : x));
+    else unresolved.push(`"${nameOf(a)}" (se probó ${tried.join(' · ')})`);
+  }
+  if (unresolved.length) {
+    throw Object.assign(new Error(`${first.message} ML no aceptó el valor en ningún formato: ${unresolved.join('; ')}`), { mlStatus: first.mlStatus });
+  }
+  return ml.createItem(ctx.token, { ...body, attributes });
 }
 
 /** Espera a que la Cola ML aplique una tarea (o la dé por fallada) hasta `ML_TASK_WAIT_MS`. */
