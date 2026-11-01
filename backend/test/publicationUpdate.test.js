@@ -76,6 +76,13 @@ before(async () => {
       // Misma regla que productPublish.packageAttributes: cada medida con dato, redondeada para arriba.
       packageAttributes: (c) => [['SELLER_PACKAGE_LENGTH', c.lengthCm, 'cm'], ['SELLER_PACKAGE_WIDTH', c.widthCm, 'cm'], ['SELLER_PACKAGE_HEIGHT', c.heightCm, 'cm'], ['SELLER_PACKAGE_WEIGHT', c.weightG, 'g']]
         .filter(([, n]) => n != null && Number(n) > 0).map(([id, n, u]) => ({ id, value_name: `${Math.ceil(Number(n))} ${u}` })),
+      // Misma regla que productPublish.withUnitsPerPack: con SALE_FORMAT, UNITS_PER_PACK entero por value_name.
+      withUnitsPerPack: (attrs) => {
+        if (!attrs.some((a) => a.id === 'SALE_FORMAT')) return attrs;
+        const rest = attrs.filter((a) => a.id !== 'UNITS_PER_PACK');
+        const cur = attrs.find((a) => a.id === 'UNITS_PER_PACK');
+        return [...rest, { id: 'UNITS_PER_PACK', value_name: String(parseInt(cur?.value_name, 10) || 1) }];
+      },
     },
   });
   mock.module('../src/services/conflictsService.js', { exports: { refreshMlItemInSnapshot: async () => {}, refreshTnProductInSnapshot: async () => {} } });
@@ -235,6 +242,31 @@ test('crear un ítem en una ficha copia el hermano y manda family_name sin títu
   assert.ok(!ids.includes('INFERRED'));
   assert.equal(callsOf('setItemDescription')[0][1], 'MLA-NEW');
   assert.equal(reports[0].externalId, 'MLA-NEW');
+});
+
+test('crear un ítem: atributos libres del hermano van por texto, UNITS_PER_PACK completo y envío del form', async () => {
+  state.items.MLA1 = {
+    ...state.items.MLA1, variations: undefined, family_name: 'Agenda 2027', shipping: { mode: 'me1' },
+    attributes: [
+      { id: 'SHEET_TYPE', value_id: '1', value_name: 'Rayada' },
+      { id: 'DESIGN', value_id: '55501', value_name: 'Floral' },
+      { id: 'SALE_FORMAT', value_id: '1359391', value_name: 'Unidad' },
+      { id: 'UNITS_PER_PACK', value_id: '77', value_name: null },
+      { id: 'IS_WASHABLE', value_id: '-1', value_name: null },
+    ],
+    sale_terms: [{ id: 'WARRANTY_TIME', value_id: '9', value_name: '90 días', value_struct: { number: 90, unit: 'días' } }],
+  };
+  const v = { id: 'v9', sku: 'PAS', values: ['Pastel'], stock: 1, ml: { price: 1, pictureIds: [] }, tn: {} };
+  await run('ml', payload([{ ...op('ml', 'new', 'create_item'), key: 'ml:new:v9', payload: { variant: v, title: 'Pastel' } }]));
+  const body = callsOf('createItem')[0][1];
+  const byId = Object.fromEntries(body.attributes.map((a) => [a.id, a]));
+  assert.deepEqual(byId.SHEET_TYPE, { id: 'SHEET_TYPE', value_id: '1', value_name: 'Rayada' }, 'de la lista de la categoría: va el id');
+  assert.deepEqual(byId.DESIGN, { id: 'DESIGN', value_name: 'Floral' }, 'valor libre: va el texto');
+  assert.deepEqual(byId.SALE_FORMAT, { id: 'SALE_FORMAT', value_name: 'Unidad' });
+  assert.deepEqual(byId.UNITS_PER_PACK, { id: 'UNITS_PER_PACK', value_name: '1' });
+  assert.deepEqual(byId.IS_WASHABLE, { id: 'IS_WASHABLE', value_id: '-1', value_name: null }, '"No aplica" se conserva');
+  assert.deepEqual(body.sale_terms, [{ id: 'WARRANTY_TIME', value_name: '90 días' }]);
+  assert.equal(body.shipping.mode, 'me2', 'el modo del form, nunca me1');
 });
 
 test('un error en una operación no frena las demás y lo ya hecho se saltea', async () => {
