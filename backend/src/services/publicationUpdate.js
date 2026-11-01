@@ -221,6 +221,16 @@ function itemAttrValue(a, catAttr) {
   return name ? { id: a.id, value_name: name } : null;
 }
 
+/**
+ * Atributo multivalor (tag `multivalued`, ej. "Grosor del trazo" en resaltadores) con varios
+ * valores: en un ítem NUEVO van todos en `value_name` separados por coma (doc de Atributos). El
+ * `value_id` de cada uno es propio del ítem viejo y no sirve para otro.
+ */
+function multiValue(a) {
+  const names = (a.values || []).map((x) => String(x.name ?? '').trim()).filter(Boolean);
+  return names.length ? { id: a.id, value_name: names.join(',') } : null;
+}
+
 /** Modo de envío del ítem nuevo: el del form (el mismo que usa Crear producto); `me1` la cuenta no lo tiene. */
 function shippingMode(d, sibling) {
   const mode = d.ml?.shippingMode || sibling.shipping?.mode;
@@ -244,8 +254,8 @@ async function newItemBody(ctx, p, v) {
   // generales del form: son las que la usuaria ve (y pudo cambiar en esta misma edición, cambio que a
   // los hermanos les llega por su propia operación, no antes de que se cree este ítem).
   for (const a of sibling.attributes || []) {
-    if (!a.id || skip.has(a.id) || isReadOnly(a.id) || (a.values || []).length > 1) continue;
-    const val = itemAttrValue(a, cat.get(a.id));
+    if (!a.id || skip.has(a.id) || isReadOnly(a.id)) continue;
+    const val = (a.values || []).length > 1 ? multiValue(a) : itemAttrValue(a, cat.get(a.id));
     if (val) byId.set(a.id, val);
   }
   for (const a of d.ml.attributes || []) {
@@ -283,6 +293,30 @@ async function newItemBody(ctx, p, v) {
   else if (await isUserProductSeller(ctx.token)) body.family_name = p.title;
   else body.title = p.title;
   return body;
+}
+
+const normName = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+
+/**
+ * `POST /items` del ítem nuevo. Si ML rechaza el valor de una característica ("El valor que
+ * ingresaste en "Grosor del trazo" es incorrecto"), el error suma QUÉ valor se mandó en cada una:
+ * ML no lo dice y sin eso no hay forma de saber qué corregir.
+ */
+async function createItemExplained(ctx, body) {
+  try {
+    return await ml.createItem(ctx.token, body);
+  } catch (e) {
+    const names = [...String(e.message || '').matchAll(/ingresaste en ["“']([^"”']+)["”'] es incorrecto/gi)].map((m) => normName(m[1]));
+    if (!names.length) throw e;
+    const cat = await ctx.categoryAttrs(body.category_id);
+    const nameOf = (a) => cat.get(a.id)?.name || a.name || a.id;
+    const shown = body.attributes
+      .filter((a) => names.includes(normName(nameOf(a))))
+      .map((a) => `"${nameOf(a)}" = ${JSON.stringify(a.value_id != null ? { value_id: a.value_id, value_name: a.value_name ?? null } : a.value_name ?? null)}`)
+      .join(', ');
+    console.warn('[Edit] ML rechazó %s', shown || names.join(', '));
+    throw Object.assign(new Error(`${e.message}${shown ? ` (se mandó ${shown})` : ''}`), { mlStatus: e.mlStatus });
+  }
 }
 
 /** Espera a que la Cola ML aplique una tarea (o la dé por fallada) hasta `ML_TASK_WAIT_MS`. */
@@ -470,7 +504,7 @@ async function runMlOp(ctx, op) {
       if (!itemIdNew) {
         const body = await newItemBody(ctx, p, v);
         try {
-          const created = await ml.createItem(ctx.token, body);
+          const created = await createItemExplained(ctx, body);
           itemIdNew = created?.id || '';
         } catch (e) {
           // ML a veces crea el ítem y contesta con error: antes de dar por fallado, se busca.

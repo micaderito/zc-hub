@@ -92,7 +92,13 @@ app.use('/api/dispatch', requireAuth, dispatchRoutes);
 app.use('/api/hub-products', requireAuth, hubProductsRoutes);
 app.use('/api/publication-edits', requireAuth, requireAdmin, publicationEditsRoutes);
 
-app.get('/api/health', (_, res) => res.json({ ok: true }));
+// Qué está deployado, para el pie del menú del front. Railway expone el commit del deploy; la
+// versión sale del merge "release vN" (ver el agente go-to-prod).
+const DEPLOYED = {
+  version: (process.env.RAILWAY_GIT_COMMIT_MESSAGE || '').match(/release (v\d+)/)?.[1] || null,
+  sha: (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+};
+app.get('/api/health', (_, res) => res.json({ ok: true, ...DEPLOYED }));
 // Por si Railway (u otro) hace health check en la raíz
 app.get('/', (_, res) => res.redirect('/api/health'));
 

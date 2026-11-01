@@ -205,14 +205,26 @@ test('importHubProduct: grupo inexistente → 404; ML que no contesta → 502 (n
   await assert.rejects(importHubProduct('ml:MLA1'), (e) => e.status === 502 && e.message.includes('descripción'));
 });
 
-test('checkRemoteChanges avisa qué publicación cambió desde que se abrió la edición', async () => {
-  state.items.MLA1 = { id: 'MLA1', last_updated: '2026-10-05T00:00:00Z' };
-  state.products[1] = { id: 1, updated_at: '2026-10-02T10:00:00Z' };
-  const changed = await checkRemoteChanges({
+test('un atributo multivalor se importa con todos sus valores separados por coma', () => {
+  const item = { id: 'MLA1', title: 'Resaltador', price: 1, available_quantity: 1, pictures: [],
+    attributes: [{ id: 'STROKE_THICKNESS', name: 'Grosor del trazo', value_id: '901', value_name: '1 mm', values: [{ id: '901', name: '1 mm' }, { id: '902', name: '5 mm' }] }] };
+  const attr = buildEditDraft({ mlItems: [item], tnProducts: [] }).draft.ml.attributes.find((a) => a.id === 'STROKE_THICKNESS');
+  assert.equal(attr.value, '1 mm,5 mm');
+  assert.equal(attr.valueId, undefined);
+});
+
+test('checkRemoteChanges: una edición vieja sin huella no avisa por last_updated; toma la huella de ahora y la guarda', async () => {
+  state.items.MLA1 = { id: 'MLA1', title: 'Cuaderno', price: 1, available_quantity: 2, last_updated: '2026-10-05T00:00:00Z' };
+  state.products[1] = { id: 1, updated_at: '2026-10-09T10:00:00Z', variants: [] };
+  const refs = {
     ml: { items: [{ itemId: 'MLA1', lastUpdated: '2026-10-01T10:00:00Z', title: 'Cuaderno' }] },
     tn: { products: [{ productId: 1, updatedAt: '2026-10-02T10:00:00Z', name: 'Cuaderno TN' }] },
-  });
-  assert.deepEqual(changed, [{ channel: 'ml', id: 'MLA1', name: 'Cuaderno' }]);
+  };
+  let saved = null;
+  assert.deepEqual(await checkRemoteChanges(refs, { saveRefs: async (r) => { saved = r; } }), []);
+  assert.ok(saved.ml.items[0].fingerprint && saved.tn.products[0].fingerprint);
+  state.items.MLA1 = { ...state.items.MLA1, available_quantity: 1 };
+  assert.deepEqual(await checkRemoteChanges(saved), [{ channel: 'ml', id: 'MLA1', name: 'Cuaderno', fields: ['el stock'] }]);
 });
 
 test('checkRemoteChanges compara el contenido: last_updated movido por ML sin cambios reales no avisa', async () => {
