@@ -275,3 +275,24 @@ test('una característica en "No aplica" no se puede vaciar: no se manda y se av
   assert.match(ops.find((o) => o.kind === 'listing_type').warn, /una sola vez/);
   void draft;
 });
+
+test('quitar una variante y volver a agregarla con el mismo SKU es la misma: no se borra ni se crea nada', () => {
+  const { draft, baseline, refs } = fixture();
+  const d = clone(draft);
+  const old = d.variants.find((v) => v.sku === 'AZU');
+  d.variants = d.variants.filter((v) => v !== old);
+  d.variants.push({ ...clone(old), id: 'vAgain' });
+  assert.deepEqual(planPublicationUpdate(baseline, d, refs), [], 'sin bajas que borren lo que la alta adoptó');
+  d.variants[d.variants.length - 1].stock = 20;
+  assert.deepEqual(kinds(planPublicationUpdate(baseline, d, refs)), ['ml:ML-1:stock:vAgain', 'tn:TN-2:stock:vAgain'], 'los cambios van a la que ya existía');
+});
+
+test('una variante que está solo en TN se publica en ML al guardar (y avisa por qué)', () => {
+  const { draft, baseline, refs } = fixture();
+  const id = draft.variants.find((v) => v.sku === 'AZU').id;
+  const r = clone(refs);
+  r.variants[id].ml = null;
+  const ops = planPublicationUpdate(baseline, clone(draft), r);
+  assert.deepEqual(kinds(ops), [`ml:ML-1:add_variation:${id}`]);
+  assert.match(ops[0].label, /hoy está solo en Tienda Nube/);
+});
