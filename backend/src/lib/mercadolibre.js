@@ -287,6 +287,24 @@ export async function createItem(accessToken, itemBody) {
   return res.json();
 }
 
+/**
+ * `POST /items/validate`: ML valida el body como si fuera a crear el ítem, sin crear nada.
+ * `{ ok: true }` si lo acepta; si no, `{ ok: false, error }` con el mensaje de ML.
+ */
+export async function validateItem(accessToken, itemBody) {
+  const res = await fetchWith429Retry(
+    `${BASE}/items/validate`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(itemBody)
+    },
+    'validateItem'
+  );
+  if (res.ok) return { ok: true };
+  return { ok: false, error: (await errorMessage(res)) || `HTTP ${res.status}` };
+}
+
 /** Request de escritura a ML que tira con el mensaje real de la API (y `mlStatus`) si no anda. */
 async function mlWrite(accessToken, method, path, body, context) {
   const res = await fetchWith429Retry(
