@@ -2120,6 +2120,35 @@ describe('CrearProductoComponent', () => {
       component.store.cancelAutosave();
     }));
 
+    it('frena un nombre de ML de más de 60 caracteres (ML rechaza el family_name), también sin variantes', () => {
+      fillValid();
+      component.draft().common.baseName = 'Marcador Filgo Marker 036 Fluo 1 Mm Estuche X 6 Colores Surtidos Pastel';
+      component.touch();
+      expect(component.publishBlockers().some((x) => x.includes('nombre de Mercado Libre') && x.includes('60'))).toBeTrue();
+      // Un nombre propio de ML más corto lo destraba (TN sigue con el largo).
+      component.store.makeOwn(component.draft().ml.title, component.draft().common.baseName);
+      component.draft().ml.title.value = 'Marcador Filgo Marker 036 Fluo Estuche X 6';
+      component.touch();
+      expect(component.publishBlockers()).toEqual([]);
+    });
+
+    it('frena un título automático de variante de más de 60 caracteres en "una publicación por variante"', () => {
+      fillValid();
+      component.draft().common.baseName = 'Marcador Filgo Marker 036 Fluo 1 Mm Estuche X 6 Colores';
+      component.addAxis();
+      const v = component.draft().variants[0];
+      v.sku = 'V1';
+      v.values = ['Rosa Chicle Pastel'];
+      v.ml.price = 100;
+      v.tn.price = 90;
+      component.draft().ml.mappingMode = 'one_per_variant';
+      component.touch();
+      expect(component.publishBlockers().some((x) => x.includes('variante(s) con título de Mercado Libre'))).toBeTrue();
+      component.draft().ml.mappingMode = 'single_with_variants';
+      component.touch();
+      expect(component.publishBlockers()).toEqual([]);
+    });
+
     it('deshabilita el botón "Publicar en ambos" mientras haya bloqueadores', () => {
       fixture.detectChanges();
       const btn = fixture.nativeElement.querySelector('.publish-split .zc-btn.primary') as HTMLButtonElement;
@@ -2380,6 +2409,8 @@ describe('CrearProductoComponent', () => {
       );
     });
     it('devuelve null si no reconoce el error (se muestra el texto crudo)', () => {
+      expect(component.publishErrorSummary('Family Name length is over of 60 character')).toContain('demasiado largo');
+      expect(component.publishErrorSummary('The field variations is invalid with family name')).toContain('familia');
       expect(component.publishErrorSummary('algo raro que nunca vimos')).toBeNull();
       expect(component.publishErrorSummary('')).toBeNull();
     });

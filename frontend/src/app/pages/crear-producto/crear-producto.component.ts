@@ -1024,6 +1024,9 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
     }
     if (d.includes('no conectado a mercado libre')) return 'No estás conectado a Mercado Libre.';
     if (d.includes('no conectado a tienda nube')) return 'No estás conectado a Tienda Nube.';
+    if ((d.includes('family name') || d.includes('family_name') || d.includes('title')) && d.includes('length')) {
+      return 'El nombre es demasiado largo para Mercado Libre (máximo 60 caracteres). Acortalo en "Nombre de familia".';
+    }
     if (d.includes('family name') || d.includes('family_name')) {
       return 'Mercado Libre rechazó las variantes (familia). Revisá los ejes de variante y la categoría.';
     }
