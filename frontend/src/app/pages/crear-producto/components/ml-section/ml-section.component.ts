@@ -1,7 +1,7 @@
-import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MlCategoryPrediction } from '../../../../core/services/catalog.service';
-import { ProductDraftStore } from '../../product-draft.store';
+import { ML_TITLE_MAX, ProductDraftStore } from '../../product-draft.store';
 import { ImageGalleryComponent } from '../image-gallery/image-gallery.component';
 import { MlAttributesComponent } from '../ml-attributes/ml-attributes.component';
 import { OverrideTagComponent } from '../override-tag/override-tag.component';
@@ -21,6 +21,12 @@ import { OverrideTagComponent } from '../override-tag/override-tag.component';
 })
 export class MlSectionComponent {
   protected readonly store = inject(ProductDraftStore);
+  protected readonly titleMax = ML_TITLE_MAX;
+  /** Largo del nombre que viaja a ML (el propio o el heredado del nombre base). */
+  protected readonly mlTitleLength = computed(() => {
+    const d = this.store.draft();
+    return this.store.effective(d.ml.title, d.common.baseName).trim().length;
+  });
 
   readonly predictions = input.required<MlCategoryPrediction[]>();
   readonly predicting = input(false);

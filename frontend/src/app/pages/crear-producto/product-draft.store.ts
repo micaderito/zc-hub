@@ -39,6 +39,12 @@ export type ImageErrorScope = 'ml-gallery' | 'tn-gallery' | 'variant' | 'draft';
 
 /** Tope de fotos por publicación / por variación de ML cuando la categoría no informa uno válido. */
 export const ML_MAX_PICTURES_FALLBACK = 12;
+
+/**
+ * Largo máximo del título / `family_name` de ML. Pasarlo hace que `POST /items` rechace la
+ * publicación ("Family Name length is over of 60 character"), también en un producto simple.
+ */
+export const ML_TITLE_MAX = 60;
 export const ML_MAX_PICTURES_PER_VAR_FALLBACK = 10;
 
 /** Cuánto se espera desde la última tecla antes de autoguardar. */
@@ -900,6 +906,15 @@ export class ProductDraftStore {
     const name = this.effective(d.ml.title, d.common.baseName).trim() || this.effective(d.tn.nameEs, d.common.baseName).trim();
     if (!name) out.push('Falta el nombre del producto');
     if (!hasVariants && !d.common.sku.trim()) out.push('Falta el SKU');
+
+    const mlName = this.effective(d.ml.title, d.common.baseName).trim();
+    if (mlName.length > ML_TITLE_MAX) {
+      out.push(`El nombre de Mercado Libre tiene ${mlName.length} caracteres (máximo ${ML_TITLE_MAX}): acortalo en "Nombre de familia"`);
+    }
+    if (hasVariants && d.ml.mappingMode === 'one_per_variant') {
+      const long = d.variants.filter((v) => this.variantTitle('ml', v).trim().length > ML_TITLE_MAX).length;
+      if (long) out.push(`${long} variante(s) con título de Mercado Libre de más de ${ML_TITLE_MAX} caracteres`);
+    }
 
     if (!d.ml.categoryId) out.push('Elegí una categoría de Mercado Libre');
     // "Completo" = va a viajar algo usable (ver mlAttrPayload): un `valueId` que la categoría no
