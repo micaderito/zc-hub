@@ -47,7 +47,11 @@
       <input class="zc-input is-own" [(ngModel)]="store.draft().ml.title.value" placeholder="Ej. Cuaderno A4 Tapa Dura Premium Anillado 480g" />
       <span class="hint revert" (click)="store.revert(store.draft().ml.title)"><i class="ti ti-rotate"></i> común: {{ store.draft().common.baseName }}</span>
     }
-    <span class="hint"><i class="ti ti-info-circle"></i> descripción general del producto — ML arma el título de cada publicación solo, a partir de este nombre y sus atributos</span>
+    @if (mlTitleLength() > titleMax) {
+      <span class="hint error"><i class="ti ti-alert-circle"></i> {{ mlTitleLength() }}/{{ titleMax }} caracteres — ML no acepta más de {{ titleMax }}: escribí uno más corto</span>
+    } @else {
+      <span class="hint"><i class="ti ti-info-circle"></i> {{ mlTitleLength() }}/{{ titleMax }} · descripción general del producto — ML arma el título de cada publicación solo, a partir de este nombre y sus atributos</span>
+    }
   </div>
 
   <div class="grid-2 field">
