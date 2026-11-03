@@ -17,6 +17,13 @@
 
   <zc-tabs [tabs]="tabs()" [activeKey]="activeTab()" (tabChange)="onTabChange($event)" />
 
+  <!-- ══════════════════════════ Disparadas ══════════════════════════ -->
+  @if (activeTab() === 'disparadas') {
+    <div class="tab-panel">
+      <zc-alertas-disparadas [units]="catalogUnits()" [suppliers]="orderSuppliers()" [loading]="catalogQuery.isLoading()" />
+    </div>
+  }
+
   <!-- ══════════════════════════ Notificaciones ══════════════════════════ -->
   @if (activeTab() === 'notificaciones') {
     <div class="tab-panel">

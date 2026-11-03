@@ -1,0 +1,48 @@
+// Tabla de alertas disparadas: mismo look que el catálogo del editor de Pedidos.
+@use '../../pedidos/pedidos-shared' as *;
+
+:host { display: block; }
+
+.toolbar zc-search-bar { flex: 1 1 240px; max-width: 360px; }
+.sup { width: auto; font-size: 0.78rem; }
+
+.summary { margin: 0 0 0.5rem; font-size: 0.72rem; }
+
+.zc-table.disp {
+  min-width: 680px;
+
+  td .hint, td .zc-badge { white-space: nowrap; }
+  a.zc-badge { text-decoration: none; }
+
+  tr.group { cursor: pointer; background: var(--surface-2); }
+  tr.member td:first-child { padding-left: 2.6rem; }
+  tr.member.dim .prod-name { color: var(--text-3); }
+
+  .unit-name {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .caret {
+    color: var(--text-3);
+    transition: transform 0.15s ease;
+    &.open { transform: rotate(90deg); }
+  }
+
+  .pack-icon { color: var(--brand); }
+  .box-icon { color: var(--text-3); margin-left: 1.15rem; }
+  .strong { font-weight: 500; }
+
+  .unit-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    margin-top: 0.1rem;
+  }
+
+  .sup-names, .last { font-size: 0.72rem; color: var(--text-2); }
+  .last { white-space: nowrap; }
+  .zc-badge.plain { background: none; color: var(--text-3); padding-left: 0; }
+}
