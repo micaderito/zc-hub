@@ -647,9 +647,14 @@ se pide algo que no avisó (compra para tener). Ahora el pedido es una entidad p
 link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-10-08-pedidos-proveedor-design.md`.
 
 - **Nada entra solo al pedido.** El catálogo (`GET /api/orders/catalog`, `buildCatalog`) lista cada
-  unidad de compra con filtro *Con alerta / Todos*: stock ML/TN, depósito, estado de la alerta (reusa
-  `getRestockList` desde el último pedido), último pedido y si ya está **en camino** en uno
-  pendiente. "Agregar sugeridos" es un atajo explícito.
+  unidad de compra con filtro *Con alerta / Todos*: stock ML/TN, depósito, estado de la alerta,
+  último pedido y si ya está **en camino** en uno pendiente. "Agregar sugeridos" es un atajo
+  explícito y saltea lo que ya está en camino (sigue con alerta hasta que llegue; se agrega a mano).
+- **La alerta dura hasta que se repone** (`alertStateFor`, 2026-11-03): "con alerta" = la regla del
+  SKU con stock de AHORA ≤ umbral (mismo criterio que el disparo; umbral 3: con 3 sigue, con 4 sale).
+  No depende de cuándo se disparó, de si se marcó como leída ni del corte del último pedido. Antes
+  salía de `getRestockList` desde el último pedido —un corte único para todos los proveedores—, así
+  que cerrar un pedido borraba del siguiente las alertas que seguían con stock bajo.
 - **Siempre se pide por pack.** La unidad es el pack del hub; un SKU sin pack se pide por el bulto de
   Precios (`product_costs.bulk_qty`, 1 si no hay). Un pack surtido muestra TODOS sus modelos aunque
   haya avisado uno; los diseños/colores que se quieren van en la columna libre **Detalle**.
@@ -698,7 +703,7 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
   `CASE` hace que Postgres deduzca dos tipos (mismo bug que tuvo `finishPublishJob`).
 
 Los endpoints viejos de "Para reponer" (`/api/alerts/restock*`, overrides, descartes) siguen en el
-backend —`getRestockList` alimenta el estado de alerta del catálogo— pero ya no tienen UI.
+backend pero ya no tienen UI (el catálogo de Pedidos ya no usa `getRestockList`).
 
 ### Para despachar (`/despachos`): pendientes de envío de ML y TN, en vivo
 

@@ -121,6 +121,16 @@ describe('PedidoEditorComponent', () => {
     expect(component.order()!.lines.length).toBe(1);
   });
 
+  it('"Agregar sugeridos" saltea lo que ya está en camino (sigue con alerta, se agrega a mano)', async () => {
+    await create(draft(), [
+      unit({ pendingOrder: { orderId: 9, orderName: 'Pedido septiembre' } }),
+      unit({ key: 'pack:2', packId: 2, name: 'Agendas' }),
+    ]);
+    expect(component.alertedCount()).toBe(2);
+    component.addAllSuggested();
+    expect(component.order()!.lines.map((l) => l.packId)).toEqual([2]);
+  });
+
   it('ítem libre: se agrega editable y no sigue a Precios', async () => {
     await create(draft());
     component.addFreeItem();
