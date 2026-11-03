@@ -655,6 +655,9 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
   No depende de cuándo se disparó, de si se marcó como leída ni del corte del último pedido. Antes
   salía de `getRestockList` desde el último pedido —un corte único para todos los proveedores—, así
   que cerrar un pedido borraba del siguiente las alertas que seguían con stock bajo.
+  La misma lista se ve en **Alertas → Disparadas** (pestaña por defecto,
+  `pages/alertas/disparadas/`): usa el mismo `GET /api/orders/catalog` sin proveedor y muestra solo
+  las unidades `alerted`, con filtro por proveedor, depósito y si ya está en camino.
 - **Siempre se pide por pack.** La unidad es el pack del hub; un SKU sin pack se pide por el bulto de
   Precios (`product_costs.bulk_qty`, 1 si no hay). Un pack surtido muestra TODOS sus modelos aunque
   haya avisado uno; los diseños/colores que se quieren van en la columna libre **Detalle**.
