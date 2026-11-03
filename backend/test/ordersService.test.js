@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {
   listUnitPrice, packListPrice, resolvePackCode, suggestPacks, buildOrderHistoryIndex, buildCatalog,
   computeOrderTotals, buildPriceIndex, refreshLinePrices, buildDuplicateLines, sanitizeOrderInput,
-  codesForSupplier, unitSuppliers,
+  codesForSupplier, unitSuppliers, alertStateFor,
 } from '../src/services/ordersService.js';
 import { buildDiscountContext } from '../src/lib/discountResolver.js';
 
@@ -72,7 +72,6 @@ test('buildCatalog: packs con todos sus modelos + SKUs sueltos por bulto, con c�
       ],
       tnRows: [{ sku: 'NA', productName: 'Notas adhesivas', variantName: null, stock: 9 }],
     },
-    restockRows: [{ sku: 'CI-1', state: 'out', threshold: 2 }, { sku: 'LG', state: 'still-low', threshold: 5 }],
     rules: [{ sku: 'CI-1', threshold: 2 }, { sku: 'LG', threshold: 5 }, { sku: 'NA', threshold: 3 }],
     costs: [{ sku: 'CI-1', bulkPrice: 96000, bulkQty: 8 }, { sku: 'LG', bulkPrice: 14400, bulkQty: 12 }],
     skuCodeMap: [{ sku: 'LG', code: 'GEL-07N' }],
@@ -105,6 +104,30 @@ test('buildCatalog: packs con todos sus modelos + SKUs sueltos por bulto, con c�
   assert.equal(na.alerted, false);
   assert.equal(na.members[0].alertState, 'watching');
   assert.ok(!units.some((u) => u.key === 'sku:CI-1'), 'un SKU que está en un pack no aparece suelto');
+});
+
+test('alertStateFor: la alerta sigue mientras el stock no supere el umbral, sin mirar cuándo se disparó', () => {
+  const rule = { sku: 'X', threshold: 3 };
+  assert.equal(alertStateFor(rule, 1), 'still-low', 'umbral 3, stock 1 → sigue con alerta');
+  assert.equal(alertStateFor(rule, 3), 'still-low', 'en el umbral sigue (mismo criterio que el disparo)');
+  assert.equal(alertStateFor(rule, 4), 'watching', 'repuesto por encima del umbral → desaparece');
+  assert.equal(alertStateFor(rule, 0), 'out');
+  assert.equal(alertStateFor(rule, null), 'watching', 'sin stock conocido no se inventa alerta');
+  assert.equal(alertStateFor({ ...rule, mutedUntil: '2999-01-01T00:00:00Z' }, 1), 'still-low', 'silenciada cuenta igual');
+  assert.equal(alertStateFor(null, 0), null);
+});
+
+test('buildCatalog: una alerta disparada antes del último pedido sigue si el stock no se repuso', () => {
+  const units = buildCatalog({
+    packs: [],
+    snapshotData: { mlRows: [{ sku: 'A', title: 'A', stock: 1 }, { sku: 'B', title: 'B', stock: 4 }], tnRows: [] },
+    rules: [{ sku: 'A', threshold: 3 }, { sku: 'B', threshold: 3 }],
+    costs: [], skuCodeMap: [], packCodeMap: [], codeDescriptions: new Map(), depositoBySku: new Map(), orders: [],
+  });
+  const a = units.find((u) => u.key === 'sku:A');
+  assert.equal(a.alerted, true);
+  assert.equal(a.suggestedQty, 2);
+  assert.equal(units.find((u) => u.key === 'sku:B').alerted, false);
 });
 
 test('computeOrderTotals: 25% sobre el subtotal y 5% sobre lo que queda; las líneas sin precio no suman', () => {
@@ -196,7 +219,7 @@ test('buildCatalog con proveedor: filtra lo de otros, deja lo sin proveedor y no
   const base = {
     packs, costs, discountCtx,
     snapshotData: { mlRows: [{ sku: 'LG', title: 'Lapicera', stock: 1 }, { sku: 'NA', title: 'Notas', stock: 1 }], tnRows: [] },
-    restockRows: [], rules: [], codeDescriptions: new Map(), depositoBySku: new Map(), orders: [],
+    rules: [], codeDescriptions: new Map(), depositoBySku: new Map(), orders: [],
   };
   const units = buildCatalog({ ...base, supplierKey: 'filgo', ...codesForSupplier({ skuCodeMap: [], packCodeMap: [] }, 'filgo') });
   assert.deepEqual(units.map((u) => u.key).sort(), ['pack:1', 'pack:2', 'sku:NA'], 'la lapicera es solo de pc');

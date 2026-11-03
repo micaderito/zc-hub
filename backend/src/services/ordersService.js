@@ -16,7 +16,7 @@ import {
   placeSupplierOrder, receiveSupplierOrder, deleteSupplierOrderDraft,
   getOrderDefaults, setOrderDefaults, setRestockCutoff, listSuppliers, listProductSuppliers,
 } from '../db.js';
-import { buildStockBySku, effectiveStock, computeShortfall, getRestockList } from './alertsService.js';
+import { buildStockBySku, effectiveStock, computeShortfall } from './alertsService.js';
 import { buildDiscountContext, suppliersOf } from '../lib/discountResolver.js';
 
 const ACTIVE_ALERT_STATES = new Set(['still-low', 'out']);
@@ -25,6 +25,20 @@ const LINE_KINDS = new Set(['pack', 'sku', 'free']);
 const LINE_ORIGINS = new Set(['alerta', 'manual', 'copia', 'libre']);
 
 export const unitKey = (kind, id) => `${kind}:${id}`;
+
+/**
+ * Estado de la alerta de un SKU en Pedidos: lo dice el stock de AHORA contra el umbral de la regla,
+ * con el mismo criterio que el disparo (`effective <= threshold`). No depende de cuándo se disparó
+ * ni del corte del último pedido: una alerta sigue mientras el stock no supere el umbral, aunque se
+ * haya cerrado un pedido en el medio. Una regla silenciada cuenta igual (silenciar es no avisar, no
+ * "ya está repuesto"). Sin regla → `null`; sin stock conocido → `'watching'` (no se inventa alerta).
+ */
+export function alertStateFor(rule, stockEffective) {
+  if (!rule) return null;
+  if (stockEffective == null) return 'watching';
+  if (stockEffective <= 0) return 'out';
+  return stockEffective <= rule.threshold ? 'still-low' : 'watching';
+}
 
 /** Precio de lista por unidad de un costo de Precios (antes de descuentos), o `null` si no hay bulto cargado. */
 export function listUnitPrice(cost) {
@@ -158,7 +172,7 @@ export function buildOrderHistoryIndex(orders) {
  * (`product_packs.sku`) solo vale si el pack no es de otro proveedor vigente.
  */
 export function buildCatalog({
-  packs, snapshotData, restockRows, rules, costs, skuCodeMap, packCodeMap, codeDescriptions, depositoBySku, orders,
+  packs, snapshotData, rules, costs, skuCodeMap, packCodeMap, codeDescriptions, depositoBySku, orders,
   supplierKey = null, discountCtx = null,
 }) {
   const stockBySku = buildStockBySku(snapshotData);
@@ -166,24 +180,22 @@ export function buildCatalog({
   const costsBySku = new Map(costs.map((c) => [c.sku, c]));
   const skuCodeBySku = new Map(skuCodeMap.map((m) => [m.sku, m.code]));
   const packCodeById = new Map(packCodeMap.map((m) => [m.packId, m.code]));
-  const restockBySku = new Map(restockRows.map((r) => [r.sku, r]));
   const ruleBySku = new Map(rules.map((r) => [r.sku, r]));
   const { last, pending } = buildOrderHistoryIndex(orders);
 
   const member = (sku) => {
     const entry = stockBySku.get(sku);
-    const restock = restockBySku.get(sku);
     const rule = ruleBySku.get(sku);
+    const stockEffective = effectiveStock(entry);
     return {
       sku,
-      label: labelBySku.get(sku) ?? rule?.productLabel ?? restock?.productLabel ?? sku,
+      label: labelBySku.get(sku) ?? rule?.productLabel ?? sku,
       stockMl: entry?.ml ?? null,
       stockTn: entry?.tn ?? null,
-      stockEffective: effectiveStock(entry),
+      stockEffective,
       depositoStock: depositoBySku.get(sku) ?? null,
-      threshold: rule?.threshold ?? restock?.threshold ?? null,
-      // Estado de "Para reponer" desde el último pedido; sin fila, solo se sabe si tiene regla.
-      alertState: restock?.state ?? (rule ? 'watching' : null),
+      threshold: rule?.threshold ?? null,
+      alertState: alertStateFor(rule, stockEffective),
     };
   };
 
@@ -365,8 +377,8 @@ export function sanitizeOrderInput(body) {
  * del proveedor vigente de cada producto.
  */
 export async function getCatalog({ supplierKey = null } = {}) {
-  const [packs, snap, restock, rules, costs, skuCodeMap, packCodeMap, codeDescriptions, depositoBySku, orders, suppliers, assignments] = await Promise.all([
-    listPacks(), getAnalysisSnapshot(), getRestockList({ period: 'last-order' }), listStockAlerts(), getAllProductCosts(),
+  const [packs, snap, rules, costs, skuCodeMap, packCodeMap, codeDescriptions, depositoBySku, orders, suppliers, assignments] = await Promise.all([
+    listPacks(), getAnalysisSnapshot(), listStockAlerts(), getAllProductCosts(),
     getSkuCodeMap(null), getPackCodeMap(null), getSupplierCodeDescriptions(supplierKey), getDepositoStockBySku(), listSupplierOrders(),
     listSuppliers(), listProductSuppliers(),
   ]);
@@ -375,7 +387,7 @@ export async function getCatalog({ supplierKey = null } = {}) {
     ? codesForSupplier({ skuCodeMap, packCodeMap }, supplierKey)
     : pickVigenteCodes({ skuCodeMap, packCodeMap, costs, packs });
   return buildCatalog({
-    packs, snapshotData: snap?.data, restockRows: restock.rows, rules, costs,
+    packs, snapshotData: snap?.data, rules, costs,
     skuCodeMap: codes.skuCodeMap, packCodeMap: codes.packCodeMap,
     codeDescriptions, depositoBySku, orders, supplierKey, discountCtx,
   });
