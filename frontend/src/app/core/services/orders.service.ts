@@ -67,7 +67,7 @@ export interface SupplierOrder {
   totals: OrderTotals;
 }
 
-/** Estado de un modelo según "Para reponer" desde el último pedido; 'watching' = tiene regla pero no avisó. */
+/** Estado de la alerta de un modelo: stock de ahora vs. umbral de la regla (`alertStateFor`); 'watching' = tiene regla y no está bajo. */
 export type MemberAlertState = 'still-low' | 'out' | 'restocked' | 'unknown' | 'watching' | null;
 
 export interface CatalogMember {

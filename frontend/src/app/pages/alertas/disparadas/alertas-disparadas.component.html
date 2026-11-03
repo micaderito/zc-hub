@@ -1,0 +1,114 @@
+<div class="toolbar">
+  <zc-search-bar [value]="search()" (valueChange)="search.set($event)" placeholder="Buscar producto, SKU o código…" ariaLabel="Buscar en las alertas disparadas" />
+  @if (supplierOptions().length || hasUnassigned()) {
+    <select class="zc-select sup" [ngModel]="supplierFilter()" (ngModelChange)="supplierFilter.set($event)" aria-label="Filtrar por proveedor">
+      <option value="">Todos los proveedores</option>
+      @for (s of supplierOptions(); track s.key) { <option [value]="s.key">{{ s.name }}</option> }
+      @if (hasUnassigned()) { <option value="none">Sin proveedor</option> }
+    </select>
+  }
+  <div class="spacer"></div>
+  <a routerLink="/pedidos" class="zc-btn small" *zcCanWrite>
+    <i class="ti ti-truck-delivery" aria-hidden="true"></i> Armar pedido
+  </a>
+</div>
+
+@if (loading()) {
+  <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
+} @else if (!alerted().length) {
+  <p class="empty">No hay productos con el stock en el umbral o por debajo.</p>
+} @else {
+  <p class="hint summary">
+    {{ alerted().length }} producto{{ alerted().length === 1 ? '' : 's' }} · {{ alertedModels() }} modelo{{ alertedModels() === 1 ? '' : 's' }} con alerta.
+    Salen de la lista cuando el stock supera el umbral.
+  </p>
+  <div class="zc-card table-scroll">
+    <table class="zc-table disp">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th class="num">Stock ML · TN</th>
+          <th class="num">Umbral</th>
+          <th>Depósito</th>
+          <th>Proveedor</th>
+          <th>Pedido</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (u of visible(); track u.key) {
+          @let multi = u.members.length > 1;
+          <tr [class.group]="multi" (click)="multi && toggle(u)">
+            <td>
+              <div class="unit-name">
+                @if (multi) {
+                  <i class="ti ti-chevron-right caret" [class.open]="isOpen(u)" aria-hidden="true"></i>
+                  <i class="ti ti-stack-2 pack-icon" aria-hidden="true"></i>
+                } @else {
+                  <i class="ti ti-box box-icon" aria-hidden="true"></i>
+                }
+                <div>
+                  <div class="prod-name" [class.strong]="multi">{{ multi ? u.name : u.members[0].label }}</div>
+                  <div class="unit-summary">
+                    @if (multi) {
+                      <span class="zc-badge warn"><i class="ti ti-bell-ringing" aria-hidden="true"></i> {{ activeCount(u) }} de {{ u.members.length }} con alerta</span>
+                      @if (u.code) { <span class="prod-sku">{{ u.code }}</span> }
+                    } @else {
+                      @let a = memberLabel(u.members[0]);
+                      <span class="zc-badge" [class]="a.cls">{{ a.text }}</span>
+                      <span class="prod-sku">{{ u.members[0].sku }}</span>
+                    }
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td class="num">
+              @if (!multi) {
+                <span class="stock-dot ml"></span>{{ u.members[0].stockMl ?? '—' }}
+                <span class="stock-dot tn"></span>{{ u.members[0].stockTn ?? '—' }}
+              }
+            </td>
+            <td class="num">@if (!multi) { {{ u.members[0].threshold ?? '—' }} }</td>
+            <td>
+              @if (u.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ u.depositoStock }} u.</span> }
+              @else { <span class="hint">—</span> }
+            </td>
+            <td>
+              @if (u.suppliers.length) {
+                <span class="sup-names">@for (k of u.suppliers; track k; let last = $last) { {{ supplierName(k) }}@if (!last) {, } }</span>
+              } @else { <span class="hint">sin proveedor</span> }
+            </td>
+            <td>
+              @if (u.pendingOrder; as p) {
+                <a class="zc-badge busy" [routerLink]="['/pedidos', p.orderId]" (click)="$event.stopPropagation()" title="{{ p.orderName }}">
+                  <i class="ti ti-truck" aria-hidden="true"></i> en camino · #{{ p.orderId }}
+                </a>
+              } @else if (u.lastOrder) {
+                <span class="last">último {{ u.lastOrder.date | date: 'dd/MM/yy' }}</span>
+              } @else { <span class="hint">nunca</span> }
+            </td>
+          </tr>
+          @if (multi && isOpen(u)) {
+            @for (m of u.members; track m.sku) {
+              @let a = memberLabel(m);
+              <tr class="member" [class.dim]="a.cls === 'plain'">
+                <td>
+                  <div class="prod-name">{{ m.label }}</div>
+                  <div class="unit-summary"><span class="zc-badge" [class]="a.cls">{{ a.text }}</span><span class="prod-sku">{{ m.sku }}</span></div>
+                </td>
+                <td class="num"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }}<span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</td>
+                <td class="num">{{ m.threshold ?? '—' }}</td>
+                <td>
+                  @if (m.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ m.depositoStock }} u.</span> }
+                  @else { <span class="hint">—</span> }
+                </td>
+                <td></td><td></td>
+              </tr>
+            }
+          }
+        } @empty {
+          <tr><td colspan="6"><p class="empty">Sin coincidencias.</p></td></tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

@@ -330,7 +330,7 @@
                     } @empty {
                       <tr><td colspan="7">
                         <p class="empty">
-                          @if (catalogFilter() === 'alert' && !catalogSearch()) { No hay alertas activas desde el último pedido. Mirá <b>Todos</b> para pedir algo igual. }
+                          @if (catalogFilter() === 'alert' && !catalogSearch()) { No hay productos con el stock en el umbral o por debajo. Mirá <b>Todos</b> para pedir algo igual. }
                           @else if (!catalogUnits().length && o.supplierKey) { Ningún producto tiene a {{ supplierName(o.supplierKey) }} como proveedor en Precios. }
                           @else { Sin coincidencias. }
                         </p>

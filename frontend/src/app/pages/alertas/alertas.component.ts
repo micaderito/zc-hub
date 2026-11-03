@@ -19,8 +19,10 @@ import { SearchBarComponent } from '../../shared/components/search-bar/search-ba
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
 import { SessionService } from '../../core/services/session.service';
 import { CanWriteDirective } from '../../shared/directives/can-write.directive';
+import { OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY } from '../../core/services/orders.service';
+import { AlertasDisparadasComponent } from './disparadas/alertas-disparadas.component';
 
-type Tab = 'notificaciones' | 'sin-alertas' | 'reglas';
+type Tab = 'disparadas' | 'notificaciones' | 'sin-alertas' | 'reglas';
 
 /** Resultado del buscador de productos (para vigilar uno nuevo). */
 interface ProductOption {
@@ -35,7 +37,7 @@ const NEW_RULE_SEARCH_LIMIT = 100;
 @Component({
   selector: 'app-alertas',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent],
+  imports: [CanWriteDirective, CommonModule, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent, AlertasDisparadasComponent],
   templateUrl: './alertas.component.html',
   styleUrl: './alertas.component.scss',
 })
@@ -45,8 +47,9 @@ export class AlertasComponent {
   private readonly conflicts = inject(ConflictsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly orders = inject(OrdersService);
 
-  readonly activeTab = signal<Tab>('notificaciones');
+  readonly activeTab = signal<Tab>('disparadas');
 
   onTabChange(key: string): void {
     this.activeTab.set(key as Tab);
@@ -58,6 +61,29 @@ export class AlertasComponent {
    * de más abajo; si no, queda listo para pegarlo en "Vigilar un producto nuevo").
    */
   private readonly queryParams = toSignal(this.route.queryParamMap, { initialValue: null });
+
+  /* ══════════════════════════ Disparadas ══════════════════════════ */
+
+  /**
+   * Mismo catálogo que el editor de Pedidos (sin proveedor, misma clave de caché): lo que se ve acá
+   * es lo que el pedido muestra como "Con alerta". Se carga siempre, para el contador de la pestaña.
+   */
+  readonly catalogQuery = injectQuery(() => ({
+    queryKey: [...ORDERS_CATALOG_QUERY_KEY, null],
+    queryFn: () => this.orders.catalog(null),
+    refetchOnWindowFocus: false,
+    staleTime: 60 * 1000,
+  }));
+
+  readonly suppliersQuery = injectQuery(() => ({
+    queryKey: ORDERS_SUPPLIERS_QUERY_KEY,
+    queryFn: () => this.orders.suppliers(),
+    staleTime: 5 * 60 * 1000,
+  }));
+
+  readonly catalogUnits = computed(() => this.catalogQuery.data()?.units ?? []);
+  readonly orderSuppliers = computed(() => this.suppliersQuery.data()?.suppliers ?? []);
+  readonly alertedCount = computed(() => this.catalogUnits().filter((u) => u.alerted).length);
 
   /* ══════════════════════════ Notificaciones ══════════════════════════ */
 
@@ -170,7 +196,7 @@ export class AlertasComponent {
       untracked(() => {
         // "Para reponer" se mudó a Pedidos: un link viejo a esa pestaña lleva ahí.
         if (tab === 'reponer') { this.router.navigate(['/pedidos']); return; }
-        if (tab === 'reglas' || tab === 'notificaciones' || tab === 'sin-alertas') this.activeTab.set(tab);
+        if (tab === 'disparadas' || tab === 'reglas' || tab === 'notificaciones' || tab === 'sin-alertas') this.activeTab.set(tab);
         if (sku) {
           this.rulesSearch.set(sku);
           this.newRuleQuery.set(sku);
@@ -302,7 +328,9 @@ export class AlertasComponent {
   readonly tabs = computed<TabDef[]>(() => {
     const unread = this.unreadCount();
     const unwatchedCount = this.unwatchedProducts().length;
+    const alerted = this.alertedCount();
     return [
+      { key: 'disparadas', label: 'Disparadas', count: alerted, countVariant: alerted ? 'warn' : undefined },
       { key: 'notificaciones', label: 'Notificaciones', count: unread, countVariant: unread ? 'warn' : undefined },
       { key: 'sin-alertas', label: 'Sin alertas', count: unwatchedCount, countVariant: unwatchedCount ? 'warn' : undefined },
       { key: 'reglas', label: 'Reglas', count: this.rules().length },
