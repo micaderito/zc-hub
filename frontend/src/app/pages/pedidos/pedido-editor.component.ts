@@ -287,11 +287,19 @@ export class PedidoEditorComponent implements OnDestroy {
     this.edit((o) => ({ ...o, lines: o.lines.filter((l) => lineKey(l) !== unit.key) }));
   }
 
-  /** Suma la sugerencia de cada unidad con alerta activa que todavía no está en el pedido. */
+  /**
+   * Suma la sugerencia de cada unidad con alerta activa que todavía no está en el pedido. Lo que ya
+   * está en camino (en un pedido pendiente) no se suma: sigue con alerta hasta que llegue, pero ya
+   * se pidió. Se puede agregar a mano.
+   */
   addAllSuggested(): void {
     const inOrder = this.qtyInOrder();
-    const toAdd = this.supplierUnits().filter((u) => u.alerted && !inOrder.has(u.key));
-    if (!toAdd.length) { this.showFlash('Todas las alertas ya están en el pedido.'); return; }
+    const toAdd = this.supplierUnits().filter((u) => u.alerted && !inOrder.has(u.key) && !u.pendingOrder);
+    if (!toAdd.length) {
+      const onTheWay = this.supplierUnits().some((u) => u.alerted && !inOrder.has(u.key) && u.pendingOrder);
+      this.showFlash(onTheWay ? 'Lo que tiene alerta ya está en el pedido o en camino.' : 'Todas las alertas ya están en el pedido.');
+      return;
+    }
     this.edit((o) => ({ ...o, lines: [...o.lines, ...toAdd.map((u) => lineFromCatalogUnit(u, u.suggestedQty ?? 1))] }));
     this.showFlash(`${toAdd.length} sugerencia${toAdd.length === 1 ? '' : 's'} agregada${toAdd.length === 1 ? '' : 's'} — sacá las que no vayas a pedir.`);
   }
