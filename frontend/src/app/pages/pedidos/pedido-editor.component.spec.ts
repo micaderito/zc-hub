@@ -96,6 +96,30 @@ describe('PedidoEditorComponent', () => {
     expect(component.visibleUnits().length).toBe(2);
   });
 
+  it('un pack con código de lista y SKU propio deja elegir cuál mandar, con su descripción', async () => {
+    await create(draft(), [unit({
+      code: '39137', description: 'PANEL SURTIDO',
+      codeOptions: [
+        { code: '39021/22/33/137', source: 'lista', description: 'PANEL SURTIDO' },
+        { code: '39137', source: 'pack', description: 'PANEL MI MOMENTO' },
+      ],
+    })]);
+    component.addUnit(component.catalogUnits()[0]);
+    fixture.detectChanges();
+    const buttons = [...fixture.nativeElement.querySelectorAll('.code-opt')] as HTMLButtonElement[];
+    expect(buttons.map((b) => b.textContent!.trim())).toEqual(['Lista', 'Pack']);
+    expect(buttons[1].classList).toContain('on');
+    buttons[0].click();
+    expect(component.order()!.lines[0]).toEqual(jasmine.objectContaining({ code: '39021/22/33/137', description: 'PANEL SURTIDO' }));
+  });
+
+  it('con un solo código no muestra la elección', async () => {
+    await create(draft());
+    component.addUnit(component.catalogUnits()[0]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.code-pick')).toBeNull();
+  });
+
   it('pisar el precio lo marca editado; volver lo trae de Precios', async () => {
     await create(draft());
     component.addUnit(component.catalogUnits()[0]);

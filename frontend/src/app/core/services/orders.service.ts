@@ -81,6 +81,17 @@ export interface CatalogMember {
   alertState: MemberAlertState;
 }
 
+/**
+ * Un código posible para pedir un pack: el de la lista del proveedor, el SKU propio del pack o el
+ * del único modelo. La lista a veces agrupa varios productos en un código (`39021/22/33/…`); el SKU
+ * propio dice cuál puntual se pide.
+ */
+export interface CatalogCodeOption {
+  code: string;
+  source: 'lista' | 'pack' | 'modelo';
+  description: string;
+}
+
 /** Una unidad de compra: un pack del hub, o el bulto de Precios de un SKU sin pack. */
 export interface CatalogUnit {
   key: string;
@@ -89,6 +100,8 @@ export interface CatalogUnit {
   sku: string | null;
   name: string;
   code: string | null;
+  /** Códigos entre los que elegir en la línea (solo packs; vacío o uno = no hay elección). */
+  codeOptions?: CatalogCodeOption[];
   description: string;
   unitsPerPack: number;
   mode: 'assorted' | 'single' | 'bulk';

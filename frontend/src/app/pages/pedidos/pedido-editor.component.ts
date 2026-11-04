@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import {
-  OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY, CatalogUnit, CatalogMember, OrderDiscountProfile, OrderLine, SupplierOrder,
+  OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY, CatalogUnit, CatalogMember, CatalogCodeOption, OrderDiscountProfile, OrderLine, SupplierOrder,
   computeOrderTotals, lineFromCatalogUnit, lineKey, orderStatusLabel,
 } from '../../core/services/orders.service';
 import { matchSearchByTokens } from '../../core/services/conflicts.service';
@@ -166,6 +166,22 @@ export class PedidoEditorComponent implements OnDestroy {
 
   setLineText(index: number, field: 'code' | 'description' | 'detail', value: string): void {
     this.editLine(index, { [field]: value });
+  }
+
+  /** Códigos para elegir en una línea de pack (lista del proveedor / SKU del pack), si hay más de uno. */
+  lineCodeOptions(line: OrderLine): CatalogCodeOption[] {
+    const k = lineKey(line);
+    const opts = k ? this.catalogByKey().get(k)?.codeOptions ?? [] : [];
+    return opts.length > 1 ? opts : [];
+  }
+
+  /** Cambia el código de la línea por otra opción y trae su descripción. */
+  pickLineCode(index: number, option: CatalogCodeOption): void {
+    this.editLine(index, { code: option.code, description: option.description });
+  }
+
+  codeSourceLabel(source: CatalogCodeOption['source']): string {
+    return source === 'lista' ? 'Lista' : source === 'pack' ? 'Pack' : 'Modelo';
   }
 
   setLineQty(index: number, value: number | string | null): void {

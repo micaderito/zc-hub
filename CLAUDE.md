@@ -664,6 +664,12 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
 - **Código** (lo que necesita la fábrica): `pack_code_map` → `product_packs.sku` → (pack de un solo
   modelo) `sku_code_map` del modelo; SKU suelto: `sku_code_map`. **Descripción**: la de
   `supplier_codes` para ese código, si no el nombre. Ambos se copian a la línea y son editables.
+  **Lista vs. SKU del pack** (`packCodeOptions`, 2026-11-03): la lista a veces agrupa varios
+  productos en un código (`39021/22/33/…`, `isMultiCode`) y el pack tiene su SKU propio (`39137`) que
+  dice cuál puntual se pide. El catálogo manda `codeOptions` (lista / pack / modelo, sin repetidos) y
+  en la línea del pedido hay chips **Lista** / **Pack** para cambiarlo (trae la descripción de ese
+  código; el SKU del pack sin descripción propia usa la de la lista). Arranca elegido el de la lista,
+  salvo que agrupe varios y el pack tenga SKU propio: ahí el del pack.
 - **Precio de lista por pack** = precio por unidad del bulto de Precios (`bulk_price / bulk_qty`) ×
   unidades del pack. Editable por línea **solo para ese pedido** (nunca escribe en Precios):
   `price_source = 'manual'`. Las líneas `'precios'` de un borrador se refrescan al abrirlo
