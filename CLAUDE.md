@@ -667,9 +667,11 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
   **Lista vs. SKU del pack** (`packCodeOptions`, 2026-11-03): la lista a veces agrupa varios
   productos en un código (`39021/22/33/…`, `isMultiCode`) y el pack tiene su SKU propio (`39137`) que
   dice cuál puntual se pide. El catálogo manda `codeOptions` (lista / pack / modelo, sin repetidos) y
-  en la línea del pedido hay chips **Lista** / **Pack** para cambiarlo (trae la descripción de ese
-  código; el SKU del pack sin descripción propia usa la de la lista). Arranca elegido el de la lista,
-  salvo que agrupe varios y el pack tenga SKU propio: ahí el del pack.
+  en la línea del pedido hay chips **Lista** / **Pack** para cambiarlo. Arranca elegido el de la lista,
+  salvo que agrupe varios y el pack tenga SKU propio: ahí el del pack. Elegir el código no toca el
+  título: el título se elige aparte (`titleOptions`, chips **Lista** / **Pack** / **Producto** debajo
+  de la descripción: la de la lista, que puede ser genérica, el nombre del pack y el del producto,
+  sin repetidos). Arranca con la de la lista, como antes.
 - **Precio de lista por pack** = precio por unidad del bulto de Precios (`bulk_price / bulk_qty`) ×
   unidades del pack. Editable por línea **solo para ese pedido** (nunca escribe en Precios):
   `price_source = 'manual'`. Las líneas `'precios'` de un borrador se refrescan al abrirlo

@@ -92,6 +92,12 @@ export interface CatalogCodeOption {
   description: string;
 }
 
+/** Un título posible para la línea: la descripción de la lista, el nombre del pack o el del producto. */
+export interface CatalogTitleOption {
+  text: string;
+  source: 'lista' | 'pack' | 'producto';
+}
+
 /** Una unidad de compra: un pack del hub, o el bulto de Precios de un SKU sin pack. */
 export interface CatalogUnit {
   key: string;
@@ -102,6 +108,8 @@ export interface CatalogUnit {
   code: string | null;
   /** Códigos entre los que elegir en la línea (solo packs; vacío o uno = no hay elección). */
   codeOptions?: CatalogCodeOption[];
+  /** Títulos entre los que elegir en la línea (vacío o uno = no hay elección). */
+  titleOptions?: CatalogTitleOption[];
   description: string;
   unitsPerPack: number;
   mode: 'assorted' | 'single' | 'bulk';

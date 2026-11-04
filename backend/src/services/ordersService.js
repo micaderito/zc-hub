@@ -107,6 +107,24 @@ export function packCodeOptions(pack, { packCodeById, skuCodeBySku, codeDescript
 }
 
 /**
+ * Títulos (descripción de la línea) entre los que elegir en el pedido: el de la lista del proveedor
+ * —a veces genérico, porque el código agrupa varios productos—, el nombre del pack y el del
+ * producto. Sin vacíos ni repetidos (sin mirar mayúsculas ni espacios), en ese orden. Puro.
+ */
+export function titleOptions(entries) {
+  const out = [];
+  const seen = new Set();
+  for (const [text, source] of entries) {
+    const t = String(text ?? '').trim();
+    const k = t.toLowerCase().replace(/\s+/g, ' ');
+    if (!t || seen.has(k)) continue;
+    seen.add(k);
+    out.push({ text: t, source });
+  }
+  return out;
+}
+
+/**
  * Un producto puede tener un código por proveedor: a la fábrica va el del proveedor VIGENTE
  * (`product_costs.supplier_key`; en un pack, el del primer modelo que tenga uno). Sin vigente, o si
  * el vigente no tiene código, el primero que haya. Puro y testeable.
@@ -243,6 +261,7 @@ export function buildCatalog({
       suppliers: suppliers.suppliers,
       priceSupplier: suppliers.vigente,
       codeOptions: unit.codeOptions ?? [],
+      titleOptions: unit.titleOptions ?? [],
       description: unit.codeOptions?.find((o) => o.code === unit.code)?.description
         ?? ((unit.code && codeDescriptions.get(unit.code)) || unit.name),
       members,
@@ -272,6 +291,12 @@ export function buildCatalog({
       name: pack.name,
       code,
       codeOptions: options,
+      titleOptions: titleOptions([
+        [packCodeById.get(pack.id) && codeDescriptions.get(packCodeById.get(pack.id)), 'lista'],
+        [code && codeDescriptions.get(code), 'lista'],
+        [pack.name, 'pack'],
+        [members.length === 1 ? members[0].label : null, 'producto'],
+      ]),
       unitsPerPack: pack.unitCount,
       mode: pack.mode,
       price: packListPrice(pack, costsBySku),
@@ -286,12 +311,14 @@ export function buildCatalog({
     if (!belongs(sup)) continue;
     const cost = costsBySku.get(sku);
     const m = member(sku);
+    const code = skuCodeBySku.get(sku) ?? null;
     units.push(finish({
       kind: 'sku',
       packId: null,
       sku,
       name: m.label,
-      code: skuCodeBySku.get(sku) ?? null,
+      code,
+      titleOptions: titleOptions([[code && codeDescriptions.get(code), 'lista'], [m.label, 'producto']]),
       unitsPerPack: cost?.bulkQty > 0 ? cost.bulkQty : 1,
       mode: 'bulk',
       price: cost?.bulkPrice > 0 && cost?.bulkQty > 0 ? round2(cost.bulkPrice) : null,
