@@ -113,6 +113,26 @@ describe('PedidoEditorComponent', () => {
     expect(component.order()!.lines[0]).toEqual(jasmine.objectContaining({ code: '39021/22/33/137', description: 'PANEL SURTIDO' }));
   });
 
+  it('el título se elige aparte: lista genérica, nombre del pack o del producto', async () => {
+    await create(draft(), [unit({
+      description: 'PANEL SURTIDO',
+      titleOptions: [
+        { text: 'PANEL SURTIDO', source: 'lista' },
+        { text: 'Panel Mi Momento De Conexión', source: 'pack' },
+        { text: 'Panel Removible Mi Momento', source: 'producto' },
+      ],
+    })]);
+    component.addUnit(component.catalogUnits()[0]);
+    fixture.detectChanges();
+    const group = fixture.nativeElement.querySelector('[aria-label="Elegir título"]') as HTMLElement;
+    const buttons = Array.from(group.querySelectorAll<HTMLButtonElement>('.code-opt'));
+    expect(buttons.map((b) => b.textContent!.trim())).toEqual(['Lista', 'Pack', 'Producto']);
+    expect(buttons[0].classList).toContain('on');
+    buttons[1].click();
+    expect(component.order()!.lines[0].description).toBe('Panel Mi Momento De Conexión');
+    expect(component.order()!.lines[0].code).toBe('4410', 'elegir el título no toca el código');
+  });
+
   it('con un solo código no muestra la elección', async () => {
     await create(draft());
     component.addUnit(component.catalogUnits()[0]);
