@@ -74,6 +74,39 @@ export function resolvePackCode(pack, packCodeById, skuCodeBySku) {
 }
 
 /**
+ * ¿El código de la lista agrupa varios productos? (`39021/22/33`, `BP3505-3507`). Un sufijo de
+ * variante (`39000-CORAZONES`) ni un código con guion como `PC-7` cuentan: son UN producto.
+ */
+export function isMultiCode(code) {
+  const parts = String(code ?? '').split(/[/\-]/).map((s) => s.trim()).filter(Boolean);
+  return parts.length > 1 && /\d$/.test(parts[0]) && parts.slice(1).every((p) => /^\d+$/.test(p));
+}
+
+/**
+ * Códigos entre los que se puede elegir para un pack en el pedido, sin repetidos: el de la lista
+ * del proveedor (`pack_code_map`), el SKU propio del pack (`product_packs.sku`) y, en un pack de un
+ * solo modelo, el código mapeado del modelo. `code` es el que arranca elegido: el mismo que
+ * `resolvePackCode`, salvo que el de la lista agrupe varios productos y el pack tenga SKU propio —
+ * ahí va el del pack, que dice qué producto puntual se pide. La descripción de cada opción es la del
+ * proveedor para ese código; si no tiene (el SKU propio del pack suele no estar en la lista), la del
+ * código de la lista, y si no el nombre del pack.
+ */
+export function packCodeOptions(pack, { packCodeById, skuCodeBySku, codeDescriptions }) {
+  const list = packCodeById.get(pack.id) ?? null;
+  const own = pack.sku || null;
+  const model = (pack.skus || []).length === 1 ? skuCodeBySku.get(pack.skus[0]) ?? null : null;
+  const fallbackDesc = (list && codeDescriptions.get(list)) || pack.name;
+  const options = [];
+  for (const [code, source] of [[list, 'lista'], [own, 'pack'], [model, 'modelo']]) {
+    if (code && !options.some((o) => o.code === code)) {
+      options.push({ code, source, description: codeDescriptions.get(code) || fallbackDesc });
+    }
+  }
+  const code = list && own && isMultiCode(list) ? own : resolvePackCode(pack, packCodeById, skuCodeBySku);
+  return { code, options };
+}
+
+/**
  * Un producto puede tener un código por proveedor: a la fábrica va el del proveedor VIGENTE
  * (`product_costs.supplier_key`; en un pack, el del primer modelo que tenga uno). Sin vigente, o si
  * el vigente no tiene código, el primero que haya. Puro y testeable.
@@ -209,7 +242,9 @@ export function buildCatalog({
       // precio de Precios: si no es el del pedido, el front lo avisa.
       suppliers: suppliers.suppliers,
       priceSupplier: suppliers.vigente,
-      description: (unit.code && codeDescriptions.get(unit.code)) || unit.name,
+      codeOptions: unit.codeOptions ?? [],
+      description: unit.codeOptions?.find((o) => o.code === unit.code)?.description
+        ?? ((unit.code && codeDescriptions.get(unit.code)) || unit.name),
       members,
       alerted: members.some((m) => ACTIVE_ALERT_STATES.has(m.alertState)),
       suggestedQty: suggestPacks(members, unit.unitsPerPack, modelCount),
@@ -229,12 +264,14 @@ export function buildCatalog({
     if (!belongs(sup)) continue;
     const members = (pack.skus || []).map(member);
     const ownCodeOk = !supplierKey || !sup.vigente || sup.vigente === supplierKey;
+    const { code, options } = packCodeOptions(ownCodeOk ? pack : { ...pack, sku: null }, { packCodeById, skuCodeBySku, codeDescriptions });
     units.push(finish({
       kind: 'pack',
       packId: pack.id,
       sku: null,
       name: pack.name,
-      code: resolvePackCode(ownCodeOk ? pack : { ...pack, sku: null }, packCodeById, skuCodeBySku),
+      code,
+      codeOptions: options,
       unitsPerPack: pack.unitCount,
       mode: pack.mode,
       price: packListPrice(pack, costsBySku),
