@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { injectQuery } from '@tanstack/angular-query-experimental';
 import {
-  OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY, CatalogUnit, CatalogMember, CatalogCodeOption, OrderDiscountProfile, OrderLine, SupplierOrder,
+  OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY, CatalogUnit, CatalogMember, CatalogCodeOption, CatalogTitleOption, OrderDiscountProfile, OrderLine, SupplierOrder,
   computeOrderTotals, lineFromCatalogUnit, lineKey, orderStatusLabel,
 } from '../../core/services/orders.service';
 import { matchSearchByTokens } from '../../core/services/conflicts.service';
@@ -175,9 +175,24 @@ export class PedidoEditorComponent implements OnDestroy {
     return opts.length > 1 ? opts : [];
   }
 
-  /** Cambia el código de la línea por otra opción y trae su descripción. */
+  /** Cambia el código de la línea por otra opción. El título se elige aparte (`pickLineTitle`). */
   pickLineCode(index: number, option: CatalogCodeOption): void {
-    this.editLine(index, { code: option.code, description: option.description });
+    this.editLine(index, { code: option.code });
+  }
+
+  /** Títulos para elegir en una línea (lista / pack / producto), si hay más de uno. */
+  lineTitleOptions(line: OrderLine): CatalogTitleOption[] {
+    const k = lineKey(line);
+    const opts = k ? this.catalogByKey().get(k)?.titleOptions ?? [] : [];
+    return opts.length > 1 ? opts : [];
+  }
+
+  pickLineTitle(index: number, option: CatalogTitleOption): void {
+    this.editLine(index, { description: option.text });
+  }
+
+  titleSourceLabel(source: CatalogTitleOption['source']): string {
+    return source === 'lista' ? 'Lista' : source === 'pack' ? 'Pack' : 'Producto';
   }
 
   codeSourceLabel(source: CatalogCodeOption['source']): string {

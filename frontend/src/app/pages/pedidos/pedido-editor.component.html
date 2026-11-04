@@ -124,6 +124,16 @@
                   <td class="c-desc">
                     @if (canEdit()) {
                       <input class="cell-input" [ngModel]="l.description" (ngModelChange)="setLineText(i, 'description', $event)" placeholder="descripción" aria-label="Descripción" />
+                      @let titles = lineTitleOptions(l);
+                      @if (titles.length) {
+                        <div class="code-pick" role="group" aria-label="Elegir título">
+                          @for (t of titles; track t.source + '|' + t.text) {
+                            <button type="button" class="code-opt" [class.on]="t.text === l.description" (click)="pickLineTitle(i, t)" [title]="t.text" [attr.aria-pressed]="t.text === l.description">
+                              {{ titleSourceLabel(t.source) }}
+                            </button>
+                          }
+                        </div>
+                      }
                     } @else { <span class="cell-text">{{ l.description }}</span> }
                     <div class="line-meta">
                       @switch (l.origin) {

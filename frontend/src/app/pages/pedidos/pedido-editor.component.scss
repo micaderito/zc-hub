@@ -128,7 +128,7 @@ $cell-h: 30px;
   tr.part .recv-text { color: var(--warn); }
 }
 
-// Elegir entre el código de la lista y el SKU propio del pack, debajo del campo Código.
+// Elegir el código (lista / SKU del pack) o el título (lista / pack / producto), debajo del campo.
 .code-pick {
   display: flex;
   gap: 0.2rem;

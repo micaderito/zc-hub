@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {
   listUnitPrice, packListPrice, resolvePackCode, suggestPacks, buildOrderHistoryIndex, buildCatalog,
   computeOrderTotals, buildPriceIndex, refreshLinePrices, buildDuplicateLines, sanitizeOrderInput,
-  codesForSupplier, unitSuppliers, alertStateFor, isMultiCode, packCodeOptions,
+  codesForSupplier, unitSuppliers, alertStateFor, isMultiCode, packCodeOptions, titleOptions,
 } from '../src/services/ordersService.js';
 import { buildDiscountContext } from '../src/lib/discountResolver.js';
 
@@ -114,6 +114,34 @@ test('isMultiCode: un código de la lista que agrupa varios productos, no un suf
   assert.equal(isMultiCode('39137'), false);
   assert.equal(isMultiCode('PC-7'), false);
   assert.equal(isMultiCode(null), false);
+});
+
+test('titleOptions: sin vacíos ni repetidos (sin mirar mayúsculas/espacios), en orden', () => {
+  assert.deepEqual(titleOptions([
+    ['PANEL SURTIDO', 'lista'], [null, 'lista'], ['Panel  surtido', 'pack'], ['Panel Mi Momento', 'pack'], ['', 'producto'],
+  ]), [{ text: 'PANEL SURTIDO', source: 'lista' }, { text: 'Panel Mi Momento', source: 'pack' }]);
+});
+
+test('buildCatalog: títulos para elegir — lista genérica, nombre del pack y del producto; SKU suelto: lista y producto', () => {
+  const units = buildCatalog({
+    packs: [{ id: 7, name: 'Panel Mi Momento De Conexión', sku: '39137', unitCount: 8, mode: 'single', skus: ['39137'] }],
+    snapshotData: {
+      mlRows: [{ sku: '39137', title: 'Panel Removible Mi Momento', variationName: null, stock: 0 }, { sku: 'LG', title: 'Lapicera gel', variationName: null, stock: 3 }],
+      tnRows: [],
+    },
+    rules: [], costs: [], skuCodeMap: [{ sku: 'LG', code: 'GEL-07' }],
+    packCodeMap: [{ packId: 7, code: '39021/22/137' }],
+    codeDescriptions: new Map([['39021/22/137', 'PANEL SURTIDO'], ['GEL-07', 'BOLIGRAFO GEL']]),
+    depositoBySku: new Map(), orders: [],
+  });
+  const pack = units.find((u) => u.key === 'pack:7');
+  assert.equal(pack.description, 'PANEL SURTIDO', 'arranca con la de la lista, como antes');
+  assert.deepEqual(pack.titleOptions, [
+    { text: 'PANEL SURTIDO', source: 'lista' },
+    { text: 'Panel Mi Momento De Conexión', source: 'pack' },
+    { text: 'Panel Removible Mi Momento', source: 'producto' },
+  ]);
+  assert.deepEqual(units.find((u) => u.key === 'sku:LG').titleOptions.map((o) => o.source), ['lista', 'producto']);
 });
 
 test('packCodeOptions: lista y SKU propio del pack; con la lista agrupada arranca el del pack', () => {
