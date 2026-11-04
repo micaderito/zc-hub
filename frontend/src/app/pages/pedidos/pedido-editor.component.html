@@ -109,6 +109,16 @@
                   <td class="c-code">
                     @if (canEdit()) {
                       <input class="cell-input" [ngModel]="l.code" (ngModelChange)="setLineText(i, 'code', $event)" placeholder="código" aria-label="Código" />
+                      @let opts = lineCodeOptions(l);
+                      @if (opts.length) {
+                        <div class="code-pick" role="group" aria-label="Elegir código">
+                          @for (c of opts; track c.code) {
+                            <button type="button" class="code-opt" [class.on]="c.code === l.code" (click)="pickLineCode(i, c)" [title]="c.code" [attr.aria-pressed]="c.code === l.code">
+                              {{ codeSourceLabel(c.source) }}
+                            </button>
+                          }
+                        </div>
+                      }
                     } @else { <span class="cell-text mono">{{ l.code || '—' }}</span> }
                   </td>
                   <td class="c-desc">

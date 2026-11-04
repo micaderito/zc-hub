@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {
   listUnitPrice, packListPrice, resolvePackCode, suggestPacks, buildOrderHistoryIndex, buildCatalog,
   computeOrderTotals, buildPriceIndex, refreshLinePrices, buildDuplicateLines, sanitizeOrderInput,
-  codesForSupplier, unitSuppliers, alertStateFor,
+  codesForSupplier, unitSuppliers, alertStateFor, isMultiCode, packCodeOptions,
 } from '../src/services/ordersService.js';
 import { buildDiscountContext } from '../src/lib/discountResolver.js';
 
@@ -104,6 +104,41 @@ test('buildCatalog: packs con todos sus modelos + SKUs sueltos por bulto, con c�
   assert.equal(na.alerted, false);
   assert.equal(na.members[0].alertState, 'watching');
   assert.ok(!units.some((u) => u.key === 'sku:CI-1'), 'un SKU que está en un pack no aparece suelto');
+});
+
+test('isMultiCode: un código de la lista que agrupa varios productos, no un sufijo de variante', () => {
+  assert.equal(isMultiCode('39021/22/33/34/38/134'), true);
+  assert.equal(isMultiCode('BP3505-3507'), true);
+  assert.equal(isMultiCode('39024-39025'), true);
+  assert.equal(isMultiCode('39000-CORAZONES'), false);
+  assert.equal(isMultiCode('39137'), false);
+  assert.equal(isMultiCode('PC-7'), false);
+  assert.equal(isMultiCode(null), false);
+});
+
+test('packCodeOptions: lista y SKU propio del pack; con la lista agrupada arranca el del pack', () => {
+  const ctx = (list) => ({
+    packCodeById: new Map(list ? [[7, list]] : []),
+    skuCodeBySku: new Map([['39137', list ?? '39137']]),
+    codeDescriptions: new Map([['39021/22/33/34/38/134/135/136/137/138', 'PANEL MI MOMENTO SURTIDO'], ['4410', 'CUADERNO X8']]),
+  });
+  const pack = { id: 7, name: 'Panel Mi Momento De Conexión', sku: '39137', skus: ['39137'] };
+
+  const grouped = packCodeOptions(pack, ctx('39021/22/33/34/38/134/135/136/137/138'));
+  assert.equal(grouped.code, '39137', 'la lista agrupa: va el SKU propio, que dice cuál se pide');
+  assert.deepEqual(grouped.options, [
+    { code: '39021/22/33/34/38/134/135/136/137/138', source: 'lista', description: 'PANEL MI MOMENTO SURTIDO' },
+    { code: '39137', source: 'pack', description: 'PANEL MI MOMENTO SURTIDO' },
+  ], 'sin repetir el código del modelo; el del pack toma la descripción de la lista');
+
+  const single = packCodeOptions({ ...pack, sku: 'PK-1' }, ctx('4410'));
+  assert.equal(single.code, '4410', 'un código de un solo producto en la lista sigue mandando');
+  assert.deepEqual(single.options.map((o) => o.source), ['lista', 'pack']);
+
+  const onlyOwn = packCodeOptions(pack, ctx(null));
+  assert.equal(onlyOwn.code, '39137');
+  assert.equal(onlyOwn.options.length, 1);
+  assert.equal(onlyOwn.options[0].description, 'Panel Mi Momento De Conexión');
 });
 
 test('alertStateFor: la alerta sigue mientras el stock no supere el umbral, sin mirar cuándo se disparó', () => {
