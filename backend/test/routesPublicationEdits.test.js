@@ -57,7 +57,7 @@ before(async () => {
         if (state.importError) throw state.importError;
         return imported();
       },
-      checkRemoteChanges: async () => state.changed,
+      checkRemoteChanges: async (_refs, opts) => { state.checkOps = opts?.ops; return state.changed; },
     },
   });
   mock.module('../src/services/publicationDiff.js', {
@@ -194,6 +194,7 @@ test('POST /:id/apply sin cambios → 400; con cambios afuera → 409 remote_cha
   const b = await r.json();
   assert.equal(b.code, 'remote_changed');
   assert.deepEqual(b.changed, state.changed);
+  assert.equal(state.checkOps?.[0]?.kind, 'description', 'el chequeo recibe lo que se va a mandar');
   assert.equal(state.jobs.size, 0);
   const forced = await json('POST', `/${id}/apply`, { draft: changedDraft, force: true });
   assert.equal(forced.status, 202);

@@ -6,7 +6,7 @@ import { test, before, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 const state = { catalog: { mlRows: [], tnRows: [] }, items: {}, descs: {}, products: {}, itemStatus: {} };
-let buildEditDraft, importHubProduct, checkRemoteChanges, mlFingerprint, tnFingerprint;
+let buildEditDraft, importHubProduct, checkRemoteChanges, mlFingerprint, tnFingerprint, ownVariantsOf;
 
 before(async () => {
   mock.module('../src/store.js', {
@@ -24,7 +24,7 @@ before(async () => {
   mock.module('../src/lib/tiendanube.js', {
     exports: { getProduct: async (_t, _s, id) => state.products[id] ?? null },
   });
-  ({ buildEditDraft, importHubProduct, checkRemoteChanges, mlFingerprint, tnFingerprint } = await import('../src/services/publicationImport.js'));
+  ({ buildEditDraft, importHubProduct, checkRemoteChanges, mlFingerprint, tnFingerprint, ownVariantsOf } = await import('../src/services/publicationImport.js'));
 });
 
 beforeEach(() => {
@@ -282,4 +282,62 @@ test('ficha de User Products: una característica cargada en unos ítems y vací
   const { draft } = buildEditDraft({ mlItems: items, tnProducts: [], variationAttrIds: ['COLOR'] });
   assert.deepEqual(draft.axes, [{ name: 'Color', mlAttributeId: 'COLOR' }]);
   assert.deepEqual(draft.variants.map((v) => v.values), [['Piel'], ['Pastel'], ['Frios']]);
+});
+
+/** Producto de TN con 2 variantes de esta publicación (10, 11) y 1 de otra publicación de ML (99). */
+function sharedTn() {
+  return {
+    id: 7, name: { es: 'Mi Cuaderno A5 - Mármol rosa' }, updated_at: '2026-11-01T00:00:00Z', images: [{ id: 1, position: 1 }, { id: 2, position: 2 }],
+    variants: [
+      { id: 10, sku: '39000', price: '100', stock: 3, image_id: 1, values: [{ es: 'Rayada' }] },
+      { id: 11, sku: '39000-B', price: '100', stock: 2, image_id: 1, values: [{ es: 'Rayada B' }] },
+      { id: 99, sku: 'C39000', price: '120', stock: 5, image_id: 2, values: [{ es: 'Cuadriculada' }] },
+    ],
+  };
+}
+
+test('checkRemoteChanges: un producto de TN compartido se compara solo con sus variantes (no avisa de más)', async () => {
+  const full = sharedTn();
+  const imported = ownVariantsOf(full, [10, 11]);
+  const { refs } = buildEditDraft({ mlItems: [], tnProducts: [imported] });
+  assert.deepEqual(refs.tn.products[0].ownVariantIds, [10, 11]);
+  state.products[7] = full; // getProduct trae TODAS las variantes, también la de la otra publicación
+  assert.deepEqual(await checkRemoteChanges(refs), []);
+  // Que cambie la variante de la otra publicación tampoco es asunto de esta edición.
+  state.products[7] = { ...full, variants: full.variants.map((v) => (v.id === 99 ? { ...v, stock: 0 } : v)) };
+  assert.deepEqual(await checkRemoteChanges(refs), []);
+  // Una propia, sí.
+  state.products[7] = { ...full, variants: full.variants.map((v) => (v.id === 10 ? { ...v, price: '150' } : v)) };
+  assert.deepEqual((await checkRemoteChanges(refs))[0].fields, ['el precio']);
+});
+
+test('checkRemoteChanges: edición vieja de un producto compartido sin ownVariantIds usa las variantes de refs.variants', async () => {
+  const full = sharedTn();
+  const refs = {
+    ml: { items: [] },
+    tn: { products: [{ productId: 7, otherVariants: 1, fingerprint: tnFingerprint(ownVariantsOf(full, [10, 11])), name: 'Mármol rosa' }] },
+    variants: { v1: { ml: null, tn: { productId: 7, variantId: 10 } }, v2: { ml: null, tn: { productId: 7, variantId: 11 } } },
+  };
+  state.products[7] = full;
+  assert.deepEqual(await checkRemoteChanges(refs), []);
+});
+
+test('checkRemoteChanges con ops: el stock que se movió solo avisa si el guardado escribe stock ahí', async () => {
+  const item = { id: 'MLA1', title: 'Cuaderno A5', price: 100, available_quantity: 5, pictures: [], attributes: [] };
+  const other = { id: 'MLA2', title: 'Otro', price: 100, available_quantity: 5, pictures: [], attributes: [] };
+  const refs = { ml: { items: [
+    { itemId: 'MLA1', fingerprint: mlFingerprint(item), title: 'Cuaderno A5' },
+    { itemId: 'MLA2', fingerprint: mlFingerprint(other), title: 'Otro' },
+  ] }, tn: { products: [] } };
+  state.items.MLA1 = { ...item, available_quantity: 4, title: 'Cuaderno A5 nuevo' }; // venta + título cambiado afuera
+  state.items.MLA2 = { ...other, available_quantity: 1 };
+  const descOp = [{ channel: 'ml', target: 'MLA1', kind: 'description' }];
+  // Sin escribir stock: solo cuenta el título; MLA2 no tiene operaciones y no se pisa.
+  assert.deepEqual(await checkRemoteChanges(refs, { ops: descOp }), [{ channel: 'ml', id: 'MLA1', name: 'Cuaderno A5', fields: ['el nombre'] }]);
+  // Escribiendo el stock de una variante: sí avisa.
+  const stockOp = [{ channel: 'ml', target: 'MLA1', kind: 'stock:v1' }];
+  assert.deepEqual((await checkRemoteChanges(refs, { ops: stockOp }))[0].fields, ['el nombre', 'el stock']);
+  // Nada que mandar a una publicación con solo una venta → sin aviso.
+  state.items.MLA1 = { ...item, available_quantity: 4 };
+  assert.deepEqual(await checkRemoteChanges(refs, { ops: descOp }), []);
 });
