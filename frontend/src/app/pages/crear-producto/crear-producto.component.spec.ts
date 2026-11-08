@@ -938,12 +938,25 @@ describe('CrearProductoComponent', () => {
       expect(v.ml.pictureIds).toEqual([]);
     });
 
+    it('publicación clásica con variaciones: la galería es un banco con el tope por variación × variaciones', () => {
+      component.addAxis();
+      component.addVariant();
+      component.addVariant();
+      component.mlMaxPictures.set(12);
+      component.mlMaxPicturesPerVar.set(10);
+      expect(component.draft().ml.mappingMode).toBe('single_with_variants');
+      expect(component.store.mlGalleryIsPool()).toBeTrue();
+      expect(component.store.mlVariantPictureLimit()).toBe(10);
+      // 3 variaciones × 10: una clásica importada con 15 fotos sigue dejando subir más (antes cortaba en 12).
+      expect(component.store.mlGalleryLimit()).toBe(component.draft().variants.length * 10);
+      expect(component.store.mlGalleryLimit()).toBeGreaterThan(12);
+    });
+
     it('en ML "una publicación por variante" el tope es por variante y la galería es un banco', () => {
       component.addAxis();
       component.addVariant();
       component.mlMaxPictures.set(2);
       component.mlMaxPicturesPerVar.set(1);
-      expect(component.store.mlGalleryLimit()).toBe(2);
       expect(component.store.mlVariantPictureLimit()).toBe(1);
 
       component.setMode('ml', 'one_per_variant');

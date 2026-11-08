@@ -1277,6 +1277,10 @@ el panel `zc-edit-review` "Cambios a aplicar").
   la galería y una publicación de 6 ítems importada (la galería junta las fotos de todos) no dejaba
   subir ninguna más. En ese modo `publicationDiff` ya no manda la galería entera a cada ítem, y
   publicar con más fotos en el banco que el tope pide que cada variante tenga las suyas.
+  **También en la clásica con variaciones** (2026-11-08): ahí el tope por variante es
+  `max_pictures_per_var` y el ítem junta las fotos de todas, así que la galería también es un banco
+  (tope × variaciones). Con el tope de un ítem solo (12), una clásica importada ya venía pasada y el
+  botón de subir fotos de ML no aparecía.
 - **Qué cambió** (`publicationDiff.js`, `POST /:id/plan` con el borrador en pantalla, debounce de
   600 ms en el store): una operación por cosa a cambiar en una publicación concreta, con `key`
   estable (será el `unit_key` del job). Lo que no se tocó no genera nada, así guardar no pisa cambios
