@@ -1268,6 +1268,10 @@ el panel `zc-edit-review` "Cambios a aplicar").
   + `locks` + `notes`). Una sola abierta por producto (índice único parcial; abrir de nuevo la
   retoma). `done`/`discarded` se purgan a los 30 días. La lista de Publicaciones marca "Edición sin
   guardar". Al retomar una, `remote-check` avisa si alguien cambió la publicación en ML/TN mientras.
+  El aviso compara una huella del contenido (`mlFingerprint`/`tnFingerprint`) y solo cuenta lo que el
+  guardado pisa: una publicación sin operaciones no avisa, y el stock/precio movido (una venta) solo si
+  se escribe stock/precio ahí. En un producto de TN compartido la huella es solo de sus variantes
+  (`ownVariantIds`; hasta 2026-11-08 se comparaba contra el producto entero y avisaba siempre).
 - **Fotos ya publicadas**: `DraftImage.remote = { channel, id, url }`, id `ml-<picture_id>` /
   `tn-<image_id>`, preview = URL del canal. `persistable()` del store las guarda con `remote` (antes
   el autoguardado descartaba todo menos `{id,name}`). Las nuevas se suben como en Crear producto.

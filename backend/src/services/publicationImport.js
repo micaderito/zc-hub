@@ -407,6 +407,9 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
         productId: p.id,
         // variantes de este producto de TN que son de otra publicación de ML (no se editan acá)
         otherVariants: p.otherVariants || 0,
+        // Ids de las variantes que SÍ son de esta edición: la huella se toma solo sobre ellas, y al
+        // comparar (checkRemoteChanges) hay que filtrar el producto igual.
+        ownVariantIds: p.otherVariants ? (p.variants || []).map((v) => v.id) : null,
         updatedAt: p.updated_at || null,
         fingerprint: tnFingerprint(p),
         name: tnText(p.name),
@@ -484,11 +487,7 @@ export async function importHubProduct(groupKey) {
       if (!product) continue;
       // Un producto de TN que también trae variantes de OTRA publicación de ML (ver buildHubProducts)
       // se edita solo con las variantes de este producto del hub: las otras no se muestran ni se tocan.
-      if (pub.shared && Array.isArray(product.variants)) {
-        const ids = new Set((pub.variantIds || []).map(String));
-        const own = product.variants.filter((v) => ids.has(String(v.id)));
-        product = { ...product, variants: own, otherVariants: product.variants.length - own.length };
-      }
+      if (pub.shared && Array.isArray(product.variants)) product = ownVariantsOf(product, pub.variantIds);
       tnProducts.push(product);
     }
   }
@@ -496,6 +495,40 @@ export async function importHubProduct(groupKey) {
     throw Object.assign(new Error('Las publicaciones de este producto ya no existen en ML ni en TN.'), { status: 404 });
   }
   return { group, ...buildEditDraft({ mlItems, mlDescriptions, tnProducts, categoryName, variationAttrIds }) };
+}
+
+/**
+ * El producto de TN solo con las variantes `ids` (las de este producto del hub). `otherVariants` =
+ * cuántas quedaron afuera. Se usa al importar y al comparar la huella, que tienen que filtrar igual.
+ */
+export function ownVariantsOf(product, ids) {
+  const keep = new Set((ids || []).map(String));
+  const all = product.variants || [];
+  const own = all.filter((v) => keep.has(String(v.id)));
+  return { ...product, variants: own, otherVariants: all.length - own.length };
+}
+
+/** Ids de variantes propias de un producto de TN en `refs` (ediciones viejas: salen de `refs.variants`). */
+function ownVariantIdsFromRefs(refs, r) {
+  if (Array.isArray(r.ownVariantIds)) return r.ownVariantIds;
+  if (!r.otherVariants) return null;
+  return Object.values(refs?.variants || {})
+    .map((v) => v?.tn)
+    .filter((t) => t && String(t.productId) === String(r.productId) && t.variantId != null)
+    .map((t) => t.variantId);
+}
+
+/**
+ * Campos que importan para el aviso de cada publicación, según lo que el guardado va a mandar: una
+ * publicación sin operaciones no se pisa (null = no avisar), y el stock / precio que se movió (una
+ * venta, el espejo del hub) solo importa si el guardado escribe stock / precio ahí.
+ */
+function relevantFields(ops, channel, target, fields) {
+  if (!ops) return fields;
+  const mine = ops.filter((o) => o.channel === channel && String(o.target) === String(target));
+  if (!mine.length) return [];
+  const writes = (prefix) => mine.some((o) => String(o.kind).startsWith(prefix));
+  return fields.filter((f) => (f !== 'stock' || writes('stock')) && (f !== 'price' || writes('price')));
 }
 
 /**
@@ -545,7 +578,8 @@ const FIELD_LABELS = {
   attributes: 'las características', variants: 'las variantes', shipping: 'el envío', warranty: 'la garantía',
   listing: 'el tipo de publicación', status: 'el estado', categories: 'las categorías',
 };
-const changedFields = (before, after) => Object.keys(before).filter((k) => before[k] !== after[k]).map((k) => FIELD_LABELS[k] || k);
+const changedKeys = (before, after) => Object.keys(before).filter((k) => before[k] !== after[k]);
+const labels = (keys) => keys.map((k) => FIELD_LABELS[k] || k);
 
 /**
  * ¿Alguien cambió las publicaciones desde que se abrió la edición? Compara la huella del contenido
@@ -553,8 +587,10 @@ const changedFields = (before, after) => Object.keys(before).filter((k) => befor
  *
  * Una edición abierta antes de que existiera la huella no se compara por `last_updated` (daba el
  * aviso de más): se le toma la huella de ahora, se guarda con `saveRefs` y desde ahí se compara.
+ *
+ * Con `ops` (lo que el guardado va a mandar) solo avisa de lo que se pisa: ver `relevantFields`.
  */
-export async function checkRemoteChanges(refs, { saveRefs } = {}) {
+export async function checkRemoteChanges(refs, { saveRefs, ops } = {}) {
   const changed = [];
   let backfilled = false;
   const mlRefs = refs?.ml?.items || [];
@@ -571,24 +607,27 @@ export async function checkRemoteChanges(refs, { saveRefs } = {}) {
           backfilled = true;
           continue;
         }
-        const fields = changedFields(r.fingerprint, now);
-        if (fields.length) changed.push({ channel: 'ml', id: r.itemId, name: r.title, fields });
+        const fields = relevantFields(ops, 'ml', r.itemId, changedKeys(r.fingerprint, now));
+        if (fields.length) changed.push({ channel: 'ml', id: r.itemId, name: r.title, fields: labels(fields) });
       }
     }
   }
   const t = tokens.tiendanube;
   for (const r of refs?.tn?.products || []) {
     if (!t?.access_token) break;
-    const cur = await tn.getProduct(t.access_token, t.store_id, r.productId).catch(() => null);
+    let cur = await tn.getProduct(t.access_token, t.store_id, r.productId).catch(() => null);
     if (!cur) continue;
+    // Producto compartido con otra publicación de ML: la huella se tomó solo con sus variantes.
+    const ownIds = ownVariantIdsFromRefs(refs, r);
+    if (ownIds) cur = ownVariantsOf(cur, ownIds);
     const now = tnFingerprint(cur);
     if (!r.fingerprint) {
       r.fingerprint = now;
       backfilled = true;
       continue;
     }
-    const fields = changedFields(r.fingerprint, now);
-    if (fields.length) changed.push({ channel: 'tn', id: r.productId, name: r.name, fields });
+    const fields = relevantFields(ops, 'tn', r.productId, changedKeys(r.fingerprint, now));
+    if (fields.length) changed.push({ channel: 'tn', id: r.productId, name: r.name, fields: labels(fields) });
   }
   if (backfilled && saveRefs) await saveRefs(refs);
   return changed;
