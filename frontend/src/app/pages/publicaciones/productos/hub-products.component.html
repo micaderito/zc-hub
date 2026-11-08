@@ -130,7 +130,13 @@
                 <span class="hp-key tn">TN-{{ i + 1 }}</span>
                 <div class="hp-pub-main">
                   <span class="hp-pub-title" [title]="p.name">{{ p.name }}</span>
-                  <span class="hp-pub-sub"><code>#{{ p.productId }}</code><span>{{ p.variantCount }} {{ p.variantCount === 1 ? 'variante' : 'variantes' }}</span></span>
+                  <span class="hp-pub-sub"><code>#{{ p.productId }}</code><span>{{ p.variantCount }} {{ p.variantCount === 1 ? 'variante' : 'variantes' }}</span>
+                    @if (p.shared) {
+                      <span class="hp-shared" title="Las demás variantes de este producto de Tienda Nube son de otra publicación de Mercado Libre y se ven en ese producto.">
+                        <i class="ti ti-arrows-split-2"></i> de {{ p.totalVariants }}, las otras son de otra publicación de ML
+                      </span>
+                    }
+                  </span>
                 </div>
                 <span></span>
               </div>

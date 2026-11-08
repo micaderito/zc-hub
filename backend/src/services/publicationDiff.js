@@ -248,6 +248,10 @@ export function planPublicationUpdate(baseline, draft, refs) {
   const tnPid = (id) => (vrefs[id]?.tn?.productId != null ? String(vrefs[id].tn.productId) : null);
   const tnVariantCount = new Map();
   for (const v of b.variants || []) if (tnPid(v.id)) tnVariantCount.set(tnPid(v.id), (tnVariantCount.get(tnPid(v.id)) || 0) + 1);
+  // Un producto de TN compartido con otra publicación de ML tiene variantes que esta edición no ve:
+  // cuentan para saber si el producto tiene varias y nunca se borra el producto entero.
+  const tnOthers = new Map(tnProducts.map((p) => [String(p.productId), Number(p.otherVariants) || 0]));
+  for (const [pid, n] of tnOthers) if (n) tnVariantCount.set(pid, (tnVariantCount.get(pid) || 0) + n);
   const tnMulti = (pid) => (tnVariantCount.get(String(pid)) || 0) > 1;
   // Una variante nueva entra como variante si hay un solo producto; con varios, como producto aparte.
   const tnAddTarget = tnProducts.length === 1 ? tnProducts[0] : null;
@@ -359,7 +363,7 @@ export function planPublicationUpdate(baseline, draft, refs) {
   }
 
   // Variantes que estaban y se quitaron. En TN se borra el producto solo si no le queda ninguna.
-  const tnStays = (pid) =>
+  const tnStays = (pid) => (tnOthers.get(pid) || 0) > 0 ||
     (d.variants || []).some((v) => (bById.has(v.id) ? tnPid(v.id) === pid : tnAddTarget && String(tnAddTarget.productId) === pid));
   const tnDeleted = new Set();
   for (const prev of b.variants || []) {

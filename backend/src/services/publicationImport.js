@@ -363,6 +363,11 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
     locks.mlTitle = 'En las publicaciones del modelo nuevo de ML (User Products) el título lo arma ML a partir del nombre y las características.';
   }
   if (!hasMl) notes.push('Este producto no está publicado en Mercado Libre: lo que cargues en esa sección no se guarda.');
+  for (const p of tnProducts) {
+    if (p.otherVariants) {
+      notes.push(`"${tnText(p.name)}" de Tienda Nube también tiene ${p.otherVariants === 1 ? 'una variante' : `${p.otherVariants} variantes`} de otra publicación de Mercado Libre: acá se editan solo las de esta. El nombre, la descripción y las fotos del producto son compartidos.`);
+    }
+  }
   if (!hasTn) notes.push('Este producto no está publicado en Tienda Nube: lo que cargues en esa sección no se guarda.');
 
   const refs = {
@@ -400,6 +405,8 @@ export function buildEditDraft({ mlItems = [], mlDescriptions = {}, tnProducts =
     tn: {
       products: tnProducts.map((p) => ({
         productId: p.id,
+        // variantes de este producto de TN que son de otra publicación de ML (no se editan acá)
+        otherVariants: p.otherVariants || 0,
         updatedAt: p.updated_at || null,
         fingerprint: tnFingerprint(p),
         name: tnText(p.name),
@@ -474,7 +481,15 @@ export async function importHubProduct(groupKey) {
       } catch (e) {
         throw Object.assign(new Error(`Tienda Nube no devolvió el producto ${pub.productId}. Probá de nuevo en un rato.`), { status: 502, cause: e });
       }
-      if (product) tnProducts.push(product);
+      if (!product) continue;
+      // Un producto de TN que también trae variantes de OTRA publicación de ML (ver buildHubProducts)
+      // se edita solo con las variantes de este producto del hub: las otras no se muestran ni se tocan.
+      if (pub.shared && Array.isArray(product.variants)) {
+        const ids = new Set((pub.variantIds || []).map(String));
+        const own = product.variants.filter((v) => ids.has(String(v.id)));
+        product = { ...product, variants: own, otherVariants: product.variants.length - own.length };
+      }
+      tnProducts.push(product);
     }
   }
   if (!mlItems.length && !tnProducts.length) {

@@ -3,13 +3,12 @@
  * página Publicaciones. Ver docs/plans/2026-10-12-publicaciones-mapeo-edicion-design.md.
  *
  * El mapeo NO se guarda: se calcula en cada lectura a partir de las filas del snapshot del catálogo
- * (`getCatalogRows`, una fila por variante de cada canal). Es un grafo cuyos nodos son las
- * publicaciones (`ml:<itemId>`, `tn:<productId>`) y cuyas aristas son:
- *   - un SKU que aparece en las dos puntas (el SKU es la unidad que une ML ↔ TN, ver CLAUDE.md);
- *   - dos ítems de ML de la misma ficha de User Products (mismo `family_name` + dominio): ML crea
- *     un ítem por variante, pero para la usuaria es una sola publicación.
- * Cada componente conexa es un producto. Así sale solo el caso "1 publi de ML con 4 colores ↔ 4
- * productos de TN" (y el inverso, y N ↔ M) sin que nadie lo cargue a mano.
+ * (`getCatalogRows`, una fila por variante de cada canal). Manda la publicación de ML: cada ítem (o
+ * cada ficha de User Products, mismo `family_name` + dominio, que ML crea como un ítem por variante
+ * pero para la usuaria es una sola publicación) es un producto, y las variantes de TN se le suman
+ * por SKU (el SKU es la unidad que une ML ↔ TN, ver CLAUDE.md). Así sale solo el caso "1 publi de
+ * ML con 4 colores ↔ 4 productos de TN" sin que nadie lo cargue a mano. Dos publicaciones de ML
+ * distintas nunca se juntan (ver `buildHubProducts`).
  *
  * Todo lo de este archivo es puro (sin I/O): recibe filas, devuelve grupos.
  */
@@ -63,7 +62,7 @@ function mlFormat(row) {
  * se repite dentro del mismo canal genera filas extra marcadas `duplicate` (no se puede saber cuál
  * es el par de cuál). Las filas sin SKU van sueltas.
  */
-function buildVariantRows(mlRows, tnRows) {
+function buildVariantRows(mlRows, tnRows, globalMlCountBySku = null) {
   const out = [];
   const tnBySku = new Map();
   for (const r of tnRows) {
@@ -73,6 +72,8 @@ function buildVariantRows(mlRows, tnRows) {
   }
   const mlCountBySku = new Map();
   for (const r of mlRows) if (r.sku) mlCountBySku.set(r.sku, (mlCountBySku.get(r.sku) || 0) + 1);
+  // Un SKU repetido en otra publicación de ML (que va en su propio grupo) también es duplicado.
+  if (globalMlCountBySku) for (const [sku, n] of globalMlCountBySku) mlCountBySku.set(sku, n);
   const usedTn = new Set();
 
   for (const r of mlRows) {
@@ -95,7 +96,8 @@ function buildVariantRows(mlRows, tnRows) {
 }
 
 function groupStatus(mlPubs, tnPubs, rows) {
-  if (!tnPubs.length) return 'only_ml';
+  // un SKU repetido en otra publicación de ML se avisa aunque esta no tenga nada en TN
+  if (!tnPubs.length) return rows.some((r) => r.duplicate) ? 'duplicate' : 'only_ml';
   if (!mlPubs.length) return 'only_tn';
   if (rows.some((r) => !r.ml || !r.tn)) return rows.some((r) => r.duplicate) ? 'duplicate' : 'orphan';
   if (rows.some((r) => r.duplicate)) return 'duplicate';
@@ -113,45 +115,102 @@ function groupName(mlPubs, tnPubs) {
 
 /**
  * Agrupa las filas del catálogo en productos del hub.
+ *
+ * Cada publicación de ML (un ítem, o todos los ítems de una ficha de User Products) es un producto
+ * propio, y nunca se junta con otra publicación de ML. Las variantes de TN se reparten por SKU entre
+ * esas publicaciones: un producto de TN que trae variantes de dos publicaciones de ML distintas (caso
+ * real: "Mármol rosa" con la variante rayada `39000` y la cuadriculada `C39000`, que en ML son dos
+ * publicaciones) aparece en los dos productos, cada uno con sus variantes (`shared`). Antes ese
+ * producto de TN unía las dos publicaciones de ML en una sola.
+ *
+ * Un SKU repetido en dos publicaciones de ML tampoco las junta: las dos quedan `duplicate`.
+ * Lo que no tiene ninguna publicación de ML se agrupa entre sí por SKU, como antes.
+ *
  * @param {{ mlRows?: object[], tnRows?: object[] }} catalog
  * @returns {object[]} grupos ordenados por estado (lo que necesita atención primero) y nombre.
  */
 export function buildHubProducts({ mlRows = [], tnRows = [] } = {}) {
-  const uf = makeUnionFind();
-  for (const r of mlRows) uf.find(mlNode(r));
-  for (const r of tnRows) uf.find(tnNode(r));
-
-  // Aristas por SKU: todas las publicaciones (de cualquiera de los dos canales) que comparten un SKU.
-  const nodesBySku = new Map();
-  const addSku = (sku, node) => {
-    if (!sku) return;
-    if (!nodesBySku.has(sku)) nodesBySku.set(sku, new Set());
-    nodesBySku.get(sku).add(node);
-  };
-  for (const r of mlRows) addSku(r.sku, mlNode(r));
-  for (const r of tnRows) addSku(r.sku, tnNode(r));
-  for (const nodes of nodesBySku.values()) {
-    const [first, ...rest] = [...nodes];
-    for (const n of rest) uf.union(first, n);
-  }
-
-  // Aristas por ficha de User Products.
+  // 1. Publicaciones de ML: un ítem, o los ítems de una misma ficha de User Products.
+  const mlUf = makeUnionFind();
   const firstByFamily = new Map();
   for (const r of mlRows) {
+    mlUf.find(mlNode(r));
     const fk = familyKey(r);
     if (!fk) continue;
-    if (firstByFamily.has(fk)) uf.union(firstByFamily.get(fk), mlNode(r));
+    if (firstByFamily.has(fk)) mlUf.union(firstByFamily.get(fk), mlNode(r));
     else firstByFamily.set(fk, mlNode(r));
+  }
+  const unitOf = (r) => mlUf.find(mlNode(r));
+
+  // SKU → publicaciones de ML que lo tienen (la menor primero, para que el reparto sea estable).
+  const unitsBySku = new Map();
+  const mlCountBySku = new Map();
+  for (const r of mlRows) {
+    if (!r.sku) continue;
+    mlCountBySku.set(r.sku, (mlCountBySku.get(r.sku) || 0) + 1);
+    if (!unitsBySku.has(r.sku)) unitsBySku.set(r.sku, new Set());
+    unitsBySku.get(r.sku).add(unitOf(r));
+  }
+  const firstUnit = (sku) => (sku && unitsBySku.has(sku) ? [...unitsBySku.get(sku)].sort()[0] : null);
+
+  // 2. Cada producto de TN tiene una "casa": la publicación de ML con la que comparte más variantes.
+  //    Es adonde van sus variantes que no tienen par por SKU.
+  const tnByProduct = new Map();
+  for (const r of tnRows) {
+    const pid = String(r.productId);
+    if (!tnByProduct.has(pid)) tnByProduct.set(pid, []);
+    tnByProduct.get(pid).push(r);
+  }
+  const home = new Map();
+  for (const [pid, rows] of tnByProduct) {
+    const votes = new Map();
+    for (const r of rows) {
+      const u = firstUnit(r.sku);
+      if (u) votes.set(u, (votes.get(u) || 0) + 1);
+    }
+    if (!votes.size) continue;
+    const [best] = [...votes].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+    home.set(pid, best[0]);
+  }
+  // Un producto de TN sin ningún SKU en ML pero con un SKU repetido en otro producto de TN que sí
+  // tiene casa (SKU duplicado en TN) va con ese.
+  const tnHomesBySku = new Map();
+  for (const [pid, rows] of tnByProduct) {
+    if (!home.has(pid)) continue;
+    for (const r of rows) if (r.sku && !tnHomesBySku.has(r.sku)) tnHomesBySku.set(r.sku, home.get(pid));
+  }
+  for (const [pid, rows] of tnByProduct) {
+    if (home.has(pid)) continue;
+    const viaTn = rows.map((r) => tnHomesBySku.get(r.sku)).filter(Boolean).sort()[0];
+    if (viaTn) home.set(pid, viaTn);
+  }
+
+  // 3. Lo de TN que no tiene ninguna publicación de ML se agrupa entre sí por SKU.
+  const tnUf = makeUnionFind();
+  const tnOnlyBySku = new Map();
+  for (const [pid, rows] of tnByProduct) {
+    if (home.has(pid)) continue;
+    const node = tnNode(rows[0]);
+    tnUf.find(node);
+    for (const r of rows) {
+      if (!r.sku) continue;
+      if (tnOnlyBySku.has(r.sku)) tnUf.union(tnOnlyBySku.get(r.sku), node);
+      else tnOnlyBySku.set(r.sku, node);
+    }
   }
 
   const groups = new Map();
-  const groupOf = (node) => {
-    const key = uf.find(node);
+  const groupAt = (key) => {
     if (!groups.has(key)) groups.set(key, { key, mlRows: [], tnRows: [] });
     return groups.get(key);
   };
-  for (const r of mlRows) groupOf(mlNode(r)).mlRows.push(r);
-  for (const r of tnRows) groupOf(tnNode(r)).tnRows.push(r);
+  for (const r of mlRows) groupAt(unitOf(r)).mlRows.push(r);
+  for (const r of tnRows) {
+    const pid = String(r.productId);
+    const key = home.has(pid) ? firstUnit(r.sku) || home.get(pid) : tnUf.find(tnNode(r));
+    groupAt(key).tnRows.push(r);
+  }
+  const tnTotalVariants = (pid) => tnByProduct.get(String(pid))?.length || 0;
 
   const out = [];
   for (const g of groups.values()) {
@@ -175,17 +234,23 @@ export function buildHubProducts({ mlRows = [], tnRows = [] } = {}) {
       if (r.variationId) mlByItem.get(r.itemId).variantCount++;
     }
     const tnPubs = [];
-    const tnByProduct = new Map();
+    const pubByProduct = new Map();
     for (const r of g.tnRows) {
-      if (!tnByProduct.has(r.productId)) {
-        const pub = { productId: r.productId, name: r.productName, thumbnail: r.thumbnail || null, variantCount: 0 };
-        tnByProduct.set(r.productId, pub);
+      if (!pubByProduct.has(r.productId)) {
+        const pub = { productId: r.productId, name: r.productName, thumbnail: r.thumbnail || null, variantCount: 0, variantIds: [] };
+        pubByProduct.set(r.productId, pub);
         tnPubs.push(pub);
       }
-      tnByProduct.get(r.productId).variantCount++;
+      pubByProduct.get(r.productId).variantCount++;
+      if (r.variantId != null) pubByProduct.get(r.productId).variantIds.push(r.variantId);
+    }
+    // `shared`: el producto de TN tiene variantes de otra publicación de ML (va en los dos grupos).
+    for (const pub of tnPubs) {
+      pub.totalVariants = tnTotalVariants(pub.productId);
+      pub.shared = pub.variantCount < pub.totalVariants;
     }
 
-    const rows = buildVariantRows(g.mlRows, g.tnRows);
+    const rows = buildVariantRows(g.mlRows, g.tnRows, mlCountBySku);
     const status = groupStatus(mlPubs, tnPubs, rows);
     const sum = (list) => list.reduce((a, r) => a + (Number(r.stock) || 0), 0);
     out.push({
