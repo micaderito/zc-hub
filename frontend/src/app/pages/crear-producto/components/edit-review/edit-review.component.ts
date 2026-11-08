@@ -5,6 +5,9 @@ import { PublishUnit } from '../../../../core/services/catalog.service';
 import { ConfirmDialogComponent } from '../../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { ProductDraftStore } from '../../product-draft.store';
 
+/** Operaciones de publicationDiff.js que borran una variación, un ítem o un producto en el canal. */
+const DELETE_KINDS = ['delete_variation', 'close_item', 'delete_variant', 'delete_product'];
+
 /**
  * Panel "Cambios a aplicar" del modo edición (Publicaciones → Editar publicación): qué se le va a
  * mandar a cada publicación de ML y TN si se guarda, calculado en el backend contra cómo estaba al
@@ -92,8 +95,9 @@ import { ProductDraftStore } from '../../product-draft.store';
             <span class="er-group-title"><span class="dot" [class.dot-ml]="g.channel === 'ml'" [class.dot-tn]="g.channel === 'tn'"></span>{{ g.title }} · {{ g.ops.length }}</span>
             <ul>
               @for (op of g.ops; track op.key) {
-                <li>
+                <li [class.er-del]="isDeletion(op)">
                   <span class="er-op">
+                    @if (isDeletion(op)) { <i class="ti ti-trash"></i> }
                     {{ op.label }}
                     @if (op.warn) { <span class="er-warn"><i class="ti ti-alert-triangle"></i> {{ op.warn }}</span> }
                   </span>
@@ -109,7 +113,7 @@ import { ProductDraftStore } from '../../product-draft.store';
         <button type="button" class="zc-btn" (click)="confirmDiscard.set(true)">
           <i class="ti ti-trash"></i> Descartar edición
         </button>
-        <button type="button" class="zc-btn primary" [disabled]="!ops().length || store.hasPendingUploads() || !!store.editConfirmRemote()" (click)="save.emit()">
+        <button type="button" class="zc-btn primary" [disabled]="!ops().length || store.hasPendingUploads() || !!store.editConfirmRemote()" (click)="requestSave()">
           <i class="ti ti-device-floppy"></i> {{ saveLabel() }}
         </button>
       </div>
@@ -127,6 +131,29 @@ import { ProductDraftStore } from '../../product-draft.store';
         </div>
       }
     </section>
+
+    @if (confirmDelete()) {
+      <zc-confirm-dialog
+        [title]="deletions().length === 1 ? '¿Borrar 1 publicación o variante?' : '¿Borrar ' + deletions().length + ' publicaciones o variantes?'"
+        [confirmLabel]="'Borrar y guardar'"
+        variant="danger"
+        icon="ti-trash"
+        (confirmed)="confirmDelete.set(false); save.emit()"
+        (cancelled)="confirmDelete.set(false)"
+      >
+        <p>Al guardar se borra de verdad en los canales, no solo en el hub:</p>
+        <ul class="er-del-list">
+          @for (op of deletions(); track op.key) {
+            <li>
+              <span class="er-target" [class.ml]="op.channel === 'ml'" [class.tn]="op.channel === 'tn'">{{ op.targetLabel }}</span>
+              {{ op.label }}
+              @if (op.warn) { <span class="er-warn">{{ op.warn }}</span> }
+            </li>
+          }
+        </ul>
+        <p>En Tienda Nube un producto borrado no se puede recuperar. En Mercado Libre una publicación finalizada queda en el historial, pero no vuelve a estar a la venta.</p>
+      </zc-confirm-dialog>
+    }
 
     @if (confirmDiscard()) {
       <zc-confirm-dialog
@@ -149,6 +176,18 @@ export class EditReviewComponent {
   /** Terminó (o se acepta cómo quedó): cerrar la edición y volver al producto. */
   readonly finished = output<void>();
   readonly confirmDiscard = signal(false);
+  readonly confirmDelete = signal(false);
+
+  /** Operaciones que borran algo en un canal: piden confirmación antes de guardar. */
+  isDeletion(op: EditOp): boolean {
+    return DELETE_KINDS.some((k) => op.kind === k || op.kind.startsWith(k + ':'));
+  }
+  readonly deletions = computed(() => this.ops().filter((op) => this.isDeletion(op)));
+
+  requestSave(): void {
+    if (this.deletions().length) this.confirmDelete.set(true);
+    else this.save.emit();
+  }
 
   /** Cada operación que se está guardando, con el resultado de su unidad del job. */
   readonly saveRows = computed(() => {
