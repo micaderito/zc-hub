@@ -96,7 +96,7 @@ publicationEditsRoutes.post('/:id/apply', async (req, res) => {
   const ops = planPublicationUpdate(edit.baseline, draft, edit.refs);
   if (!ops.length) return res.status(400).json({ error: 'No hay cambios para guardar.' });
   if (!req.body?.force) {
-    const changed = await checkRemoteChanges(edit.refs, { saveRefs: (r) => setPublicationEditRefs(edit.id, r) }).catch(() => []);
+    const changed = await checkRemoteChanges(edit.refs, { saveRefs: (r) => setPublicationEditRefs(edit.id, r), ops }).catch(() => []);
     if (changed.length) {
       return res.status(409).json({ code: 'remote_changed', changed, error: 'La publicación cambió en el canal desde que empezaste a editar.' });
     }
@@ -173,8 +173,14 @@ publicationEditsRoutes.post('/:id/plan', async (req, res) => {
 publicationEditsRoutes.get('/:id/remote-check', async (req, res) => {
   const edit = await getPublicationEdit(req.params.id);
   if (!edit) return res.status(404).json({ error: 'Edición no encontrada' });
+  let ops;
   try {
-    res.json({ changed: await checkRemoteChanges(edit.refs, { saveRefs: (r) => setPublicationEditRefs(edit.id, r) }) });
+    ops = planPublicationUpdate(edit.baseline, edit.draft, edit.refs);
+  } catch {
+    ops = undefined; // sin plan, se avisa de todo lo que cambió
+  }
+  try {
+    res.json({ changed: await checkRemoteChanges(edit.refs, { saveRefs: (r) => setPublicationEditRefs(edit.id, r), ops }) });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
