@@ -109,3 +109,9 @@
   p { margin: 0 0 0.5rem; line-height: 1.45; }
   .er-actions { border-top: 0; padding-top: 0; margin-top: 0; }
 }
+
+.er-del .er-op { color: var(--err); }
+.er-del-list {
+  margin: 8px 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13px;
+  li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+}

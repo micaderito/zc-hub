@@ -60,7 +60,12 @@ export interface HubTnPublication {
   productId: number;
   name: string;
   thumbnail: string | null;
+  /** Variantes de este producto de TN que son de ESTE producto del hub. */
   variantCount: number;
+  /** Todas las variantes del producto de TN (más que `variantCount` si es compartido). */
+  totalVariants?: number;
+  /** Tiene variantes de otra publicación de ML: aparece también en ese otro producto del hub. */
+  shared?: boolean;
 }
 
 /** Fila cruda del catálogo de ML (una por variación), tal como la guarda el snapshot. */

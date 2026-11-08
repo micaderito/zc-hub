@@ -72,20 +72,58 @@ test('estados: solo ML, solo TN, stock distinto, variante sin SKU y SKU repetido
   assert.equal(byMl('MLA3').status, 'orphan');
   assert.equal(byMl('MLA3').rows.find((r) => !r.sku).ml.variationId, '2');
   const dup = byMl('MLA4');
-  assert.equal(dup, byMl('MLA5'), 'el SKU repetido junta las dos publis de ML');
+  assert.notEqual(dup, byMl('MLA5'), 'un SKU repetido no junta dos publis de ML');
   assert.equal(dup.status, 'duplicate');
-  assert.equal(dup.rows.filter((r) => r.duplicate).length, 2);
+  assert.equal(byMl('MLA5').status, 'duplicate');
+  assert.ok(dup.rows.every((r) => r.duplicate));
+  assert.ok(dup.rows[0].tn, 'la variante de TN va con la primera publi de ML');
+  assert.equal(byMl('MLA5').rows[0].tn, null);
   // lo que necesita atención va primero
   assert.equal(groups[0].status, 'orphan');
 });
 
 test('el id del grupo no depende del orden de las filas', () => {
-  const a = [ml('MLA9', '1', 'X'), ml('MLA1', '1', 'Y')];
+  const up = (id, sku) => ml(id, null, sku, { format: 'up', familyName: 'Ficha', domainId: 'D' });
+  const a = [up('MLA9', 'X'), up('MLA1', 'Y')];
   const t = [tn(5, 1, 'X'), tn(5, 2, 'Y')];
   const k1 = buildHubProducts({ mlRows: a, tnRows: t })[0].key;
   const k2 = buildHubProducts({ mlRows: [...a].reverse(), tnRows: [...t].reverse() })[0].key;
   assert.equal(k1, k2);
   assert.equal(k1, 'ml:MLA1');
+});
+
+test('un producto de TN con variantes de dos publicaciones de ML distintas no las junta', () => {
+  // Caso real: ML tiene el cuaderno rayado (clásica con variaciones) y el cuadriculado (ficha de
+  // User Products, SKU con "C" adelante); en TN cada diseño es un producto con las dos variantes.
+  const cuad = (id, sku) => ml(id, null, sku, { format: 'up', familyName: 'Cuaderno Cuadriculado', domainId: 'MLA-NOTEBOOKS' });
+  const mlRows = [
+    ml('MLA1370183007', '1', '39000'), ml('MLA1370183007', '2', '39001'),
+    cuad('MLA2166482088', 'C39000'), cuad('MLA2166417472', 'C39001'),
+  ];
+  const tnRows = [
+    tn(170011905, 1, '39000'), tn(170011905, 2, 'C39000'), // Mármol rosa
+    tn(170011756, 3, '39001'), tn(170011756, 4, 'C39001'), // Estrellas
+    tn(170099999, 5, 'SIN-PAR'), tn(170099999, 6, '39001'), // una variante sin par va con su "casa"
+  ];
+  const groups = buildHubProducts({ mlRows, tnRows });
+  assert.equal(groups.length, 2);
+  const rayado = groups.find((g) => g.key === 'ml:MLA1370183007');
+  const cuadric = groups.find((g) => g.key === 'ml:MLA2166417472');
+  assert.deepEqual(rayado.ml.map((p) => p.itemId), ['MLA1370183007']);
+  assert.deepEqual(cuadric.ml.map((p) => p.itemId).sort(), ['MLA2166417472', 'MLA2166482088']);
+  assert.deepEqual(rayado.skus.sort(), ['39000', '39001', 'SIN-PAR']);
+  assert.deepEqual(cuadric.skus.sort(), ['C39000', 'C39001']);
+  const marmol = (g) => g.tn.find((p) => p.productId === 170011905);
+  assert.equal(marmol(rayado).variantCount, 1);
+  assert.equal(marmol(rayado).shared, true);
+  assert.deepEqual(marmol(cuadric).variantIds, [2]);
+  assert.equal(rayado.tn.find((p) => p.productId === 170099999).shared, false);
+});
+
+test('lo que no tiene publicación de ML se sigue agrupando por SKU entre productos de TN', () => {
+  const groups = buildHubProducts({ mlRows: [], tnRows: [tn(1, 1, 'A'), tn(2, 2, 'A'), tn(3, 3, 'B')] });
+  assert.equal(groups.length, 2);
+  assert.equal(groups.find((g) => g.tn.length === 2).status, 'only_tn');
 });
 
 test('snapshot viejo sin `format`: con variación se toma como legacy', () => {

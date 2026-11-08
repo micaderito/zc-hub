@@ -194,6 +194,28 @@ test('importHubProduct lee en vivo las publicaciones del grupo', async () => {
   assert.equal(r.group.key, 'ml:MLA1');
 });
 
+test('importHubProduct: un producto de TN compartido con otra publicación de ML trae solo las variantes de este grupo', async () => {
+  const { item, tnProducts } = legacyFixture();
+  const shared = { ...tnProducts[0], variants: [...tnProducts[0].variants, { id: 1099, sku: 'C-RIV-ROJ', price: '7990.00', stock: 4, values: [] }] };
+  state.catalog = {
+    mlRows: [
+      { itemId: 'MLA1', variationId: '11', sku: 'RIV-ROJ', stock: 3 }, { itemId: 'MLA1', variationId: '12', sku: 'RIV-AZU', stock: 8 },
+      { itemId: 'MLA9', variationId: null, sku: 'C-RIV-ROJ', stock: 4, format: 'simple' },
+    ],
+    tnRows: [
+      { productId: 1, variantId: 1001, sku: 'RIV-ROJ', stock: 5 }, { productId: 1, variantId: 1099, sku: 'C-RIV-ROJ', stock: 4 },
+      { productId: 2, variantId: 1002, sku: 'RIV-AZU', stock: 8 },
+    ],
+  };
+  state.items.MLA1 = item;
+  state.descs.MLA1 = 'Desc';
+  state.products = { 1: shared, 2: tnProducts[1] };
+  const r = await importHubProduct('ml:MLA1');
+  assert.deepEqual(r.draft.variants.map((v) => v.sku).sort(), ['RIV-AZU', 'RIV-ROJ']);
+  assert.equal(r.refs.tn.products.find((p) => p.productId === 1).otherVariants, 1);
+  assert.ok(r.notes.some((n) => n.includes('otra publicación de Mercado Libre')));
+});
+
 test('importHubProduct: grupo inexistente → 404; ML que no contesta → 502 (no arma una edición a medias)', async () => {
   await assert.rejects(importHubProduct('ml:NOPE'), (e) => e.status === 404);
   state.catalog = { mlRows: [{ itemId: 'MLA1', variationId: null, sku: 'X', stock: 1 }], tnRows: [] };

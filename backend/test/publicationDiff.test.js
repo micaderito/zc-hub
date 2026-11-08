@@ -181,6 +181,16 @@ test('TN con varios productos: quitar todas las variantes de un producto lo elim
   assert.match(tn[0].label, /todas sus variantes/);
 });
 
+test('producto de TN compartido con otra publicación de ML: quitar su única variante de acá borra la variante, no el producto', () => {
+  const { draft, baseline, refs } = fixture();
+  const r = clone(refs);
+  r.tn.products[0].otherVariants = 1; // TN-1 también tiene la variante cuadriculada de otra publi de ML
+  const d = clone(draft);
+  d.variants = d.variants.filter((v) => v.id !== 'v1');
+  const tn = planPublicationUpdate(baseline, d, r).filter((o) => o.channel === 'tn');
+  assert.deepEqual(tn.map((o) => `${o.target}:${o.kind}`), ['1:delete_variant:v1']);
+});
+
 test('TN con varios productos: el nombre y las fotos de una variante de un producto con variantes son del producto', () => {
   const { draft, baseline, refs } = twoTnProducts();
   const d = clone(draft);

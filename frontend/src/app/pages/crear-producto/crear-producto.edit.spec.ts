@@ -159,6 +159,28 @@ describe('CrearProductoComponent en modo edición', () => {
     expect(text()).toContain('Guardar en ML y TN');
   });
 
+  it('si el guardado borra variantes o productos pide confirmación listándolos antes de mandar', async () => {
+    await setup();
+    edits.ops = [
+      { key: 'ml:MLA1:delete_variation:v1', channel: 'ml', target: 'MLA1', targetLabel: 'ML-1', kind: 'delete_variation:v1', label: 'Eliminar la variación "Rojo"' },
+      { key: 'tn:5:delete_product', channel: 'tn', target: '5', targetLabel: 'TN-1', kind: 'delete_product', label: 'Eliminar el producto "Rojo"' },
+    ];
+    await component.store.refreshPlan();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const saveBtn = Array.from(el.querySelectorAll('.edit-review button')).find((b) => b.textContent?.includes('Guardar en')) as HTMLButtonElement;
+    saveBtn.click();
+    fixture.detectChanges();
+    expect(edits.apply).not.toHaveBeenCalled();
+    const dialog = el.querySelector('zc-confirm-dialog') as HTMLElement;
+    expect(dialog.textContent).toContain('¿Borrar 2 publicaciones o variantes?');
+    expect(dialog.textContent).toContain('Eliminar el producto "Rojo"');
+    (dialog.querySelector('.zc-confirm-actions .primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await settle();
+    expect(edits.apply).toHaveBeenCalled();
+  });
+
   it('al retomar una edición abierta avisa si la publicación cambió en el canal mientras tanto', async () => {
     await setup((m) => (m.edit = editFixture({ resumed: true })));
     await settle();

@@ -1225,6 +1225,14 @@ de TN — no es 1:1.
   + ítems de ML de la misma ficha de User Products (`family_name` + `domain_id`). Cada componente
   conexa es un producto. El id del grupo es el menor nodo (`ml:MLA…` gana), así no depende del orden
   de las filas y sirve de link (`?p=`).
+- **Manda la publicación de ML** (2026-11-08): dos publicaciones de ML distintas nunca se juntan.
+  Antes un producto de TN con variantes de las dos (caso real: "Mármol rosa" con la rayada `39000`
+  y la cuadriculada `C39000`, que en ML son la clásica y la ficha) las unía en un solo producto. Ahora
+  sus variantes se reparten por SKU y el producto de TN aparece en los dos (`shared`, "de N, las otras
+  son de otra publicación de ML"); sus variantes sin par van a la publicación con la que comparte más.
+  Un SKU repetido en dos publicaciones de ML tampoco las junta: las dos quedan `duplicate`. Al editar,
+  un producto de TN compartido trae solo las variantes de ese grupo (`otherVariants` en `refs`) y
+  quitarlas nunca borra el producto entero (`delete_variant`, no `delete_product`).
 - Estado por grupo: `orphan` (variante en un solo canal o sin SKU) · `duplicate` (SKU repetido en un
   canal) · `desync` (stock distinto) · `only_ml` · `only_tn` · `linked`. La lista ordena lo que
   necesita atención primero; los chips cuentan sobre la búsqueda, sin el filtro de estado.
@@ -1315,6 +1323,8 @@ el panel `zc-edit-review` "Cambios a aplicar").
       en silencio: la operación compara con el ítem que devuelve el PUT y falla si no cambió.
   - Fotos de un ítem legacy: las de una variación que se borra en el mismo guardado se dejan en la
     galería hasta que se borra (si no, ML rechaza `picture_ids` que no están en el ítem).
+  - **Borrar pide confirmación** (2026-11-08): si el guardado trae `delete_variation`/`close_item`/
+    `delete_variant`/`delete_product`, "Guardar" abre un diálogo que lista qué se borra en cada canal.
   - Sigue sin doc: vaciar la descripción de ML (el cliente no lo manda; la operación avisa).
 
 **Historial de publicación** (lo que era toda la página): `product_publish_jobs` +
