@@ -154,6 +154,9 @@
                 @if (p.city) { · {{ p.city }} }
                 @if (units(p) > 1) { · {{ units(p) }} productos }
               </span>
+              @if (purchasedLabel(p); as when) {
+                <span class="pk-when" [title]="'Compra: ' + dateTime(p.createdAt)"><i class="ti ti-clock" aria-hidden="true"></i> Compra {{ when }}</span>
+              }
               <span class="pk-chips">
                 @if (deadlineLabel(p); as dl) { <span class="st err">{{ dl }}</span> }
                 @if (p.bucket === 'dispatched') {

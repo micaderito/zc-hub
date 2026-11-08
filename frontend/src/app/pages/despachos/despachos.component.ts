@@ -346,6 +346,16 @@ export class DespachosComponent {
     return `${p.deadlineHasTime ? `Venció ${day} ${timeAr(p.deadline)}` : `Venció ${day}`} · sin despachar`;
   }
 
+  /** Cuándo se hizo la compra: "hoy 14:32", "ayer 09:10" o "miércoles 05/11 18:40" (hora argentina). */
+  purchasedLabel(p: DispatchPackage): string | null {
+    if (!p.createdAt || Number.isNaN(new Date(p.createdAt).getTime())) return null;
+    const today = this.data()?.today ?? '';
+    const yesterday = today ? new Date(new Date(`${today}T12:00:00-03:00`).getTime() - 86_400_000).toISOString().slice(0, 10) : '';
+    const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: AR_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(p.createdAt));
+    const day = dayKey === today ? 'hoy' : dayKey === yesterday ? 'ayer' : dayLabel(dayKey);
+    return `${day} ${timeAr(p.createdAt)}`;
+  }
+
   dateTime(iso: string | null | undefined): string {
     if (!iso) return '';
     return new Intl.DateTimeFormat('es-AR', { timeZone: AR_TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
