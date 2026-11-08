@@ -1277,6 +1277,10 @@ el panel `zc-edit-review` "Cambios a aplicar").
   la galería y una publicación de 6 ítems importada (la galería junta las fotos de todos) no dejaba
   subir ninguna más. En ese modo `publicationDiff` ya no manda la galería entera a cada ítem, y
   publicar con más fotos en el banco que el tope pide que cada variante tenga las suyas.
+  **También en la clásica con variaciones** (2026-11-08): ahí el tope por variante es
+  `max_pictures_per_var` y el ítem junta las fotos de todas, así que la galería también es un banco
+  (tope × variaciones). Con el tope de un ítem solo (12), una clásica importada ya venía pasada y el
+  botón de subir fotos de ML no aparecía.
 - **Qué cambió** (`publicationDiff.js`, `POST /:id/plan` con el borrador en pantalla, debounce de
   600 ms en el store): una operación por cosa a cambiar en una publicación concreta, con `key`
   estable (será el `unit_key` del job). Lo que no se tocó no genera nada, así guardar no pisa cambios
@@ -1323,6 +1327,13 @@ el panel `zc-edit-review` "Cambios a aplicar").
       en silencio: la operación compara con el ítem que devuelve el PUT y falla si no cambió.
   - Fotos de un ítem legacy: las de una variación que se borra en el mismo guardado se dejan en la
     galería hasta que se borra (si no, ML rechaza `picture_ids` que no están en el ítem).
+  - **Fotos de TN de variantes que no se editan** (2026-11-08): la galería de TN es del producto
+    entero, y `syncTnImages` dejaba el producto con las fotos del form y borraba el resto. En un
+    producto compartido con otra publicación de ML (rayada + cuadriculada) borraba la foto de la
+    variante que no se estaba editando. Ahora nunca borra una foto que es el `image_id` de una
+    variante sin `refs.variants[*].tn` en esta edición (`imagesOfOtherVariants`), y la unidad lo
+    dice en su detalle. En "Cambios a aplicar" la operación de fotos dice cuántas agrega y quita, y
+    avisa si el producto es compartido.
   - **Borrar pide confirmación** (2026-11-08): si el guardado trae `delete_variation`/`close_item`/
     `delete_variant`/`delete_product`, "Guardar" abre un diálogo que lista qué se borra en cada canal.
   - Sigue sin doc: vaciar la descripción de ML (el cliente no lo manda; la operación avisa).

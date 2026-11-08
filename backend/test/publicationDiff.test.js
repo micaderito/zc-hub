@@ -163,6 +163,30 @@ function twoTnProducts() {
   return buildEditDraft({ mlItems: [item], mlDescriptions: { MLA1: 'Desc' }, tnProducts: [tnP(1, 'Cuaderno A4', vars.slice(0, 2)), tnP(2, 'Cuaderno A5', vars.slice(2), { description: { es: 'Otra desc' } })] });
 }
 
+test('fotos del producto: la operación dice qué agrega y qué quita, y avisa si el producto de TN es compartido', () => {
+  const item = {
+    id: 'MLA1', title: 'Cuaderno rayado', category_id: 'MLA1', listing_type_id: 'gold_special', attributes: [],
+    pictures: [{ id: 'P1', secure_url: 'https://ml/1.jpg' }, { id: 'P2', secure_url: 'https://ml/2.jpg' }],
+    variations: [['RAY-A', 'Estrellas', 11], ['RAY-B', 'Fases', 12]].map(([sku, color, id]) => ({ id, price: 100, available_quantity: 1, picture_ids: ['P1'], attribute_combinations: [{ id: 'COLOR', name: 'Color', value_name: color }], attributes: [{ id: 'SELLER_SKU', value_name: sku }] })),
+  };
+  // Un solo producto de TN con las dos variantes rayadas y, además, 1 cuadriculada de otra publicación de ML.
+  const tnP = {
+    id: 7, name: { es: 'Mi Cuaderno A5' }, description: { es: 'Desc' }, categories: [], attributes: [{ es: 'Color' }],
+    images: [{ id: 70, src: 'https://tn/70.jpg' }, { id: 71, src: 'https://tn/71.jpg' }],
+    variants: [{ id: 701, sku: 'RAY-A', price: '90', stock: 1, values: [{ es: 'Estrellas' }] }, { id: 702, sku: 'RAY-B', price: '90', stock: 1, values: [{ es: 'Fases' }] }],
+    otherVariants: 1,
+  };
+  const { draft, baseline, refs } = buildEditDraft({ mlItems: [item], mlDescriptions: { MLA1: 'Desc' }, tnProducts: [tnP] });
+  const d = clone(draft);
+  d.ml.images = d.ml.images.slice(1);
+  d.tn.images = [...d.tn.images.slice(1), { id: 'bbbbbbbb' }];
+  const ops = planPublicationUpdate(baseline, d, refs);
+  assert.equal(ops.find((o) => o.channel === 'ml' && o.kind === 'pictures').label, 'Actualizar las fotos (quita 1)');
+  const tn = ops.find((o) => o.channel === 'tn' && o.kind === 'images');
+  assert.equal(tn.label, 'Actualizar las fotos (agrega 1, quita 1)');
+  assert.match(tn.warn, /otra publicación de ML/);
+});
+
 test('TN con varios productos: quitar UNA variante de un producto con variantes borra la variante, no el producto', () => {
   const { draft, baseline, refs } = twoTnProducts();
   const d = clone(draft);
