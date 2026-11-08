@@ -394,6 +394,16 @@ test('TN: fotos del producto — sube las nuevas, borra las que sobran y ordena'
   assert.deepEqual(callsOf('tn.updateProductImagePosition').map((c) => [c[2], c[3]]), [['51', 1]]);
 });
 
+test('TN: fotos del producto — no borra la foto de una variante que no está en esta edición (producto compartido)', async () => {
+  // El producto 5 también tiene la variante cuadriculada (503), que es de OTRA publicación de ML y usa
+  // la foto 52. En esta edición (la rayada) la foto 52 no está en el form: no se tiene que borrar.
+  state.products[5].images.push({ id: 52, position: 3 });
+  state.products[5].variants.push({ id: 503, sku: 'C-ROJ', image_id: 52 });
+  const unit = await run('tn', payload([op('tn', 5, 'images', { image_ids: ['tn-51'] })]));
+  assert.deepEqual(callsOf('tn.deleteProductImage').map((c) => c[2]), [50], 'borra la 50 (sobra) pero no la 52');
+  assert.match(JSON.stringify(unit), /otra variante del producto/);
+});
+
 test('TN: stock y precio van por las escrituras manuales con historial', async () => {
   await run('tn', payload([op('tn', 5, 'stock:v1', { variantId: 501, stock: 4 }), op('tn', 5, 'price:v1', { variantId: 501, price: 8000 })]));
   assert.deepEqual(callsOf('setTnStockManual')[0].slice(1), ['5', 501, 4]);

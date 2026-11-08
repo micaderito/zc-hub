@@ -36,6 +36,14 @@ const attrKey = (a) => (a?.notApplicable ? '-1' : norm(a?.value).toLowerCase());
 
 /** Ids de imagen en orden → ids de ML/TN existentes o `null` para una foto nueva. */
 const imageIds = (images) => (images || []).map((img) => img.id);
+/** "Actualizar las fotos (agrega 2, quita 1)" / "(cambia el orden)": que se vea qué se va a tocar. */
+function photosLabel(before, after, base = 'Actualizar las fotos') {
+  const b = new Set(before), a = new Set(after);
+  const added = after.filter((id) => !b.has(id)).length;
+  const removed = before.filter((id) => !a.has(id)).length;
+  const parts = [added && `agrega ${added}`, removed && `quita ${removed}`].filter(Boolean);
+  return `${base} (${parts.length ? parts.join(', ') : 'cambia el orden'})`;
+}
 
 /**
  * A qué publicaciones va un cambio "común" (descripción, envío, categorías…). El form muestra el
@@ -58,6 +66,10 @@ function spread(pubs, curOf, before, after) {
 const keptWarn = (labels, what) =>
   labels.length ? `${labels.join(', ')} ${labels.length > 1 ? 'tenían' : 'tenía'} otro valor en «${what}»: ahí no se cambia.` : undefined;
 const joinWarn = (...w) => w.filter(Boolean).join(' ') || undefined;
+/** Producto de TN que también tiene variantes de otra publicación de ML: sus fotos no se tocan. */
+const sharedPhotosWarn = (p) => (Number(p?.otherVariants) > 0
+  ? 'Este producto de Tienda Nube también tiene variantes de otra publicación de ML: las fotos que usan esas variantes no se borran.'
+  : undefined);
 
 export function planPublicationUpdate(baseline, draft, refs) {
   const ops = [];
@@ -152,7 +164,7 @@ export function planPublicationUpdate(baseline, draft, refs) {
       // En una publicación con variaciones la galería es del ítem; en una ficha de User Products
       // cada ítem tiene la suya y se arma con las fotos de su variante (bloque de variantes).
       for (const it of mlItems.filter((x) => x.format !== 'up' || mlItems.length === 1)) {
-        mlOp(it.itemId, 'pictures', 'Actualizar las fotos', { image_ids: imageIds(d.ml.images) });
+        mlOp(it.itemId, 'pictures', photosLabel(imageIds(b.ml.images), imageIds(d.ml.images)), { image_ids: imageIds(d.ml.images) });
       }
     }
   }
@@ -210,7 +222,9 @@ export function planPublicationUpdate(baseline, draft, refs) {
       }
     }
     if (d.tn.mappingMode === 'single_with_variants' && !same(imageIds(b.tn.images), imageIds(d.tn.images))) {
-      for (const p of tnProducts) tnOp(p.productId, 'images', 'Actualizar las fotos', { image_ids: imageIds(d.tn.images) });
+      for (const p of tnProducts) {
+        tnOp(p.productId, 'images', photosLabel(imageIds(b.tn.images), imageIds(d.tn.images)), { image_ids: imageIds(d.tn.images) }, sharedPhotosWarn(p));
+      }
     }
   }
 
@@ -231,7 +245,8 @@ export function planPublicationUpdate(baseline, draft, refs) {
     }
     if (base.tn && norm(b.common.barcode) !== norm(d.common.barcode)) tnOp(base.tn.productId, 'barcode', 'Cambiar el código de barras', { variantId: base.tn.variantId, barcode: d.common.barcode });
     if (base.tn && d.tn.mappingMode !== 'single_with_variants' && !same(imageIds(b.tn.images), imageIds(d.tn.images))) {
-      tnOp(base.tn.productId, 'images', 'Actualizar las fotos', { image_ids: imageIds(d.tn.images) });
+      tnOp(base.tn.productId, 'images', photosLabel(imageIds(b.tn.images), imageIds(d.tn.images)), { image_ids: imageIds(d.tn.images) },
+        sharedPhotosWarn(tnProducts.find((p) => String(p.productId) === String(base.tn.productId))));
     }
     return ops;
   }
