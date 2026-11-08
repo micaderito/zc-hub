@@ -18,6 +18,11 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop, 0 10px 40px rgba(0, 0, 0, 0.25));
   padding: 1.25rem;
+  // Con mucho contenido (ej. la lista de borrados al guardar una publicación) la tarjeta no pasa
+  // del alto de la ventana: scrollea solo el cuerpo y el título y los botones quedan siempre a la vista.
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
 }
 
 .zc-confirm-head {
@@ -37,6 +42,9 @@
   line-height: 1.5;
   color: var(--text-2);
   margin-bottom: 1.1rem;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 
   p { margin: 0; }
 }
