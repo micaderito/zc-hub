@@ -678,6 +678,27 @@ function makeTnContext(payload) {
   };
 }
 
+/**
+ * Ids de las fotos de TN que usan las variantes del producto que no están en esta edición (no tienen
+ * `refs.variants[*].tn` de ese producto). Una variante que se crea en este mismo guardado también cae
+ * acá: proteger de más nunca borra nada.
+ */
+async function imagesOfOtherVariants(ctx, productId) {
+  const own = new Set(
+    Object.values(ctx.payload.refs?.variants || {})
+      .map((r) => r?.tn)
+      .filter((t) => t && String(t.productId) === String(productId))
+      .map((t) => String(t.variantId))
+  );
+  const product = await ctx.product(productId, { fresh: true });
+  const out = new Set();
+  for (const v of product.variants || []) {
+    if (own.has(String(v.id)) || v.image_id == null) continue;
+    out.add(String(v.image_id));
+  }
+  return out;
+}
+
 /** Deja las fotos de un producto de TN como dice el borrador: crea las que faltan, borra las que sobran y ordena. */
 async function syncTnImages(ctx, productId, desiredIds) {
   const d = ctx.payload.draft;
@@ -703,9 +724,17 @@ async function syncTnImages(ctx, productId, desiredIds) {
     }
     finalIds.push(String(created.id));
   }
+  // La galería de TN es del producto entero. Una foto que usa una variante que NO está en esta edición
+  // (la cuadriculada de un producto compartido con otra publicación de ML, ver buildHubProducts) no se
+  // borra aunque no esté en el form: esa variante no se está editando y se quedaría sin foto.
+  const kept = await imagesOfOtherVariants(ctx, productId);
+  let keptCount = 0;
   for (const img of current) {
-    if (!finalIds.includes(String(img.id))) await tn.deleteProductImage(ctx.token, ctx.storeId, productId, img.id);
+    if (finalIds.includes(String(img.id))) continue;
+    if (kept.has(String(img.id))) { keptCount++; continue; }
+    await tn.deleteProductImage(ctx.token, ctx.storeId, productId, img.id);
   }
+  ctx.keptTnImages = (ctx.keptTnImages || 0) + keptCount;
   for (let i = 0; i < finalIds.length; i++) {
     const before = byId.get(finalIds[i]);
     if (before && Number(before.position) !== i + 1) await tn.updateProductImagePosition(ctx.token, ctx.storeId, productId, finalIds[i], i + 1);
@@ -790,8 +819,10 @@ async function runTnOp(ctx, op) {
         await setTnVariantImage(ctx, productId, p.variantId, ids[0]);
         return {};
       }
+      const before = ctx.keptTnImages || 0;
       const finalIds = await syncTnImages(ctx, productId, ids);
-      return { detail: `${finalIds.length} fotos` };
+      const kept = (ctx.keptTnImages || 0) - before;
+      return { detail: `${finalIds.length} fotos${kept ? ` · se dejaron ${kept === 1 ? '1 foto' : `${kept} fotos`} que usa otra variante del producto` : ''}` };
     }
     case 'variant': {
       const product = await ctx.product(productId);
