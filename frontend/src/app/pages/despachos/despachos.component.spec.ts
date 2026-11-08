@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { DispatchList, DispatchNotes, DispatchPackage, DispatchService } from '../../core/services/dispatch.service';
-import { DespachosComponent, countdown } from './despachos.component';
+import { DespachosComponent, countdown, dayLabel } from './despachos.component';
 
 const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
@@ -113,6 +113,23 @@ describe('DespachosComponent', () => {
     expect(el.textContent).not.toContain('Cargando notas de ML…');
     expect(el.querySelectorAll('.pk-notes').length).toBe(1);
     expect(el.querySelector('.pk-notes')!.textContent).toContain('Va con moño');
+  });
+
+  it('cada venta muestra a qué hora se hizo la compra (hora argentina)', async () => {
+    await load([
+      pkg({ saleId: 'h', createdAt: '2026-10-09T17:32:00.000Z' }), // hoy 14:32 AR
+      pkg({ saleId: 'y', createdAt: '2026-10-08T12:05:00.000Z' }), // ayer 09:05 AR
+      pkg({ saleId: 'o', createdAt: '2026-10-06T21:40:00.000Z' }), // lunes 06/10 18:40 AR
+      pkg({ saleId: 'n', createdAt: null }),
+    ]);
+    const label = (id: string) => component.purchasedLabel(pkg({ saleId: id, createdAt: { h: '2026-10-09T17:32:00.000Z', y: '2026-10-08T12:05:00.000Z', o: '2026-10-06T21:40:00.000Z' }[id] ?? null }));
+    expect(label('h')).toBe('hoy 14:32');
+    expect(label('y')).toBe('ayer 09:05');
+    expect(label('o')).toBe(`${dayLabel('2026-10-06')} 18:40`); // martes 6/10
+    expect(label('n')).toBeNull();
+    const whens = fixture.nativeElement.querySelectorAll('.pk-when');
+    expect(whens.length).toBe(3);
+    expect(fixture.nativeElement.textContent).toContain('Compra hoy 14:32');
   });
 
   it('si alguna nota no se pudo leer, avisa', async () => {
