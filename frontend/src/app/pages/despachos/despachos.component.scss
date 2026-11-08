@@ -186,6 +186,10 @@
 .pk-sale { font-size: 13px; font-weight: 500; color: var(--text); text-decoration: none; }
 a.pk-sale:hover { color: var(--brand); text-decoration: underline; }
 .pk-meta { font-size: 12px; color: var(--text-2); }
+.pk-when {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 12px; color: var(--text-3, var(--text-2)); white-space: nowrap;
+}
 .pk-chips { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; }
 .st {
   display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
