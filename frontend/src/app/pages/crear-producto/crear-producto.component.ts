@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/services/api.service';
@@ -123,6 +123,21 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   readonly publishing = signal(false);
   /** Menú desplegable de "Publicar en ambos ▾" para elegir publicar solo ML o solo TN. */
   readonly publishMenuOpen = signal(false);
+  private readonly host = inject(ElementRef<HTMLElement>);
+
+  /** El menú de "Publicar ▾" se cierra al tocar afuera (en el celu no hay otra forma obvia) o con Esc. */
+  @HostListener('document:click', ['$event'])
+  protected onDocumentClick(ev: Event): void {
+    if (!this.publishMenuOpen()) return;
+    const split = (this.host.nativeElement as HTMLElement).querySelector('.publish-split');
+    if (split && ev.target instanceof Node && split.contains(ev.target)) return;
+    this.publishMenuOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  protected onEscape(): void {
+    if (this.publishMenuOpen()) this.publishMenuOpen.set(false);
+  }
   /**
    * Progreso granular del job en curso (una fila por ítem ML / producto TN ya confirmado o
    * fallido) — se actualiza en cada vuelta del polling, así la usuaria ve "2 de 3 en ML" sin

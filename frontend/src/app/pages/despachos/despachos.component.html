@@ -199,6 +199,11 @@
                 </li>
               }
             </ul>
+            @if (p.bucket !== 'dispatched') {
+              <button type="button" class="pk-done" [class.undo]="p.preparedAt" (click)="togglePrepared(p)">
+                @if (p.preparedAt) { <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Preparado ✓ (deshacer) } @else { <i class="ti ti-check" aria-hidden="true"></i> Marcar preparado }
+              </button>
+            }
           </article>
         }
         }

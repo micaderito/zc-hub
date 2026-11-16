@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 :host {
   display: block;
   padding: 18px 20px 90px;
@@ -28,16 +30,19 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  &:hover { background: var(--surface-2); }
+  @include m.hover { &:hover { background: var(--surface-2); } }
   &.pri { background: var(--brand); color: var(--brand-contrast); border-color: transparent; }
-  &.pri:hover { filter: brightness(1.08); }
+  @include m.hover { &.pri:hover { filter: brightness(1.08); } }
   &:disabled { opacity: 0.45; cursor: default; }
 }
 .icon-btn {
   border: none; background: none; color: var(--text-2); cursor: pointer;
   padding: 4px; border-radius: 6px; font-size: 15px; line-height: 1;
-  &:hover { background: var(--surface-2); color: var(--text); }
-  &.danger:hover { color: var(--err); }
+  @include m.hover {
+    &:hover { background: var(--surface-2); color: var(--text); }
+    &.danger:hover { color: var(--err); }
+  }
+  @include m.tap-target(40px);
   &:disabled { opacity: 0.35; cursor: default; }
 }
 
@@ -170,7 +175,8 @@
   font: inherit; padding: 7px 10px; border: none; background: none; cursor: pointer;
   border-bottom: 0.5px solid var(--border);
   &:last-child { border-bottom: none; }
-  &:hover { background: var(--surface-2); }
+  @include m.hover { &:hover { background: var(--surface-2); } }
+  @include m.touch { min-height: 48px; }
   .result-thumb {
     width: 28px; height: 28px; object-fit: cover; border-radius: 6px; flex-shrink: 0;
   }
@@ -195,3 +201,36 @@
 }
 
 .spacer { flex: 1; }
+
+/* ── Celular / tablet ── */
+@include m.phone {
+  :host { padding: 14px 16px calc(24px + var(--zc-tabbar-h)); }
+  .dp-head { flex-wrap: wrap; align-items: flex-start; }
+  .dp-search { flex: 1; input { width: 100%; box-sizing: border-box; } }
+  .dp-table-wrap { border: none; border-radius: 0; background: none; overflow: visible; }
+  .sku-results { max-height: 40vh; max-height: 40dvh; }
+  .seg { width: 100%; button { flex: 1; min-height: 44px; } }
+  .modal-foot .btn { min-height: 44px; }
+}
+@include m.stack-table('.dp-table');
+@include m.phone {
+  .dp-table {
+    td { font-size: 13px; }
+    td.cell-main { grid-column: 1; grid-row: 1; font-size: 14px; font-weight: 500; }
+    td.cell-type { grid-column: 2; grid-row: 1; justify-self: end; }
+    td.notes { max-width: none; white-space: normal; }
+    td.cell-qty { grid-column: 1 / -1; }
+    .qty-stepper {
+      gap: 8px;
+      .icon-btn { width: 44px; height: 44px; font-size: 18px; display: inline-flex; align-items: center; justify-content: center; }
+      .qty-val { min-width: 40px; font-size: 16px; font-weight: 600; }
+    }
+    td.cell-actions {
+      justify-content: space-between;
+      padding-top: 4px;
+      border-top: 0.5px solid var(--border);
+      .icon-btn { width: 44px; height: 44px; font-size: 18px; display: inline-flex; align-items: center; justify-content: center; }
+    }
+  }
+}
+@include m.sheet('.modal-backdrop', '.modal', '.modal-foot');

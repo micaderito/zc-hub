@@ -191,6 +191,32 @@ describe('PreciosComponent', () => {
     expect(text()).not.toContain('Repuesto rojo');
   });
 
+  // En tablet/celular se esconden columnas por CSS: el encabezado del pack ajusta sus colspan para
+  // que los precios sigan debajo de las columnas TN / ML.
+  function spanOfPackHeader(): number[] {
+    const cells = fixture.nativeElement.querySelectorAll('tr.group-row:first-of-type > td') as NodeListOf<HTMLTableCellElement>;
+    return Array.from(cells).map((c) => c.colSpan);
+  }
+  function fakeViewport(width: number) {
+    spyOn(window, 'matchMedia').and.callFake((q: string) => {
+      const max = Number(/max-width:\s*(\d+)px/.exec(q)?.[1] ?? Infinity);
+      return { matches: width <= max, addEventListener: () => {}, removeEventListener: () => {} } as unknown as MediaQueryList;
+    });
+  }
+
+  it('en escritorio el encabezado del pack ocupa las 9 columnas de siempre', async () => {
+    fakeViewport(1280);
+    await render();
+    expect(spanOfPackHeader()).toEqual([1, 4, 1, 1, 2]);
+  });
+
+  it('en tablet y celular el encabezado del pack se ajusta a las columnas que quedan', async () => {
+    fakeViewport(390);
+    await render();
+    expect(spanOfPackHeader()).toEqual([1, 2, 1, 1, 1]);
+    expect(planilla().fullSpan()).toBe(6);
+  });
+
   it('una búsqueda abre los packs y también busca por nombre de publicación', async () => {
     await render();
     planilla().search.set('azul');

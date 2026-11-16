@@ -57,27 +57,27 @@
         <tbody>
           @for (item of filteredItems(); track item.id) {
             <tr>
-              <td>
+              <td class="cell-type">
                 @if (item.itemType === 'producto') {
                   <span class="badge prod"><i class="ti ti-box"></i> Producto</span>
                 } @else {
                   <span class="badge pack"><i class="ti ti-package"></i> Embalaje</span>
                 }
               </td>
-              <td>{{ item.label }}</td>
-              <td><span class="sku">{{ item.sku || '—' }}</span></td>
-              <td class="num">
+              <td class="cell-main">{{ item.label }}</td>
+              <td data-label="SKU"><span class="sku">{{ item.sku || '—' }}</span></td>
+              <td class="num cell-qty" data-label="Cantidad">
                 <div class="qty-stepper">
-                  <button type="button" class="icon-btn" *zcCanWrite [disabled]="item.quantity === 0 || adjustingId() === item.id" (click)="adjust(item, -1)" title="Restar 1"><i class="ti ti-minus"></i></button>
+                  <button type="button" class="icon-btn" *zcCanWrite [disabled]="item.quantity === 0 || adjustingId() === item.id" (click)="adjust(item, -1)" title="Restar 1" aria-label="Restar 1"><i class="ti ti-minus"></i></button>
                   <span class="qty-val">{{ item.quantity }}</span>
-                  <button type="button" class="icon-btn" *zcCanWrite [disabled]="adjustingId() === item.id" (click)="adjust(item, 1)" title="Sumar 1"><i class="ti ti-plus"></i></button>
+                  <button type="button" class="icon-btn" *zcCanWrite [disabled]="adjustingId() === item.id" (click)="adjust(item, 1)" title="Sumar 1" aria-label="Sumar 1"><i class="ti ti-plus"></i></button>
                 </div>
               </td>
-              <td>{{ item.unit }}</td>
-              <td class="notes">{{ item.notes || '—' }}</td>
-              <td class="col-actions">
-                <ng-container *zcCanWrite><button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar"><i class="ti ti-pencil"></i></button>
-                <button type="button" class="icon-btn danger" (click)="remove(item)" title="Borrar"><i class="ti ti-trash"></i></button></ng-container>
+              <td data-label="Unidad">{{ item.unit }}</td>
+              <td class="notes cell-wide" data-label="Notas">{{ item.notes || '—' }}</td>
+              <td class="col-actions cell-actions">
+                <ng-container *zcCanWrite><button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar" aria-label="Editar"><i class="ti ti-pencil"></i></button>
+                <button type="button" class="icon-btn danger" (click)="remove(item)" title="Borrar" aria-label="Borrar"><i class="ti ti-trash"></i></button></ng-container>
               </td>
             </tr>
           }
@@ -131,7 +131,7 @@
                       <div class="sku-result-hint">Sin resultados para "{{ skuQuery() }}".</div>
                     } @else {
                       @for (o of filteredCatalogOptions(); track o.sku) {
-                        <button type="button" class="sku-result" (click)="selectSku(o)">
+                        <button type="button" class="sku-result" (pointerdown)="onSkuResultPointerDown($event, o)" (click)="selectSku(o)">
                           @if (o.thumbnail) {
                             <img [src]="o.thumbnail" alt="" class="result-thumb" />
                           } @else {
@@ -160,7 +160,7 @@
 
         <div class="grid2">
           <label class="fld">Cantidad
-            <input type="number" min="0" [ngModel]="form().quantity" (ngModelChange)="updateForm('quantity', $event)" />
+            <input type="number" min="0" inputmode="numeric" [ngModel]="form().quantity" (ngModelChange)="updateForm('quantity', $event)" />
           </label>
           <label class="fld">Unidad
             <input type="text" [ngModel]="form().unit" (ngModelChange)="updateForm('unit', $event)" placeholder="unidades, rollos…" />

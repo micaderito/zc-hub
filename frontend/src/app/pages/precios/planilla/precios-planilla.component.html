@@ -102,14 +102,14 @@
     <table class="pr-table">
       <thead>
         <tr>
-          <th class="col-check"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th>
+          <th class="col-check"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" aria-label="Seleccionar todos" /></th>
           <th>Producto</th>
-          <th class="num">Bulto</th>
-          <th>Descuento</th>
+          <th class="num col-bulk">Bulto</th>
+          <th class="col-disc">Descuento</th>
           <th class="num" title="En cuánto te queda cada unidad, con el descuento">Costo u.</th>
           <th class="num tn">Tienda Nube ↑</th>
           <th class="num ml">Mercado Libre ↑</th>
-          <th class="num">Te queda</th>
+          <th class="num col-net">Te queda</th>
           <th class="col-actions"></th>
         </tr>
       </thead>
@@ -125,7 +125,7 @@
                 [attr.aria-label]="'Seleccionar todo el pack ' + group.pack.name"
               />
             </td>
-            <td [attr.colspan]="4">
+            <td [attr.colspan]="packSpan()">
               <button
                 type="button"
                 class="group-toggle"
@@ -153,6 +153,7 @@
                 <input
                   class="zc-input price-input"
                   type="number"
+                  inputmode="decimal"
                   [ngModel]="packPriceValue(group.tn)"
                   [placeholder]="(group.tn.min | currency:'ARS':'symbol':'1.0-0') + ' – ' + (group.tn.max | currency:'ARS':'symbol':'1.0-0')"
                   [ngModelOptions]="{ updateOn: 'blur' }"
@@ -168,6 +169,7 @@
                 <input
                   class="zc-input price-input"
                   type="number"
+                  inputmode="decimal"
                   [ngModel]="packPriceValue(group.ml)"
                   [placeholder]="(group.ml.min | currency:'ARS':'symbol':'1.0-0') + ' – ' + (group.ml.max | currency:'ARS':'symbol':'1.0-0')"
                   [ngModelOptions]="{ updateOn: 'blur' }"
@@ -178,7 +180,7 @@
                 <ng-container *ngTemplateOutlet="trendTpl; context: { $implicit: group.mlTrend }" />
               </div>
             </td>
-            <td colspan="2"></td>
+            <td [attr.colspan]="tailSpan()"></td>
           </tr>
           @if (isPackExpanded(group.pack.packId)) {
             @for (row of group.rows; track row.sku) {
@@ -189,7 +191,7 @@
         @if (priceGroups().noPack.length > 0) {
           @if (priceGroups().groups.length > 0) {
             <tr class="group-row">
-              <td [attr.colspan]="9">
+              <td [attr.colspan]="fullSpan()">
                 <div class="group-row-inner group-static"><i class="ti ti-package-off" aria-hidden="true"></i> <b>Sin pack</b></div>
               </td>
             </tr>
@@ -200,7 +202,7 @@
         }
         @if (filteredRows().length === 0 && (onlyPending() || filteredUncosted().length === 0)) {
           <tr>
-            <td colspan="9" class="pr-none">
+            <td [attr.colspan]="fullSpan()" class="pr-none">
               @if (onlyPending() && !search().trim()) {
                 <i class="ti ti-circle-check"></i> No hay nada pendiente: lo publicado en ML y TN coincide con lo calculado.
               } @else {
@@ -303,7 +305,7 @@
 <ng-template #priceRowTpl let-row let-inPack="inPack">
   <tr [class.row-unmapped]="!row.mappedMl && !row.mappedTn" [class.row-changed]="store.changedSkus().has(row.sku)" [class.row-in-pack]="inPack">
     <td class="col-check">
-      <input type="checkbox" [checked]="selected().has(row.sku)" (change)="toggleRow(row.sku)" />
+      <input type="checkbox" [checked]="selected().has(row.sku)" (change)="toggleRow(row.sku)" [attr.aria-label]="'Seleccionar ' + row.sku" />
     </td>
     <td>
       <div class="pr-prod">
@@ -331,7 +333,7 @@
         </span>
       </div>
     </td>
-    <td class="num">
+    <td class="num col-bulk">
       @if (row.bulkPrice != null) {
         <span class="cell-main">{{ row.bulkPrice | currency:'ARS':'symbol':'1.0-0' }}</span>
         <span class="cell-sub">{{ row.bulkQty }} u. · {{ row.unitListPrice | currency:'ARS':'symbol':'1.0-0' }} c/u</span>
@@ -339,7 +341,7 @@
         <span class="muted">{{ row.bulkQty ?? '—' }}</span>
       }
     </td>
-    <td class="disc-cell" [attr.title]="discountChain(row) || null">
+    <td class="disc-cell col-disc" [attr.title]="discountChain(row) || null">
       @if (row.discount; as d) {
         <span class="badge disc" [class.own]="d.level === 'sku'" [class.none]="d.level === 'none'">
           @if (d.level === 'pack') { <i class="ti ti-stack-2" aria-hidden="true"></i> }
@@ -352,15 +354,19 @@
     </td>
     <td class="num">
       <span class="cell-main">{{ row.unitCost | currency:'ARS':'symbol':'1.0-0' }}</span>
+      <!-- En pantallas táctiles el detalle del descuento (que con mouse es el tooltip) va a la vista -->
+      @if (discountChain(row); as chain) { <span class="cell-sub chain-touch">{{ chain }}</span> }
     </td>
     <td class="num tn">
       <div class="price-cell">
         <input
           class="zc-input price-input"
           type="number"
+          inputmode="decimal"
           [ngModel]="row.tn.effective"
           [ngModelOptions]="{ updateOn: 'blur' }"
           (ngModelChange)="updateOverride(row, 'tn', $event)"
+          [attr.aria-label]="'Precio de Tienda Nube de ' + row.sku"
         />
         @if (row.tn.override != null) {
           <span class="calc-ref" title="Precio calculado">calc. {{ row.tn.list | currency:'ARS':'symbol':'1.0-0' }}</span>
@@ -373,9 +379,11 @@
         <input
           class="zc-input price-input"
           type="number"
+          inputmode="decimal"
           [ngModel]="row.mlEffective"
           [ngModelOptions]="{ updateOn: 'blur' }"
           (ngModelChange)="updateOverride(row, 'ml', $event)"
+          [attr.aria-label]="'Precio de Mercado Libre de ' + row.sku"
         />
         @if (row.mlOverride != null) {
           <span class="calc-ref" title="Precio calculado">calc. {{ row.ml | currency:'ARS':'symbol':'1.0-0' }}</span>
@@ -384,14 +392,14 @@
       @if (row.freeShipping) { <i class="ti ti-truck" title="En zona de envío gratis"></i> }
       <ng-container *ngTemplateOutlet="publishedTpl; context: { current: row.currentMl, next: row.mlEffective, pending: row.pendingMl, queued: row.mlQueued }" />
     </td>
-    <td class="num net">
+    <td class="num net col-net">
       <span class="cell-main">{{ row.mlNet | currency:'ARS':'symbol':'1.0-0' }}</span>
       <span class="cell-sub" title="Valor final: lo que querés netear (costo + ganancia)">v. final {{ row.valorFinal | currency:'ARS':'symbol':'1.0-0' }}</span>
     </td>
     <td class="col-actions">
-      <button type="button" class="icon-btn" (click)="historySku.set(row.sku)" title="Ver historial"><i class="ti ti-history"></i></button>
-      <button type="button" class="icon-btn" (click)="store.open({ kind: 'cost', row })" title="Editar costo"><i class="ti ti-pencil"></i></button>
-      <button type="button" class="icon-btn danger" (click)="removeCost(row.sku)" title="Borrar"><i class="ti ti-trash"></i></button>
+      <button type="button" class="icon-btn" (click)="historySku.set(row.sku)" title="Ver historial" aria-label="Ver historial"><i class="ti ti-history"></i></button>
+      <button type="button" class="icon-btn" (click)="store.open({ kind: 'cost', row })" title="Editar costo" aria-label="Editar costo"><i class="ti ti-pencil"></i></button>
+      <button type="button" class="icon-btn danger" (click)="removeCost(row.sku)" title="Borrar" aria-label="Borrar costo"><i class="ti ti-trash"></i></button>
     </td>
   </tr>
 </ng-template>
@@ -399,26 +407,26 @@
 <!-- Barra de acción -->
 @if (store.rows().length > 0 || store.uncosted().length > 0) {
   <div class="pr-actionbar">
-    <div class="pr-sel"><b>{{ selectedCount() }}</b> seleccionados</div>
-    <button type="button" class="btn" [disabled]="selectedCount() === 0" (click)="loadCostForSelected()" title="El mismo costo para todo lo seleccionado">
+    <div class="pr-sel"><b>{{ selectedCount() }}</b><span class="pr-sel-txt"> seleccionados</span></div>
+    <button type="button" class="btn" [disabled]="selectedCount() === 0" (click)="loadCostForSelected()" title="El mismo costo para todo lo seleccionado" aria-label="Cargar costo">
       <i class="ti ti-coin"></i> Cargar costo…
     </button>
-    <button type="button" class="btn" [disabled]="selectedCount() === 0 || store.suppliers().length === 0" (click)="assignMode.set('discount')">
+    <button type="button" class="btn" [disabled]="selectedCount() === 0 || store.suppliers().length === 0" (click)="assignMode.set('discount')" aria-label="Asignar descuento">
       <i class="ti ti-discount"></i> Asignar descuento…
     </button>
-    <button type="button" class="btn" [disabled]="selectedCount() === 0 || store.suppliers().length === 0" (click)="assignMode.set('vigente')">
+    <button type="button" class="btn" [disabled]="selectedCount() === 0 || store.suppliers().length === 0" (click)="assignMode.set('vigente')" aria-label="Proveedor vigente">
       <i class="ti ti-building-store"></i> Proveedor vigente…
     </button>
     @if (store.currentSupplier(); as sup) {
       <button type="button" class="btn" [disabled]="selectedCount() === 0" (click)="assignMode.set('remove')"
-              [title]="'Dejar de comprarle estos productos a ' + sup.name">
+              [title]="'Dejar de comprarle estos productos a ' + sup.name" [attr.aria-label]="'Quitar de ' + sup.name">
         <i class="ti ti-unlink"></i> Quitar de {{ sup.name }}…
       </button>
     }
     <div class="spacer"></div>
     <button type="button" class="btn pri" [disabled]="selectedCosted().length === 0 || applying()" (click)="apply()">
       <i class="ti ti-rocket"></i>
-      {{ applying() ? 'Encolando…' : 'Aplicar a ML y TN' }}
+      <span>{{ applying() ? 'Encolando…' : 'Aplicar a ML y TN' }}</span>
     </button>
   </div>
 }

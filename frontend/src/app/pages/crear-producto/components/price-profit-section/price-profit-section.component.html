@@ -78,23 +78,23 @@
     <div class="grid-2 field">
       <label>
         <span class="lbl">Precio por bulto</span>
-        <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().cost.bulkPrice" (ngModelChange)="store.touch()" />
+        <input class="zc-input" type="number" inputmode="decimal" min="0" [(ngModel)]="store.draft().cost.bulkPrice" (ngModelChange)="store.touch()" />
       </label>
       <label>
         <span class="lbl">Unidades por bulto</span>
-        <input class="zc-input" type="number" min="1" [(ngModel)]="store.draft().cost.bulkQty" (ngModelChange)="store.touch()" />
+        <input class="zc-input" type="number" inputmode="numeric" min="1" [(ngModel)]="store.draft().cost.bulkQty" (ngModelChange)="store.touch()" />
       </label>
     </div>
   } @else {
     <label class="field">
       <span class="lbl">Costo unitario</span>
-      <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().cost.unitCost" (ngModelChange)="store.touch()" />
+      <input class="zc-input" type="number" inputmode="decimal" min="0" [(ngModel)]="store.draft().cost.unitCost" (ngModelChange)="store.touch()" />
     </label>
   }
 
   <label class="field">
     <span class="lbl">Ganancia deseada (%)</span>
-    <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().cost.marginPct" (ngModelChange)="store.touch()" />
+    <input class="zc-input" type="number" inputmode="decimal" min="0" [(ngModel)]="store.draft().cost.marginPct" (ngModelChange)="store.touch()" />
   </label>
 
   @if (store.costPreview(); as cp) {

@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .conflicts {
   h1 {
     font-size: 1.4rem;
@@ -42,8 +44,9 @@
     gap: 0.4rem;
     transition: background 0.15s ease;
 
-    &:hover:not(:disabled) { background: var(--surface-2); }
+    @include m.hover { &:hover:not(:disabled) { background: var(--surface-2); } }
     &:disabled { opacity: 0.5; cursor: default; }
+    @include m.touch { min-height: 40px; }
 
     .ti.spinning { animation: spin 0.7s linear infinite; }
   }
@@ -137,6 +140,7 @@
     .summary-metrics {
       flex: 2;
       min-width: 260px;
+      @include m.phone { min-width: 0; flex-basis: 100%; }
       border: 0.5px solid var(--border);
       border-radius: var(--radius-md);
       padding: 0.75rem 1rem;
@@ -345,10 +349,8 @@
           border-radius: 4px;
         }
 
-        &:hover {
-          background: var(--brand-bg);
-          border-color: var(--brand);
-          color: var(--brand);
+        @include m.hover {
+          &:hover { background: var(--brand-bg); border-color: var(--brand); color: var(--brand); }
         }
       }
     }
@@ -434,13 +436,14 @@
         border-radius: var(--radius-md);
         cursor: pointer;
         transition: background 0.15s ease, opacity 0.15s ease;
+        @include m.touch { min-height: 40px; }
 
         &:first-child {
           background: var(--surface-2);
           border: 0.5px solid var(--border);
           color: var(--text);
 
-          &:hover { background: var(--border); }
+          @include m.hover { &:hover { background: var(--border); } }
         }
 
         &[disabled] { opacity: 0.5; cursor: not-allowed; }
@@ -450,7 +453,7 @@
           color: var(--brand-contrast);
           border: none;
 
-          &:hover:not([disabled]) { opacity: 0.9; }
+          @include m.hover { &:hover:not([disabled]) { opacity: 0.9; } }
         }
       }
     }
@@ -492,6 +495,38 @@
       color: var(--text);
 
       &:focus { outline: none; border-color: var(--brand); }
+    }
+  }
+}
+
+/* ---- Celular: modales como hoja desde abajo ---- */
+.conflicts {
+  @include m.sheet('.modal', '.modal-content', '.modal-content .modal-actions');
+  @include m.phone {
+    .modal-content {
+      padding-bottom: 0;
+
+      .modal-actions {
+        margin: 1.25rem -1.5rem 0;
+        padding: 0.75rem 1.5rem calc(0.75rem + env(safe-area-inset-bottom));
+        border-top: 0.5px solid var(--border);
+        button { flex: 1; }
+      }
+      .link-modal-search {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        max-width: none;
+        box-shadow: 0 0.4rem 0 var(--surface);
+      }
+      .pick-list {
+        flex-direction: column;
+        flex-wrap: nowrap;
+        .chip { width: 100%; min-height: 44px; text-align: left; }
+      }
+      .bulk-edit-row { flex-direction: column; align-items: stretch; gap: 0.35rem; }
+      .bulk-edit-label { white-space: normal; }
+      .bulk-edit-input { flex: none; width: 100%; }
     }
   }
 }

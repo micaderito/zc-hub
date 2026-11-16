@@ -1,5 +1,6 @@
 // Tabla de alertas disparadas: mismo look que el catálogo del editor de Pedidos.
 @use '../../pedidos/pedidos-shared' as *;
+@use 'mobile' as m;
 
 :host { display: block; }
 
@@ -45,4 +46,23 @@
   .sup-names, .last { font-size: 0.72rem; color: var(--text-2); }
   .last { white-space: nowrap; }
   .zc-badge.plain { background: none; color: var(--text-3); padding-left: 0; }
+}
+
+@include m.stack-table('.zc-table.disp');
+
+@include m.phone {
+  .toolbar {
+    zc-search-bar { flex: 1 1 100%; max-width: none; min-width: 0; }
+    .sup { flex: 1 1 0; min-width: 0; }
+    .spacer { display: none; }
+    > .zc-btn { margin-left: auto; }
+  }
+  .table-scroll { overflow: visible; background: none; border: none; box-shadow: none; padding: 0; }
+  .zc-table.disp {
+    .num { text-align: left; }
+    td .hint, td .zc-badge { white-space: normal; }
+    tr.member { margin-left: 1rem; }
+    tr.member td:first-child { padding-left: 0; }
+    .box-icon { margin-left: 0; }
+  }
 }

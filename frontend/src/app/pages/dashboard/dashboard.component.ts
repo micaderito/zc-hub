@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, OnDestroy } from '@angular/core';
+import { Component, HostListener, inject, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
@@ -64,8 +64,26 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (tree.queryParams['tn_error']) this.error = 'Tienda Nube: ' + tree.queryParams['tn_error'];
   }
 
-  loadStatus() {
-    this.loading = true;
+  /**
+   * Volver a la app (pestaña visible / ventana con foco) relee el estado del servidor.
+   * En la PWA instalada de iOS el OAuth puede terminar en Safari o en una hoja aparte y la app
+   * nunca recibe el redirect con `?ml_connected`: el estado del backend es la fuente de verdad.
+   * `focus` y `visibilitychange` suelen llegar juntos: se ignora el segundo si fue hace < 1 s.
+   */
+  @HostListener('document:visibilitychange')
+  @HostListener('window:focus')
+  onAppVisible() {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const now = Date.now();
+    if (now - this.lastVisibleRefresh < 1000) return;
+    this.lastVisibleRefresh = now;
+    this.loadStatus(true);
+  }
+  private lastVisibleRefresh = 0;
+
+  /** `silent`: con un estado ya cargado no muestra "Cargando…" (refresco al volver a la app). */
+  loadStatus(silent = false) {
+    this.loading = !(silent && this.status);
     this.auth.getStatus().subscribe({
       next: s => {
         this.status = s;

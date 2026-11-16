@@ -1,0 +1,143 @@
+// Celular y tablet (la PWA instalada y el navegador del celu).
+//
+// Regla de oro: el escritorio (pantalla > 1023px con mouse) se ve EXACTAMENTE igual que antes.
+// Todo lo que cambia para celular/tablet va adentro de uno de estos mixins.
+//
+// Uso desde el .scss de un componente:   @use '<ruta relativa>/styles/mobile' as m;
+// Solo genera CSS donde se incluye un mixin: no suma nada al resto de las hojas (tope de 16 kB).
+
+$phone: 760px;   // mismo corte que el layout (barra de pestañas abajo)
+$tablet: 1023px; // iPad vertical y apaisado chico
+
+/// Celular (≤ 760px).
+@mixin phone {
+  @media (max-width: $phone) { @content; }
+}
+
+/// Celular y tablet (≤ 1023px).
+@mixin tablet-down {
+  @media (max-width: $tablet) { @content; }
+}
+
+/// Pantalla táctil (incluye el iPad apaisado, que es más ancho que 1023px).
+@mixin touch {
+  @media (pointer: coarse) { @content; }
+}
+
+/// Solo con mouse: envolver los :hover para que no queden "pegados" después de un toque en iOS.
+@mixin hover {
+  @media (hover: hover) { @content; }
+}
+
+/// Área táctil mínima de un botón chico (ícono) sin agrandar el ícono.
+@mixin tap-target($size: 40px) {
+  @media (pointer: coarse) {
+    min-width: $size;
+    min-height: $size;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/// Modal centrado → hoja que sube desde abajo en el celular.
+/// $backdrop: el fondo oscuro (flex, centrado). $panel: la caja. $foot: los botones (quedan visibles).
+@mixin sheet($backdrop, $panel, $foot: null) {
+  @media (max-width: $phone) {
+    #{$backdrop} {
+      align-items: flex-end;
+      justify-content: stretch;
+      padding: 0;
+    }
+    #{$panel} {
+      width: 100%;
+      max-width: none;
+      max-height: 92vh;
+      max-height: 92dvh;
+      margin: 0;
+      border-radius: 16px 16px 0 0;
+      border-bottom: none;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    @if $foot {
+      #{$foot} {
+        position: sticky;
+        bottom: 0;
+        z-index: 1;
+        background: var(--surface);
+      }
+    }
+  }
+}
+
+/// Tabla → una tarjeta por fila en el celular.
+/// En el template: cada <td> lleva data-label="Nombre de la columna" (se muestra arriba del valor);
+/// la celda principal (nombre del producto) lleva class="cell-main" y la de botones "cell-actions".
+/// Una celda sin data-label se muestra sin rótulo.
+@mixin stack-table($table) {
+  @media (max-width: $phone) {
+    #{$table} {
+      display: block;
+      width: 100%;
+      min-width: 0 !important;
+
+      thead { display: none; }
+      tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      tr {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 12px;
+        padding: 12px;
+        border: 0.5px solid var(--border);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+      }
+      td {
+        display: block;
+        min-width: 0;
+        max-width: none;
+        padding: 0;
+        border: none;
+        text-align: left;
+        white-space: normal;
+      }
+      td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 2px;
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--text-3);
+      }
+      td.cell-main,
+      td.cell-wide {
+        grid-column: 1 / -1;
+      }
+      td.cell-actions {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      td:empty { display: none; }
+    }
+  }
+}
+
+/// Fila de chips/pestañas que en el celular se desliza de costado en vez de partirse en varias líneas.
+@mixin scroll-row {
+  @media (max-width: $phone) {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    &::-webkit-scrollbar { display: none; }
+    > * { flex-shrink: 0; }
+  }
+}

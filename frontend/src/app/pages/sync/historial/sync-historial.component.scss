@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 // Lo propio del Historial. La base (botones, alertas, inputs, estado vacío) viene de sync.component.scss.
 
 @keyframes zc-spin {
@@ -27,6 +29,7 @@
   gap: 0.35rem;
   flex-wrap: wrap;
   margin-bottom: 0.75rem;
+  @include m.scroll-row;
 }
 
 .source-chip {
@@ -39,10 +42,13 @@
   border-radius: 20px;
   cursor: pointer;
 
-  &:hover {
-    border-color: var(--border-strong);
-    color: var(--text);
+  @include m.hover {
+    &:hover {
+      border-color: var(--border-strong);
+      color: var(--text);
+    }
   }
+  @include m.touch { min-height: 38px; }
 
   &.active {
     background: var(--brand-bg);
@@ -156,7 +162,7 @@
   align-items: center;
   transition: border-color 0.12s;
 
-  &:hover { border-color: var(--border-strong); }
+  @include m.hover { &:hover { border-color: var(--border-strong); } }
   &.audit-ml { border-left-color: var(--ml); }
   &.audit-tn { border-left-color: var(--tn); }
 
@@ -272,12 +278,44 @@
   transition: opacity 0.12s;
 
   .ti { font-size: 12px; }
-  &:hover:not(:disabled) { opacity: 0.8; }
+  @include m.hover { &:hover:not(:disabled) { opacity: 0.8; } }
   &:disabled { opacity: 0.5; cursor: default; }
+  @include m.touch { min-height: 40px; padding-inline: 0.85rem; }
 }
 
 .reverted-badge {
   font-size: 0.7rem;
   color: var(--text-3);
   font-style: italic;
+}
+
+// Leyenda del ícono de nube y de Revertir: en escritorio están en el title (tooltip).
+.audit-legend { display: none; }
+
+@include m.phone {
+  .audit-legend {
+    display: block;
+    margin: 0 0 0.5rem;
+    font-size: 0.7rem;
+    color: var(--text-3);
+    .ti { font-size: 11px; }
+  }
+
+  .audit-row { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; }
+  .audit-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .audit-right { justify-content: flex-start; }
+
+  .reprocess-card { padding: 0.85rem; }
+  .reprocess-icon { display: none; }
+  .reprocess-info { flex-basis: 100%; min-width: 0; }
+  .reprocess-form {
+    flex: 1 1 100%;
+    min-width: 0;
+    .reprocess-input { flex: 1; min-width: 0; max-width: none; }
+  }
 }

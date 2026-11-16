@@ -19,6 +19,8 @@ interface NavItem {
   queryParams?: Record<string, string>;
   /** Páginas que son solo para escribir (crear, importar precios, usuarios): no se muestran a lectura. */
   adminOnly?: boolean;
+  /** Nombre corto para la barra de pestañas del celular. */
+  short?: string;
 }
 
 interface NavSection {
@@ -27,6 +29,18 @@ interface NavSection {
 }
 
 const CONFIG_OPEN_KEY = 'zc-sidebar-config-open';
+
+/** Celular: las 4 pestañas fijas de la barra de abajo (lo del día a día); el resto va en "Más". */
+const PHONE_TAB_PATHS = ['/despachos', '/precio-stock', '/pedidos', '/alertas'];
+
+/** iPad vertical: la barra lateral arranca angosta (solo íconos) para dejarle lugar al contenido. */
+function startsCollapsed(): boolean {
+  try {
+    return window.matchMedia('(min-width: 761px) and (max-width: 1023px)').matches;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Shell de la app (sidebar + contenido), separado de AppComponent para que /login pueda existir
@@ -37,14 +51,15 @@ const CONFIG_OPEN_KEY = 'zc-sidebar-config-open';
   standalone: true,
   imports: [CanWriteDirective, CommonModule, RouterOutlet, RouterLink, FormsModule, AppVersionComponent],
   templateUrl: './layout.component.html',
-  styleUrl: './layout.component.scss'
+  // Dos hojas: cada una tiene su propio tope de 16 kB en el build de producción.
+  styleUrls: ['./layout.component.scss', './layout-phone.component.scss']
 })
 export class LayoutComponent {
   private readonly router = inject(Router);
   readonly session = inject(SessionService);
   readonly theme = inject(ThemeService);
   private readonly alerts = inject(AlertsService);
-  readonly collapsed = signal(false);
+  readonly collapsed = signal(startsCollapsed());
 
   toggleSidebar() {
     this.collapsed.update(v => !v);
@@ -105,9 +120,9 @@ export class LayoutComponent {
     {
       title: 'Día a día',
       items: [
-        { path: '/despachos', label: 'Para preparar', icon: 'ti-package' },
+        { path: '/despachos', label: 'Para preparar', short: 'Preparar', icon: 'ti-package' },
         { path: '/sincronizacion', label: 'Devoluciones', icon: 'ti-arrow-back-up', queryParams: { tab: 'devoluciones' } },
-        { path: '/alertas', label: 'Alertas de stock', icon: 'ti-bell' }
+        { path: '/alertas', label: 'Alertas de stock', short: 'Alertas', icon: 'ti-bell' }
       ]
     },
     {
@@ -122,7 +137,7 @@ export class LayoutComponent {
     {
       title: 'Compras',
       items: [
-        { path: '/pedidos', label: 'Pedidos al proveedor', icon: 'ti-clipboard-list' },
+        { path: '/pedidos', label: 'Pedidos al proveedor', short: 'Pedidos', icon: 'ti-clipboard-list' },
         { path: '/deposito', label: 'Depósito', icon: 'ti-building-warehouse' }
       ]
     },
@@ -151,6 +166,35 @@ export class LayoutComponent {
     this.sections.map(s => ({ ...s, items: s.items.filter(this.canSee) })).filter(s => s.items.length > 0)
   );
   readonly visibleConfigItems = computed(() => this.configSection.items.filter(this.canSee));
+
+  /* ── Celular: barra de pestañas abajo + hoja "Más" ─────────────────────── */
+  readonly phoneTabs = computed(() =>
+    PHONE_TAB_PATHS.map(p => this.nav.find(i => i.path === p && !i.queryParams)).filter(
+      (i): i is NavItem => !!i && this.canSee(i)
+    )
+  );
+  /** Todo lo que no entra en la barra, agrupado igual que en la barra lateral. */
+  readonly moreSections = computed(() => {
+    const tabs = this.phoneTabs();
+    return [...this.visibleSections(), { title: this.configSection.title, items: this.visibleConfigItems() }]
+      .map(s => ({ ...s, items: s.items.filter(i => !tabs.includes(i)) }))
+      .filter(s => s.items.length > 0);
+  });
+  readonly moreOpen = signal(false);
+  /** "Más" queda marcado cuando la página actual no es una de las 4 pestañas. */
+  readonly moreActive = computed(() => {
+    const active = this.activeItem();
+    return !!active && !this.phoneTabs().includes(active);
+  });
+
+  closeMore(): void {
+    this.moreOpen.set(false);
+  }
+
+  openPasswordFromMore(): void {
+    this.closeMore();
+    this.openPasswordModal();
+  }
 
   private readonly currentUrl = toSignal(
     this.router.events.pipe(

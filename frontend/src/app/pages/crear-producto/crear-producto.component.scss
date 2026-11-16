@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 :host {
   display: block;
 }
@@ -476,13 +478,11 @@
   }
 }
 
-@media (max-width: 680px) {
-  .grid-2,
-  .grid-3,
-  .grid-4,
-  .attrs,
-  .ship-row {
-    grid-template-columns: 1fr;
+/* Celular / táctil. Las grillas de las secciones (.grid-*, .attrs, .ship-row, .mode-opt, .axis-input)
+   viven en los sub-componentes: sus reglas de celular están en components/section-shared.scss. */
+@include m.phone {
+  .page-head {
+    flex-wrap: wrap;
   }
 
   .actions {
@@ -494,13 +494,43 @@
       text-align: center;
     }
   }
-
-  .mode-opt {
-    min-width: 0;
+  .draft-actions {
+    flex-wrap: wrap;
+    margin-right: 0;
+  }
+  .publish-split > .zc-btn:first-child {
+    flex: 1;
+  }
+  /* En el celu el botón queda abajo de todo (arriba de la barra de pestañas): el menú abre hacia arriba. */
+  .publish-menu {
+    top: auto;
+    bottom: calc(100% + 0.35rem);
   }
 
-  .axis-input {
-    width: 100%;
+  .publish-progress {
+    .block-head {
+      flex-wrap: wrap;
+    }
+    .block-title {
+      flex: 1 1 60%;
+      min-width: 0;
+    }
+    .block-note {
+      display: none;
+    }
+  }
+}
+
+@include m.touch {
+  .publish-progress .icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+    display: inline-flex;
+  }
+  .publish-menu button {
+    min-height: 44px;
   }
 }
 

@@ -32,9 +32,10 @@
           }
           @if (mlOrderedImages().length > 1) {
             <div class="vpd-order">
-              <span class="hint"><i class="ti ti-arrows-move" aria-hidden="true"></i> orden de portada — arrastrá o tocá una para adelantarla</span>
+              <span class="hint"><i class="ti ti-arrows-move" aria-hidden="true"></i> orden de portada — <span class="drag-hint">arrastrá o tocá una para adelantarla</span><span class="touch-hint">tocá una para hacerla portada o usá ‹ ›</span></span>
               <div class="vpd-order-strip">
-                @for (img of mlOrderedImages(); track img.uid || img.id; let i = $index) {
+                @for (img of mlOrderedImages(); track img.uid || img.id; let i = $index; let last = $last) {
+                  <div class="vpd-order-item">
                   <button
                     type="button"
                     class="vpd-order-tile"
@@ -49,6 +50,12 @@
                     <span class="vpd-order-num">{{ i + 1 }}</span>
                     @if (i === 0) { <span class="vpd-order-cover"><i class="ti ti-star-filled" aria-hidden="true"></i> Portada</span> }
                   </button>
+                  <!-- Solo en pantallas táctiles (sin drag & drop): correr la foto un lugar. -->
+                  <span class="vpd-move">
+                    <button type="button" [disabled]="i === 0" (click)="moveOrder('ml', i, -1)" aria-label="Mover antes"><i class="ti ti-chevron-left"></i></button>
+                    <button type="button" [disabled]="last" (click)="moveOrder('ml', i, 1)" aria-label="Mover después"><i class="ti ti-chevron-right"></i></button>
+                  </span>
+                  </div>
                 }
               </div>
             </div>
@@ -93,9 +100,10 @@
           </span>
           @if (tnOrderedImages().length > 1) {
             <div class="vpd-order">
-              <span class="hint"><i class="ti ti-arrows-move" aria-hidden="true"></i> orden de portada — arrastrá o tocá una para adelantarla</span>
+              <span class="hint"><i class="ti ti-arrows-move" aria-hidden="true"></i> orden de portada — <span class="drag-hint">arrastrá o tocá una para adelantarla</span><span class="touch-hint">tocá una para hacerla portada o usá ‹ ›</span></span>
               <div class="vpd-order-strip">
-                @for (img of tnOrderedImages(); track img.uid || img.id; let i = $index) {
+                @for (img of tnOrderedImages(); track img.uid || img.id; let i = $index; let last = $last) {
+                  <div class="vpd-order-item">
                   <button
                     type="button"
                     class="vpd-order-tile"
@@ -110,6 +118,12 @@
                     <span class="vpd-order-num">{{ i + 1 }}</span>
                     @if (i === 0) { <span class="vpd-order-cover"><i class="ti ti-star-filled" aria-hidden="true"></i> Portada</span> }
                   </button>
+                  <!-- Solo en pantallas táctiles (sin drag & drop): correr la foto un lugar. -->
+                  <span class="vpd-move">
+                    <button type="button" [disabled]="i === 0" (click)="moveOrder('tn', i, -1)" aria-label="Mover antes"><i class="ti ti-chevron-left"></i></button>
+                    <button type="button" [disabled]="last" (click)="moveOrder('tn', i, 1)" aria-label="Mover después"><i class="ti ti-chevron-right"></i></button>
+                  </span>
+                  </div>
                 }
               </div>
             </div>

@@ -212,6 +212,7 @@ export class SupplierPicker {
     }
   `,
   styles: [`
+    @use 'mobile' as m;
     :host { display: flex; flex-direction: column; gap: 0.5rem; text-align: left; }
     .psd-hint { margin: 0; font-size: 0.72rem; color: var(--text-3); }
     .psd-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.15rem; max-height: 22rem; overflow-y: auto; }
@@ -227,6 +228,8 @@ export class SupplierPicker {
     .psd-some { font-size: 0.68rem; color: var(--text-3); white-space: nowrap; }
     .psd-vig { display: flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; color: var(--text-2); white-space: nowrap; }
     .psd-keep { padding-left: 0.35rem; }
+    .psd-check, .psd-vig { @include m.touch { min-height: 40px; } }
+    .psd-vig input { @include m.touch { width: 20px; height: 20px; } }
     @media (max-width: 480px) { .psd-row { grid-template-columns: minmax(0, 1fr) auto; } .psd-row select { grid-column: 1 / -1; grid-row: 2; } }
   `],
 })

@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .hist-backdrop {
   position: fixed;
   inset: 0;
@@ -14,6 +16,7 @@
   width: 100%;
   max-width: 34rem;
   max-height: 80vh;
+  max-height: 80dvh;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -57,7 +60,10 @@
   padding: 0.15rem;
   line-height: 1;
 
-  &:hover { color: var(--text); }
+  @include m.hover {
+    &:hover { color: var(--text); }
+  }
+  @include m.tap-target(40px);
 }
 
 .hist-body {
@@ -255,4 +261,17 @@
   font-size: 0.7rem;
   color: var(--text-3);
   text-align: center;
+}
+
+// Explicación de "sin cambio": en escritorio vive en el title; en el celular no hay tooltip.
+.hist-why { display: none; font-size: 0.68rem; color: var(--text-3); }
+
+// Celular: hoja desde abajo. La fecha y el estado no empujan con margin-left:auto, así al
+// partirse en dos líneas no quedan uno a cada punta saltando de lugar.
+@include m.sheet('.hist-backdrop', '.hist-card');
+@include m.phone {
+  .hist-head { padding-right: 0.75rem; }
+  .hist-date, .hist-state { margin-left: 0; }
+  .hist-state { flex-basis: 100%; }
+  .hist-why { display: inline; }
 }

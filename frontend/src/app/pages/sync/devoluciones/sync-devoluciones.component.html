@@ -71,7 +71,7 @@
 
 <div class="add-return-row" *zcCanWrite>
   <span class="add-return-label"><i class="ti ti-plus" aria-hidden="true"></i>Agregar por nro de venta:</span>
-  <input type="text" [(ngModel)]="returnOrderId" placeholder="Ej. 2000011838697695" class="zc-input" />
+  <input type="text" [(ngModel)]="returnOrderId" placeholder="Ej. 2000011838697695" inputmode="numeric" class="zc-input" />
   <button type="button" class="btn-secondary" (click)="addReturnsByOrder()" [disabled]="!returnOrderId().trim() || addingReturn()">
     {{ addingReturn() ? 'Cargando…' : 'Agregar' }}
   </button>

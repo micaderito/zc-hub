@@ -34,15 +34,15 @@
 
       @if (form().mode === 'unit') {
         <label class="fld">Costo unitario ($)
-          <input type="number" [ngModel]="form().unitCost" (ngModelChange)="update('unitCost', $event)" />
+          <input type="number" inputmode="decimal" [ngModel]="form().unitCost" (ngModelChange)="update('unitCost', $event)" />
         </label>
       } @else {
         <div class="grid2">
           <label class="fld">Precio por bulto ($)
-            <input type="number" [ngModel]="form().bulkPrice" (ngModelChange)="update('bulkPrice', $event)" />
+            <input type="number" inputmode="decimal" [ngModel]="form().bulkPrice" (ngModelChange)="update('bulkPrice', $event)" />
           </label>
           <label class="fld">Unidades por bulto
-            <input type="number" [ngModel]="form().bulkQty" (ngModelChange)="update('bulkQty', $event)" />
+            <input type="number" inputmode="numeric" [ngModel]="form().bulkQty" (ngModelChange)="update('bulkQty', $event)" />
           </label>
         </div>
       }
@@ -71,7 +71,7 @@
       }
 
       <label class="fld">Ganancia (%) <span class="fld-hint">vacío = usar la de Ajustes</span>
-        <input type="number" [ngModel]="form().marginOverride" (ngModelChange)="update('marginOverride', $event)" placeholder="por default" />
+        <input type="number" inputmode="decimal" [ngModel]="form().marginOverride" (ngModelChange)="update('marginOverride', $event)" placeholder="por default" />
       </label>
     </div>
     <div class="modal-foot">

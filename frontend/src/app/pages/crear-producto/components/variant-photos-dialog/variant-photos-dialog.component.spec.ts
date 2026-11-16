@@ -169,6 +169,24 @@ describe('VariantPhotosDialogComponent', () => {
     expect(v.tn.imageIds).toEqual(['tn-2', 'tn-0', 'tn-1']);
   });
 
+  it('los botones ‹ › (táctil) corren una foto elegida un lugar', () => {
+    const v = setup({ mlImages: 3 });
+    for (const i of [0, 1, 2]) fixture.nativeElement.querySelectorAll('.vpd-tile')[i].click();
+    fixture.detectChanges();
+
+    const moves = fixture.nativeElement.querySelectorAll('.vpd-move button');
+    expect(moves.length).toBe(6);
+    expect(moves[0].disabled).toBeTrue(); // la primera no tiene "antes"
+    expect(moves[5].disabled).toBeTrue(); // la última no tiene "después"
+    moves[1].click(); // primera → después
+    fixture.detectChanges();
+    expect(v.ml.pictureIds).toEqual(['ml-1', 'ml-0', 'ml-2']);
+
+    fixture.nativeElement.querySelectorAll('.vpd-move button')[4].click(); // tercera → antes
+    fixture.detectChanges();
+    expect(v.ml.pictureIds).toEqual(['ml-1', 'ml-2', 'ml-0']);
+  });
+
   it('emite close al tocar el backdrop y con Escape', () => {
     setup({ mlImages: 1 });
     let cerrado = 0;

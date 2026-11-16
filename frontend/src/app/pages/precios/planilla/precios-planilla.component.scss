@@ -1,7 +1,9 @@
+@use 'mobile' as m;
+
 :host { display: block; }
 
 /* Resumen de reglas (viven en Ajustes) */
-.pr-rules { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 11px; }
+.pr-rules { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 11px; @include m.scroll-row; }
 .pr-rules-label {
   font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.03em;
   display: flex; align-items: center; gap: 4px; margin-right: 3px;
@@ -93,7 +95,7 @@
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%;
   font: inherit; color: var(--text); text-align: left; background: none; border: none; padding: 0; cursor: pointer;
   > .ti { color: var(--brand); }
-  &:hover b { text-decoration: underline; }
+  @include m.hover { &:hover b { text-decoration: underline; } }
 }
 
 .pr-prod { display: flex; flex-direction: column; gap: 2px; }
@@ -103,6 +105,8 @@
 .cell-main { display: block; }
 .cell-sub { display: block; font-size: 10px; color: var(--text-3); font-weight: 400; white-space: nowrap; }
 .disc-cell { white-space: nowrap; cursor: help; }
+/* El detalle del descuento es el tooltip de la columna Descuento: en táctil (sin tooltip) va a la vista */
+.chain-touch { display: none; }
 
 .price-cell { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
 .price-input {
@@ -145,13 +149,46 @@
 }
 .pr-sel { font-size: 12px; color: var(--text-2); b { color: var(--text); font-weight: 500; } }
 
-@media (max-width: 640px) {
+@include m.touch {
+  .chain-touch { display: block; white-space: normal; max-width: 170px; margin-left: auto; }
+}
+
+/* Tablet: Bulto y Descuento se esconden (los colspan de los packs se ajustan en el TS) y el tilde +
+   el producto quedan fijos a la izquierda mientras la tabla se desliza de costado. */
+@include m.tablet-down {
+  .col-bulk, .col-disc { display: none; }
+  .pr-table {
+    .col-check, tbody tr:not(.group-row) > td:nth-child(2), thead th:nth-child(2) { position: sticky; z-index: 1; }
+    .col-check { left: 0; width: 40px; min-width: 40px; box-sizing: border-box; padding: 0 6px 0 10px; }
+    tbody tr:not(.group-row) > td:nth-child(2), thead th:nth-child(2) {
+      left: 40px; min-width: 170px; box-shadow: inset -0.5px 0 0 var(--border);
+    }
+    td.col-check, tbody tr:not(.group-row) > td:nth-child(2) { background: var(--surface); }
+    th.col-check, thead th:nth-child(2), tr.group-row > td.col-check { background: var(--surface-2); }
+    tr.row-changed > td.col-check, tbody tr.row-changed > td:nth-child(2) {
+      background: linear-gradient(var(--brand-bg), var(--brand-bg)) var(--surface);
+    }
+  }
+  .group-toggle { position: sticky; left: 48px; width: fit-content; max-width: 75vw; }
+}
+
+/* Celular: para leer producto, precios TN/ML, pendiente y aplicar (el costo se edita con el lápiz) */
+@include m.phone {
+  .col-net { display: none; }
+  .chain-touch { display: none; }
+  .pr-table tbody tr:not(.group-row) > td:nth-child(2), .pr-table thead th:nth-child(2) { min-width: 120px; max-width: 42vw; }
   .pr-search { flex: 1 1 100%; input { width: 100%; } }
   .pr-actionbar {
-    flex-wrap: wrap; gap: 8px; padding: 9px 12px; margin-inline: -16px;
+    bottom: var(--zc-tabbar-h); gap: 6px; padding: 8px 12px; margin-inline: -16px;
     .spacer { display: none; }
-    .btn.pri { flex-basis: 100%; justify-content: center; }
+    .btn:not(.pri) {
+      font-size: 0; gap: 0; padding: 0; width: 40px; height: 40px; justify-content: center; flex-shrink: 0;
+      i { font-size: 18px; margin: 0; }
+    }
+    .btn.pri { flex: 1; min-width: 0; justify-content: center; span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
   }
+  .pr-sel { flex-shrink: 0; min-width: 24px; text-align: center; }
+  .pr-sel-txt { display: none; }
 }
 
 /* Productos del proveedor sin costo cargado: misma tabla que la planilla */

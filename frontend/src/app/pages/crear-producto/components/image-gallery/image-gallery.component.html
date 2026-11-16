@@ -19,6 +19,15 @@
         }
         <button type="button" class="gicon" (click)="store.removeImage(channel(), i)" title="Quitar" aria-label="Quitar"><i class="ti ti-x"></i></button>
       </div>
+      <!-- Solo en pantallas táctiles (sin drag & drop): correr la foto un lugar. -->
+      <div class="gimg-move">
+        @if (i > 0) {
+          <button type="button" class="gicon" (click)="store.moveImage(channel(), i, -1)" aria-label="Mover antes"><i class="ti ti-chevron-left"></i></button>
+        }
+        @if (i < images().length - 1) {
+          <button type="button" class="gicon next" (click)="store.moveImage(channel(), i, 1)" aria-label="Mover después"><i class="ti ti-chevron-right"></i></button>
+        }
+      </div>
     </div>
   }
   @if (images().length < limit()) {
@@ -34,4 +43,4 @@
   <span class="hint"><i class="ti ti-loader"></i> subiendo fotos… podés seguir completando el resto mientras tanto</span>
 }
 @if (ownError(); as err) { <span class="hint error">{{ err }}</span> }
-<span class="hint"><i class="ti ti-arrows-move"></i> arrastrá para reordenar · la primera es la portada · {{ images().length }}/{{ limit() }}</span>
+<span class="hint"><i class="ti ti-arrows-move"></i> <span class="drag-hint">arrastrá para reordenar</span><span class="touch-hint">usá ‹ › para reordenar</span> · la primera es la portada · {{ images().length }}/{{ limit() }}</span>

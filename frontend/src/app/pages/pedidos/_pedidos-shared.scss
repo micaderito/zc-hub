@@ -1,4 +1,5 @@
 // Estilos compartidos por la lista y el editor de pedidos (página /pedidos).
+@use 'mobile' as m;
 
 .page-header {
   display: flex;
@@ -96,6 +97,8 @@
       color: var(--brand);
       font-weight: 500;
     }
+
+    @include m.touch { min-height: 40px; }
   }
 }
 
@@ -159,11 +162,14 @@
   padding: 0.25rem 0.4rem;
   color: var(--text-3);
   font-weight: 400;
+  @include m.tap-target;
 
-  &:hover:not(:disabled) {
-    border-color: var(--border);
-    background: var(--surface);
-    color: var(--err);
+  @include m.hover {
+    &:hover:not(:disabled) {
+      border-color: var(--border);
+      background: var(--surface);
+      color: var(--err);
+    }
   }
 }
 
@@ -175,7 +181,7 @@
   font-weight: 500;
   padding: 0.25rem 0.4rem;
 
-  &:hover:not(:disabled) { background: var(--brand-bg); }
+  @include m.hover { &:hover:not(:disabled) { background: var(--brand-bg); } }
 }
 
 // Modal propio (Repetir, Marcar como pedido, Cerrar recepción): como zc-confirm-dialog, pero con
@@ -196,6 +202,7 @@
   width: 100%;
   max-width: 30rem;
   max-height: 90vh;
+  max-height: 90dvh;
   overflow-y: auto;
   background: var(--surface);
   border: 0.5px solid var(--border-strong);
@@ -231,4 +238,15 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 1rem;
+}
+
+// Celular: el modal sube desde abajo y los botones van uno debajo del otro, a todo el ancho.
+@include m.sheet('.modal-backdrop', '.modal-card');
+@include m.phone {
+  .modal-backdrop { padding-top: env(safe-area-inset-top); }
+  .modal-card { padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
+  .modal-actions {
+    flex-direction: column-reverse;
+    .zc-btn { width: 100%; justify-content: center; }
+  }
 }

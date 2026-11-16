@@ -10,6 +10,15 @@
       }
     </a>
 
+    <!-- Celular: la barra de arriba muestra en qué página se está y la campanita (el menú va abajo). -->
+    <div class="topbar-title">{{ activeItem()?.label }}</div>
+    <button type="button" class="top-bell" (click)="toggleDrawer()" aria-label="Notificaciones">
+      <i class="ti ti-bell-ringing"></i>
+      @if (unreadCount() > 0) {
+        <span class="nav-badge">{{ unreadCount() }}</span>
+      }
+    </button>
+
     <ng-template #navLink let-item>
       <a
         [routerLink]="item.path"
@@ -120,6 +129,83 @@
   <main class="content">
     <router-outlet />
   </main>
+
+  <!-- ══════════════ Celular: barra de pestañas abajo ══════════════ -->
+  <nav class="tabbar" aria-label="Secciones">
+    @for (item of phoneTabs(); track item.path) {
+      <a
+        [routerLink]="item.path"
+        class="tab"
+        [class.active]="activeItem() === item && !moreOpen()"
+        [attr.aria-current]="activeItem() === item ? 'page' : null"
+        (click)="closeMore()"
+      >
+        <span class="tab-icon">
+          <i class="ti {{ item.icon }}"></i>
+          @if (item.path === '/alertas' && unreadCount() > 0) {
+            <span class="tab-badge">{{ unreadCount() }}</span>
+          }
+        </span>
+        <span class="tab-label">{{ item.short ?? item.label }}</span>
+      </a>
+    }
+    <button
+      type="button"
+      class="tab"
+      [class.active]="moreActive() || moreOpen()"
+      [attr.aria-expanded]="moreOpen()"
+      (click)="moreOpen.set(!moreOpen())"
+    >
+      <span class="tab-icon"><i class="ti ti-dots"></i></span>
+      <span class="tab-label">Más</span>
+    </button>
+  </nav>
+
+  @if (moreOpen()) {
+    <div class="more-scrim" (click)="closeMore()"></div>
+    <div class="more-sheet" role="dialog" aria-modal="true" aria-label="Más secciones" (keydown.escape)="closeMore()">
+      <div class="more-grip" aria-hidden="true"></div>
+      @for (section of moreSections(); track section.title) {
+        <div class="more-title">{{ section.title }}</div>
+        <div class="more-grid">
+          @for (item of section.items; track item.label) {
+            <a
+              [routerLink]="item.path"
+              [queryParams]="item.queryParams"
+              class="more-item"
+              [class.active]="activeItem() === item"
+              (click)="closeMore()"
+            >
+              <i class="ti {{ item.icon }}"></i>
+              <span>{{ item.label }}</span>
+            </a>
+          }
+        </div>
+      }
+      <div class="more-user">
+        <span class="avatar">{{ userInitials() }}</span>
+        <span class="more-user-name">
+          {{ session.user()?.displayName || session.user()?.username }}
+          @if (session.isReadOnly()) {
+            <span class="role-chip"><i class="ti ti-eye"></i> Solo lectura</span>
+          }
+        </span>
+        <button type="button" class="zc-btn small" (click)="openPasswordFromMore()">
+          <i class="ti ti-key" aria-hidden="true"></i> Contraseña
+        </button>
+      </div>
+      <div class="more-actions">
+        <button type="button" class="zc-btn" (click)="theme.toggle()">
+          <i class="ti" [class.ti-moon]="theme.theme() === 'light'" [class.ti-sun]="theme.theme() === 'dark'" aria-hidden="true"></i>
+          {{ theme.theme() === 'light' ? 'Modo oscuro' : 'Modo claro' }}
+        </button>
+        <button type="button" class="zc-btn" (click)="closeMore(); logout()">
+          <i class="ti ti-logout" aria-hidden="true"></i> Cerrar sesión
+        </button>
+      </div>
+      <zc-app-version />
+    </div>
+  }
 
   @if (drawerOpen()) {
     <div class="drawer-scrim" (click)="closeDrawer()"></div>

@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .row-card {
   border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
@@ -13,6 +15,7 @@
     align-items: center;
     gap: 0.6rem;
     padding: 0.6rem 0.75rem;
+    @include m.phone { flex-wrap: wrap; }
   }
 
   .row-info {
@@ -26,6 +29,12 @@
       overflow: hidden;
       text-overflow: ellipsis;
       line-height: 1.3;
+      @include m.phone {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
     }
 
     .row-meta {
@@ -40,6 +49,7 @@
     display: flex;
     gap: 0.35rem;
     flex-shrink: 0;
+    @include m.phone { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; }
   }
 }
 

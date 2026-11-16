@@ -50,4 +50,17 @@ describe('ThemeService', () => {
     expect(() => service.set('dark')).not.toThrow();
     expect(service.theme()).toBe('dark');
   });
+
+  it('cambia el color de la barra de estado de la app instalada junto con el tema', () => {
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.content = '#ffffff';
+    document.head.appendChild(meta);
+    try {
+      TestBed.inject(ThemeService).set('dark');
+      expect(meta.content).toBe('#171a22');
+    } finally {
+      meta.remove();
+    }
+  });
 });
