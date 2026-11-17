@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, Signal, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
@@ -6,6 +6,7 @@ import { ApplyResult, PreviewRow, PreviewRowPack, PricingService, PricingTarget,
 import { ProductHistoryDialogComponent } from '../../precio-stock/components/product-history-dialog/product-history-dialog.component';
 import { AssignDialogComponent, AssignMode } from '../dialogs/assign-dialog.component';
 import { PreciosStore } from '../precios.store';
+import { PHONE_QUERY, mediaSignal } from '../../../shared/utils/media-signal';
 import { PriceGroup, apiError, buildPriceGroups, discountChain, discountPcts, isPendingRow } from '../precios.utils';
 
 /**
@@ -56,7 +57,7 @@ export class PreciosPlanillaComponent {
    * `display: none` esas columnas dejan de existir y un colspan fijo correría las de precio.
    */
   private readonly narrow = mediaSignal('(max-width: 1023px)');
-  private readonly phone = mediaSignal('(max-width: 760px)');
+  private readonly phone = mediaSignal(PHONE_QUERY);
   /** Producto … Costo u. en el encabezado de un pack (4 en escritorio). */
   readonly packSpan = computed(() => (this.narrow() ? 2 : 4));
   /** "Te queda" + acciones (2 en escritorio). */
@@ -367,16 +368,4 @@ function toggled<T>(set: Set<T>, value: T): Set<T> {
 /** `q` ya viene en minúsculas y sin espacios en los bordes. */
 function matchesSearch(q: string, ...fields: (string | null | undefined)[]): boolean {
   return fields.some((f) => (f ?? '').toLowerCase().includes(q));
-}
-
-/** `matchMedia` como señal (false si el entorno no lo tiene). */
-function mediaSignal(query: string): Signal<boolean> {
-  const mql = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query) : null;
-  const s = signal(mql?.matches ?? false);
-  if (mql) {
-    const onChange = (e: MediaQueryListEvent) => s.set(e.matches);
-    mql.addEventListener('change', onChange);
-    inject(DestroyRef).onDestroy(() => mql.removeEventListener('change', onChange));
-  }
-  return s.asReadonly();
 }

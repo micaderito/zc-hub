@@ -1,5 +1,5 @@
 import { Component, inject, signal, computed, effect, untracked } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
@@ -21,6 +21,9 @@ import { SessionService } from '../../core/services/session.service';
 import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 import { OrdersService, ORDERS_CATALOG_QUERY_KEY, ORDERS_SUPPLIERS_QUERY_KEY } from '../../core/services/orders.service';
 import { AlertasDisparadasComponent } from './disparadas/alertas-disparadas.component';
+import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
+import { ThresholdSheetComponent, ThresholdTarget } from './threshold-sheet/threshold-sheet.component';
 
 type Tab = 'disparadas' | 'notificaciones' | 'sin-alertas' | 'reglas';
 
@@ -38,9 +41,9 @@ import { ProductThumbComponent } from '../../shared/components/product-thumb/pro
 @Component({
   selector: 'app-alertas',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent, AlertasDisparadasComponent, ProductThumbComponent],
+  imports: [CanWriteDirective, CommonModule, NgTemplateOutlet, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent, AlertasDisparadasComponent, ProductThumbComponent, BottomSheetComponent, ThresholdSheetComponent],
   templateUrl: './alertas.component.html',
-  styleUrl: './alertas.component.scss',
+  styleUrls: ['./alertas.component.scss', './alertas-phone.component.scss'],
 })
 export class AlertasComponent {
   readonly session = inject(SessionService);
@@ -51,6 +54,36 @@ export class AlertasComponent {
   private readonly orders = inject(OrdersService);
 
   readonly activeTab = signal<Tab>('disparadas');
+
+  /**
+   * Celular: Reglas y Sin alerta son listas compactas que abren una hoja (`zc-threshold-sheet`), el
+   * alta de reglas va en una hoja y Notificaciones sale de las pestañas (ya está en la campanita
+   * de la barra de arriba). El escritorio no cambia.
+   */
+  readonly phone = mediaSignal(PHONE_QUERY);
+  readonly thresholdTarget = signal<ThresholdTarget | null>(null);
+  readonly addSheetOpen = signal(false);
+
+  openRuleSheet(rule: StockAlertRule): void {
+    this.thresholdTarget.set({
+      sku: rule.sku,
+      label: rule.productLabel ?? rule.sku,
+      stockMl: rule.stockMl,
+      stockTn: rule.stockTn,
+      threshold: rule.threshold,
+      mutedUntil: rule.mutedUntil,
+    });
+  }
+
+  openNewRuleSheet(p: UnwatchedProduct): void {
+    this.thresholdTarget.set({
+      sku: p.sku,
+      label: p.productLabel ?? p.sku,
+      stockMl: p.stockMl,
+      stockTn: p.stockTn,
+      threshold: null,
+    });
+  }
 
   onTabChange(key: string): void {
     this.activeTab.set(key as Tab);
@@ -138,6 +171,7 @@ export class AlertasComponent {
 
   /** Manda a Reglas con el producto ya tildado en "Vigilar productos" — solo falta el umbral. */
   configureAlert(product: UnwatchedProduct): void {
+    if (this.phone()) { this.openNewRuleSheet(product); return; }
     this.selectedNewSkus.set(new Map([
       [product.sku, { sku: product.sku, label: product.productLabel ?? product.sku, thumbnail: product.thumbnail }],
     ]));
@@ -178,7 +212,8 @@ export class AlertasComponent {
       const q = this.rulesSearch().trim();
       const matches = this.filteredRules();
       untracked(() => {
-        if (q && matches.length === 1) {
+        // En el celu no: abrir una hoja mientras se tipea tapa el teclado; se toca la fila.
+        if (q && matches.length === 1 && !this.phone()) {
           this.startEdit(matches[0]);
         } else if (!q) {
           this.editingSku.set(null);
@@ -316,6 +351,7 @@ export class AlertasComponent {
       this.selectedNewSkus.set(new Map());
       this.newRuleQuery.set('');
       this.newThreshold = 3;
+      this.addSheetOpen.set(false);
     } catch (e: unknown) {
       const err = e as { error?: { error?: string }; message?: string };
       this.addError = err?.error?.error || err?.message || 'No se pudieron guardar algunas reglas.';
@@ -330,11 +366,13 @@ export class AlertasComponent {
     const unread = this.unreadCount();
     const unwatchedCount = this.unwatchedProducts().length;
     const alerted = this.alertedCount();
-    return [
+    const tabs: TabDef[] = [
       { key: 'disparadas', label: 'Disparadas', count: alerted, countVariant: alerted ? 'warn' : undefined },
       { key: 'notificaciones', label: 'Notificaciones', count: unread, countVariant: unread ? 'warn' : undefined },
       { key: 'sin-alertas', label: 'Sin alertas', count: unwatchedCount, countVariant: unwatchedCount ? 'warn' : undefined },
       { key: 'reglas', label: 'Reglas', count: this.rules().length },
     ];
+    // En el celu las notificaciones están en la campanita de arriba (salvo que se llegue con ?tab=).
+    return this.phone() && this.activeTab() !== 'notificaciones' ? tabs.filter((t) => t.key !== 'notificaciones') : tabs;
   });
 }

@@ -1,0 +1,91 @@
+<div class="dp-tiles">
+  @for (b of buckets; track b.key) {
+    <button type="button" class="dp-tile {{ b.key }}" [class.on]="bucketFilter() === b.key" [attr.aria-pressed]="bucketFilter() === b.key" (click)="toggleBucket(b.key)">
+      <b>{{ counts()[b.key] }}</b>
+      <span>{{ b.tile }}</span>
+    </button>
+  }
+</div>
+
+@for (s of sections(); track s.key) {
+  <div class="dp-section {{ s.key }}">
+    <span><i class="ti {{ s.icon }}" aria-hidden="true"></i> {{ s.title }}</span>
+    <span>{{ s.units.length }}</span>
+  </div>
+  @for (u of s.units; track u.key) {
+    <button type="button" class="dp-card {{ s.key }}" (click)="open(u)">
+      <span class="dp-icon {{ s.key }}"><i class="ti {{ isMulti(u) ? 'ti-stack-2' : 'ti-box' }}" aria-hidden="true"></i></span>
+      <span class="dp-info">
+        <span class="dp-title">{{ title(u) }}</span>
+        @if (isMulti(u)) {
+          <span class="dp-sub">
+            <span class="zc-badge warn"><i class="ti ti-bell-ringing" aria-hidden="true"></i> {{ activeCount(u) }} de {{ u.members.length }} modelos</span>
+            @if (u.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ u.depositoStock }} en depósito</span> }
+            @if (u.pendingOrder; as p) { <span class="dp-muted">pedido #{{ p.orderId }}</span> }
+          </span>
+        } @else {
+          @let m = u.members[0];
+          <span class="dp-ch">
+            <span><span class="stock-dot ml"></span>ML <b [class.err]="m.stockMl !== null && m.stockMl <= 0">{{ m.stockMl ?? '—' }}</b></span>
+            <span><span class="stock-dot tn"></span>TN <b [class.err]="m.stockTn !== null && m.stockTn <= 0">{{ m.stockTn ?? '—' }}</b></span>
+            @if (u.pendingOrder; as p) { <span>pedido #{{ p.orderId }}</span> } @else { <span>umbral {{ m.threshold ?? '—' }}</span> }
+          </span>
+          @if (u.depositoStock) {
+            <span class="dp-sub"><span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ u.depositoStock }} en depósito</span></span>
+          }
+        }
+      </span>
+      <i class="ti ti-chevron-right dp-chev" aria-hidden="true"></i>
+    </button>
+  }
+} @empty {
+  <p class="dp-empty">Nada en esta sección.</p>
+}
+
+@if (openUnit(); as u) {
+  <zc-bottom-sheet [title]="title(u)" [subtitle]="subtitle(u)" (closed)="close()">
+    <span sheet-lead class="dp-icon {{ bucket(u) }}"><i class="ti {{ isMulti(u) ? 'ti-stack-2' : 'ti-box' }}" aria-hidden="true"></i></span>
+
+    <div class="dp-stats">
+      <div class="dp-stat">
+        <small>En depósito</small>
+        <b>{{ u.depositoStock ? u.depositoStock + ' u.' : '—' }}</b>
+      </div>
+      <div class="dp-stat">
+        @if (u.pendingOrder; as p) {
+          <small>En camino</small>
+          <b><a [routerLink]="['/pedidos', p.orderId]">Pedido #{{ p.orderId }}</a></b>
+        } @else {
+          <small>Último pedido</small>
+          <b>{{ u.lastOrder?.date ? (u.lastOrder!.date | date: 'dd/MM/yy') : 'nunca' }}</b>
+        }
+      </div>
+    </div>
+
+    @let ms = sortedMembers(u);
+    <div class="dp-lbl">{{ isMulti(u) ? 'Modelos del pack' : 'Stock y umbral' }}</div>
+    <div class="dp-members">
+      @for (m of ms.shown; track m.sku) {
+        <button type="button" class="dp-member" [class.dim]="stateClass(m) === 'plain'" (click)="editThreshold(m)">
+          <span class="zc-badge {{ stateClass(m) }} dp-num">{{ m.stockEffective ?? '—' }}</span>
+          <span class="dp-mname">{{ m.label }}<small>{{ m.sku }}</small></span>
+          <span class="dp-mstock"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }} <span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}@if (m.threshold !== null) { · ≤ {{ m.threshold }} }</span>
+          <i class="ti ti-chevron-right dp-chev" aria-hidden="true"></i>
+        </button>
+      }
+      @if (ms.hidden) {
+        <button type="button" class="dp-member dim" (click)="showAllMembers.set(true)">
+          <span class="dp-mname">{{ ms.hidden }} más sin alerta</span>
+          <i class="ti ti-chevron-down dp-chev" aria-hidden="true"></i>
+        </button>
+      }
+    </div>
+    <p class="dp-hint" *zcCanWrite>Tocá un modelo para cambiar su umbral o silenciarlo.</p>
+
+    <a routerLink="/pedidos" class="dp-cta" *zcCanWrite><i class="ti ti-truck-delivery" aria-hidden="true"></i> Armar pedido</a>
+  </zc-bottom-sheet>
+}
+
+@if (thresholdTarget(); as t) {
+  <zc-threshold-sheet [target]="t" (closed)="thresholdTarget.set(null)" />
+}

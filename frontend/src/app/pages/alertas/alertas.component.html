@@ -6,6 +6,7 @@
     </div>
   </div>
 
+  @if (!phone()) {
   <a routerLink="/pedidos" class="zc-card pedidos-callout">
     <i class="ti ti-truck-delivery" aria-hidden="true"></i>
     <span>
@@ -14,13 +15,14 @@
     </span>
     <i class="ti ti-arrow-right" aria-hidden="true"></i>
   </a>
+  }
 
   <zc-tabs [tabs]="tabs()" [activeKey]="activeTab()" (tabChange)="onTabChange($event)" />
 
   <!-- ══════════════════════════ Disparadas ══════════════════════════ -->
   @if (activeTab() === 'disparadas') {
     <div class="tab-panel">
-      <zc-alertas-disparadas [units]="catalogUnits()" [suppliers]="orderSuppliers()" [loading]="catalogQuery.isLoading()" />
+      <zc-alertas-disparadas [units]="catalogUnits()" [suppliers]="orderSuppliers()" [loading]="catalogQuery.isLoading()" [rules]="rules()" />
     </div>
   }
 
@@ -91,6 +93,25 @@
             Sin coincidencias para "{{ unwatchedSearch() }}".
           }
         </p>
+      } @else if (phone()) {
+        <div class="ph-list">
+          @for (p of filteredUnwatched(); track p.sku) {
+            <div class="ph-row">
+              <zc-product-thumb class="ph-thumb" [src]="p.thumbnail" [title]="p.productLabel ?? p.sku" [subtitle]="'SKU ' + p.sku" />
+              <div class="ph-info">
+                <div class="ph-title">{{ p.productLabel ?? p.sku }}</div>
+                <div class="ph-sub">
+                  <span><span class="stock-dot ml"></span>{{ p.stockMl ?? '—' }} <span class="stock-dot tn"></span>{{ p.stockTn ?? '—' }}</span>
+                  <span class="ph-sku">{{ p.sku }}</span>
+                  @if (p.pack) { <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ p.pack.name }}</span> }
+                </div>
+              </div>
+              <button type="button" class="ph-add" *zcCanWrite (click)="openNewRuleSheet(p)" [attr.aria-label]="'Crear alerta para ' + (p.productLabel ?? p.sku)">
+                <i class="ti ti-bell-plus" aria-hidden="true"></i>
+              </button>
+            </div>
+          }
+        </div>
       } @else {
         <div class="zc-card table-scroll">
           <table class="zc-table">
@@ -142,56 +163,12 @@
   <!-- ══════════════════════════ Reglas ══════════════════════════ -->
   @if (activeTab() === 'reglas') {
     <div class="tab-panel">
-      <div class="zc-card add-rule" *zcCanWrite>
-        <div class="fld">
-          <label class="lbl">Vigilar productos — buscar por título o SKU</label>
-          <input
-            class="zc-input"
-            [ngModel]="newRuleQuery()"
-            (ngModelChange)="newRuleQuery.set($event)"
-            placeholder="Buscar por título o SKU…"
-            autocomplete="off"
-          />
-        </div>
-        <div class="fld threshold-fld">
-          <label class="lbl">Avisar con ≤</label>
-          <input class="zc-input" type="number" min="0" inputmode="numeric" [(ngModel)]="newThreshold" />
-        </div>
-        <button type="button" class="zc-btn primary" [disabled]="selectedNewSkus().size === 0 || addingRule()" (click)="addSelectedRules()">
-          {{ addingRule() ? 'Agregando…' : 'Agregar' }}
-          @if (selectedNewSkus().size > 0) { ({{ selectedNewSkus().size }}) }
+      @if (phone()) {
+        <button type="button" class="ph-new-rule" *zcCanWrite (click)="addSheetOpen.set(true)">
+          <i class="ti ti-bell-plus" aria-hidden="true"></i> Vigilar productos
         </button>
-      </div>
-
-      @if (newRuleQuery().trim().length >= 2) {
-        <div class="zc-card product-results">
-          @if (newRuleSearchLoading()) {
-            <div class="product-result-hint"><i class="ti ti-loader-2" aria-hidden="true"></i> Buscando…</div>
-          } @else if (newRuleSearchResults().length === 0) {
-            <div class="product-result-hint">Sin productos sin regla para "{{ newRuleQuery() }}".</div>
-          } @else {
-            @for (opt of newRuleSearchResults(); track opt.sku) {
-              <label class="product-result">
-                <input type="checkbox" [checked]="isNewRuleSelected(opt.sku)" (change)="toggleNewRuleSelected(opt)" />
-                <zc-product-thumb class="result-thumb" [src]="opt.thumbnail" zoom="badge" [title]="opt.label" [subtitle]="'SKU ' + opt.sku" />
-                <span class="result-info">
-                  <span class="result-label">{{ opt.label }}</span>
-                  <span class="result-sku">{{ opt.sku }}</span>
-                </span>
-              </label>
-            }
-            @if (newRuleSearchHidden() > 0) {
-              <div class="product-result-hint">Hay {{ newRuleSearchHidden() }} más — refiná la búsqueda para verlos.</div>
-            }
-          }
-        </div>
-      } @else if (selectedNewSkus().size > 0) {
-        <p class="hint selected-hint">
-          {{ selectedNewSkus().size }} producto{{ selectedNewSkus().size === 1 ? '' : 's' }} tildado{{ selectedNewSkus().size === 1 ? '' : 's' }} para vigilar.
-        </p>
-      }
-      @if (addError) {
-        <p class="alert error">{{ addError }}</p>
+      } @else {
+        <ng-container *ngTemplateOutlet="addRuleTpl" />
       }
 
       <div class="toolbar">
@@ -215,6 +192,28 @@
         <p class="empty">Todavía no configuraste ninguna alerta.</p>
       } @else if (filteredRules().length === 0) {
         <p class="empty">Sin coincidencias para "{{ rulesSearch() }}".</p>
+      } @else if (phone()) {
+        <div class="ph-list">
+          @for (rule of filteredRules(); track rule.sku) {
+            <button type="button" class="ph-row" (click)="openRuleSheet(rule)">
+              <span class="ph-info">
+                <span class="ph-title">{{ rule.productLabel ?? rule.sku }}</span>
+                <span class="ph-sub">
+                  @if (rule.state === 'triggered') {
+                    <span class="zc-badge warn"><i class="ti ti-bell-ringing" aria-hidden="true"></i> Disparada</span>
+                  } @else if (isMuted(rule)) {
+                    <span class="zc-badge"><i class="ti ti-bell-off" aria-hidden="true"></i> Silenciada</span>
+                  } @else {
+                    <span class="zc-badge ok">Ok</span>
+                  }
+                  <span><span class="stock-dot ml"></span>{{ rule.stockMl ?? '—' }} <span class="stock-dot tn"></span>{{ rule.stockTn ?? '—' }}</span>
+                  <span class="ph-sku">{{ rule.sku }}</span>
+                </span>
+              </span>
+              <span class="ph-thr"><b>{{ rule.threshold }}</b><small>avisar ≤</small></span>
+            </button>
+          }
+        </div>
       } @else {
         <div class="zc-card table-scroll">
           <table class="zc-table">
@@ -287,6 +286,16 @@
     </div>
   }
 
+  @if (thresholdTarget(); as t) {
+    <zc-threshold-sheet [target]="t" (closed)="thresholdTarget.set(null)" />
+  }
+
+  @if (addSheetOpen()) {
+    <zc-bottom-sheet title="Vigilar productos" subtitle="Buscá, tildá y elegí con cuánto avisar." (closed)="addSheetOpen.set(false)">
+      <div class="ph-add-sheet"><ng-container *ngTemplateOutlet="addRuleTpl" /></div>
+    </zc-bottom-sheet>
+  }
+
   @if (deletingSku(); as sku) {
     <zc-confirm-dialog
       title="Quitar alerta"
@@ -299,3 +308,57 @@
     />
   }
 </div>
+
+<ng-template #addRuleTpl>
+      <div class="zc-card add-rule" *zcCanWrite>
+        <div class="fld">
+          <label class="lbl">Vigilar productos — buscar por título o SKU</label>
+          <input
+            class="zc-input"
+            [ngModel]="newRuleQuery()"
+            (ngModelChange)="newRuleQuery.set($event)"
+            placeholder="Buscar por título o SKU…"
+            autocomplete="off"
+          />
+        </div>
+        <div class="fld threshold-fld">
+          <label class="lbl">Avisar con ≤</label>
+          <input class="zc-input" type="number" min="0" inputmode="numeric" [(ngModel)]="newThreshold" />
+        </div>
+        <button type="button" class="zc-btn primary" [disabled]="selectedNewSkus().size === 0 || addingRule()" (click)="addSelectedRules()">
+          {{ addingRule() ? 'Agregando…' : 'Agregar' }}
+          @if (selectedNewSkus().size > 0) { ({{ selectedNewSkus().size }}) }
+        </button>
+      </div>
+
+      @if (newRuleQuery().trim().length >= 2) {
+        <div class="zc-card product-results">
+          @if (newRuleSearchLoading()) {
+            <div class="product-result-hint"><i class="ti ti-loader-2" aria-hidden="true"></i> Buscando…</div>
+          } @else if (newRuleSearchResults().length === 0) {
+            <div class="product-result-hint">Sin productos sin regla para "{{ newRuleQuery() }}".</div>
+          } @else {
+            @for (opt of newRuleSearchResults(); track opt.sku) {
+              <label class="product-result">
+                <input type="checkbox" [checked]="isNewRuleSelected(opt.sku)" (change)="toggleNewRuleSelected(opt)" />
+                <zc-product-thumb class="result-thumb" [src]="opt.thumbnail" zoom="badge" [title]="opt.label" [subtitle]="'SKU ' + opt.sku" />
+                <span class="result-info">
+                  <span class="result-label">{{ opt.label }}</span>
+                  <span class="result-sku">{{ opt.sku }}</span>
+                </span>
+              </label>
+            }
+            @if (newRuleSearchHidden() > 0) {
+              <div class="product-result-hint">Hay {{ newRuleSearchHidden() }} más — refiná la búsqueda para verlos.</div>
+            }
+          }
+        </div>
+      } @else if (selectedNewSkus().size > 0) {
+        <p class="hint selected-hint">
+          {{ selectedNewSkus().size }} producto{{ selectedNewSkus().size === 1 ? '' : 's' }} tildado{{ selectedNewSkus().size === 1 ? '' : 's' }} para vigilar.
+        </p>
+      }
+      @if (addError) {
+        <p class="alert error">{{ addError }}</p>
+      }
+</ng-template>

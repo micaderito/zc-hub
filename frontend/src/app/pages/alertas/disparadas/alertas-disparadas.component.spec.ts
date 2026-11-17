@@ -17,7 +17,9 @@ describe('AlertasDisparadasComponent', () => {
   let fixture: ComponentFixture<AlertasDisparadasComponent>;
   let component: AlertasDisparadasComponent;
 
-  function create(units: CatalogUnit[]): void {
+  /** Por defecto escritorio (la tabla); el navegador de los tests puede ser más angosto que 760px. */
+  function create(units: CatalogUnit[], phone = false): void {
+    spyOn(window, 'matchMedia').and.returnValue({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as MediaQueryList);
     TestBed.configureTestingModule({ imports: [AlertasDisparadasComponent], providers: [provideRouter([])] });
     fixture = TestBed.createComponent(AlertasDisparadasComponent);
     component = fixture.componentInstance;
@@ -62,6 +64,12 @@ describe('AlertasDisparadasComponent', () => {
   it('marca lo que ya está en camino', () => {
     create([unit({ pendingOrder: { orderId: 12, orderName: 'Octubre' } })]);
     expect(fixture.nativeElement.textContent).toContain('en camino · #12');
+  });
+
+  it('en el celular cambia la tabla por la lista por urgencia', () => {
+    create([unit()], true);
+    expect(fixture.nativeElement.querySelector('table')).toBeNull();
+    expect(fixture.nativeElement.querySelector('zc-disparadas-phone')).not.toBeNull();
   });
 
   it('sin alertas lo dice', () => {
