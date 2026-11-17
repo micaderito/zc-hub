@@ -234,6 +234,21 @@ insumo no resucita en cada reinicio del backend.
 El ajuste rápido de cantidad (`PATCH /:id/ajustar`, botones +/-1 de la tabla) es un delta sobre el
 valor guardado, no pisa un valor absoluto — evita que dos clics simultáneos se pisen entre sí.
 
+**Historial por fila** (2026-11-17, `deposito_movements`): cada alta, ajuste (+/−), cambio de
+cantidad al editar y baja deja una fila con `delta`, `quantity_after` y quién (`req.user.username`),
+en la MISMA transacción que el cambio (`withDepositoTx` en `db.js`). El ajuste registra lo que cambió
+de verdad (restar 5 con 3 en stock = −3; con 0 no deja nada) y editar sin tocar la cantidad no es
+movimiento. Sin FK a propósito: al borrar la fila su historial queda, con label/unidad copiados.
+`GET /api/deposito/:id/movimientos`; en el front `zc-deposito-history` (`pages/deposito/deposito-history/`),
+que usan el relojito de la tabla (escritorio) y la hoja de detalle (celular). Lo anterior al
+2026-11-17 no se pudo reconstruir: el historial arranca vacío.
+
+**En el celular** (prototipo `docs/prototype/deposito-mobile.html`, opción B): en vez de la tabla
+apilada, una lista compacta por tipo (Productos / Embalaje) con la cantidad a la derecha y la foto
+del catálogo (el mismo de `/mapping/sources`, que ahora se carga al abrir la página); tocar una fila
+abre una hoja con el +/− grande, atajos ±5/±10, Editar, Borrar (con confirmación) y el historial.
+Agregar es un botón flotante. El formulario va por encima de la hoja (`.modal-backdrop.top`).
+
 ### Historial: el movimiento de LOS DOS canales
 
 El hub solo escribe el canal espejo (vende ML → descuenta TN), así que el historial contaba media
@@ -1463,7 +1478,9 @@ recuperación de locks vencidos, `backend/test/mlTaskQueue.test.js` el latido y 
 `backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
 despachado, envío no consultable, caché por pack, cancelación del vendedor, reintento del espejo),
 y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
-ajuste rápido de cantidad, filas inexistentes). El historial de los dos canales está cubierto
+ajuste rápido de cantidad, filas inexistentes, la usuaria que llega al historial y
+`GET /:id/movimientos`; el SQL del historial contra Postgres real en `publishJobsRealDb.test.js`, y
+en el front `deposito.component.spec.ts` + `deposito-history.component.spec.ts`). El historial de los dos canales está cubierto
 además en `backend/test/conflictsService.test.js` (diff + eco + 429/5xx que no tocan el snapshot),
 y el fix de leer el valor previo ANTES de escribir (`readMlSnapshotRow`/`readTnSnapshotRow`, sin
 esperar un crawl en curso). El caso puntual del incidente 2026-09-05 (la foto ya movida cuando se

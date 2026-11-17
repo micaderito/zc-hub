@@ -1,0 +1,34 @@
+:host { display: block; }
+
+.dh-msg {
+  margin: 6px 0; font-size: 12.5px; color: var(--text-2);
+  &.err { color: var(--err); }
+}
+.dh-day {
+  font-size: 10.5px; color: var(--text-3); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; margin: 12px 0 2px;
+  &:first-child { margin-top: 0; }
+}
+.dh-list { list-style: none; margin: 0; padding: 0; }
+.dh-list li {
+  display: flex; align-items: center; gap: 10px; padding: 9px 0;
+  border-top: 0.5px solid var(--border);
+  &:first-child { border-top: none; }
+}
+.dh-delta {
+  width: 46px; height: 30px; flex-shrink: 0; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+  background: var(--surface-2); color: var(--text-2);
+  &.up { background: var(--ok-bg); color: var(--ok); }
+  &.down { background: var(--err-bg); color: var(--err); }
+}
+.dh-desc {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;
+  b { font-size: 13px; font-weight: 500; }
+  span { font-size: 11.5px; color: var(--text-3); }
+}
+.dh-after {
+  font-size: 12px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums;
+  b { color: var(--text); font-size: 14px; font-weight: 600; }
+}

@@ -1,11 +1,13 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { injectQuery } from '@tanstack/angular-query-experimental';
+import { injectQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { firstValueFrom } from 'rxjs';
 import { DepositoService, DepositoItem, DepositoItemType } from '../../core/services/deposito.service';
 import { MappingService, CatalogOption } from '../../core/services/mapping.service';
 import { matchSearchByTokens } from '../../core/services/conflicts.service';
 import { CanWriteDirective } from '../../shared/directives/can-write.directive';
+import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
+import { DepositoHistoryComponent, depositoMovementsKey } from './deposito-history/deposito-history.component';
 
 /** Estado del formulario de alta/edición de una fila de depósito. */
 interface DepositoForm {
@@ -26,17 +28,27 @@ function emptyForm(): DepositoForm {
  * Depósito Marañón — stock físico guardado aparte del publicado en ML/TN: tanto productos del
  * catálogo (vinculados por SKU, autocomplete contra ML/TN) como insumos de embalaje sin canal
  * (rollos, cinta) que nunca fueron ni van a ser un producto publicado.
+ *
+ * Escritorio: tabla con +/− y el relojito (historial) por fila. Celular: lista compacta agrupada
+ * por tipo; tocar una fila abre una hoja con el +/− grande, atajos ±5/±10, editar, borrar e historial.
  */
 @Component({
   selector: 'app-deposito',
   standalone: true,
-  imports: [CanWriteDirective, FormsModule],
+  imports: [CanWriteDirective, ConfirmDialogComponent, DepositoHistoryComponent, FormsModule],
   templateUrl: './deposito.component.html',
   styleUrl: './deposito.component.scss',
 })
 export class DepositoComponent {
   private readonly deposito = inject(DepositoService);
   private readonly mapping = inject(MappingService);
+  private readonly queryClient = inject(QueryClient);
+
+  constructor() {
+    // Las fotos de la lista salen del mismo catálogo que el autocomplete (foto del análisis, sin
+    // pegarle a ML/TN): sin él la fila muestra el ícono de caja.
+    void this.ensureCatalogLoaded();
+  }
 
   readonly itemsQuery = injectQuery(() => ({
     queryKey: ['deposito', 'items'],
@@ -51,6 +63,35 @@ export class DepositoComponent {
     const q = this.search();
     return this.items().filter((i) => matchSearchByTokens(q, `${i.label} ${i.sku ?? ''}`));
   });
+
+  /** Lista del celular: productos y embalaje por separado (cada grupo solo si tiene filas). */
+  readonly groups = computed(() => {
+    const items = this.filteredItems();
+    const unitsOf = (rows: DepositoItem[]) => rows.reduce((n, i) => n + i.quantity, 0);
+    const productos = items.filter((i) => i.itemType === 'producto');
+    const embalaje = items.filter((i) => i.itemType === 'embalaje');
+    return [
+      { key: 'producto', label: 'Productos', items: productos, units: unitsOf(productos) },
+      { key: 'embalaje', label: 'Embalaje', items: embalaje, units: unitsOf(embalaje) },
+    ].filter((g) => g.items.length > 0);
+  });
+
+  // ── Hoja de detalle (celular) y modal de historial (escritorio) ──
+  /** Por id, así la hoja muestra siempre la cantidad recién refrescada. */
+  readonly detailId = signal<number | null>(null);
+  readonly detailItem = computed(() => this.items().find((i) => i.id === this.detailId()) ?? null);
+  readonly historyId = signal<number | null>(null);
+  readonly historyItem = computed(() => this.items().find((i) => i.id === this.historyId()) ?? null);
+  readonly confirmDelete = signal<DepositoItem | null>(null);
+
+  openDetail(item: DepositoItem): void {
+    this.errorMsg.set(null);
+    this.detailId.set(item.id);
+  }
+
+  thumbnailFor(item: DepositoItem): string | null {
+    return item.sku ? this.skuThumbnailFor(item.sku) : null;
+  }
 
   readonly totals = computed(() => {
     const items = this.items();
@@ -200,6 +241,7 @@ export class DepositoComponent {
         await firstValueFrom(this.deposito.create(payload));
       }
       await this.itemsQuery.refetch();
+      if (f.id != null) this.invalidateHistory(f.id);
       this.showForm.set(false);
     } catch (e) {
       this.errorMsg.set((e as { error?: { error?: string } })?.error?.error ?? 'No se pudo guardar');
@@ -209,25 +251,36 @@ export class DepositoComponent {
   }
 
   async remove(item: DepositoItem): Promise<void> {
+    this.confirmDelete.set(null);
     try {
       await firstValueFrom(this.deposito.delete(item.id));
+      if (this.detailId() === item.id) this.detailId.set(null);
+      if (this.historyId() === item.id) this.historyId.set(null);
       await this.itemsQuery.refetch();
     } catch (e) {
       this.errorMsg.set((e as { error?: { error?: string } })?.error?.error ?? 'No se pudo borrar');
     }
   }
 
-  /** +1 / -1 rápido desde la tabla, sin abrir el modal. */
+  /**
+   * Suma o resta sin abrir el formulario. Restar más de lo que hay deja la fila en 0 (el backend
+   * no baja de 0); con 0 no se resta nada.
+   */
   async adjust(item: DepositoItem, delta: number): Promise<void> {
-    if (item.quantity + delta < 0) return;
+    if (delta < 0 && item.quantity === 0) return;
     this.adjustingId.set(item.id);
     try {
       await firstValueFrom(this.deposito.adjust(item.id, delta));
       await this.itemsQuery.refetch();
+      this.invalidateHistory(item.id);
     } catch (e) {
       this.errorMsg.set((e as { error?: { error?: string } })?.error?.error ?? 'No se pudo ajustar');
     } finally {
       this.adjustingId.set(null);
     }
+  }
+
+  private invalidateHistory(id: number): void {
+    void this.queryClient.invalidateQueries({ queryKey: depositoMovementsKey(id) });
   }
 }

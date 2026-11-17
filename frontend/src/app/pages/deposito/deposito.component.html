@@ -41,6 +41,35 @@
       }
     </div>
   } @else {
+    <!-- Celular: lista compacta por tipo; tocar una fila abre la hoja de detalle. -->
+    <div class="dp-phone">
+      @for (g of groups(); track g.key) {
+        <div class="dp-group-h">
+          <span>{{ g.label }} · {{ g.items.length }}</span>
+          @if (g.key === 'producto') { <span>{{ g.units }} u.</span> }
+        </div>
+        <div class="dp-list">
+          @for (item of g.items; track item.id) {
+            <button type="button" class="dp-row" (click)="openDetail(item)">
+              @if (thumbnailFor(item); as src) {
+                <img class="dp-thumb" [src]="src" alt="" />
+              } @else {
+                <span class="dp-thumb empty"><i class="ti" [class.ti-box]="item.itemType === 'producto'" [class.ti-package]="item.itemType === 'embalaje'"></i></span>
+              }
+              <span class="dp-row-info">
+                <span class="dp-row-title">{{ item.label }}</span>
+                <span class="dp-row-sub">{{ item.sku || 'Insumo' }}@if (item.notes) { · {{ item.notes }} }</span>
+              </span>
+              <span class="dp-row-qty" [class.zero]="item.quantity === 0">
+                <b>{{ item.quantity }}</b><small>{{ item.unit }}</small>
+              </span>
+              <i class="ti ti-chevron-right dp-chev" aria-hidden="true"></i>
+            </button>
+          }
+        </div>
+      }
+    </div>
+
     <div class="dp-table-wrap">
       <table class="dp-table">
         <thead>
@@ -76,8 +105,9 @@
               <td data-label="Unidad">{{ item.unit }}</td>
               <td class="notes cell-wide" data-label="Notas">{{ item.notes || '—' }}</td>
               <td class="col-actions cell-actions">
+                <button type="button" class="icon-btn" (click)="historyId.set(item.id)" title="Historial" aria-label="Historial"><i class="ti ti-history"></i></button>
                 <ng-container *zcCanWrite><button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar" aria-label="Editar"><i class="ti ti-pencil"></i></button>
-                <button type="button" class="icon-btn danger" (click)="remove(item)" title="Borrar" aria-label="Borrar"><i class="ti ti-trash"></i></button></ng-container>
+                <button type="button" class="icon-btn danger" (click)="confirmDelete.set(item)" title="Borrar" aria-label="Borrar"><i class="ti ti-trash"></i></button></ng-container>
               </td>
             </tr>
           }
@@ -85,11 +115,85 @@
       </table>
     </div>
   }
+
+  <button type="button" class="dp-fab" *zcCanWrite (click)="openCreate()"><i class="ti ti-plus"></i> Agregar</button>
 </div>
+
+<!-- ══════════════ Hoja de detalle (celular) ══════════════ -->
+@if (detailItem(); as item) {
+  <div class="modal-backdrop" (click)="detailId.set(null)">
+    <div class="modal narrow dp-detail" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" [attr.aria-label]="item.label">
+      <div class="modal-head">
+        @if (thumbnailFor(item); as src) {
+          <img class="dp-thumb" [src]="src" alt="" />
+        } @else {
+          <span class="dp-thumb empty"><i class="ti" [class.ti-box]="item.itemType === 'producto'" [class.ti-package]="item.itemType === 'embalaje'"></i></span>
+        }
+        <div class="dp-detail-title">
+          <h2>{{ item.label }}</h2>
+          <span>{{ item.sku || 'Insumo de embalaje' }} · {{ item.itemType === 'producto' ? 'Producto' : 'Embalaje' }}</span>
+        </div>
+        <button type="button" class="icon-btn" (click)="detailId.set(null)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="dp-big-step">
+          <button type="button" *zcCanWrite [disabled]="item.quantity === 0 || adjustingId() === item.id" (click)="adjust(item, -1)" aria-label="Restar 1"><i class="ti ti-minus"></i></button>
+          <div class="dp-big-val"><b>{{ item.quantity }}</b><small>{{ item.unit }}</small></div>
+          <button type="button" *zcCanWrite [disabled]="adjustingId() === item.id" (click)="adjust(item, 1)" aria-label="Sumar 1"><i class="ti ti-plus"></i></button>
+        </div>
+        <div class="dp-quick" *zcCanWrite>
+          @for (d of [-10, -5, 5, 10]; track d) {
+            <button type="button" [disabled]="(d < 0 && item.quantity === 0) || adjustingId() === item.id" (click)="adjust(item, d)">{{ d > 0 ? '+' + d : '−' + (-d) }}</button>
+          }
+        </div>
+        @if (item.notes) {
+          <p class="dp-detail-notes"><i class="ti ti-note"></i> {{ item.notes }}</p>
+        }
+        @if (errorMsg()) { <div class="dp-error">{{ errorMsg() }}</div> }
+        <div class="dp-detail-actions" *zcCanWrite>
+          <button type="button" class="btn" (click)="openEdit(item)"><i class="ti ti-pencil"></i> Editar</button>
+          <button type="button" class="btn danger" (click)="confirmDelete.set(item)"><i class="ti ti-trash"></i> Borrar</button>
+        </div>
+        <h3 class="dp-detail-h"><i class="ti ti-history"></i> Historial</h3>
+        <zc-deposito-history [itemId]="item.id" />
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══════════════ Historial (relojito de la tabla) ══════════════ -->
+@if (historyItem(); as item) {
+  <div class="modal-backdrop" (click)="historyId.set(null)">
+    <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <div class="dp-detail-title">
+          <h2><i class="ti ti-history"></i> Historial</h2>
+          <span>{{ item.label }}@if (item.sku) { · {{ item.sku }} } · hoy {{ item.quantity }} {{ item.unit }}</span>
+        </div>
+        <button type="button" class="icon-btn" (click)="historyId.set(null)" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <zc-deposito-history [itemId]="item.id" />
+      </div>
+    </div>
+  </div>
+}
+
+@if (confirmDelete(); as item) {
+  <zc-confirm-dialog
+    [title]="'Borrar “' + item.label + '”'"
+    message="La fila sale del depósito. Su historial queda guardado."
+    confirmLabel="Borrar"
+    variant="danger"
+    icon="ti-trash"
+    (confirmed)="remove(item)"
+    (cancelled)="confirmDelete.set(null)"
+  />
+}
 
 <!-- ══════════════ Modal: alta/edición ══════════════ -->
 @if (showForm()) {
-  <div class="modal-backdrop" (click)="showForm.set(false)">
+  <div class="modal-backdrop top" (click)="showForm.set(false)">
     <div class="modal narrow" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ form().id != null ? 'Editar fila' : 'Agregar al depósito' }}</h2>

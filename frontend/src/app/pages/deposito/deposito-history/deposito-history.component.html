@@ -1,0 +1,23 @@
+@if (query.isLoading()) {
+  <p class="dh-msg">Cargando historial…</p>
+} @else if (query.isError()) {
+  <p class="dh-msg err">No se pudo cargar el historial.</p>
+} @else if (days().length === 0) {
+  <p class="dh-msg">Todavía no hay movimientos. Desde ahora queda registrado cada cambio de cantidad.</p>
+} @else {
+  @for (day of days(); track day.key) {
+    <div class="dh-day">{{ day.label }}</div>
+    <ul class="dh-list">
+      @for (m of day.movements; track m.id) {
+        <li>
+          <span class="dh-delta" [class.up]="m.delta > 0" [class.down]="m.delta < 0">{{ deltaText(m) }}</span>
+          <span class="dh-desc">
+            <b>{{ title(m) }}</b>
+            <span>{{ time(m) }}@if (m.actor) { · {{ m.actor }} }</span>
+          </span>
+          <span class="dh-after">quedó <b>{{ m.quantityAfter }}</b></span>
+        </li>
+      }
+    </ul>
+  }
+}
