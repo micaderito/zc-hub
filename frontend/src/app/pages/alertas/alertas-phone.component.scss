@@ -1,0 +1,104 @@
+// Alertas en el celular: listas compactas de Reglas y Sin alerta, el botón "Vigilar productos" y el
+// alta de reglas dentro de la hoja. Solo se renderizan con `phone()` (≤ 760px), así que esta hoja no
+// necesita media queries ni toca el escritorio. Aparte de alertas.component.scss por el tope de 16 kB.
+
+.ph-list {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ph-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 62px;
+  padding: 10px 12px;
+  border: none;
+  border-top: 0.5px solid var(--border);
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+
+  &:first-child { border-top: none; }
+}
+
+button.ph-row { cursor: pointer; }
+
+.ph-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.ph-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ph-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.74rem;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ph-sku { color: var(--text-3); }
+
+.ph-thr {
+  flex-shrink: 0;
+  min-width: 52px;
+  text-align: right;
+
+  b { display: block; font-size: 1.25rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  small { font-size: 0.66rem; color: var(--text-3); }
+}
+
+.ph-add {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 0.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--brand);
+  font-size: 1.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.ph-new-rule {
+  width: 100%;
+  min-height: 46px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border: 0.5px dashed var(--border-strong);
+  background: var(--surface);
+  color: var(--brand);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  i { font-size: 1.15rem; }
+}
+
+// El alta adentro de la hoja: sin la tarjeta (la hoja ya es el contenedor).
+.ph-add-sheet {
+  margin-top: 12px;
+
+  .add-rule { padding: 0; border: none; box-shadow: none; background: none; }
+  .product-results { max-height: 40vh; }
+}
+
+.ph-thumb { --thumb-size: 40px; --thumb-radius: 10px; flex-shrink: 0; }

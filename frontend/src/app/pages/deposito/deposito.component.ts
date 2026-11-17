@@ -7,6 +7,7 @@ import { MappingService, CatalogOption } from '../../core/services/mapping.servi
 import { matchSearchByTokens } from '../../core/services/conflicts.service';
 import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
+import { ProductThumbComponent } from '../../shared/components/product-thumb/product-thumb.component';
 import { DepositoHistoryComponent, depositoMovementsKey } from './deposito-history/deposito-history.component';
 
 /** Estado del formulario de alta/edición de una fila de depósito. */
@@ -35,7 +36,7 @@ function emptyForm(): DepositoForm {
 @Component({
   selector: 'app-deposito',
   standalone: true,
-  imports: [CanWriteDirective, ConfirmDialogComponent, DepositoHistoryComponent, FormsModule],
+  imports: [CanWriteDirective, ConfirmDialogComponent, DepositoHistoryComponent, FormsModule, ProductThumbComponent],
   templateUrl: './deposito.component.html',
   styleUrl: './deposito.component.scss',
 })

@@ -46,7 +46,7 @@
                     (click)="i !== 0 && makeVariantCover('ml', i)"
                     [title]="i === 0 ? 'Portada' : 'Tocar para hacer portada'"
                   >
-                    <zc-product-thumb [src]="img.previewUrl" />
+                    <zc-product-thumb [src]="img.previewUrl" zoom="none" />
                     <span class="vpd-order-num">{{ i + 1 }}</span>
                     @if (i === 0) { <span class="vpd-order-cover"><i class="ti ti-star-filled" aria-hidden="true"></i> Portada</span> }
                   </button>
@@ -71,7 +71,7 @@
                 [title]="img.name"
                 (click)="toggle('ml', img.id)"
               >
-                <zc-product-thumb [src]="img.previewUrl" />
+                <zc-product-thumb [src]="img.previewUrl" zoom="badge" [zoomSrc]="store.fullImageUrl(img)" [title]="img.name" />
                 @if (isSelected('ml', img.id)) { <i class="ti ti-check" aria-hidden="true"></i> }
               </button>
             }
@@ -114,7 +114,7 @@
                     (click)="i !== 0 && makeVariantCover('tn', i)"
                     [title]="i === 0 ? 'Portada' : 'Tocar para hacer portada'"
                   >
-                    <zc-product-thumb [src]="img.previewUrl" />
+                    <zc-product-thumb [src]="img.previewUrl" zoom="none" />
                     <span class="vpd-order-num">{{ i + 1 }}</span>
                     @if (i === 0) { <span class="vpd-order-cover"><i class="ti ti-star-filled" aria-hidden="true"></i> Portada</span> }
                   </button>
@@ -138,7 +138,7 @@
                 [title]="img.name"
                 (click)="toggle('tn', img.id)"
               >
-                <zc-product-thumb [src]="img.previewUrl" />
+                <zc-product-thumb [src]="img.previewUrl" zoom="badge" [zoomSrc]="store.fullImageUrl(img)" [title]="img.name" />
                 @if (isSelected('tn', img.id)) { <i class="ti ti-check" aria-hidden="true"></i> }
               </button>
             }

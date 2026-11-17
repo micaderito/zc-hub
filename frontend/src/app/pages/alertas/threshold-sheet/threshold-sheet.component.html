@@ -1,0 +1,46 @@
+<zc-bottom-sheet [title]="target().label" [subtitle]="subtitle()" (closed)="closed.emit()">
+  @if (session.isReadOnly()) {
+    <p class="ts-explain">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      @if (isNew()) { Este producto no tiene alerta. } @else { Avisa cuando queden {{ target().threshold }} o menos. }
+    </p>
+  } @else {
+    <div class="ts-lbl">Avisar cuando queden</div>
+    <div class="ts-step">
+      <button type="button" (click)="step(-1)" [disabled]="value() <= 0" aria-label="Uno menos"><i class="ti ti-minus" aria-hidden="true"></i></button>
+      <input class="ts-num" type="number" min="0" inputmode="numeric" aria-label="Umbral" [ngModel]="value()" (ngModelChange)="setValue($event)" />
+      <button type="button" (click)="step(1)" aria-label="Uno más"><i class="ti ti-plus" aria-hidden="true"></i></button>
+    </div>
+    <div class="ts-presets">
+      @for (p of presets; track p) {
+        <button type="button" [class.on]="value() === p" (click)="value.set(p)">{{ p }}</button>
+      }
+    </div>
+    <p class="ts-explain">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      Se avisa cuando el canal con menos stock llega a este número.
+    </p>
+
+    @if (error()) { <p class="ts-error">{{ error() }}</p> }
+
+    @if (!isNew()) {
+      <div class="ts-btns">
+        @if (muted()) {
+          <span class="ts-muted"><i class="ti ti-bell-off" aria-hidden="true"></i> Silenciada por unos días</span>
+        } @else {
+          <button type="button" class="ts-btn" [disabled]="busy()" (click)="mute()"><i class="ti ti-bell-off" aria-hidden="true"></i> Silenciar 7 días</button>
+        }
+      </div>
+    }
+    <div class="ts-btns">
+      @if (!isNew()) {
+        <button type="button" class="ts-btn danger" [class.confirm]="confirmDelete()" [disabled]="busy()" (click)="remove()">
+          <i class="ti ti-trash" aria-hidden="true"></i> {{ confirmDelete() ? '¿Quitar la alerta?' : 'Quitar' }}
+        </button>
+      }
+      <button type="button" class="ts-btn primary" [disabled]="busy()" (click)="save()">
+        {{ busy() ? 'Guardando…' : isNew() ? 'Crear alerta' : 'Guardar' }}
+      </button>
+    </div>
+  }
+</zc-bottom-sheet>

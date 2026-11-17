@@ -23,6 +23,13 @@ sincroniza stock por webhooks y permite crear productos en ambos canales de una 
   proyecta (`single_with_variants` o `one_per_variant`). El mapeo SKU↔SKU vive por debajo.
   Modelo en `frontend/src/app/pages/crear-producto/product-draft.model.ts`.
 - Iconos: Tabler webfont, solo outline (`ti ti-…`).
+- **Fotos de producto: siempre `<zc-product-thumb>`** (`shared/components/product-thumb/`), nunca
+  un `<img>` suelto. Al tocarla abre la foto en grande (`zc-photo-lightbox`, colgado de `<body>` por
+  `PhotoLightboxService`, así un click no le llega a la fila/label de atrás y Esc no cierra el modal
+  de abajo). `photos` para recorrer varias, `title`/`subtitle` para el zoom, `zoomSrc` si la grande no
+  sale de la URL (las de ML pasan de `-I` a `-O` solas, `largePhotoUrl`). `zoom="badge"` donde tocar
+  la foto ya hace otra cosa (opción de un buscador, selector de fotos): ahí solo la lupita abre el
+  zoom; `zoom="none"` sin zoom. Tamaño con `--thumb-size`, radio con `--thumb-radius`.
 
 ## Particularidades de la API de Mercado Libre
 
@@ -673,6 +680,15 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
   La misma lista se ve en **Alertas → Disparadas** (pestaña por defecto,
   `pages/alertas/disparadas/`): usa el mismo `GET /api/orders/catalog` sin proveedor y muestra solo
   las unidades `alerted`, con filtro por proveedor, depósito y si ya está en camino.
+  **En el celular** (2026-11-17, prototipo `docs/prototype/alertas-mobile.html`, opción B): la tabla se
+  reemplaza por `zc-disparadas-phone` — tres números arriba que filtran (Agotados / Bajos / En camino),
+  secciones por urgencia (lo que tiene pedido pendiente va en "Ya pedido" aunque esté en 0) y una hoja
+  con depósito, último pedido y los modelos del pack. Tocar un modelo, una regla o el "+" de Sin alerta
+  abre `zc-threshold-sheet` (crear/cambiar/silenciar/quitar). "Vigilar productos" va en una hoja,
+  Notificaciones sale de las pestañas (está en la campanita de arriba) y el aviso de Pedidos no se
+  muestra. Se elige con `mediaSignal(PHONE_QUERY)` (`shared/utils/media-signal.ts`), no con CSS: el
+  escritorio no cambia. Ojo en los specs: el navegador de Karma es más angosto que 760px, así que un
+  spec que espera la tabla tiene que mockear `matchMedia` (ver `alertas-disparadas.component.spec.ts`).
 - **Siempre se pide por pack.** La unidad es el pack del hub; un SKU sin pack se pide por el bulto de
   Precios (`product_costs.bulk_qty`, 1 si no hay). Un pack surtido muestra TODOS sus modelos aunque
   haya avisado uno; los diseños/colores que se quieren van en la columna libre **Detalle**.

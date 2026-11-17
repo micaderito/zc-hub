@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Alertas — celular</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd; --brand-contrast:#fff;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --ml:#e6b800; --tn:#2c6ecb; --shadow-pop:0 8px 28px rgba(20,22,40,.12); --page:#dfe2e8;
+}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f; --brand-contrast:#fff;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+  --ml:#f2cc33; --tn:#6aa0ef; --shadow-pop:0 8px 28px rgba(0,0,0,.5); --page:#05060a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:-apple-system, 'Inter', system-ui, sans-serif; }
+.top { max-width:1200px; margin:0 auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.top h1 { margin:0; font-size:18px; font-weight:500; }
+.top p { margin:4px 0 0; font-size:12.5px; color:var(--text-2); max-width:680px; line-height:1.45; }
+.theme-btn { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; padding:7px 12px; cursor:pointer; }
+.grid { max-width:1200px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:36px; align-items:center; }
+.opt { display:flex; flex-direction:column; gap:10px; }
+.opt h2 { margin:0; font-size:15px; font-weight:600; }
+.opt .why { font-size:12.5px; color:var(--text-2); margin:0; line-height:1.5; max-width:764px; }
+.pair { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+
+/* Teléfono */
+.phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:34px; border:8px solid #111; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.status { height:36px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:12px; font-weight:600; }
+.appbar { height:48px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:.5px solid var(--border); background:var(--surface); }
+.appbar b { font-size:15px; font-weight:600; flex:1; }
+.appbar i { font-size:20px; color:var(--text-2); }
+.scroll { flex:1; overflow-y:auto; padding:12px 14px 24px; }
+.tabbar { height:62px; flex-shrink:0; border-top:.5px solid var(--border); background:var(--surface); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--text-3); }
+.tabbar div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.tabbar i { font-size:21px; }
+.tabbar .on { color:var(--brand); }
+
+.search { position:relative; margin-bottom:10px; }
+.search i { position:absolute; left:11px; top:11px; color:var(--text-3); font-size:16px; }
+.search input { width:100%; font:inherit; font-size:16px; padding:9px 12px 9px 34px; border:.5px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); }
+.filters { display:flex; gap:6px; overflow-x:auto; margin-bottom:12px; scrollbar-width:none; }
+.chip { flex-shrink:0; font:inherit; font-size:12.5px; border:.5px solid var(--border); background:var(--surface); color:var(--text-2); padding:6px 11px; border-radius:16px; display:inline-flex; align-items:center; gap:5px; }
+.chip.on { background:var(--brand-bg); color:var(--brand); border-color:transparent; font-weight:500; }
+.chip i { font-size:14px; }
+
+.thumb { width:42px; height:42px; border-radius:10px; flex-shrink:0; }
+.thumb.p1 { background:linear-gradient(135deg,#f6c1d0,#e98fae); }
+.thumb.p2 { background:linear-gradient(135deg,#bfe3d5,#7cc4a8); }
+.thumb.p3 { background:linear-gradient(135deg,#c9c6f6,#8c86e8); }
+.thumb.p4 { background:linear-gradient(135deg,#fde4b4,#f1b35b); }
+.thumb.p5 { background:linear-gradient(135deg,#cfe1f7,#86aee3); }
+.thumb.sm { width:32px; height:32px; border-radius:8px; }
+
+.badge { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.badge.warn { background:var(--warn-bg); color:var(--warn); }
+.badge.err { background:var(--err-bg); color:var(--err); }
+.badge.ok { background:var(--ok-bg); color:var(--ok); }
+.badge.busy { background:var(--brand-bg); color:var(--brand); }
+.badge.plain { background:var(--surface-2); color:var(--text-2); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:3px; vertical-align:1px; }
+.dot.ml { background:var(--ml); } .dot.tn { background:var(--tn); }
+.num { font-variant-numeric:tabular-nums; }
+
+.group-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); font-weight:600; margin:14px 4px 6px; display:flex; justify-content:space-between; align-items:center; }
+.group-h.err { color:var(--err); } .group-h.warn { color:var(--warn); }
+.list { background:var(--surface); border:.5px solid var(--border); border-radius:14px; overflow:hidden; }
+.row { display:flex; align-items:center; gap:11px; padding:10px 12px; border-top:.5px solid var(--border); min-height:62px; }
+.row:first-child { border-top:none; }
+.row-info { flex:1; min-width:0; }
+.row-title { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row-sub { font-size:11.5px; color:var(--text-2); margin-top:3px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.row > i.chev { color:var(--text-3); font-size:16px; }
+.muted { color:var(--text-3); }
+
+/* ── Opción A ── */
+.tabs-a { display:flex; gap:4px; border-bottom:.5px solid var(--border); margin:-12px -14px 12px; padding:0 10px; background:var(--surface); overflow-x:auto; scrollbar-width:none; }
+.tabs-a button { flex-shrink:0; font:inherit; font-size:13px; border:none; background:none; color:var(--text-2); padding:11px 8px 10px; border-bottom:2px solid transparent; display:flex; align-items:center; gap:5px; }
+.tabs-a button.on { color:var(--brand); border-bottom-color:var(--brand); font-weight:600; }
+.cnt { font-size:10.5px; font-weight:600; background:var(--surface-2); color:var(--text-2); padding:1px 6px; border-radius:9px; }
+.cnt.warn { background:var(--warn-bg); color:var(--warn); }
+
+.gauge { width:58px; flex-shrink:0; text-align:right; }
+.gauge b { font-size:20px; font-weight:600; line-height:1; display:block; font-variant-numeric:tabular-nums; }
+.gauge small { font-size:10.5px; color:var(--text-3); }
+.gauge.err b { color:var(--err); } .gauge.warn b { color:var(--warn); }
+.bar { height:4px; border-radius:2px; background:var(--surface-2); margin-top:5px; overflow:hidden; }
+.bar span { display:block; height:100%; border-radius:2px; }
+.bar.err span { background:var(--err); } .bar.warn span { background:var(--warn); }
+
+.pack { border-top:.5px solid var(--border); }
+.pack:first-child { border-top:none; }
+.pack .row { border-top:none; }
+.pack .members { background:var(--surface-2); padding:4px 12px 8px 64px; }
+.member { display:flex; align-items:center; gap:8px; padding:7px 0; font-size:12.5px; border-top:.5px solid var(--border); }
+.member:first-child { border-top:none; }
+.member .n { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.member .s { font-variant-numeric:tabular-nums; color:var(--text-2); font-size:12px; }
+.member.dim .n { color:var(--text-3); }
+.member b.err { color:var(--err); } .member b.warn { color:var(--warn); }
+
+.sticky-cta { position:absolute; left:14px; right:14px; bottom:76px; height:48px; border:none; border-radius:13px; background:var(--brand); color:var(--brand-contrast); font:inherit; font-size:14.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:7px; box-shadow:var(--shadow-pop); }
+.sticky-cta i { font-size:19px; }
+
+/* Hoja */
+.scrim { position:absolute; inset:0; background:rgba(10,12,20,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; padding:8px 16px 22px; max-height:86%; overflow-y:auto; }
+.grab { width:38px; height:5px; border-radius:3px; background:var(--border-strong); margin:0 auto 12px; }
+.sheet-head { display:flex; gap:11px; align-items:center; }
+.sheet-head .t { flex:1; min-width:0; }
+.sheet-head .t b { font-size:15.5px; font-weight:600; display:block; line-height:1.25; }
+.sheet-head .t span { font-size:12px; color:var(--text-2); }
+.x { border:none; background:var(--surface-2); color:var(--text-2); width:32px; height:32px; border-radius:16px; font-size:16px; flex-shrink:0; }
+.lbl { font-size:12px; color:var(--text-2); margin:16px 0 6px; }
+.big-step { display:flex; align-items:center; justify-content:center; gap:16px; }
+.big-step button { width:52px; height:52px; border-radius:16px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:22px; }
+.big-step span { min-width:70px; text-align:center; font-size:34px; font-weight:600; font-variant-numeric:tabular-nums; }
+.presets { display:flex; gap:6px; justify-content:center; margin-top:10px; }
+.presets .chip { padding:6px 14px; }
+.explain { font-size:12px; color:var(--text-2); background:var(--surface-2); border-radius:10px; padding:9px 11px; margin-top:14px; line-height:1.45; display:flex; gap:7px; }
+.explain i { color:var(--text-3); font-size:15px; margin-top:1px; }
+.btns { display:flex; gap:8px; margin-top:16px; }
+.btn { flex:1; height:46px; border-radius:12px; font:inherit; font-size:14px; font-weight:500; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px; }
+.btn.primary { background:var(--brand); color:var(--brand-contrast); border-color:transparent; font-weight:600; }
+.btn.danger { color:var(--err); }
+.btn.ghost { border:none; }
+.btn i { font-size:18px; }
+
+/* ── Opción B ── */
+.seg { display:flex; background:var(--surface-2); border-radius:10px; padding:3px; margin-bottom:12px; }
+.seg button { flex:1; font:inherit; font-size:12.5px; border:none; background:none; color:var(--text-2); padding:7px 2px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:4px; }
+.seg button.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:6px; }
+.tile { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:9px 10px; }
+.tile b { font-size:22px; font-weight:600; display:block; line-height:1.1; font-variant-numeric:tabular-nums; }
+.tile span { font-size:11px; color:var(--text-2); }
+.tile.err b { color:var(--err); } .tile.warn b { color:var(--warn); } .tile.busy b { color:var(--brand); }
+.tile.on { border-color:var(--err); box-shadow:0 0 0 1px var(--err) inset; }
+
+.card { background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:11px 12px; margin-bottom:8px; display:flex; gap:11px; align-items:center; border-left:4px solid var(--warn); }
+.card.err { border-left-color:var(--err); }
+.card.busy { border-left-color:var(--brand); }
+.card .ch { display:flex; gap:12px; font-size:12px; color:var(--text-2); margin-top:4px; font-variant-numeric:tabular-nums; }
+.card .ch b { color:var(--text); font-weight:600; }
+.card .ch b.err { color:var(--err); }
+.card .row-sub { margin-top:5px; }
+
+.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px; }
+.stat { background:var(--surface-2); border-radius:11px; padding:9px 11px; }
+.stat small { font-size:11px; color:var(--text-2); display:block; }
+.stat b { font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; }
+.stat b.err { color:var(--err); }
+.mlist { border:.5px solid var(--border); border-radius:12px; overflow:hidden; }
+.mrow { display:flex; align-items:center; gap:9px; padding:8px 11px; border-top:.5px solid var(--border); font-size:13px; }
+.mrow:first-child { border-top:none; }
+.mrow .n { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mrow .s { font-size:12px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+.mrow.dim .n { color:var(--text-3); }
+.links { display:flex; flex-direction:column; margin-top:10px; }
+.links button { font:inherit; font-size:13.5px; border:none; background:none; color:var(--text); padding:11px 2px; display:flex; align-items:center; gap:10px; border-top:.5px solid var(--border); text-align:left; }
+.links button i { font-size:18px; color:var(--text-2); }
+.links button .chev { margin-left:auto; color:var(--text-3); font-size:15px; }
+
+/* Notas al pie */
+.notes { max-width:764px; margin:0 auto 40px; padding:0 16px; font-size:12.5px; color:var(--text-2); line-height:1.55; }
+.notes h3 { font-size:14px; color:var(--text); margin:18px 0 6px; font-weight:600; }
+.notes ul { margin:0; padding-left:18px; }
+.notes code { font-size:11.5px; background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.cap { font-size:11.5px; color:var(--text-3); text-align:center; margin-top:6px; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Alertas en el celular — dos opciones</h1>
+    <p>Hoy en el celu cada fila de la tabla se apila como una tarjeta con rótulos ("Stock ML · TN", "Umbral", "Depósito", "Proveedor", "Pedido"), los modelos de un pack se abren como tarjetas sueltas y lo importante —<b>cuánto queda contra el umbral</b>— no se distingue de un vistazo. Arriba, el aviso de Pedidos y 4 pestañas con contadores se comen media pantalla antes del primer producto.</p>
+  </div>
+  <button class="theme-btn" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+</div>
+
+<div class="grid">
+
+<!-- ═══════════════════════ OPCIÓN A ═══════════════════════ -->
+<section class="opt">
+  <h2>A · Lista compacta con medidor de stock</h2>
+  <p class="why">Filas finitas: foto, nombre y SKU a la izquierda; a la derecha <b>el stock más bajo en grande, con color y una barrita contra el umbral</b>. El detalle por canal (ML / TN), el depósito y si ya está en camino van en una sola línea chica. Un pack es <b>una</b> fila que se despliega adentro de la misma tarjeta. Se saca el aviso de Pedidos y queda un botón fijo <b>Armar pedido</b> abajo. Las Reglas son la misma lista con el umbral a la derecha; tocar una abre una hoja con +/− grande para cambiarlo o quitarla. Ideal si en el celu <b>repasás la lista entera</b>.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-bell"></i><b>Alertas</b><i class="ti ti-search"></i></div>
+        <div class="scroll" style="padding-bottom:84px">
+          <div class="tabs-a">
+            <button class="on">Disparadas <span class="cnt warn">6</span></button>
+            <button>Avisos <span class="cnt warn">3</span></button>
+            <button>Reglas <span class="cnt">42</span></button>
+            <button>Sin alerta <span class="cnt">15</span></button>
+          </div>
+          <div class="filters">
+            <button class="chip on">Todos</button>
+            <button class="chip"><i class="ti ti-building-store"></i> Proveedor <i class="ti ti-chevron-down"></i></button>
+            <button class="chip"><i class="ti ti-truck"></i> Sin pedir</button>
+            <button class="chip"><i class="ti ti-building-warehouse"></i> Con depósito</button>
+          </div>
+
+          <div class="list">
+            <div class="row">
+              <div class="thumb p5"></div>
+              <div class="row-info">
+                <div class="row-title">Repuesto rayado x96 hojas</div>
+                <div class="row-sub"><span><span class="dot ml"></span>0 <span class="dot tn"></span>0</span><span class="muted">· Punto Cero</span></div>
+              </div>
+              <div class="gauge err"><b>0</b><small>de ≤ 3</small><div class="bar err"><span style="width:4%"></span></div></div>
+            </div>
+
+            <div class="pack">
+              <div class="row">
+                <div class="thumb p3"></div>
+                <div class="row-info">
+                  <div class="row-title">Agenda 2027 semanal · pack 8</div>
+                  <div class="row-sub"><span class="badge warn"><i class="ti ti-stack-2"></i> 3 de 8 con alerta</span><span class="badge busy"><i class="ti ti-building-warehouse"></i> 12</span></div>
+                </div>
+                <i class="ti ti-chevron-up chev"></i>
+              </div>
+              <div class="members">
+                <div class="member"><span class="n">Lavanda</span><span class="s"><span class="dot ml"></span>1 <span class="dot tn"></span>1</span><b class="err num">1</b></div>
+                <div class="member"><span class="n">Verde agua</span><span class="s"><span class="dot ml"></span>2 <span class="dot tn"></span>3</span><b class="warn num">2</b></div>
+                <div class="member"><span class="n">Rosa viejo</span><span class="s"><span class="dot ml"></span>3 <span class="dot tn"></span>3</span><b class="warn num">3</b></div>
+                <div class="member dim"><span class="n">+5 modelos sin alerta</span><i class="ti ti-chevron-down muted"></i></div>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="thumb p1"></div>
+              <div class="row-info">
+                <div class="row-title">Cuaderno A5 Mármol rosa</div>
+                <div class="row-sub"><span><span class="dot ml"></span>1 <span class="dot tn"></span>2</span><span class="muted">· Be Positive</span></div>
+              </div>
+              <div class="gauge warn"><b>1</b><small>de ≤ 3</small><div class="bar warn"><span style="width:33%"></span></div></div>
+            </div>
+
+            <div class="row">
+              <div class="thumb p2"></div>
+              <div class="row-info">
+                <div class="row-title">Carpeta N°3 escolar verde</div>
+                <div class="row-sub"><span><span class="dot ml"></span>2 <span class="dot tn"></span>2</span><span class="badge busy"><i class="ti ti-truck"></i> en camino #41</span></div>
+              </div>
+              <div class="gauge warn"><b>2</b><small>de ≤ 2</small><div class="bar warn"><span style="width:100%"></span></div></div>
+            </div>
+
+            <div class="row">
+              <div class="thumb p4"></div>
+              <div class="row-info">
+                <div class="row-title">Block de hojas lisas A4</div>
+                <div class="row-sub"><span><span class="dot ml"></span>3 <span class="dot tn"></span>4</span><span class="badge busy"><i class="ti ti-building-warehouse"></i> 6</span></div>
+              </div>
+              <div class="gauge warn"><b>3</b><small>de ≤ 4</small><div class="bar warn"><span style="width:75%"></span></div></div>
+            </div>
+          </div>
+          <p class="cap">Ordenado por lo que está más cerca de cero.</p>
+        </div>
+        <button class="sticky-cta"><i class="ti ti-truck-delivery"></i> Armar pedido</button>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div class="on"><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Disparadas</p>
+    </div>
+
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-bell"></i><b>Alertas</b><i class="ti ti-search"></i></div>
+        <div class="scroll">
+          <div class="tabs-a">
+            <button>Disparadas <span class="cnt warn">6</span></button>
+            <button>Avisos <span class="cnt warn">3</span></button>
+            <button class="on">Reglas <span class="cnt">42</span></button>
+            <button>Sin alerta <span class="cnt">15</span></button>
+          </div>
+          <div class="search"><i class="ti ti-search"></i><input placeholder="Buscar una regla…" /></div>
+          <div class="list">
+            <div class="row"><div class="thumb p1 sm"></div><div class="row-info"><div class="row-title">Cuaderno A5 Mármol rosa</div><div class="row-sub"><span class="badge warn"><i class="ti ti-bell-ringing"></i> Disparada</span><span class="muted">39000</span></div></div><div class="gauge"><b>3</b><small>avisar ≤</small></div></div>
+            <div class="row"><div class="thumb p2 sm"></div><div class="row-info"><div class="row-title">Cuaderno A5 Mármol verde</div><div class="row-sub"><span class="badge ok">Ok</span><span class="muted">39001</span></div></div><div class="gauge"><b>3</b><small>avisar ≤</small></div></div>
+            <div class="row"><div class="thumb p3 sm"></div><div class="row-info"><div class="row-title">Agenda 2027 semanal Lavanda</div><div class="row-sub"><span class="badge plain"><i class="ti ti-bell-off"></i> Silenciada</span><span class="muted">AG27-LAV</span></div></div><div class="gauge"><b>2</b><small>avisar ≤</small></div></div>
+            <div class="row"><div class="thumb p4 sm"></div><div class="row-info"><div class="row-title">Block de hojas lisas A4</div><div class="row-sub"><span class="badge warn"><i class="ti ti-bell-ringing"></i> Disparada</span><span class="muted">BL-A4</span></div></div><div class="gauge"><b>4</b><small>avisar ≤</small></div></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="thumb p1"></div><div class="t"><b>Cuaderno A5 Mármol rosa</b><span>39000 · hoy <span class="dot ml"></span>1 <span class="dot tn"></span>2</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="lbl">Avisar cuando queden</div>
+          <div class="big-step"><button>−</button><span>3</span><button>+</button></div>
+          <div class="presets"><button class="chip">1</button><button class="chip">2</button><button class="chip on">3</button><button class="chip">5</button><button class="chip">10</button></div>
+          <div class="explain"><i class="ti ti-info-circle"></i><span>Se avisa cuando el canal con menos stock llega a este número.</span></div>
+          <div class="btns"><button class="btn"><i class="ti ti-bell-off"></i> Silenciar 7 días</button></div>
+          <div class="btns" style="margin-top:8px"><button class="btn danger"><i class="ti ti-trash"></i> Quitar</button><button class="btn primary">Guardar</button></div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div class="on"><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Reglas → tocar una regla</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ OPCIÓN B ═══════════════════════ -->
+<section class="opt">
+  <h2>B · Por urgencia, con resumen arriba y hoja de detalle</h2>
+  <p class="why">Arriba, tres números que se tocan para filtrar: <b>Agotados · Bajos · En camino</b>. La lista se separa en secciones por urgencia (sin stock primero) y cada tarjeta tiene un borde de color: se lee el estado sin leer el texto. Cada tarjeta muestra solo lo esencial (ML / TN contra el umbral); tocarla abre una hoja con todo lo demás —depósito, proveedor, último pedido, los modelos del pack— y las acciones (agregar al pedido, cambiar el umbral, silenciar). Las 4 pestañas se reducen a 3: <b>Avisos</b> (lo que hoy es "Notificaciones") pasa a la campanita de la barra. Ideal si en el celu <b>entrás a ver qué es urgente</b> y actuás sobre uno por vez.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-bell"></i><b>Alertas</b><span style="position:relative"><i class="ti ti-inbox"></i><span style="position:absolute;top:-3px;right:-5px;background:var(--err);color:#fff;font-size:9px;font-weight:700;border-radius:7px;padding:0 4px">3</span></span></div>
+        <div class="scroll">
+          <div class="seg"><button class="on">Disparadas</button><button>Reglas</button><button>Sin alerta</button></div>
+          <div class="tiles">
+            <div class="tile err"><b>1</b><span>Agotados</span></div>
+            <div class="tile warn"><b>5</b><span>Bajos</span></div>
+            <div class="tile busy"><b>1</b><span>En camino</span></div>
+          </div>
+
+          <div class="group-h err"><span><i class="ti ti-alert-octagon"></i> Sin stock</span><span>1</span></div>
+          <div class="card err">
+            <div class="thumb p5"></div>
+            <div class="row-info">
+              <div class="row-title">Repuesto rayado x96 hojas</div>
+              <div class="ch"><span><span class="dot ml"></span>ML <b class="err">0</b></span><span><span class="dot tn"></span>TN <b class="err">0</b></span><span>umbral 3</span></div>
+            </div>
+            <i class="ti ti-chevron-right muted"></i>
+          </div>
+
+          <div class="group-h warn"><span><i class="ti ti-alert-triangle"></i> Stock bajo</span><span>4</span></div>
+          <div class="card">
+            <div class="thumb p3"></div>
+            <div class="row-info">
+              <div class="row-title">Agenda 2027 semanal · pack 8</div>
+              <div class="row-sub"><span class="badge warn"><i class="ti ti-stack-2"></i> 3 de 8 modelos</span><span class="badge busy"><i class="ti ti-building-warehouse"></i> 12 en depósito</span></div>
+            </div>
+            <i class="ti ti-chevron-right muted"></i>
+          </div>
+          <div class="card">
+            <div class="thumb p1"></div>
+            <div class="row-info">
+              <div class="row-title">Cuaderno A5 Mármol rosa</div>
+              <div class="ch"><span><span class="dot ml"></span>ML <b>1</b></span><span><span class="dot tn"></span>TN <b>2</b></span><span>umbral 3</span></div>
+            </div>
+            <i class="ti ti-chevron-right muted"></i>
+          </div>
+          <div class="card">
+            <div class="thumb p4"></div>
+            <div class="row-info">
+              <div class="row-title">Block de hojas lisas A4</div>
+              <div class="ch"><span><span class="dot ml"></span>ML <b>3</b></span><span><span class="dot tn"></span>TN <b>4</b></span><span>umbral 4</span></div>
+            </div>
+            <i class="ti ti-chevron-right muted"></i>
+          </div>
+
+          <div class="group-h"><span><i class="ti ti-truck"></i> Ya pedido</span><span>1</span></div>
+          <div class="card busy">
+            <div class="thumb p2"></div>
+            <div class="row-info">
+              <div class="row-title">Carpeta N°3 escolar verde</div>
+              <div class="ch"><span><span class="dot ml"></span>ML <b>2</b></span><span><span class="dot tn"></span>TN <b>2</b></span><span>pedido #41</span></div>
+            </div>
+            <i class="ti ti-chevron-right muted"></i>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div class="on"><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Disparadas</p>
+    </div>
+
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-bell"></i><b>Alertas</b><i class="ti ti-inbox"></i></div>
+        <div class="scroll">
+          <div class="seg"><button class="on">Disparadas</button><button>Reglas</button><button>Sin alerta</button></div>
+          <div class="tiles"><div class="tile err"><b>1</b><span>Agotados</span></div><div class="tile warn"><b>5</b><span>Bajos</span></div><div class="tile busy"><b>1</b><span>En camino</span></div></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="thumb p3"></div><div class="t"><b>Agenda 2027 semanal · pack 8</b><span>Código 39137 · Punto Cero</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="stat-grid">
+            <div class="stat"><small>En depósito</small><b>12 u.</b></div>
+            <div class="stat"><small>Último pedido</small><b>02/10/26</b></div>
+          </div>
+          <div class="lbl">Modelos del pack</div>
+          <div class="mlist">
+            <div class="mrow"><span class="badge err">1</span><span class="n">Lavanda</span><span class="s"><span class="dot ml"></span>1 <span class="dot tn"></span>1 · ≤ 2</span></div>
+            <div class="mrow"><span class="badge warn">2</span><span class="n">Verde agua</span><span class="s"><span class="dot ml"></span>2 <span class="dot tn"></span>3 · ≤ 2</span></div>
+            <div class="mrow"><span class="badge warn">3</span><span class="n">Rosa viejo</span><span class="s"><span class="dot ml"></span>3 <span class="dot tn"></span>3 · ≤ 3</span></div>
+            <div class="mrow dim"><span class="badge plain">8</span><span class="n">Celeste</span><span class="s"><span class="dot ml"></span>8 <span class="dot tn"></span>9</span></div>
+            <div class="mrow dim"><span class="badge plain">…</span><span class="n">4 más sin alerta</span><i class="ti ti-chevron-down muted"></i></div>
+          </div>
+          <div class="btns"><button class="btn primary"><i class="ti ti-truck-delivery"></i> Agregar a un pedido</button></div>
+          <div class="links">
+            <button><i class="ti ti-adjustments"></i> Cambiar el umbral<i class="ti ti-chevron-right chev"></i></button>
+            <button><i class="ti ti-bell-off"></i> Silenciar 7 días<i class="ti ti-chevron-right chev"></i></button>
+            <button><i class="ti ti-history"></i> Historial de stock<i class="ti ti-chevron-right chev"></i></button>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div class="on"><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Tocar un pack</p>
+    </div>
+  </div>
+</section>
+</div>
+
+<div class="notes">
+  <h3>En las dos</h3>
+  <ul>
+    <li><b>Escritorio:</b> no cambia nada; todo va detrás de <code>m.phone</code>. Una mejora chica que sí sumaría en la web: ordenar Disparadas por lo más cerca de cero (hoy van en el orden del catálogo) y pintar el número del stock en rojo/ámbar igual que en el celu.</li>
+    <li>"Sin alerta" se ve como Reglas: lista compacta y un botón <b>+</b> por fila que abre la misma hoja de umbral (en vez de la tabla apilada con "Configurar alerta").</li>
+    <li>Agregar reglas (buscador + umbral) pasa a un botón flotante en Reglas que abre una hoja, en vez de la tarjeta fija arriba de la lista.</li>
+    <li>El aviso "¿Armás un pedido?" se saca en el celu: lo reemplaza el botón Armar pedido (A) o "Agregar a un pedido" en la hoja (B).</li>
+    <li>Ningún dato nuevo del backend: todo sale de <code>GET /api/orders/catalog</code> y las reglas que ya se cargan.</li>
+  </ul>
+</div>
+</body>
+</html>

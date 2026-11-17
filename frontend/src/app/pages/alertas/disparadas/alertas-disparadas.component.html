@@ -17,6 +17,8 @@
   <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
 } @else if (!alerted().length) {
   <p class="empty">No hay productos con el stock en el umbral o por debajo.</p>
+} @else if (phone()) {
+  <zc-disparadas-phone [units]="visible()" [suppliers]="suppliers()" [rules]="rules()" />
 } @else {
   <p class="hint summary">
     {{ alerted().length }} producto{{ alerted().length === 1 ? '' : 's' }} · {{ alertedModels() }} modelo{{ alertedModels() === 1 ? '' : 's' }} con alerta.

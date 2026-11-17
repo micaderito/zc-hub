@@ -27,7 +27,7 @@ const PAGE_SIZE = 20;
         </div>
         @for (row of group.items; track row.itemId + (row.variationId || '')) {
           <div class="dup-item">
-            <zc-product-thumb [src]="row.thumbnail" style="--thumb-size: 30px" />
+            <zc-product-thumb [src]="row.thumbnail" [title]="mlLabel(row)" [subtitle]="row.sku ? 'SKU ' + row.sku : null" style="--thumb-size: 30px" />
             <span class="dup-name">{{ mlLabel(row) }}</span>
             <ng-container *zcCanWrite><button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'mercadolibre', row })">Editar SKU</button></ng-container>
           </div>
@@ -47,7 +47,7 @@ const PAGE_SIZE = 20;
         </div>
         @for (row of group.items; track row.productId + row.variantId) {
           <div class="dup-item">
-            <zc-product-thumb [src]="row.thumbnail" style="--thumb-size: 30px" />
+            <zc-product-thumb [src]="row.thumbnail" [title]="tnLabel(row)" [subtitle]="row.sku ? 'SKU ' + row.sku : null" style="--thumb-size: 30px" />
             <span class="dup-name">{{ tnLabel(row) }}</span>
             <ng-container *zcCanWrite><button type="button" class="btn-action ghost" (click)="editSku.emit({ channel: 'tiendanube', row })">Editar SKU</button></ng-container>
           </div>

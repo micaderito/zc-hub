@@ -282,22 +282,7 @@
     margin-top: 0.5rem;
   }
 
-  .result-thumb {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    object-fit: cover;
-    flex-shrink: 0;
-    background: var(--surface-2);
-
-    &.no-thumb {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-3);
-      font-size: 0.8rem;
-    }
-  }
+  .result-thumb { --thumb-size: 28px; --thumb-radius: 6px; }
 
   .result-info {
     display: flex;

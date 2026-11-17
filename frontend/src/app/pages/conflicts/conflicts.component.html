@@ -153,13 +153,13 @@
           <div class="link-pair">
             @if (linkMl) {
               <div class="side">
-                @if (linkMl.thumbnail) { <img [src]="linkMl.thumbnail" alt="" class="pair-thumb" /> }
+                @if (linkMl.thumbnail) { <zc-product-thumb class="pair-thumb" [src]="linkMl.thumbnail" [title]="mlLabel(linkMl)" [subtitle]="linkMl.sku ? 'SKU ' + linkMl.sku : null" /> }
                 <span><strong>ML</strong> {{ mlLabel(linkMl) }} <code>{{ linkMl.sku || '—' }}</code></span>
               </div>
             }
             @if (linkTn) {
               <div class="side">
-                @if (linkTn.thumbnail) { <img [src]="linkTn.thumbnail" alt="" class="pair-thumb" /> }
+                @if (linkTn.thumbnail) { <zc-product-thumb class="pair-thumb" [src]="linkTn.thumbnail" [title]="tnLabel(linkTn)" [subtitle]="linkTn.sku ? 'SKU ' + linkTn.sku : null" /> }
                 <span><strong>TN</strong> {{ tnLabel(linkTn) }} <code>{{ linkTn.sku || '—' }}</code></span>
               </div>
             }
@@ -170,7 +170,7 @@
             <div class="pick-list">
               @for (tn of filteredLinkTnOptions; track tn.productId + tn.variantId) {
                 <button type="button" class="chip" (click)="chooseTnForLink(tn)">
-                  @if (tn.thumbnail) { <img [src]="tn.thumbnail" alt="" class="chip-thumb" /> }
+                  @if (tn.thumbnail) { <zc-product-thumb class="chip-thumb" [src]="tn.thumbnail" zoom="badge" [title]="tnLabel(tn)" [subtitle]="tn.sku ? 'SKU ' + tn.sku : null" /> }
                   {{ tnLabel(tn) }} ({{ tn.sku || 'sin SKU' }})
                 </button>
               }
@@ -182,7 +182,7 @@
             <div class="pick-list">
               @for (ml of filteredLinkMlOptions; track ml.itemId + (ml.variationId || '')) {
                 <button type="button" class="chip" (click)="chooseMlForLink(ml)">
-                  @if (ml.thumbnail) { <img [src]="ml.thumbnail" alt="" class="chip-thumb" /> }
+                  @if (ml.thumbnail) { <zc-product-thumb class="chip-thumb" [src]="ml.thumbnail" zoom="badge" [title]="mlLabel(ml)" [subtitle]="ml.sku ? 'SKU ' + ml.sku : null" /> }
                   {{ mlLabel(ml) }} ({{ ml.sku || 'sin SKU' }})
                 </button>
               }
