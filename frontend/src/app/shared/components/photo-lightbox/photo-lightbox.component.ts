@@ -1,4 +1,4 @@
-import { Component, HostListener, OnDestroy, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 
 /**
@@ -106,6 +106,12 @@ import { DOCUMENT } from '@angular/common';
 export class PhotoLightboxComponent implements OnInit, OnDestroy {
   private readonly doc = inject(DOCUMENT);
   private prevBodyOverflow = '';
+  /**
+   * Teclado en fase de captura sobre `window`: corre ANTES que los `document:keydown` de la página
+   * y los corta, así Esc cierra solo el zoom y no también el modal de atrás (Depósito, Crear
+   * producto…), y las flechas no mueven nada de la página.
+   */
+  private readonly keyListener = (e: KeyboardEvent) => this.onKey(e);
   /** Dónde arrancó el gesto sobre la foto (null = no hay uno en curso). */
   swipeStart: { x: number; y: number } | null = null;
 
@@ -125,11 +131,13 @@ export class PhotoLightboxComponent implements OnInit, OnDestroy {
     // Que la página de atrás no scrollee mientras se mira la foto (en iOS el gesto se "escapaba").
     this.prevBodyOverflow = this.doc.body.style.overflow;
     this.doc.body.style.overflow = 'hidden';
+    this.doc.defaultView?.addEventListener('keydown', this.keyListener, true);
     this.index.set(Math.min(Math.max(this.startIndex(), 0), Math.max(this.list().length - 1, 0)));
   }
 
   ngOnDestroy(): void {
     this.doc.body.style.overflow = this.prevBodyOverflow;
+    this.doc.defaultView?.removeEventListener('keydown', this.keyListener, true);
   }
 
   onPointerDown(e: PointerEvent): void {
@@ -153,12 +161,14 @@ export class PhotoLightboxComponent implements OnInit, OnDestroy {
     this.index.set((this.index() + delta + n) % n);
   }
 
-  @HostListener('document:keydown', ['$event'])
   onKey(e: KeyboardEvent): void {
-    if (e.key === 'Escape') this.closed.emit();
-    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      this.closed.emit();
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       // Que la flecha no scrollee la página de atrás ni mueva otro control con foco.
       e.preventDefault();
+      e.stopPropagation();
       this.step(e.key === 'ArrowRight' ? 1 : -1);
     }
   }

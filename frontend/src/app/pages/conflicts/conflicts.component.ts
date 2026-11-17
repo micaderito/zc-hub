@@ -30,6 +30,7 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 export type Tab = 'resumen' | 'coincidencias' | 'solo-ml' | 'solo-tn' | 'sin-sku' | 'duplicados';
 
+import { ProductThumbComponent } from '../../shared/components/product-thumb/product-thumb.component';
 @Component({
   selector: 'app-conflicts',
   standalone: true,
@@ -45,7 +46,8 @@ export type Tab = 'resumen' | 'coincidencias' | 'solo-ml' | 'solo-tn' | 'sin-sku
     SoloMlTabComponent,
     SoloTnTabComponent,
     SinSkuTabComponent,
-    DuplicadosTabComponent
+    DuplicadosTabComponent,
+    ProductThumbComponent
   ],
   templateUrl: './conflicts.component.html',
   styleUrl: './conflicts.component.scss'

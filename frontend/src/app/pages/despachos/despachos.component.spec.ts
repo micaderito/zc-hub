@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { DispatchList, DispatchNotes, DispatchPackage, DispatchService } from '../../core/services/dispatch.service';
 import { DespachosComponent, countdown, dayLabel } from './despachos.component';
+import { PhotoLightboxService } from '../../shared/components/photo-lightbox/photo-lightbox.service';
 
 const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
@@ -70,6 +71,8 @@ describe('DespachosComponent', () => {
     fixture = TestBed.createComponent(DespachosComponent);
     component = fixture.componentInstance;
   });
+
+  afterEach(() => TestBed.inject(PhotoLightboxService).close());
 
   it('Actualizar: barra de progreso, botón "Actualizando…" y aviso hasta que llega la lista', async () => {
     await load([pkg()]);
@@ -254,9 +257,9 @@ describe('DespachosComponent', () => {
 
   it('click en la foto abre el lightbox con todas las fotos del producto', async () => {
     await load([pkg()]);
-    (fixture.nativeElement.querySelector('.thumb-btn') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.thumb-wrap') as HTMLElement).click();
     fixture.detectChanges();
-    const lb = fixture.nativeElement.querySelector('zc-photo-lightbox');
+    const lb = document.querySelector('zc-photo-lightbox') as HTMLElement;
     expect(lb).toBeTruthy();
     expect(lb.querySelectorAll('.lb-mini').length).toBe(2);
     expect(lb.textContent).toContain('Agenda 2027 semanal');
@@ -264,11 +267,11 @@ describe('DespachosComponent', () => {
 
   it('en el lightbox las flechas (botón y teclado) pasan de foto', async () => {
     await load([pkg()]);
-    (fixture.nativeElement.querySelector('.thumb-btn') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.thumb-wrap') as HTMLElement).click();
     fixture.detectChanges();
-    const img = () => (fixture.nativeElement.querySelector('.lb-stage img') as HTMLImageElement).getAttribute('src');
+    const img = () => (document.querySelector('.lb-stage img') as HTMLImageElement).getAttribute('src');
     expect(img()).toBe('https://x/a-O.jpg');
-    (fixture.nativeElement.querySelector('.lb-nav.next') as HTMLButtonElement).click();
+    (document.querySelector('.lb-nav.next') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(img()).toBe('https://x/b-O.jpg');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
@@ -281,15 +284,15 @@ describe('DespachosComponent', () => {
 
   it('el lightbox no repite fotos y muestra en cuál estás', async () => {
     await load([pkg({ items: [{ sku: 'X', title: 'Repuesto', variation: null, qty: 1, thumb: null, pictures: ['https://x/a-O.jpg', 'https://x/a-O.jpg', 'https://x/b-O.jpg'] }] })]);
-    (fixture.nativeElement.querySelector('.thumb-btn') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.thumb-wrap') as HTMLElement).click();
     fixture.detectChanges();
-    const lb = fixture.nativeElement.querySelector('zc-photo-lightbox');
+    const lb = document.querySelector('zc-photo-lightbox') as HTMLElement;
     expect(lb.querySelectorAll('.lb-mini').length).toBe(2);
-    expect(lb.querySelector('.lb-count').textContent.trim()).toBe('1 / 2');
+    expect(lb.querySelector('.lb-count')!.textContent!.trim()).toBe('1 / 2');
     (lb.querySelector('.lb-nav.next') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(lb.querySelector('.lb-stage img').getAttribute('src')).toBe('https://x/b-O.jpg');
-    expect(lb.querySelector('.lb-count').textContent.trim()).toBe('2 / 2');
+    expect(lb.querySelector('.lb-stage img')!.getAttribute('src')).toBe('https://x/b-O.jpg');
+    expect(lb.querySelector('.lb-count')!.textContent!.trim()).toBe('2 / 2');
   });
 
   it('muestra las notas de la venta (de la vendedora y del comprador)', async () => {

@@ -223,56 +223,7 @@
     flex: 1;
     min-width: 0;
 
-    /* Miniatura clickeable: abre el zoom (zc-photo-lightbox), mismo patrón que Para despachar. */
-    .thumb-btn {
-      position: relative;
-      flex-shrink: 0;
-      display: inline-flex;
-      padding: 0;
-      border: none;
-      background: none;
-      border-radius: var(--radius-sm);
-      cursor: zoom-in;
-
-      .zoom {
-        position: absolute;
-        right: -4px;
-        bottom: -4px;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: var(--surface);
-        color: var(--text-2);
-        font-size: 9px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: 0.5px solid var(--border);
-      }
-
-      &:hover .zoom { color: var(--brand); border-color: var(--brand); }
-    }
-
-    .thumb {
-      width: 32px;
-      height: 32px;
-      object-fit: cover;
-      border-radius: var(--radius-sm);
-      flex-shrink: 0;
-    }
-
-    .no-thumb {
-      width: 32px;
-      height: 32px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--surface-2);
-      border-radius: var(--radius-sm);
-      color: var(--text-3);
-      font-size: 0.8rem;
-      flex-shrink: 0;
-    }
+    --thumb-size: 32px;
 
     .product-label {
       font-size: 0.75rem;

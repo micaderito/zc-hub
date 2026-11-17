@@ -184,10 +184,8 @@
             <ul class="pk-items">
               @for (it of p.items; track $index) {
                 <li>
-                  <button type="button" class="thumb-btn" (click)="openPhoto(p, it)" [attr.aria-label]="'Ver foto de ' + it.title" [disabled]="!it.pictures.length && !it.thumb">
-                    <zc-product-thumb [src]="it.thumb" />
-                    @if (it.pictures.length || it.thumb) { <span class="zoom" aria-hidden="true"><i class="ti ti-zoom-in"></i></span> }
-                  </button>
+                  <zc-product-thumb class="it-thumb" [src]="it.thumb || it.pictures[0]" [photos]="it.pictures" [title]="it.title"
+                                    [subtitle]="(it.variation ? it.variation + ' · ' : '') + (it.sku ? 'SKU ' + it.sku : '') + ' · ×' + it.qty" />
                   <div class="it-body">
                     <div class="it-title">{{ it.title }}</div>
                     <div class="it-sub">
@@ -212,11 +210,3 @@
   }
 </div>
 
-@if (lightbox(); as lb) {
-  <zc-photo-lightbox
-    [photos]="lb.item.pictures.length ? lb.item.pictures : (lb.item.thumb ? [lb.item.thumb] : [])"
-    [title]="lb.item.title"
-    [subtitle]="(lb.item.variation ? lb.item.variation + ' · ' : '') + (lb.item.sku ? 'SKU ' + lb.item.sku : '') + ' · ×' + lb.item.qty"
-    (closed)="lightbox.set(null)"
-  />
-}

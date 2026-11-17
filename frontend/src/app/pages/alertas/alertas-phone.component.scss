@@ -100,3 +100,5 @@ button.ph-row { cursor: pointer; }
   .add-rule { padding: 0; border: none; box-shadow: none; background: none; }
   .product-results { max-height: 40vh; }
 }
+
+.ph-thumb { --thumb-size: 40px; --thumb-radius: 10px; flex-shrink: 0; }

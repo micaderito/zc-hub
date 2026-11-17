@@ -1,20 +1,11 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CurrencyInputDirective } from '../../../../directives/currency-input.directive';
 import { MlRow, TnRow, mlLabel, tnLabel } from '../../../../core/services/conflicts.service';
 import { SessionService } from '../../../../core/services/session.service';
 import { CanWriteDirective } from '../../../../shared/directives/can-write.directive';
-import { PhotoLightboxComponent } from '../../../../shared/components/photo-lightbox/photo-lightbox.component';
-
-/**
- * Versión grande de una foto de ML: la miniatura del catálogo suele ser `secure_thumbnail`
- * (`…-I.jpg`, chica); el sufijo `-O` es la original. Inverso de `mlThumbFromUrl` (dispatchService).
- */
-export function mlLargePhoto(url: string | null | undefined): string | null {
-  if (!url) return null;
-  return url.replace(/-[A-Z]\.(jpg|jpeg|png|webp)$/i, '-O.$1');
-}
+import { ProductThumbComponent } from '../../../../shared/components/product-thumb/product-thumb.component';
 
 export interface PairPrices {
   priceML: number;
@@ -25,7 +16,7 @@ export interface PairPrices {
 @Component({
   selector: 'zc-pair-card',
   standalone: true,
-  imports: [CanWriteDirective, FormsModule, RouterLink, CurrencyInputDirective, PhotoLightboxComponent],
+  imports: [CanWriteDirective, FormsModule, RouterLink, CurrencyInputDirective, ProductThumbComponent],
   templateUrl: './pair-card.component.html',
   styleUrl: './pair-card.component.scss',
 })
@@ -63,20 +54,8 @@ export class PairCardComponent {
   protected mlLabel = mlLabel;
   protected tnLabel = tnLabel;
 
-  /** Fotos del zoom: la de ML (en grande) y la de TN. Con las flechas se pasa de un canal al otro. */
-  readonly photos = computed(() => {
-    const ml = mlLargePhoto(this.pair().ml.thumbnail);
-    const tn = this.pair().tn.thumbnail || null;
-    return [ml, tn].filter((p): p is string => !!p);
-  });
-  /** Zoom abierto, con la foto en la que arranca (`null` = cerrado). */
-  readonly lightbox = signal<{ start: number } | null>(null);
-
-  openPhoto(channel: 'ml' | 'tn'): void {
-    const url = channel === 'ml' ? mlLargePhoto(this.pair().ml.thumbnail) : this.pair().tn.thumbnail;
-    if (!url) return;
-    this.lightbox.set({ start: Math.max(this.photos().indexOf(url), 0) });
-  }
+  /** Fotos del zoom: la de ML y la de TN. Con las flechas se pasa de un canal al otro. */
+  readonly photos = computed(() => [this.pair().ml.thumbnail, this.pair().tn.thumbnail]);
 
   /** El título ya trae la variante (`mlLabel`); abajo va el SKU. */
   get photoSubtitle(): string | null {

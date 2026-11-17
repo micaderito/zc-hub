@@ -51,11 +51,8 @@
         <div class="dp-list">
           @for (item of g.items; track item.id) {
             <button type="button" class="dp-row" (click)="openDetail(item)">
-              @if (thumbnailFor(item); as src) {
-                <img class="dp-thumb" [src]="src" alt="" />
-              } @else {
-                <span class="dp-thumb empty"><i class="ti" [class.ti-box]="item.itemType === 'producto'" [class.ti-package]="item.itemType === 'embalaje'"></i></span>
-              }
+              <zc-product-thumb class="dp-thumb" [src]="thumbnailFor(item)" [title]="item.label" [subtitle]="item.sku ? 'SKU ' + item.sku : null"
+                                [placeholderIcon]="item.itemType === 'embalaje' ? 'ti-package' : 'ti-box'" />
               <span class="dp-row-info">
                 <span class="dp-row-title">{{ item.label }}</span>
                 <span class="dp-row-sub">{{ item.sku || 'Insumo' }}@if (item.notes) { · {{ item.notes }} }</span>
@@ -93,7 +90,14 @@
                   <span class="badge pack"><i class="ti ti-package"></i> Embalaje</span>
                 }
               </td>
-              <td class="cell-main">{{ item.label }}</td>
+              <td class="cell-main">
+                <span class="dp-desc">
+                  @if (thumbnailFor(item); as src) {
+                    <zc-product-thumb class="dp-table-thumb" [src]="src" [title]="item.label" [subtitle]="item.sku ? 'SKU ' + item.sku : null" />
+                  }
+                  <span>{{ item.label }}</span>
+                </span>
+              </td>
               <td data-label="SKU"><span class="sku">{{ item.sku || '—' }}</span></td>
               <td class="num cell-qty" data-label="Cantidad">
                 <div class="qty-stepper">
@@ -124,11 +128,8 @@
   <div class="modal-backdrop" (click)="detailId.set(null)">
     <div class="modal narrow dp-detail" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" [attr.aria-label]="item.label">
       <div class="modal-head">
-        @if (thumbnailFor(item); as src) {
-          <img class="dp-thumb" [src]="src" alt="" />
-        } @else {
-          <span class="dp-thumb empty"><i class="ti" [class.ti-box]="item.itemType === 'producto'" [class.ti-package]="item.itemType === 'embalaje'"></i></span>
-        }
+        <zc-product-thumb class="dp-thumb" [src]="thumbnailFor(item)" [title]="item.label" [subtitle]="item.sku ? 'SKU ' + item.sku : null"
+                          [placeholderIcon]="item.itemType === 'embalaje' ? 'ti-package' : 'ti-box'" />
         <div class="dp-detail-title">
           <h2>{{ item.label }}</h2>
           <span>{{ item.sku || 'Insumo de embalaje' }} · {{ item.itemType === 'producto' ? 'Producto' : 'Embalaje' }}</span>
@@ -209,8 +210,8 @@
           <label class="fld">SKU
             @if (form().sku) {
               <div class="sku-selected">
-                @if (skuThumbnailFor(form().sku)) {
-                  <img [src]="skuThumbnailFor(form().sku)" alt="" class="sku-thumb" />
+                @if (skuThumbnailFor(form().sku); as src) {
+                  <zc-product-thumb class="sku-thumb" [src]="src" [title]="skuLabelFor(form().sku) || form().sku" [subtitle]="'SKU ' + form().sku" />
                 }
                 <span class="sku-selected-text">
                   <b>{{ form().sku }}</b>
@@ -236,11 +237,8 @@
                     } @else {
                       @for (o of filteredCatalogOptions(); track o.sku) {
                         <button type="button" class="sku-result" (pointerdown)="onSkuResultPointerDown($event, o)" (click)="selectSku(o)">
-                          @if (o.thumbnail) {
-                            <img [src]="o.thumbnail" alt="" class="result-thumb" />
-                          } @else {
-                            <span class="result-thumb result-thumb-empty"><i class="ti ti-box"></i></span>
-                          }
+                          <zc-product-thumb class="result-thumb" [src]="o.thumbnail" zoom="badge" placeholderIcon="ti-box"
+                                            [title]="o.label" [subtitle]="'SKU ' + o.sku" />
                           <span class="result-text">
                             <span class="result-sku">{{ o.sku }}</span>
                             <span class="result-label">{{ o.label }}</span>
