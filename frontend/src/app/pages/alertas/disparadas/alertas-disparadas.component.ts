@@ -3,9 +3,12 @@ import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CatalogMember, CatalogUnit, OrderSupplier } from '../../../core/services/orders.service';
+import { StockAlertRule } from '../../../core/services/alerts.service';
 import { matchSearchByTokens } from '../../../core/services/conflicts.service';
 import { SearchBarComponent } from '../../../shared/components/search-bar/search-bar.component';
 import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
+import { PHONE_QUERY, mediaSignal } from '../../../shared/utils/media-signal';
+import { DisparadasPhoneComponent } from './disparadas-phone.component';
 
 /** Filtro de proveedor: `''` = todos, `'none'` = sin proveedor, o la clave de uno. */
 type SupplierFilter = string;
@@ -19,7 +22,7 @@ type SupplierFilter = string;
 @Component({
   selector: 'zc-alertas-disparadas',
   standalone: true,
-  imports: [DatePipe, FormsModule, RouterLink, SearchBarComponent, CanWriteDirective],
+  imports: [DatePipe, FormsModule, RouterLink, SearchBarComponent, CanWriteDirective, DisparadasPhoneComponent],
   templateUrl: './alertas-disparadas.component.html',
   styleUrl: './alertas-disparadas.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -28,6 +31,11 @@ export class AlertasDisparadasComponent {
   readonly units = input.required<CatalogUnit[]>();
   readonly suppliers = input<OrderSupplier[]>([]);
   readonly loading = input(false);
+  /** Reglas (solo para saber, en el celu, si una está silenciada). */
+  readonly rules = input<StockAlertRule[]>([]);
+
+  /** En el celular la tabla se reemplaza por la lista por urgencia (`zc-disparadas-phone`). */
+  readonly phone = mediaSignal(PHONE_QUERY);
 
   readonly search = signal('');
   readonly supplierFilter = signal<SupplierFilter>('');
