@@ -43,7 +43,7 @@
         @for (p of rows(); track p.key) {
           <li>
             <button type="button" class="hp-item" [class.on]="selectedKey() === p.key" (click)="open(p.key)">
-              <zc-product-thumb [src]="p.thumbnail" />
+              <zc-product-thumb [src]="p.thumbnail" [title]="p.name" />
               <span class="hp-item-main">
                 <span class="hp-item-name">{{ p.name }}</span>
                 <span class="hp-item-meta">
@@ -81,7 +81,7 @@
       @let d = detail()!;
       <div class="hp-dhead zc-card">
         <button type="button" class="hp-back zc-btn small" (click)="close()" aria-label="Volver a la lista"><i class="ti ti-arrow-left"></i></button>
-        <zc-product-thumb [src]="d.thumbnail" />
+        <zc-product-thumb [src]="d.thumbnail" [title]="d.name" />
         <div class="hp-dhead-main">
           <h2>{{ d.name }} <span class="hp-status" [class]="statusMeta[d.status].cls">{{ statusMeta[d.status].label }}</span></h2>
           <div class="hp-shape">

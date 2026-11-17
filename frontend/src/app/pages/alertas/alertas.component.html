@@ -173,11 +173,7 @@
             @for (opt of newRuleSearchResults(); track opt.sku) {
               <label class="product-result">
                 <input type="checkbox" [checked]="isNewRuleSelected(opt.sku)" (change)="toggleNewRuleSelected(opt)" />
-                @if (opt.thumbnail) {
-                  <img [src]="opt.thumbnail" alt="" class="result-thumb" />
-                } @else {
-                  <span class="result-thumb no-thumb"><i class="ti ti-photo-off" aria-hidden="true"></i></span>
-                }
+                <zc-product-thumb class="result-thumb" [src]="opt.thumbnail" zoom="badge" [title]="opt.label" [subtitle]="'SKU ' + opt.sku" />
                 <span class="result-info">
                   <span class="result-label">{{ opt.label }}</span>
                   <span class="result-sku">{{ opt.sku }}</span>

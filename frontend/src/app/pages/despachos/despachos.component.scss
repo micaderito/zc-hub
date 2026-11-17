@@ -217,18 +217,7 @@
     & + li { border-top: 0.5px solid var(--border); }
   }
 }
-.thumb-btn {
-  --thumb-size: 56px;
-  position: relative; padding: 0; border: none; background: none; cursor: zoom-in; border-radius: var(--radius-sm);
-  flex-shrink: 0;
-  &:disabled { cursor: default; }
-  .zoom {
-    position: absolute; right: 3px; bottom: 3px; width: 18px; height: 18px; border-radius: 50%;
-    background: var(--surface); color: var(--text-2); font-size: 11px;
-    display: flex; align-items: center; justify-content: center; border: 0.5px solid var(--border);
-  }
-  @include m.hover { &:hover:not(:disabled) .zoom { color: var(--brand); border-color: var(--brand); } }
-}
+.it-thumb { --thumb-size: 56px; }
 .it-body { flex: 1; min-width: 0; }
 .it-title { font-size: 13px; color: var(--text); }
 .it-sub {
@@ -245,7 +234,7 @@
   :host { padding: 14px 16px 90px; }
   .ds-progress { margin: -14px -16px 11px; }
   .pk-chips { margin-left: 0; width: 100%; }
-  .thumb-btn { --thumb-size: 48px; }
+  .it-thumb { --thumb-size: 48px; }
 }
 
 /* Botón grande de "Preparado" al pie de cada paquete: solo en el celular */

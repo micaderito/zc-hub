@@ -23,6 +23,13 @@ sincroniza stock por webhooks y permite crear productos en ambos canales de una 
   proyecta (`single_with_variants` o `one_per_variant`). El mapeo SKU↔SKU vive por debajo.
   Modelo en `frontend/src/app/pages/crear-producto/product-draft.model.ts`.
 - Iconos: Tabler webfont, solo outline (`ti ti-…`).
+- **Fotos de producto: siempre `<zc-product-thumb>`** (`shared/components/product-thumb/`), nunca
+  un `<img>` suelto. Al tocarla abre la foto en grande (`zc-photo-lightbox`, colgado de `<body>` por
+  `PhotoLightboxService`, así un click no le llega a la fila/label de atrás y Esc no cierra el modal
+  de abajo). `photos` para recorrer varias, `title`/`subtitle` para el zoom, `zoomSrc` si la grande no
+  sale de la URL (las de ML pasan de `-I` a `-O` solas, `largePhotoUrl`). `zoom="badge"` donde tocar
+  la foto ya hace otra cosa (opción de un buscador, selector de fotos): ahí solo la lupita abre el
+  zoom; `zoom="none"` sin zoom. Tamaño con `--thumb-size`, radio con `--thumb-radius`.
 
 ## Particularidades de la API de Mercado Libre
 

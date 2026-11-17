@@ -6,7 +6,7 @@
          (drop)="store.onImageDrop(channel(), i)">
       <!-- previewUrl arranca vacío hasta que el worker termina la miniatura (ver onImageFiles). -->
       @if (img.previewUrl) {
-        <img [src]="img.previewUrl" [alt]="img.name" width="84" height="84" loading="lazy" decoding="async" draggable="false" />
+        <zc-product-thumb [src]="img.previewUrl" [zoomSrc]="store.fullImageUrl(img)" [photos]="zoomPhotos()" [title]="img.name" [alt]="img.name" />
       }
       @if (img.uploading) {
         <span class="gimg-uploading" title="Subiendo…"><i class="ti ti-loader"></i></span>

@@ -34,10 +34,11 @@ const NEW_PACK_ID = -1;
  * Autocontenida: no comparte estado con la pestaña "Precio y stock" (su propia query, sus propias
  * mutaciones), para no arriesgar la lógica de precios ya existente.
  */
+import { ProductThumbComponent } from '../../../../shared/components/product-thumb/product-thumb.component';
 @Component({
   selector: 'zc-packs-tab',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent, ProductSupplierDialogComponent, SupplierPickerComponent],
+  imports: [CanWriteDirective, CommonModule, FormsModule, SearchBarComponent, ConfirmDialogComponent, PaginationComponent, ProductSupplierDialogComponent, SupplierPickerComponent, ProductThumbComponent],
   templateUrl: './packs-tab.component.html',
   styleUrl: './packs-tab.component.scss',
 })

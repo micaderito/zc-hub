@@ -34,10 +34,11 @@ interface ProductOption {
 /** Tope de resultados del buscador de "Vigilar productos" (el máximo que acepta GET /conflicts). */
 const NEW_RULE_SEARCH_LIMIT = 100;
 
+import { ProductThumbComponent } from '../../shared/components/product-thumb/product-thumb.component';
 @Component({
   selector: 'app-alertas',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent, AlertasDisparadasComponent],
+  imports: [CanWriteDirective, CommonModule, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent, AlertasDisparadasComponent, ProductThumbComponent],
   templateUrl: './alertas.component.html',
   styleUrl: './alertas.component.scss',
 })

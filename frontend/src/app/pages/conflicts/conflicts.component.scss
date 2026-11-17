@@ -295,13 +295,7 @@
 
         &:last-child { border-bottom: none; }
 
-        .pair-thumb {
-          width: 44px;
-          height: 44px;
-          object-fit: cover;
-          border-radius: var(--radius-sm);
-          flex-shrink: 0;
-        }
+        .pair-thumb { --thumb-size: 44px; }
       }
     }
 
@@ -342,12 +336,7 @@
         gap: 0.4rem;
         transition: background 0.12s ease, border-color 0.12s ease;
 
-        .chip-thumb {
-          width: 26px;
-          height: 26px;
-          object-fit: cover;
-          border-radius: 4px;
-        }
+        .chip-thumb { --thumb-size: 26px; --thumb-radius: 4px; }
 
         @include m.hover {
           &:hover { background: var(--brand-bg); border-color: var(--brand); color: var(--brand); }

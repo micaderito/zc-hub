@@ -18,14 +18,14 @@ import { CanWriteDirective } from '../../../shared/directives/can-write.directiv
         <div class="pair-top-border"></div>
         <div class="pair-body">
           <div class="pair-half">
-            <zc-product-thumb [src]="pair.ml.thumbnail" />
+            <zc-product-thumb [src]="pair.ml.thumbnail" [photos]="[pair.ml.thumbnail, pair.tn.thumbnail]" [title]="mlLabel(pair.ml)" />
             <div class="half-info">
               <span class="zc-badge ml">ML</span>
               <div class="half-name">{{ mlLabel(pair.ml) }}</div>
             </div>
           </div>
           <div class="pair-half">
-            <zc-product-thumb [src]="pair.tn.thumbnail" />
+            <zc-product-thumb [src]="pair.tn.thumbnail" [photos]="[pair.ml.thumbnail, pair.tn.thumbnail]" [title]="tnLabel(pair.tn)" />
             <div class="half-info">
               <span class="zc-badge tn">TN</span>
               <div class="half-name">{{ tnLabel(pair.tn) }}</div>
