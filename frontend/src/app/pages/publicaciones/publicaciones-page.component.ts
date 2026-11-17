@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { HubProductsComponent } from './productos/hub-products.component';
@@ -22,7 +22,7 @@ type TabKey = 'productos' | 'historial';
           <h1>Publicaciones</h1>
           <p>Tus productos con sus publicaciones de Mercado Libre y Tienda Nube, unidas por SKU.</p>
         </div>
-        <zc-tabs [tabs]="tabs" [activeKey]="tab()" (tabChange)="setTab($event)" />
+        <zc-tabs [tabs]="tabs()" [activeKey]="tab()" (tabChange)="setTab($event)" />
       </header>
       @if (tab() === 'productos') {
         <zc-hub-products />
@@ -32,6 +32,7 @@ type TabKey = 'productos' | 'historial';
     </div>
   `,
   styles: [`
+    @use 'mobile' as m;
     :host { display: block; padding: 18px 20px 90px; }
     .pp-head {
       display: flex;
@@ -43,18 +44,31 @@ type TabKey = 'productos' | 'historial';
       h1 { margin: 0; font-size: 18px; font-weight: 500; }
       p { margin: 3px 0 0; font-size: 12px; color: var(--text-2); }
     }
-    @media (max-width: 640px) { :host { padding: 14px 16px 90px; } }
+    // El shell ya pone su margen en el celular: acá no se suma otro.
+    @include m.phone { :host { padding: 0 0 24px; } }
   `],
 })
 export class PublicacionesPageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  readonly tabs: TabDef[] = [
+  /** En un celular muy angosto el rótulo largo no entra al lado de "Productos". */
+  private readonly narrow = signal(false);
+  readonly tabs = computed<TabDef[]>(() => [
     { key: 'productos', label: 'Productos' },
-    { key: 'historial', label: 'Historial de publicación' },
-  ];
+    { key: 'historial', label: this.narrow() ? 'Historial' : 'Historial de publicación' },
+  ]);
   readonly tab = signal<TabKey>(this.route.snapshot.queryParamMap.get('tab') === 'historial' ? 'historial' : 'productos');
+
+  constructor() {
+    const mq = typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 380px)') : undefined;
+    if (mq) {
+      this.narrow.set(mq.matches);
+      const onChange = (e: MediaQueryListEvent) => this.narrow.set(e.matches);
+      mq.addEventListener?.('change', onChange);
+      inject(DestroyRef).onDestroy(() => mq.removeEventListener?.('change', onChange));
+    }
+  }
 
   setTab(key: string): void {
     const tab: TabKey = key === 'historial' ? 'historial' : 'productos';

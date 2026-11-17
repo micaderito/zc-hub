@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 // Lo propio de la Cola ML. La base (botones, alertas, estado vacío) viene de sync.component.scss.
 
 // ── Task chips ──────────────────────────────────────────────────
@@ -52,5 +54,15 @@
     word-break: break-word;
     color: var(--err);
     font-size: 0.72rem;
+  }
+}
+
+@include m.stack-table('.zc-table');
+
+@include m.phone {
+  .table-scroll { overflow: visible; }
+  .zc-table {
+    tr.row-failed { background: var(--err-bg); }
+    .cell-error { max-width: none; }
   }
 }

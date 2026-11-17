@@ -40,11 +40,11 @@
     </select>
     <span class="field-inline">
       <input type="date" class="zc-input" [ngModel]="from()" (ngModelChange)="onFromChange($event)" />
-      <span>—</span>
+      <span class="range-dash">—</span>
       <input type="date" class="zc-input" [ngModel]="to()" (ngModelChange)="onToChange($event)" />
     </span>
     <div class="spacer"></div>
-    <button type="button" class="zc-btn small" [disabled]="!rangeValid() || reportLoading()" (click)="onExportClick()">
+    <button type="button" class="zc-btn small export-btn" [disabled]="!rangeValid() || reportLoading()" (click)="onExportClick()">
       <i class="ti ti-download" aria-hidden="true"></i> Exportar CSV
     </button>
   </div>
@@ -105,31 +105,37 @@
       <div class="section">
         <div class="section-title"><i class="ti ti-map-pin" aria-hidden="true"></i> Facturado por provincia</div>
         <div class="zc-card table-scroll">
-          <table class="zc-table">
+          <table class="zc-table prov-table">
             <thead>
               <tr>
                 <th>Provincia</th>
                 <th class="num" title="Paquetes/compras — un pedido de varios productos cuenta como una sola venta">Ventas</th>
                 <th class="num" title="Unidades vendidas">Productos</th>
                 <th class="num">Facturado</th>
-                <th class="num">% del total</th>
-                <th class="num">vs. período anterior</th>
+                <th class="num col-share">% del total</th>
+                <th class="num col-delta">vs. período anterior</th>
               </tr>
             </thead>
             <tbody>
               @for (p of r.provinces; track p.name) {
                 <tr>
-                  <td>{{ p.name }}</td>
+                  <td>
+                    {{ p.name }}
+                    <div class="share-inline" aria-hidden="true">
+                      <div class="share-bar"><div class="share-bar-fill" [style.width.%]="p.pctOfTotal"></div></div>
+                      <span class="share-pct">{{ p.pctOfTotal }}%</span>
+                    </div>
+                  </td>
                   <td class="num">{{ p.ventas }}</td>
                   <td class="num">{{ p.unidades }}</td>
                   <td class="num">{{ money(p.facturado) }}</td>
-                  <td class="num">
+                  <td class="num col-share">
                     <div class="share-bar-wrap">
                       <div class="share-bar"><div class="share-bar-fill" [style.width.%]="p.pctOfTotal"></div></div>
                       <span class="share-pct">{{ p.pctOfTotal }}%</span>
                     </div>
                   </td>
-                  <td class="num">
+                  <td class="num col-delta">
                     <span class="delta-cell" [class.up]="p.deltaPct >= 0" [class.down]="p.deltaPct < 0">
                       <i class="ti" [class.ti-arrow-up-right]="p.deltaPct >= 0" [class.ti-arrow-down-right]="p.deltaPct < 0" aria-hidden="true"></i>
                       {{ p.deltaPct >= 0 ? '+' : '' }}{{ p.deltaPct }}%
@@ -142,8 +148,8 @@
                 <td class="num">{{ r.kpis.ventas }}</td>
                 <td class="num">{{ r.kpis.unidades }}</td>
                 <td class="num">{{ money(r.kpis.facturadoTotal) }}</td>
-                <td class="num">100%</td>
-                <td class="num">
+                <td class="num col-share">100%</td>
+                <td class="num col-delta">
                   <span class="delta-cell" [class.up]="r.kpis.facturadoDeltaPct >= 0" [class.down]="r.kpis.facturadoDeltaPct < 0">
                     {{ r.kpis.facturadoDeltaPct >= 0 ? '+' : '' }}{{ r.kpis.facturadoDeltaPct }}%
                   </span>
@@ -163,9 +169,12 @@
             <div class="chart-wrap">
               <div class="chart-bars">
                 @for (b of dailyBars(); track b.day) {
-                  <div class="chart-bar" [style.height.%]="b.heightPct" [title]="formatDay(b.day) + ': ' + money(b.amount)"></div>
+                  <div class="chart-bar" [class.on]="selectedDay() === b.day" [style.height.%]="b.heightPct" [title]="formatDay(b.day) + ': ' + money(b.amount)" (click)="toggleDay(b.day)"></div>
                 }
               </div>
+              @if (selectedBar(); as sb) {
+                <div class="chart-pick">{{ formatDay(sb.day) }}: <b>{{ money(sb.amount) }}</b></div>
+              }
               <div class="chart-legend">
                 <span>{{ formatDay(dailyBars()[0].day) }}</span>
                 <span>{{ formatDay(dailyBars()[dailyBars().length - 1].day) }}</span>
@@ -180,7 +189,7 @@
             <p class="empty-inline">Sin ventas de productos en el rango.</p>
           } @else {
             <div class="table-scroll">
-              <table class="zc-table">
+              <table class="zc-table top-table">
                 <thead><tr><th>SKU</th><th class="num">Unid.</th><th class="num">Facturado</th></tr></thead>
                 <tbody>
                   @for (t of r.topProducts; track t.sku) {

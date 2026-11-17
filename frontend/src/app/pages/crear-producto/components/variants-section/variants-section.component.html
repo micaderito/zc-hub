@@ -16,7 +16,7 @@
       <div class="simple-grid">
         <label>
           <span class="lbl"><span class="dot dot-ml"></span> Precio ML ({{ store.draft().ml.currency }}) <span class="req">*</span></span>
-          <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().ml.basePrice" (ngModelChange)="store.touch()" />
+          <input class="zc-input" type="number" inputmode="decimal" min="0" [(ngModel)]="store.draft().ml.basePrice" (ngModelChange)="store.touch()" />
           @if (store.mlBreakdown(store.draft().ml.basePrice); as b) {
             <span class="hint fee-hint">
               <i class="ti ti-receipt-2"></i>
@@ -32,7 +32,7 @@
         </label>
         <label>
           <span class="lbl"><span class="dot dot-tn"></span> Precio TN <span class="req">*</span></span>
-          <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().tn.basePrice" (ngModelChange)="store.touch()" />
+          <input class="zc-input" type="number" inputmode="decimal" min="0" [(ngModel)]="store.draft().tn.basePrice" (ngModelChange)="store.touch()" />
           @if (store.tnBreakdown(store.draft().tn.basePrice); as b) {
             <span class="hint fee-hint">
               Te quedan <strong>{{ b.net | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}</strong>
@@ -42,7 +42,7 @@
         </label>
         <label>
           <span class="lbl">Stock <span class="req">*</span></span>
-          <input class="zc-input" type="number" min="0" [(ngModel)]="store.draft().common.baseStock" />
+          <input class="zc-input" type="number" inputmode="numeric" min="0" [(ngModel)]="store.draft().common.baseStock" />
           <span class="hint">el mismo stock se manda a los dos canales</span>
         </label>
       </div>
@@ -95,23 +95,24 @@
           @for (v of store.draft().variants; track v.id) {
             <tr>
               @for (axis of store.draft().axes; track $index) {
-                <td><input class="zc-input cell" [(ngModel)]="v.values[$index]" /></td>
+                <td [attr.data-label]="axis.name || 'Eje ' + ($index + 1)"><input class="zc-input cell" [(ngModel)]="v.values[$index]" /></td>
               }
-              <td><input class="zc-input cell mono" [(ngModel)]="v.sku" /></td>
-              <td><input class="zc-input cell" type="number" [(ngModel)]="v.ml.price" (ngModelChange)="store.touch()" /></td>
-              <td class="cell-readonly">
+              <td data-label="SKU"><input class="zc-input cell mono" [(ngModel)]="v.sku" /></td>
+              <td data-label="Precio ML"><input class="zc-input cell" type="number" inputmode="decimal" [(ngModel)]="v.ml.price" (ngModelChange)="store.touch()" /></td>
+              <td class="cell-readonly" data-label="Te queda">
                 @if (store.mlBreakdown(v.ml.price); as b) {
                   <span [title]="b.marginPct != null ? 'margen real ' + (b.marginPct | number: '1.0-1') + '%' : ''">
                     {{ b.net | currency: store.draft().ml.currency : 'symbol' : '1.0-0' }}
                   </span>
+                  @if (b.marginPct != null) { <small class="touch-pct">· {{ b.marginPct | number: '1.0-1' }}%</small> }
                 } @else {
                   <span class="muted">—</span>
                 }
               </td>
-              <td><input class="zc-input cell" type="number" [(ngModel)]="v.tn.price" (ngModelChange)="store.touch()" /></td>
-              <td><input class="zc-input cell" type="number" [(ngModel)]="v.stock" /></td>
-              <td><input class="zc-input cell mono" [(ngModel)]="v.barcode" [placeholder]="store.draft().common.barcode || 'código común'" /></td>
-              <td><button type="button" class="icon-btn" (click)="store.removeVariant(v.id)" aria-label="Quitar variante"><i class="ti ti-trash"></i></button></td>
+              <td data-label="Precio TN"><input class="zc-input cell" type="number" inputmode="decimal" [(ngModel)]="v.tn.price" (ngModelChange)="store.touch()" /></td>
+              <td data-label="Stock"><input class="zc-input cell" type="number" inputmode="numeric" [(ngModel)]="v.stock" /></td>
+              <td data-label="Cód. barras"><input class="zc-input cell mono" [(ngModel)]="v.barcode" [placeholder]="store.draft().common.barcode || 'código común'" /></td>
+              <td class="cell-actions"><button type="button" class="icon-btn" (click)="store.removeVariant(v.id)" aria-label="Quitar variante"><i class="ti ti-trash"></i></button></td>
             </tr>
           }
         </tbody>

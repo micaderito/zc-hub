@@ -85,6 +85,11 @@ export class VariantPhotosDialogComponent {
     this.dragOrderFrom = null;
   }
 
+  /** Táctil (sin drag & drop): corre una foto del orden un lugar. */
+  protected moveOrder(channel: Channel, index: number, delta: -1 | 1): void {
+    this.store.moveVariantImage(channel, this.liveVariant(), index, delta);
+  }
+
   protected makeVariantCover(channel: Channel, index: number): void {
     this.store.makeVariantCover(channel, this.liveVariant(), index);
   }

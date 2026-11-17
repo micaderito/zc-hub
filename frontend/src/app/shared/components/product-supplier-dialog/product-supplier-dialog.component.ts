@@ -61,6 +61,10 @@ export function supplierChipLabel(info: SkuSupplierInfo | null | undefined, supp
     </zc-confirm-dialog>
   `,
   styles: [`
+    @use 'mobile' as m;
+    // Celular: hoja que sube desde abajo (la tarjeta es la de zc-confirm-dialog).
+    @include m.sheet(':host ::ng-deep .zc-confirm-backdrop', ':host ::ng-deep .zc-confirm-card');
+    @include m.phone { :host ::ng-deep .zc-confirm-card { padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); } }
     .psd { display: flex; flex-direction: column; gap: 0.7rem; text-align: left; }
     .psd-note, .psd-hint { margin: 0; font-size: 0.72rem; color: var(--text-3); }
     .psd-warn { margin: 0; font-size: 0.78rem; color: var(--warn); display: flex; gap: 0.4rem; }

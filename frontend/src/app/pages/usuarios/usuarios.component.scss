@@ -1,6 +1,9 @@
+@use 'mobile' as m;
+
 :host {
   display: block;
   padding: 18px 20px 90px;
+  @include m.tablet-down { padding: 0; }
 }
 
 .us-head {
@@ -9,6 +12,7 @@
   align-items: flex-end;
   margin-bottom: 14px;
   gap: 12px;
+  @include m.phone { flex-wrap: wrap; align-items: flex-start; }
 
   h1 { margin: 0; font-size: 18px; font-weight: 500; }
   p { margin: 3px 0 0; font-size: 12px; color: var(--text-2); }
@@ -28,16 +32,23 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  &:hover { background: var(--surface-2); }
+  @include m.hover {
+    &:hover { background: var(--surface-2); }
+    &.pri:hover { filter: brightness(1.08); }
+  }
   &.pri { background: var(--brand); color: var(--brand-contrast); border-color: transparent; }
-  &.pri:hover { filter: brightness(1.08); }
   &:disabled { opacity: 0.45; cursor: default; }
 }
 .icon-btn {
   border: none; background: none; color: var(--text-2); cursor: pointer;
   padding: 4px; border-radius: 6px; font-size: 15px; line-height: 1;
-  &:hover { background: var(--surface-2); color: var(--text); }
-  &.danger:hover { color: var(--err); }
+  @include m.hover {
+    &:hover { background: var(--surface-2); color: var(--text); }
+    &.danger:hover { color: var(--err); }
+  }
+  @include m.tap-target(44px);
+  @include m.touch { font-size: 18px; }
+  & + & { @include m.touch { margin-left: 6px; } }
   &:disabled { opacity: 0.35; cursor: default; }
 }
 
@@ -118,3 +129,11 @@
 }
 
 .spacer { flex: 1; }
+
+@include m.stack-table('.us-table');
+@include m.phone {
+  .us-table-wrap { border: none; background: none; border-radius: 0; overflow: visible; }
+  .us-table .col-actions { width: auto; }
+}
+@include m.sheet('.modal-backdrop', '.modal', '.modal-foot');
+@include m.phone { .modal-foot { flex-wrap: wrap; } .modal.narrow { max-width: none; } }

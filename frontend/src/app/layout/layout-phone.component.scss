@@ -1,0 +1,291 @@
+// Celular (≤ 760px): barra fina arriba (logo + página actual + campanita), barra de pestañas abajo
+// con las 4 secciones del día a día y "Más" (hoja con el resto, el usuario, el tema y salir).
+// En escritorio y tablet nada de esto se ve: la barra lateral de siempre.
+@use 'mobile' as m;
+
+.topbar-title,
+.top-bell,
+.tabbar,
+.more-scrim,
+.more-sheet {
+  display: none;
+}
+
+@include m.phone {
+  /* En el celu el scroll es del documento, no del contenedor */
+  :host {
+    height: auto;
+    overflow: visible;
+  }
+
+  .shell {
+    flex-direction: column;
+    overflow: visible;
+    min-height: auto;
+    height: auto;
+  }
+
+  // ── Barra de arriba ──
+  .sidebar {
+    width: 100% !important;
+    height: var(--zc-topbar-h);
+    overflow: visible;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    padding: env(safe-area-inset-top) calc(0.5rem + env(safe-area-inset-right)) 0
+      calc(0.75rem + env(safe-area-inset-left));
+    border-right: none;
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  .brand {
+    padding: 0;
+    flex-shrink: 0;
+    .brand-text { display: none; }
+  }
+
+  .nav,
+  .sidebar-foot {
+    display: none;
+  }
+
+  .topbar-title {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .top-bell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-md);
+    background: none;
+    color: var(--text-2);
+    i { font-size: 1.3rem; }
+    .nav-badge {
+      position: absolute;
+      top: 4px;
+      right: 2px;
+      margin: 0;
+      font-size: 0.6rem;
+      padding: 0.12rem 0.3rem;
+    }
+  }
+
+  .content {
+    overflow-y: visible;
+    padding: 1rem calc(0.9rem + env(safe-area-inset-right)) calc(1rem + var(--zc-tabbar-h))
+      calc(0.9rem + env(safe-area-inset-left));
+  }
+
+  .drawer {
+    width: 100%;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  // ── Barra de pestañas ──
+  .tabbar {
+    display: flex;
+    position: fixed;
+    z-index: 25;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--zc-tabbar-h);
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--surface);
+    border-top: 0.5px solid var(--border);
+  }
+
+  .tab {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 2px 4px;
+    border: none;
+    border-radius: 0;
+    background: none;
+    color: var(--text-3);
+    font: inherit;
+    text-decoration: none;
+
+    &.active {
+      color: var(--brand);
+      .tab-label { font-weight: 600; }
+    }
+  }
+
+  .tab-icon {
+    position: relative;
+    i { font-size: 1.4rem; }
+  }
+
+  .tab-badge {
+    position: absolute;
+    top: -4px;
+    left: 60%;
+    min-width: 16px;
+    padding: 1px 4px;
+    border-radius: 20px;
+    background: var(--err);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 14px;
+    text-align: center;
+  }
+
+  .tab-label {
+    max-width: 100%;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // ── Hoja "Más" ──
+  .more-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 23;
+    background: rgba(10, 12, 20, 0.34);
+  }
+
+  .more-sheet {
+    display: block;
+    position: fixed;
+    z-index: 24;
+    left: 0;
+    right: 0;
+    bottom: var(--zc-tabbar-h);
+    max-height: calc(100dvh - var(--zc-tabbar-h) - var(--zc-topbar-h));
+    overflow-y: auto;
+    padding: 8px calc(16px + env(safe-area-inset-right)) 16px calc(16px + env(safe-area-inset-left));
+    background: var(--surface);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
+  }
+
+  .more-grip {
+    width: 36px;
+    height: 4px;
+    margin: 0 auto 8px;
+    border-radius: 2px;
+    background: var(--border);
+  }
+
+  .more-title {
+    margin: 12px 0 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-3);
+  }
+
+  .more-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .more-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 72px;
+    padding: 8px 4px;
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 12px;
+    text-align: center;
+    text-decoration: none;
+    i { font-size: 1.4rem; color: var(--text-2); }
+
+    &.active {
+      background: var(--brand-bg);
+      color: var(--brand);
+      i { color: var(--brand); }
+    }
+  }
+
+  .more-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 0.5px solid var(--border);
+
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--tn-bg);
+      color: var(--tn-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+  }
+
+  .more-user-name {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    font-size: 14px;
+    color: var(--text);
+
+    .role-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--text-2);
+      background: var(--surface-2);
+    }
+  }
+
+  .more-actions {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0 10px;
+    .zc-btn {
+      flex: 1;
+      justify-content: center;
+      min-height: 44px;
+    }
+  }
+}

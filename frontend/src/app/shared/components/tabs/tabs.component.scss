@@ -1,8 +1,11 @@
+@use 'mobile' as m;
+
 .tabs {
   display: flex;
   gap: 0.4rem;
   flex-wrap: wrap;
   margin-bottom: 1rem;
+  @include m.scroll-row;
 
   button {
     display: inline-flex;
@@ -19,10 +22,13 @@
     cursor: pointer;
     transition: background 0.12s, color 0.12s;
 
-    &:hover:not(.active) {
-      background: var(--surface-2);
-      color: var(--text);
+    @include m.hover {
+      &:hover:not(.active) {
+        background: var(--surface-2);
+        color: var(--text);
+      }
     }
+    @include m.touch { min-height: 40px; }
 
     &.active {
       background: var(--brand-bg);

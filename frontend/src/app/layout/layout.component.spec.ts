@@ -40,10 +40,53 @@ describe('LayoutComponent', () => {
     });
   }
 
+  const fakeMedia = (matches: boolean) =>
+    spyOn(window, 'matchMedia').and.returnValue({ matches } as MediaQueryList);
+
   it('se crea y arranca con el panel expandido', () => {
+    fakeMedia(false);
     setup();
     const fixture = TestBed.createComponent(LayoutComponent);
     expect(fixture.componentInstance.collapsed()).toBeFalse();
+  });
+
+  it('en un iPad vertical arranca con el panel angosto (solo íconos)', () => {
+    fakeMedia(true);
+    setup();
+    const fixture = TestBed.createComponent(LayoutComponent);
+    expect(fixture.componentInstance.collapsed()).toBeTrue();
+  });
+
+  it('celular: 4 pestañas del día a día y el resto en "Más"', () => {
+    setup();
+    const c = TestBed.createComponent(LayoutComponent).componentInstance;
+    expect(c.phoneTabs().map(i => i.path)).toEqual(['/despachos', '/precio-stock', '/pedidos', '/alertas']);
+    const morePaths = c.moreSections().flatMap(s => s.items.map(i => i.path));
+    expect(morePaths).not.toContain('/despachos');
+    expect(morePaths).toContain('/ventas');
+    expect(morePaths).toContain('/usuarios');
+    expect(c.moreSections().map(s => s.title)).toContain('Configuración');
+  });
+
+  it('celular: "Más" no muestra lo solo-admin a un usuario de lectura', () => {
+    setup({ id: 2, username: 'ana', displayName: 'Ana', role: 'lectura' });
+    const c = TestBed.createComponent(LayoutComponent).componentInstance;
+    const morePaths = c.moreSections().flatMap(s => s.items.map(i => i.path));
+    expect(morePaths).not.toContain('/usuarios');
+    expect(morePaths).not.toContain('/crear');
+  });
+
+  it('celular: "Más" abre la hoja y elegir una sección la cierra', () => {
+    setup();
+    const fixture = TestBed.createComponent(LayoutComponent);
+    fixture.detectChanges();
+    const moreBtn = [...fixture.nativeElement.querySelectorAll('.tabbar .tab')].pop() as HTMLButtonElement;
+    moreBtn.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.more-sheet')).not.toBeNull();
+    (fixture.nativeElement.querySelector('.more-item') as HTMLAnchorElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.more-sheet')).toBeNull();
   });
 
   it('toggleSidebar() alterna el estado colapsado', () => {

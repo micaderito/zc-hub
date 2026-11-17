@@ -12,10 +12,10 @@
         <p class="modal-note"><i class="ti ti-info-circle"></i> Descuento default: lo toma todo lo de este proveedor que no tenga una configuración propia. Después podés sumar más.</p>
         <div class="grid2">
           <label class="fld">Descuento 1 (%)
-            <input type="number" [ngModel]="discount1()" (ngModelChange)="discount1.set($event)" />
+            <input type="number" inputmode="decimal" [ngModel]="discount1()" (ngModelChange)="discount1.set($event)" />
           </label>
           <label class="fld">Descuento 2 (%)
-            <input type="number" [ngModel]="discount2()" (ngModelChange)="discount2.set($event)" />
+            <input type="number" inputmode="decimal" [ngModel]="discount2()" (ngModelChange)="discount2.set($event)" />
           </label>
         </div>
       }

@@ -9,8 +9,8 @@
   <a routerLink="/pedidos" class="zc-card pedidos-callout">
     <i class="ti ti-truck-delivery" aria-hidden="true"></i>
     <span>
-      <b>¿Armás un pedido?</b> Ahora está en <b>Pedidos</b>: elegís qué pedir —con o sin alerta— viendo el stock y el
-      depósito, y queda guardado en el historial.
+      <b>¿Armás un pedido?</b><span class="callout-more"> Ahora está en <b>Pedidos</b>: elegís qué pedir —con o sin alerta— viendo el stock y el
+      depósito, y queda guardado en el historial.</span>
     </span>
     <i class="ti ti-arrow-right" aria-hidden="true"></i>
   </a>
@@ -106,22 +106,22 @@
             <tbody>
               @for (p of filteredUnwatched(); track p.sku) {
                 <tr>
-                  <td>
+                  <td class="cell-main">
                     <div class="prod-cell">
                       <div class="prod-name">{{ p.productLabel ?? p.sku }}</div>
                       <div class="prod-sku">{{ p.sku }}</div>
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Pack" class="cell-wide">
                     @if (p.pack) {
                       <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ p.pack.name }}</span>
                     } @else {
                       <span class="hint">—</span>
                     }
                   </td>
-                  <td class="num">{{ p.stockMl ?? '—' }}</td>
-                  <td class="num">{{ p.stockTn ?? '—' }}</td>
-                  <td class="actions-cell">
+                  <td class="num" data-label="Stock ML">{{ p.stockMl ?? '—' }}</td>
+                  <td class="num" data-label="Stock TN">{{ p.stockTn ?? '—' }}</td>
+                  <td class="actions-cell cell-actions">
                     <button type="button" class="zc-btn small" *zcCanWrite (click)="configureAlert(p)">
                       <i class="ti ti-bell-plus" aria-hidden="true"></i> Configurar alerta
                     </button>
@@ -155,7 +155,7 @@
         </div>
         <div class="fld threshold-fld">
           <label class="lbl">Avisar con ≤</label>
-          <input class="zc-input" type="number" min="0" [(ngModel)]="newThreshold" />
+          <input class="zc-input" type="number" min="0" inputmode="numeric" [(ngModel)]="newThreshold" />
         </div>
         <button type="button" class="zc-btn primary" [disabled]="selectedNewSkus().size === 0 || addingRule()" (click)="addSelectedRules()">
           {{ addingRule() ? 'Agregando…' : 'Agregar' }}
@@ -235,31 +235,31 @@
             <tbody>
               @for (rule of filteredRules(); track rule.sku) {
                 <tr [class.editing]="editingSku() === rule.sku">
-                  <td>
+                  <td class="cell-main">
                     <div class="prod-cell">
                       <div class="prod-name">{{ rule.productLabel ?? rule.sku }}</div>
                       <div class="prod-sku">{{ rule.sku }}</div>
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Pack" class="c-pack">
                     @if (rule.pack) {
                       <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ rule.pack.name }}</span>
                     } @else {
                       <span class="hint">—</span>
                     }
                   </td>
-                  <td class="num">
+                  <td class="num c-stock" data-label="Stock hoy">
                     <span class="stock-dot ml"></span>{{ rule.stockMl ?? '—' }}
                     <span class="stock-dot tn"></span>{{ rule.stockTn ?? '—' }}
                   </td>
-                  <td class="num">
+                  <td class="num c-thr" data-label="Avisar con ≤" [class.cell-wide]="editingSku() === rule.sku">
                     @if (editingSku() === rule.sku) {
-                      <input class="zc-input cell-input" type="number" min="0" [(ngModel)]="editThreshold" />
+                      <input class="zc-input cell-input" type="number" min="0" inputmode="numeric" aria-label="Avisar con stock menor o igual a" [(ngModel)]="editThreshold" />
                     } @else {
                       {{ rule.threshold }}
                     }
                   </td>
-                  <td>
+                  <td data-label="Estado" class="c-state">
                     @if (rule.state === 'triggered') {
                       <span class="zc-badge warn"><i class="ti ti-bell-ringing" aria-hidden="true"></i> Disparada</span>
                     } @else if (isMuted(rule)) {
@@ -268,14 +268,14 @@
                       <span class="zc-badge ok">Ok</span>
                     }
                   </td>
-                  <td class="actions-cell">
+                  <td class="actions-cell cell-actions" [class.is-editing]="editingSku() === rule.sku">
                     @if (session.isReadOnly()) {
                     } @else if (editingSku() === rule.sku) {
                       <button type="button" class="zc-btn small" (click)="cancelEdit()">Cancelar</button>
                       <button type="button" class="zc-btn primary small" [disabled]="savingRule()" (click)="saveEdit(rule)">Guardar</button>
                     } @else {
-                      <button type="button" class="icon-btn" title="Editar" (click)="startEdit(rule)"><i class="ti ti-pencil" aria-hidden="true"></i></button>
-                      <button type="button" class="icon-btn danger" title="Quitar" (click)="deletingSku.set(rule.sku)"><i class="ti ti-trash" aria-hidden="true"></i></button>
+                      <button type="button" class="icon-btn" title="Editar" aria-label="Editar umbral" (click)="startEdit(rule)"><i class="ti ti-pencil" aria-hidden="true"></i><span class="btn-txt">Editar</span></button>
+                      <button type="button" class="icon-btn danger" title="Quitar" aria-label="Quitar alerta" (click)="deletingSku.set(rule.sku)"><i class="ti ti-trash" aria-hidden="true"></i><span class="btn-txt">Quitar</span></button>
                     }
                   </td>
                 </tr>

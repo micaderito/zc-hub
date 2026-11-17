@@ -22,7 +22,7 @@
       </div>
       <div class="fld small-fld">
         <label class="lbl">Unidades por pack</label>
-        <input class="zc-input" type="number" min="1" [(ngModel)]="newPackUnitCount" />
+        <input class="zc-input" type="number" min="1" inputmode="numeric" pattern="[0-9]*" [(ngModel)]="newPackUnitCount" />
       </div>
       <div class="fld small-fld">
         <label class="lbl">Tipo</label>
@@ -123,7 +123,7 @@
             @if (editingPackId() === pack.id) {
               <div class="pack-edit" (click)="$event.stopPropagation()">
                 <input class="zc-input" [(ngModel)]="editName" />
-                <input class="zc-input unit-input" type="number" min="1" [(ngModel)]="editUnitCount" />
+                <input class="zc-input unit-input" type="number" min="1" inputmode="numeric" pattern="[0-9]*" [(ngModel)]="editUnitCount" />
                 <select class="zc-select" [(ngModel)]="editMode">
                   <option value="assorted">Surtido</option>
                   <option value="single">Un modelo por pack</option>
@@ -145,9 +145,9 @@
               </div>
               <span class="zc-badge">{{ pack.mode === 'assorted' ? 'surtido' : 'un modelo por pack' }}</span>
               <div class="pack-head-actions" *zcCanWrite (click)="$event.stopPropagation()">
-                <button type="button" class="icon-btn" title="Proveedor y descuento" (click)="openSupplier(pack)"><i class="ti ti-building-store" aria-hidden="true"></i></button>
-                <button type="button" class="icon-btn" title="Editar" (click)="startEditPack(pack)"><i class="ti ti-pencil" aria-hidden="true"></i></button>
-                <button type="button" class="icon-btn danger" title="Eliminar pack" (click)="deletingPackId.set(pack.id)"><i class="ti ti-trash" aria-hidden="true"></i></button>
+                <button type="button" class="icon-btn" title="Proveedor y descuento" aria-label="Proveedor y descuento" (click)="openSupplier(pack)"><i class="ti ti-building-store" aria-hidden="true"></i></button>
+                <button type="button" class="icon-btn" title="Editar" aria-label="Editar" (click)="startEditPack(pack)"><i class="ti ti-pencil" aria-hidden="true"></i></button>
+                <button type="button" class="icon-btn danger" title="Eliminar pack" aria-label="Eliminar pack" (click)="deletingPackId.set(pack.id)"><i class="ti ti-trash" aria-hidden="true"></i></button>
               </div>
             }
           </div>
@@ -181,7 +181,7 @@
                           <span class="stock-dot tn"></span>{{ p.stockTn ?? '—' }}
                         </td>
                         <td>
-                          <button type="button" class="icon-btn" *zcCanWrite title="Sacar del pack" (click)="removeProductFromPack(p.sku)">
+                          <button type="button" class="icon-btn" *zcCanWrite title="Sacar del pack" aria-label="Sacar del pack" (click)="removeProductFromPack(p.sku)">
                             <i class="ti ti-x" aria-hidden="true"></i>
                           </button>
                         </td>
@@ -278,7 +278,7 @@
 
   @if (deletingPackId(); as id) {
     <zc-confirm-dialog
-      title="Eliminar pack"
+      title="Eliminar pack" aria-label="Eliminar pack"
       message="Sus productos quedan sin pack. No se tocan las alertas ni el historial."
       confirmLabel="Eliminar"
       variant="danger"

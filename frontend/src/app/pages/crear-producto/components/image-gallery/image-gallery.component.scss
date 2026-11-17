@@ -64,7 +64,8 @@
     opacity: 0;
     transition: opacity 0.12s;
   }
-  &:hover .gimg-actions {
+  &:hover .gimg-actions,
+  &:focus-within .gimg-actions {
     opacity: 1;
   }
   .gicon {
@@ -123,4 +124,53 @@
   gap: 0.25rem;
   i { font-size: 0.72rem; }
   &.error { color: var(--err); }
+}
+
+.gimg-move,
+.touch-hint {
+  display: none;
+}
+
+/* Pantallas táctiles: no hay hover ni drag & drop. Los botones quedan siempre visibles, más grandes,
+   y se reordena con ‹ › (moveImage). */
+@media (hover: none) {
+  .gimg {
+    width: 100px;
+    height: 100px;
+    .gimg-actions {
+      opacity: 1;
+    }
+    .gicon {
+      width: 32px;
+      height: 32px;
+      font-size: 0.95rem;
+    }
+    .gimg-move {
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      bottom: 2px;
+      display: flex;
+      .next {
+        margin-left: auto;
+      }
+    }
+    &.is-cover .cover-badge {
+      bottom: auto;
+      top: 0;
+      right: auto;
+      border-radius: 0 0 6px 0;
+      padding: 0.15rem 0.35rem;
+    }
+  }
+  .gadd {
+    width: 100px;
+    height: 100px;
+  }
+  .drag-hint {
+    display: none;
+  }
+  .touch-hint {
+    display: inline;
+  }
 }

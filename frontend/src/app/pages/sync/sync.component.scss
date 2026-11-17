@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 // Sin encapsulación (ver SyncComponent). Lo propio de la página (encabezado y pestaña Estado) va
 // bajo `.sync-page`; la base que comparten todas las pestañas va bajo `:where(.sync-page)`, que no
 // suma especificidad: el estilo propio de cada pestaña (encapsulado) la pisa.
@@ -215,12 +217,14 @@
     white-space: nowrap;
     transition: background 0.12s;
 
-    &:hover:not(:disabled) { background: var(--surface-2); }
+    @include m.hover { &:hover:not(:disabled) { background: var(--surface-2); } }
     &:disabled { opacity: 0.5; cursor: default; }
 
     .ti { font-size: 13px; }
 
     &.btn-sm { font-size: 0.72rem; padding: 0.28rem 0.6rem; }
+
+    @include m.touch { min-height: 40px; justify-content: center; }
   }
 
   .inline-result {

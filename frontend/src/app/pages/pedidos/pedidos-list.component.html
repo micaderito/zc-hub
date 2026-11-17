@@ -27,7 +27,7 @@
     }
     <zc-search-bar [value]="search()" (valueChange)="search.set($event)" placeholder="Buscar pedido o producto…" ariaLabel="Buscar pedidos" />
     <span class="spacer"></span>
-    <span class="hint">Los descuentos de un pedido nuevo salen de la configuración default del proveedor (en Precios).</span>
+    <span class="hint long-hint">Los descuentos de un pedido nuevo salen de la configuración default del proveedor (en Precios).</span>
   </div>
 
   @if (loading()) {
@@ -50,11 +50,11 @@
         <tbody>
           @for (o of visibleOrders(); track o.id) {
             <tr class="order-row" (click)="open(o)">
-              <td>
+              <td class="cell-main">
                 <div class="prod-name strong">{{ o.name }}</div>
                 <div class="prod-sku">#{{ o.id }}@if (o.supplierKey) { · {{ supplierName(o.supplierKey) }} }@if (o.basedOnId) { · copia del #{{ o.basedOnId }} }</div>
               </td>
-              <td>
+              <td data-label="Estado">
                 <span class="zc-badge"
                       [class.neutral]="o.status === 'borrador'"
                       [class.busy]="o.status === 'pendiente'"
@@ -65,13 +65,13 @@
                   {{ statusLabel(o) }}
                 </span>
               </td>
-              <td class="nowrap">{{ (o.orderedAt ?? o.createdAt) | date: 'dd/MM/yy' }}</td>
-              <td class="muted">{{ o.totals.lineCount }} línea{{ o.totals.lineCount === 1 ? '' : 's' }} · {{ o.totals.packs }} pack{{ o.totals.packs === 1 ? '' : 's' }}</td>
-              <td class="num">
+              <td class="nowrap" data-label="Fecha">{{ (o.orderedAt ?? o.createdAt) | date: 'dd/MM/yy' }}</td>
+              <td class="muted" data-label="Contenido">{{ o.totals.lineCount }} línea{{ o.totals.lineCount === 1 ? '' : 's' }} · {{ o.totals.packs }} pack{{ o.totals.packs === 1 ? '' : 's' }}</td>
+              <td class="num" data-label="Total estimado">
                 {{ o.totals.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}
                 <div class="prod-sku">−{{ o.discount1 }}%@if (o.discount2) { −{{ o.discount2 }}% }</div>
               </td>
-              <td class="actions">
+              <td class="actions cell-actions">
                 <ng-container *zcCanWrite>
                 @if (o.status !== 'borrador') {
                   <button type="button" class="zc-btn small" [disabled]="busy()" (click)="askRepeat(o, $event)">
@@ -86,7 +86,7 @@
             </tr>
           } @empty {
             <tr>
-              <td colspan="6">
+              <td colspan="6" class="cell-main">
                 <p class="empty">
                   @if (allOrders().length === 0) {
                     Todavía no hay pedidos. Armá el primero con <b>Nuevo pedido</b>.

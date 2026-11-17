@@ -72,7 +72,7 @@
             <div class="field-group">
               <label class="field-label">Precio</label>
               <span class="input-currency">
-                <input type="text" appCurrencyInput [(ngModel)]="prices().priceML" [readonly]="session.isReadOnly()" placeholder="0,00" class="input-price" aria-label="Precio Mercado Libre" />
+                <input type="text" inputmode="decimal" appCurrencyInput [(ngModel)]="prices().priceML" [readonly]="session.isReadOnly()" placeholder="0,00" class="input-price" aria-label="Precio Mercado Libre" />
               </span>
             </div>
             <div class="field-group">
@@ -109,7 +109,7 @@
             <div class="field-group">
               <label class="field-label">Precio</label>
               <span class="input-currency">
-                <input type="text" appCurrencyInput [(ngModel)]="prices().priceTN" [readonly]="session.isReadOnly()" placeholder="0,00" class="input-price" aria-label="Precio Tienda Nube" />
+                <input type="text" inputmode="decimal" appCurrencyInput [(ngModel)]="prices().priceTN" [readonly]="session.isReadOnly()" placeholder="0,00" class="input-price" aria-label="Precio Tienda Nube" />
               </span>
             </div>
             <div class="field-group">
@@ -137,7 +137,7 @@
         <label class="field-label">Sincronizar stock en ambos</label>
         <div class="sync-row">
           <input
-            type="number" min="0" step="1"
+            type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*"
             [(ngModel)]="prices().syncStock"
             placeholder="Nuevo stock"
             class="input-stock"

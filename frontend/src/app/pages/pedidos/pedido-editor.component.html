@@ -89,7 +89,7 @@
     <div class="layout">
       <div class="main-col">
         <!-- ── Líneas del pedido ── -->
-        <div class="zc-card table-scroll">
+        <div class="zc-card table-scroll lines-card">
           <table class="zc-table lines">
             <thead>
               <tr>
@@ -106,7 +106,7 @@
             <tbody>
               @for (l of o.lines; track $index; let i = $index) {
                 <tr [class.free]="l.kind === 'free'" [class]="o.status === 'recibido' ? receivedClass(l) : ''">
-                  <td class="c-code">
+                  <td class="c-code cell-wide" data-label="Código">
                     @if (canEdit()) {
                       <input class="cell-input" [ngModel]="l.code" (ngModelChange)="setLineText(i, 'code', $event)" placeholder="código" aria-label="Código" />
                       @let opts = lineCodeOptions(l);
@@ -121,7 +121,7 @@
                       }
                     } @else { <span class="cell-text mono">{{ l.code || '—' }}</span> }
                   </td>
-                  <td class="c-desc">
+                  <td class="c-desc cell-main" data-label="Descripción">
                     @if (canEdit()) {
                       <input class="cell-input" [ngModel]="l.description" (ngModelChange)="setLineText(i, 'description', $event)" placeholder="descripción" aria-label="Descripción" />
                       @let titles = lineTitleOptions(l);
@@ -146,30 +146,30 @@
                       @if (canEdit() && l.kind !== 'free' && !l.code) { <span class="warn-text">sin código en Precios</span> }
                     </div>
                   </td>
-                  <td class="c-detail">
+                  <td class="c-detail cell-wide" data-label="Detalle">
                     @if (canEdit()) {
                       <input class="cell-input" [ngModel]="l.detail" (ngModelChange)="setLineText(i, 'detail', $event)" placeholder="diseños, colores…" aria-label="Detalle" />
                     } @else { <span class="cell-text">{{ l.detail }}</span> }
                   </td>
-                  <td class="num c-qty">
+                  <td class="num c-qty" data-label="Packs">
                     @if (canEdit()) {
-                      <input class="cell-input boxed num-input" type="number" min="1" [ngModel]="l.qty" (ngModelChange)="setLineQty(i, $event)" aria-label="Packs" />
+                      <input class="cell-input boxed num-input" type="number" min="1" inputmode="numeric" enterkeyhint="next" [ngModel]="l.qty" (ngModelChange)="setLineQty(i, $event)" aria-label="Packs" />
                     } @else { <span class="cell-text">{{ l.qty }}</span> }
                   </td>
                   @if (receiving()) {
-                    <td class="num c-recv">
+                    <td class="num c-recv" data-label="Llegó">
                       <span class="recv">
-                        <input class="cell-input boxed num-input small" type="number" min="0" [max]="l.qty" placeholder="0"
+                        <input class="cell-input boxed num-input small" type="number" min="0" [max]="l.qty" placeholder="0" inputmode="numeric" enterkeyhint="next"
                                [ngModel]="l.id != null ? received()[l.id] : null" (ngModelChange)="setReceived(l, $event)" aria-label="Packs que llegaron" />
                         <button type="button" class="tick" (click)="fillReceived(l)" title="Llegó completo" aria-label="Llegó completo"><i class="ti ti-check" aria-hidden="true"></i></button>
                       </span>
                     </td>
                   } @else if (o.status === 'recibido') {
-                    <td class="num c-recv"><span class="cell-text recv-text">{{ l.receivedQty ?? 0 }} / {{ l.qty }}</span></td>
+                    <td class="num c-recv" data-label="Llegó"><span class="cell-text recv-text">{{ l.receivedQty ?? 0 }} / {{ l.qty }}</span></td>
                   }
-                  <td class="num c-price">
+                  <td class="num c-price" data-label="Precio lista">
                     @if (canEdit()) {
-                      <input class="cell-input boxed num-input price-input" type="number" min="0" placeholder="$ a mano"
+                      <input class="cell-input boxed num-input price-input" type="number" min="0" placeholder="$ a mano" inputmode="decimal" enterkeyhint="next"
                              [class.is-own]="l.kind !== 'free' && l.priceSource === 'manual'"
                              [ngModel]="l.unitPrice" (ngModelChange)="setLinePrice(i, $event)" aria-label="Precio de lista por pack" />
                       <div class="price-tag">
@@ -192,7 +192,7 @@
                       </span>
                     }
                   </td>
-                  <td class="num c-sub">
+                  <td class="num c-sub" data-label="Subtotal">
                     <span class="cell-text">{{ l.unitPrice == null ? '—' : ((l.unitPrice * l.qty) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') }}</span>
                   </td>
                   @if (canEdit()) {
@@ -202,7 +202,7 @@
                   }
                 </tr>
               } @empty {
-                <tr><td colspan="8"><p class="empty">El pedido está vacío. Sumá productos desde abajo o agregá un ítem libre.</p></td></tr>
+                <tr><td colspan="8" class="cell-main"><p class="empty">El pedido está vacío. Sumá productos desde abajo o agregá un ítem libre.</p></td></tr>
               }
             </tbody>
           </table>
@@ -213,13 +213,21 @@
             </div>
           }
         </div>
+        @if (canEdit()) {
+          <!-- Solo en el celular: el catálogo se abre como hoja desde abajo. -->
+          <button type="button" class="zc-btn open-catalog" (click)="catalogSheetOpen.set(true)">
+            <i class="ti ti-plus" aria-hidden="true"></i> Agregar productos
+          </button>
+        }
 
         <!-- ── Catálogo para agregar (solo borradores) ── -->
         @if (canEdit()) {
-          <div class="catalog">
+          @if (catalogSheetOpen()) { <div class="catalog-backdrop" (click)="catalogSheetOpen.set(false)"></div> }
+          <div class="catalog" [class.open]="catalogSheetOpen()">
             <div class="toolbar">
               <h2><i class="ti ti-plus" aria-hidden="true"></i> Agregar productos
                 @if (o.supplierKey) { <span class="hint">de {{ supplierName(o.supplierKey) }}</span> }</h2>
+              <button type="button" class="icon-btn catalog-close" (click)="catalogSheetOpen.set(false)" aria-label="Cerrar catálogo"><i class="ti ti-x" aria-hidden="true"></i></button>
               <span class="spacer"></span>
               @if (unassignedCount()) {
                 <label class="check" title="Productos que en Precios no tienen ningún proveedor asignado">
@@ -263,7 +271,7 @@
                       @let inOrder = qtyInOrder().get(u.key);
                       @let sum = unitStockSummary(u);
                       <tr [class.group]="multi" [class.in-order]="inOrder" (click)="multi && togglePack(u)">
-                        <td>
+                        <td class="cell-main">
                           <div class="unit-name">
                             @if (multi) {
                               <i class="ti ti-chevron-right caret" [class.open]="isPackOpen(u)" aria-hidden="true"></i>
@@ -287,17 +295,17 @@
                             </div>
                           </div>
                         </td>
-                        <td class="num">
+                        <td class="num" data-label="Stock ML · TN">
                           @if (!multi) {
                             <span class="stock-dot ml"></span>{{ u.members[0].stockMl ?? '—' }}
                             <span class="stock-dot tn"></span>{{ u.members[0].stockTn ?? '—' }}
                           }
                         </td>
-                        <td>
+                        <td data-label="Depósito">
                           @if (u.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ u.depositoStock }} u.</span> }
                           @else { <span class="hint">—</span> }
                         </td>
-                        <td>
+                        <td data-label="Alerta">
                           @if (!multi) {
                             @if (memberAlertLabel(u.members[0]); as a) { <span class="zc-badge" [class]="a.cls">{{ a.text }}</span> }
                             @else { <span class="hint">sin regla</span> }
@@ -305,19 +313,19 @@
                             <span class="zc-badge warn"><i class="ti ti-bell-ringing" aria-hidden="true"></i> avisó</span>
                           } @else { <span class="hint">—</span> }
                         </td>
-                        <td>
+                        <td data-label="Último pedido">
                           @if (u.lastOrder; as lo) {
                             <span class="last">{{ lo.date | date: 'dd/MM/yy' }} · {{ lo.qty }} pack{{ lo.qty === 1 ? '' : 's' }}</span>
                           } @else { <span class="hint">nunca</span> }
                         </td>
-                        <td class="num">
+                        <td class="num" data-label="Precio pack">
                           @if (u.price == null) { <span class="hint">sin precio</span> }
                           @else {
                             {{ u.price | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}
                             @if (otherPriceSupplier(u); as other) { <div class="hint" title="El precio de Precios es el del proveedor vigente">precio de {{ other }}</div> }
                           }
                         </td>
-                        <td class="num add-cell">
+                        <td class="num add-cell cell-actions">
                           @if (inOrder) {
                             <button type="button" class="add-btn in" (click)="removeUnit(u, $event)" title="Quitar del pedido">
                               <i class="ti ti-check" aria-hidden="true"></i> En el pedido · {{ inOrder }}
@@ -333,13 +341,13 @@
                       @if (multi && isPackOpen(u)) {
                         @for (m of u.members; track m.sku) {
                           <tr class="member">
-                            <td><div class="prod-name">{{ m.label }}</div><div class="prod-sku">{{ m.sku }}</div></td>
-                            <td class="num"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }}<span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</td>
-                            <td>
+                            <td class="cell-main"><div class="prod-name">{{ m.label }}</div><div class="prod-sku">{{ m.sku }}</div></td>
+                            <td class="num" data-label="Stock ML · TN"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }}<span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</td>
+                            <td data-label="Depósito">
                               @if (m.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ m.depositoStock }} u.</span> }
                               @else { <span class="hint">—</span> }
                             </td>
-                            <td>
+                            <td data-label="Alerta">
                               @if (memberAlertLabel(m); as a) { <span class="zc-badge" [class]="a.cls">{{ a.text }}</span> }
                               @else { <span class="hint">sin regla</span> }
                             </td>
@@ -348,7 +356,7 @@
                         }
                       }
                     } @empty {
-                      <tr><td colspan="7">
+                      <tr><td colspan="7" class="cell-main">
                         <p class="empty">
                           @if (catalogFilter() === 'alert' && !catalogSearch()) { No hay productos con el stock en el umbral o por debajo. Mirá <b>Todos</b> para pedir algo igual. }
                           @else if (!catalogUnits().length && o.supplierKey) { Ningún producto tiene a {{ supplierName(o.supplierKey) }} como proveedor en Precios. }
@@ -392,12 +400,12 @@
         }
         <div class="sum-row">
           <span class="pct">Descuento
-            <input class="zc-input" type="number" min="0" max="100" [disabled]="!canEdit()" [ngModel]="o.discount1" (ngModelChange)="setDiscount('discount1', $event)" aria-label="Descuento sobre los productos" />%</span>
+            <input class="zc-input" type="number" min="0" max="100" inputmode="decimal" enterkeyhint="next" [disabled]="!canEdit()" [ngModel]="o.discount1" (ngModelChange)="setDiscount('discount1', $event)" aria-label="Descuento sobre los productos" />%</span>
           <span class="v ok-text">−{{ t.discount1Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
         </div>
         <div class="sum-row">
           <span class="pct">Sobre el total
-            <input class="zc-input" type="number" min="0" max="100" [disabled]="!canEdit()" [ngModel]="o.discount2" (ngModelChange)="setDiscount('discount2', $event)" aria-label="Descuento sobre el total" />%</span>
+            <input class="zc-input" type="number" min="0" max="100" inputmode="decimal" enterkeyhint="next" [disabled]="!canEdit()" [ngModel]="o.discount2" (ngModelChange)="setDiscount('discount2', $event)" aria-label="Descuento sobre el total" />%</span>
           <span class="v ok-text">−{{ t.discount2Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
         </div>
         <div class="sum-row total"><span>Total estimado</span><span class="v">{{ t.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
@@ -431,6 +439,16 @@
         </div>
       </aside>
     </div>
+
+    @if (canEdit()) {
+      <!-- Solo en el celular: total + acción principal siempre a mano. -->
+      <div class="mobile-bar">
+        <div class="mb-total"><span class="hint">Total estimado</span><b>{{ t.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</b></div>
+        <button type="button" class="zc-btn primary" [disabled]="!o.lines.length || busy()" (click)="showPlaceConfirm.set(true)">
+          <i class="ti ti-send" aria-hidden="true"></i> Marcar como pedido
+        </button>
+      </div>
+    }
 
     <!-- ── Modales ── -->
     @if (showPlaceConfirm()) {

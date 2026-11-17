@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 :host { display: block; }
 
 .mp-intro {
@@ -17,7 +19,7 @@
   }
 }
 .mp-chips {
-  display: flex; gap: 6px; flex-wrap: wrap;
+  display: flex; gap: 6px; flex-wrap: wrap; @include m.scroll-row;
   button {
     font: inherit; font-size: 11.5px; padding: 5px 10px; border-radius: 8px; cursor: pointer;
     border: 0.5px solid var(--border); background: var(--surface); color: var(--text-2);
@@ -69,7 +71,7 @@
   background: none; border: none;
   > .ti { color: var(--brand); }
 }
-.group-toggle { cursor: pointer; &:hover { background: var(--surface); } }
+.group-toggle { cursor: pointer; @include m.hover { &:hover { background: var(--surface); } } }
 .group-toggle .mp-prod { flex: 1; min-width: 0; }
 .group-meta { color: var(--text-2); }
 
@@ -108,7 +110,7 @@
 .btn {
   font: inherit; font-size: 12px; border: 0.5px solid var(--border); background: var(--surface); color: var(--text);
   border-radius: 8px; padding: 6px 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
-  &:hover { background: var(--surface-2); }
+  @include m.hover { &:hover { background: var(--surface-2); } }
   &.pri { background: var(--brand); color: var(--brand-contrast); border-color: transparent; }
   &:disabled { opacity: 0.45; cursor: default; }
   &.btn-s { font-size: 11px; padding: 4px 9px; }
@@ -116,8 +118,10 @@
 .icon-btn {
   border: none; background: none; color: var(--text-2); cursor: pointer;
   padding: 4px; border-radius: 6px; font-size: 15px; line-height: 1; vertical-align: middle;
-  &:hover { background: var(--surface-2); color: var(--text); }
-  &.danger:hover { color: var(--err); }
+  @include m.hover {
+    &:hover { background: var(--surface-2); color: var(--text); }
+    &.danger:hover { color: var(--err); }
+  }
 }
 
 .mp-unused {
@@ -130,9 +134,13 @@
   code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--text); }
 }
 
-@media (max-width: 640px) {
+@include m.phone {
   .mp-search input { width: 100%; }
   .mp-search { flex: 1 1 100%; }
+  .mp-chips { flex: 1 1 100%; }
+  .mp-select { flex: 1; min-width: 0; }
+  .spacer { display: none; }
+  .mp-edit input { width: 100%; flex: 1 1 140px; }
 }
 
 .mp-sup-code {

@@ -5,16 +5,16 @@
       <p>Del costo del proveedor al precio publicado, en una sola pasada.</p>
     </div>
     <div class="pr-head-actions">
-      <button type="button" class="btn" (click)="store.open({ kind: 'lists' })">
+      <button type="button" class="btn" (click)="store.open({ kind: 'lists' })" aria-label="Historial de listas">
         <i class="ti ti-history"></i> Historial de listas
       </button>
-      <button type="button" class="btn" (click)="store.open({ kind: 'settings' })" [disabled]="!store.config()">
+      <button type="button" class="btn" (click)="store.open({ kind: 'settings' })" [disabled]="!store.config()" aria-label="Ajustes">
         <i class="ti ti-adjustments"></i> Ajustes
       </button>
-      <button type="button" class="btn" (click)="store.open({ kind: 'import' })">
+      <button type="button" class="btn" (click)="store.open({ kind: 'import' })" aria-label="Importar lista">
         <i class="ti ti-file-import"></i> Importar lista
       </button>
-      <button type="button" class="btn" (click)="store.open({ kind: 'cost', row: null })">
+      <button type="button" class="btn" (click)="store.open({ kind: 'cost', row: null })" aria-label="Agregar costo">
         <i class="ti ti-plus"></i> Agregar costo
       </button>
     </div>

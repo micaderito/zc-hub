@@ -908,6 +908,29 @@ describe('CrearProductoComponent', () => {
       expect(component.draft().ml.images.map((i) => i.id)).toEqual(['b', 'a']);
     });
 
+    it('moveImage() corre la foto un lugar (táctil) y no hace nada fuera de rango', () => {
+      seedImage(component, 'ml', 'a');
+      seedImage(component, 'ml', 'b');
+      seedImage(component, 'ml', 'c');
+      component.store.moveImage('ml', 0, 1);
+      expect(component.draft().ml.images.map((i) => i.id)).toEqual(['b', 'a', 'c']);
+      component.store.moveImage('ml', 2, -1);
+      expect(component.draft().ml.images.map((i) => i.id)).toEqual(['b', 'c', 'a']);
+      component.store.moveImage('ml', 0, -1);
+      component.store.moveImage('ml', 2, 1);
+      expect(component.draft().ml.images.map((i) => i.id)).toEqual(['b', 'c', 'a']);
+    });
+
+    it('el menú de "Publicar ▾" se cierra al tocar afuera y con Escape', () => {
+      component.publishMenuOpen.set(true);
+      document.body.click();
+      expect(component.publishMenuOpen()).toBeFalse();
+
+      component.publishMenuOpen.set(true);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(component.publishMenuOpen()).toBeFalse();
+    });
+
     it('removeImage() quita la imagen, la desasigna de las variantes y la borra del backend', () => {
       seedImage(component, 'ml', 'a');
       component.addAxis();

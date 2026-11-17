@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 :host { display: block; margin-bottom: 1rem; }
 
 .fpanel {
@@ -53,7 +55,7 @@
     cursor: pointer;
 
     &:first-child { border-left: 0; }
-    &:hover:not(.sel) { background: var(--surface-2); color: var(--text); }
+    @include m.hover { &:hover:not(.sel) { background: var(--surface-2); color: var(--text); } }
     &.sel { background: var(--brand-bg); color: var(--brand); font-weight: 600; }
   }
 }
@@ -100,7 +102,7 @@
   white-space: nowrap;
 
   .ti { font-size: 0.95rem; }
-  &:hover:not(.on) { background: var(--surface-2); color: var(--text); }
+  @include m.hover { &:hover:not(.on) { background: var(--surface-2); color: var(--text); } }
 
   &.on {
     border-style: solid;
@@ -125,7 +127,7 @@
   cursor: pointer;
 
   .ti { font-size: 0.8rem; }
-  &:hover { background: var(--brand); color: var(--brand-contrast); }
+  @include m.hover { &:hover { background: var(--brand); color: var(--brand-contrast); } }
 }
 
 .pop {
@@ -166,7 +168,8 @@
     cursor: pointer;
 
     .ti { width: 1rem; color: var(--brand); }
-    &:hover, &.sel { background: var(--surface-2); }
+    &.sel { background: var(--surface-2); }
+    @include m.hover { &:hover { background: var(--surface-2); } }
   }
 
   hr { border: 0; border-top: 0.5px solid var(--border); margin: 0.25rem 0; }
@@ -182,10 +185,36 @@
   cursor: pointer;
   text-decoration: underline;
 
-  &:hover { color: var(--text); }
+  @include m.hover { &:hover { color: var(--text); } }
 }
 
 @media (max-width: 640px) {
   .vsep { display: none; }
   .clear { margin-left: 0; }
+}
+
+// ── Celular / táctil ──────────────────────────────────────────────
+.sseg button, .fbtn, .fclear { @include m.touch { min-height: 40px; } }
+.pop .o { @include m.touch { min-height: 44px; } }
+
+@include m.phone {
+  // Stock en UNA línea que se desliza de costado (con sus conteos); Proveedor/Alerta/Pack abajo.
+  .sseg {
+    flex: 1 0 calc(100% - 3.5rem);
+    min-width: 0;
+    @include m.scroll-row;
+  }
+
+  // El menú pasa a una hoja anclada abajo (encima de la barra de pestañas): no se sale de la pantalla.
+  .pop {
+    position: fixed;
+    top: auto;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: calc(var(--zc-tabbar-h) + 0.75rem);
+    z-index: 60;
+    max-height: 60vh;
+    max-height: 60dvh;
+    padding: 0.5rem;
+  }
 }

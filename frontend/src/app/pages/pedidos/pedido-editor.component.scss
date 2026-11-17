@@ -1,4 +1,5 @@
 @use './pedidos-shared' as *;
+@use 'mobile' as m;
 
 $cell-h: 30px;
 
@@ -35,7 +36,7 @@ $cell-h: 30px;
     margin-left: -0.4rem;
     min-width: 16rem;
 
-    &:hover { border-color: var(--border); }
+    @include m.hover { &:hover { border-color: var(--border); } }
     &:focus { outline: none; border-color: var(--brand); background: var(--bg); }
   }
 
@@ -82,8 +83,14 @@ $cell-h: 30px;
   gap: 1rem;
   align-items: start;
 
+  // Una columna: líneas → estimado/acciones → catálogo (no el catálogo antes del total).
   @media (max-width: 1250px) {
     grid-template-columns: 1fr;
+
+    .main-col { display: contents; }
+    .lines-card, .open-catalog { order: 1; }
+    .side { order: 2; }
+    .catalog { order: 3; margin-top: 0.5rem; }
   }
 }
 
@@ -144,7 +151,8 @@ $cell-h: 30px;
   background: transparent;
   color: var(--text-3);
 
-  &:hover { border-color: var(--brand); color: var(--brand); }
+  @include m.hover { &:hover { border-color: var(--brand); color: var(--brand); } }
+  @include m.tap-target;
   &.on { background: var(--brand-bg); color: var(--brand); border-color: transparent; }
 }
 
@@ -159,7 +167,7 @@ $cell-h: 30px;
   background: transparent;
   color: var(--text);
 
-  &:hover { border-color: var(--border); }
+  @include m.hover { &:hover { border-color: var(--border); } }
   &:focus { outline: none; border-color: var(--brand); background: var(--bg); }
   &::placeholder { color: var(--text-3); }
 
@@ -198,9 +206,10 @@ $cell-h: 30px;
 .link-btn.tiny {
   font-size: 0.64rem;
   padding: 0 0.2rem;
+  @include m.tap-target;
 }
 
-.link-btn.danger { color: var(--err); &:hover:not(:disabled) { background: var(--err-bg); } }
+.link-btn.danger { color: var(--err); @include m.hover { &:hover:not(:disabled) { background: var(--err-bg); } } }
 
 .recv {
   display: inline-flex;
@@ -213,6 +222,7 @@ $cell-h: 30px;
   padding: 0 0.45rem;
   color: var(--ok);
   font-weight: 400;
+  @include m.tap-target;
 }
 
 .add-free {
@@ -302,7 +312,8 @@ $cell-h: 30px;
   padding: 0.3rem 0.6rem;
   border-radius: var(--radius-sm);
 
-  &:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); background: var(--surface); }
+  @include m.hover { &:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); background: var(--surface); } }
+  @include m.touch { min-height: 40px; }
 
   &.in {
     background: var(--brand-bg);
@@ -397,3 +408,5 @@ $cell-h: 30px;
 
 .modal-note { margin-top: 0.75rem !important; }
 a.zc-btn { text-decoration: none; }
+
+// Celular y tablet: en pedido-editor.mobile.scss (hoja aparte por el tope de 16 kB por hoja).

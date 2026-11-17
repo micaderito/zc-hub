@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, Signal, computed, effect, inject, signal, untracked } from '@angular/core';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
@@ -49,6 +49,20 @@ export class PreciosPlanillaComponent {
   readonly applyFailures = signal<ApplyResult['results']>([]);
   readonly historySku = signal<string | null>(null);
   readonly assignMode = signal<AssignMode | null>(null);
+
+  /**
+   * En tablet (≤ 1023px) se esconden Bulto y Descuento, y en el celular (≤ 760px) también "Te
+   * queda" (por CSS). Las celdas con colspan de los encabezados de pack se ajustan a eso: con
+   * `display: none` esas columnas dejan de existir y un colspan fijo correría las de precio.
+   */
+  private readonly narrow = mediaSignal('(max-width: 1023px)');
+  private readonly phone = mediaSignal('(max-width: 760px)');
+  /** Producto … Costo u. en el encabezado de un pack (4 en escritorio). */
+  readonly packSpan = computed(() => (this.narrow() ? 2 : 4));
+  /** "Te queda" + acciones (2 en escritorio). */
+  readonly tailSpan = computed(() => (this.phone() ? 1 : 2));
+  /** Toda la fila (9 en escritorio). */
+  readonly fullSpan = computed(() => 9 - (this.narrow() ? 2 : 0) - (this.phone() ? 1 : 0));
 
   constructor() {
     // La selección es de la pestaña: al cambiar de proveedor se empieza de cero.
@@ -353,4 +367,16 @@ function toggled<T>(set: Set<T>, value: T): Set<T> {
 /** `q` ya viene en minúsculas y sin espacios en los bordes. */
 function matchesSearch(q: string, ...fields: (string | null | undefined)[]): boolean {
   return fields.some((f) => (f ?? '').toLowerCase().includes(q));
+}
+
+/** `matchMedia` como señal (false si el entorno no lo tiene). */
+function mediaSignal(query: string): Signal<boolean> {
+  const mql = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query) : null;
+  const s = signal(mql?.matches ?? false);
+  if (mql) {
+    const onChange = (e: MediaQueryListEvent) => s.set(e.matches);
+    mql.addEventListener('change', onChange);
+    inject(DestroyRef).onDestroy(() => mql.removeEventListener('change', onChange));
+  }
+  return s.asReadonly();
 }

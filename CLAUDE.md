@@ -1382,6 +1382,51 @@ con la cola quieta.
 Ojo al levantar backends locales contra la base de Supabase: cada uno suma su propio polling al
 mismo cupo (es por organización, no por proyecto).
 
+### App instalable (PWA): iPhone, iPad y Android
+
+La web es también una app instalable, sin pasar por App Store / Play Store: en iPhone/iPad, Safari →
+Compartir → **Agregar a inicio**; en Android, Chrome → **Instalar app**. Sigue funcionando igual como
+página web. Es el mismo build de GitHub Pages (`/zc-hub/`), no hay un deploy aparte.
+
+- **Service worker de Angular** (`@angular/service-worker`, `frontend/ngsw-config.json`): solo en los
+  builds `production`/`github` (`serviceWorker` en `angular.json`; en dev y en los tests no existe).
+  Cachea solo el "cascarón" (JS, CSS, `index.html`, íconos, fuentes de Google y Tabler). **La API no se
+  cachea nunca** (no hay `dataGroups`): stock y precios siempre van en vivo al backend. Los deep links
+  (`/zc-hub/pedidos`) los resuelve el service worker con `index.html`.
+- **Se actualiza sola en cada deploy** (`core/services/app-update.service.ts`): cada build genera un
+  `ngsw.json` nuevo; la app lo chequea al abrir, al volver a primer plano y cada 15 min. Con la versión
+  nueva descargada: si todavía no se tocó nada (recién abre) o se vuelve después de 10 min afuera,
+  recarga sola; si se está usando, aparece el aviso **"Hay una versión nueva · Actualizar"**
+  (`zc-update-banner`) en vez de recargar, para no perder un formulario a medio cargar.
+- `manifest.webmanifest` e íconos en `frontend/public/` (rutas relativas: `start_url`/`scope` = `./`
+  para que respeten el `baseHref`). Íconos generados desde `logo.png` con `sips` (cuadrado con fondo
+  blanco; el maskable con margen seguro).
+- `viewport-fit=cover`: el contenido puede ir debajo del notch / indicador de inicio. El layout usa
+  `env(safe-area-inset-*)` (vale 0 en el navegador, así que el escritorio no cambia). Usar `dvh`, no
+  solo `vh`, para altos de pantalla completa.
+- `theme-color` (color de la barra de estado) sigue el tema del hub (`syncThemeColor` en
+  `theme.service.ts` + el script de `index.html`).
+- **iOS: la app instalada tiene su propio `localStorage`**, aparte de Safari: hay que loguearse una vez
+  adentro de la app.
+- **Celular y tablet** (2026-11-16). Regla: el escritorio (> 1023px con mouse) se ve igual que antes;
+  todo lo de celular/tablet va en los mixins de `frontend/src/styles/_mobile.scss` (`@use 'mobile' as m;`,
+  `includePaths` en `angular.json`): `m.phone` (≤ 760px), `m.tablet-down` (≤ 1023px), `m.touch`
+  (pointer: coarse, incluye el iPad apaisado), `m.hover` (envolver los `:hover`: en iOS quedan pegados),
+  `m.sheet` (modal → hoja que sube desde abajo), `m.stack-table` (tabla → una tarjeta por fila; cada `<td>`
+  con `data-label`, `cell-main`, `cell-actions`) y `m.scroll-row` (chips/pestañas en una fila que se
+  desliza). Globales en `styles.scss`: campos a 16px en táctil (si no, iOS hace zoom), `.zc-btn` ≥ 40px.
+  - **Navegación en el celu**: barra fina arriba (logo, página actual, campanita) y **barra de pestañas
+    abajo** (Preparar, Productos, Pedidos, Alertas + "Más", una hoja con el resto, el usuario, el tema y
+    salir). `PHONE_TAB_PATHS` en `layout.component.ts`; estilos en `layout-phone.component.scss` (hoja
+    aparte por el tope de 16 kB). En iPad vertical (761–1023px) la barra lateral arranca angosta.
+  - Barras pegajosas de las páginas: `top: var(--zc-topbar-h)` / `bottom: var(--zc-tabbar-h)` (valen 0
+    fuera del celu).
+  - Compartir en iOS: la imagen para la fábrica (Pedidos) y el CSV de Ventas usan `navigator.share` con el
+    archivo cuando el dispositivo táctil lo permite (un `a.download` en la PWA de iOS no anda bien).
+  - Conexiones: OAuth de ML/TN desde la app instalada en iOS puede volver a Safari; la página recarga el
+    estado al volver a la app (`visibilitychange`/`focus`), la verdad es la del servidor.
+  - El aviso de presupuesto del bundle inicial pasó a 560 kB (el service worker suma ~15 kB).
+
 ### Roles de usuario: `admin` y `lectura`
 
 `app_users.role` (`'admin' | 'lectura'`). La migración agrega la columna con default `admin`, así

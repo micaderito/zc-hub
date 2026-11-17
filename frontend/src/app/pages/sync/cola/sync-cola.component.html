@@ -49,15 +49,15 @@
       <tbody>
         @for (task of pendingTasks(); track task.id) {
           <tr [class.row-failed]="task.status === 'failed' || task.stuck">
-            <td><span [class]="taskStatusChipClass(task)">{{ taskStatusLabel(task) }}</span></td>
-            <td>{{ taskKindLabel(task.kind) }}</td>
-            <td><code>{{ task.itemId || '—' }}</code></td>
-            <td><code>{{ task.variationId || '—' }}</code></td>
-            <td>{{ taskChangeLabel(task) }}</td>
-            <td>{{ task.attempts }}</td>
-            <td class="cell-error">{{ task.lastError || '—' }}</td>
-            <td>{{ formatDate(task.updatedAt) }}</td>
-            <td>
+            <td class="cell-main" data-label="Estado"><span [class]="taskStatusChipClass(task)">{{ taskStatusLabel(task) }}</span></td>
+            <td data-label="Tipo">{{ taskKindLabel(task.kind) }}</td>
+            <td data-label="Ítem ML"><code>{{ task.itemId || '—' }}</code></td>
+            <td data-label="Variación"><code>{{ task.variationId || '—' }}</code></td>
+            <td data-label="Cambio">{{ taskChangeLabel(task) }}</td>
+            <td data-label="Intentos">{{ task.attempts }}</td>
+            <td class="cell-error cell-wide" data-label="Error">{{ task.lastError || '—' }}</td>
+            <td data-label="Actualizado">{{ formatDate(task.updatedAt) }}</td>
+            <td class="cell-actions">
               @if (canRetryTask(task) && session.isAdmin()) {
                 <button type="button" class="btn-secondary btn-sm" (click)="retryTask(task)" [disabled]="retryingTaskId() === task.id">
                   {{ retryingTaskId() === task.id ? '…' : 'Reintentar' }}

@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .edit-review {
   .block-head .ti-list-check { color: var(--brand); }
 }
@@ -114,4 +116,21 @@
 .er-del-list {
   margin: 8px 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13px;
   li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+}
+
+@include m.phone {
+  .er-group li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+  .er-target {
+    justify-self: start;
+    white-space: normal;
+  }
+  .er-actions {
+    flex-wrap: wrap;
+  }
+  .er-note {
+    display: none;
+  }
 }

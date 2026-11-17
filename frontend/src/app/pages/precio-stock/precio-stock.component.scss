@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .precio-stock {
   max-width: 100%;
 
@@ -213,4 +215,39 @@
     opacity: 0.5;
     pointer-events: none;
   }
+}
+
+// ── Celular / táctil ──────────────────────────────────────────────
+.list-toolbar {
+  .selection-bar .selection-inline { display: contents; }
+  .bulk-bar-phone { display: none; }
+  .btn-collapse-all, .selection-bar .btn-link, .selection-bar .select-page { @include m.touch { min-height: 40px; } }
+
+  @include m.phone {
+    .selection-bar .selection-inline { display: none; }
+
+    .bulk-bar-phone {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: var(--zc-tabbar-h);
+      z-index: 25;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem max(1rem, env(safe-area-inset-right)) 0.6rem max(1rem, env(safe-area-inset-left));
+      background: var(--surface);
+      border-top: 0.5px solid var(--border-strong);
+      box-shadow: var(--shadow-pop);
+      font-size: 0.8rem;
+
+      .selection-count { margin-right: auto; }
+      .btn-link { min-height: 40px; }
+    }
+  }
+}
+
+// Que la barra fija no tape el final de la lista (ni la paginación).
+.precio-stock .list-area:has(.bulk-bar-phone) {
+  @include m.phone { padding-bottom: 4.5rem; }
 }
