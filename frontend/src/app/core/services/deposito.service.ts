@@ -17,6 +17,21 @@ export interface DepositoItem {
   updatedAt: string | null;
 }
 
+export type DepositoMovementKind = 'alta' | 'ajuste' | 'edicion' | 'baja';
+
+/** Un movimiento del historial de una fila: cuánto cambió, en cuánto quedó, quién y cuándo. */
+export interface DepositoMovement {
+  id: number;
+  itemId: number;
+  kind: DepositoMovementKind;
+  delta: number;
+  quantityAfter: number;
+  label: string | null;
+  unit: string | null;
+  actor: string | null;
+  createdAt: string;
+}
+
 export interface DepositoItemInput {
   sku?: string | null;
   label: string;
@@ -43,7 +58,12 @@ export class DepositoService {
     return this.http.put<{ ok: boolean; item: DepositoItem }>(`${this.api.baseUrl}/deposito/${id}`, input);
   }
 
-  /** Ajuste rápido de cantidad (+1/-1 desde la tabla). */
+  /** Historial de movimientos de una fila, más nuevo primero. */
+  getMovements(id: number) {
+    return this.http.get<{ movements: DepositoMovement[] }>(`${this.api.baseUrl}/deposito/${id}/movimientos`);
+  }
+
+  /** Ajuste rápido de cantidad (+/-1, ±5, ±10). */
   adjust(id: number, delta: number) {
     return this.http.patch<{ ok: boolean; item: DepositoItem }>(`${this.api.baseUrl}/deposito/${id}/ajustar`, { delta });
   }

@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import {
   getDepositoItems, createDepositoItem, updateDepositoItem,
-  adjustDepositoQuantity, deleteDepositoItem,
+  adjustDepositoQuantity, deleteDepositoItem, getDepositoMovements,
 } from '../db.js';
 
 export const depositoRoutes = Router();
@@ -42,7 +42,7 @@ depositoRoutes.post('/', async (req, res) => {
       quantity: req.body.quantity,
       unit: (req.body.unit || '').trim() || 'unidades',
       notes: req.body.notes,
-    });
+    }, req.user?.username ?? null);
     if (!item) return res.status(500).json({ error: 'No se pudo guardar' });
     res.json({ ok: true, item });
   } catch (e) {
@@ -64,7 +64,7 @@ depositoRoutes.put('/:id', async (req, res) => {
       quantity: req.body.quantity,
       unit: (req.body.unit || '').trim() || 'unidades',
       notes: req.body.notes,
-    });
+    }, req.user?.username ?? null);
     if (!item) return res.status(404).json({ error: 'No se encontró la fila' });
     res.json({ ok: true, item });
   } catch (e) {
@@ -72,14 +72,25 @@ depositoRoutes.put('/:id', async (req, res) => {
   }
 });
 
-/** Ajuste rápido de cantidad (+1/-1 desde la tabla). Body: { delta }. */
+/** Historial de movimientos de una fila (alta, +/-, cambio de cantidad, baja), más nuevo primero. */
+depositoRoutes.get('/:id/movimientos', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+  try {
+    res.json({ movements: await getDepositoMovements(id) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Ajuste rápido de cantidad (+/-1, ±5, ±10 desde la lista). Body: { delta }. */
 depositoRoutes.patch('/:id/ajustar', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
   const delta = Number(req.body?.delta);
   if (!Number.isFinite(delta) || delta === 0) return res.status(400).json({ error: 'delta requerido' });
   try {
-    const item = await adjustDepositoQuantity(id, delta);
+    const item = await adjustDepositoQuantity(id, delta, req.user?.username ?? null);
     if (!item) return res.status(404).json({ error: 'No se encontró la fila' });
     res.json({ ok: true, item });
   } catch (e) {
@@ -92,7 +103,7 @@ depositoRoutes.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
   try {
-    const ok = await deleteDepositoItem(id);
+    const ok = await deleteDepositoItem(id, req.user?.username ?? null);
     if (!ok) return res.status(404).json({ error: 'No se encontró la fila' });
     res.json({ ok: true });
   } catch (e) {

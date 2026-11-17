@@ -202,35 +202,111 @@
 
 .spacer { flex: 1; }
 
+/* Encima de la hoja de detalle: "Editar" se abre desde ahí. */
+.modal-backdrop.top { z-index: 60; }
+
+.icon-btn.danger, .btn.danger { color: var(--err); }
+
+/* ── Celular: lista compacta + hoja de detalle ── */
+.dp-phone, .dp-fab { display: none; }
+
+.dp-group-h {
+  display: flex; justify-content: space-between; margin: 14px 4px 6px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3);
+  &:first-child { margin-top: 2px; }
+}
+.dp-list { background: var(--surface); border: 0.5px solid var(--border); border-radius: 14px; overflow: hidden; }
+.dp-row {
+  display: flex; align-items: center; gap: 11px; width: 100%; min-height: 64px; padding: 10px 12px;
+  font: inherit; text-align: left; color: var(--text); background: none; border: none;
+  border-top: 0.5px solid var(--border); cursor: pointer;
+  &:first-child { border-top: none; }
+  &:active { background: var(--surface-2); }
+}
+.dp-thumb {
+  width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; object-fit: cover;
+  &.empty {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--surface-2); color: var(--text-2); font-size: 20px;
+  }
+}
+.dp-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dp-row-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-row-title {
+  font-size: 14px; font-weight: 500; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dp-toolbar + .dp-phone .dp-group-h:first-child { margin-top: 12px; }
+.dp-row-sub { font-size: 11.5px; color: var(--text-2); }
+.dp-row-qty {
+  display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0;
+  b { font-size: 18px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  small { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+  &.zero b { color: var(--warn); }
+}
+.dp-chev { color: var(--text-3); font-size: 16px; }
+
+.dp-fab {
+  position: fixed; right: 16px; bottom: calc(var(--zc-tabbar-h) + 16px); z-index: 15;
+  height: 50px; padding: 0 18px; border-radius: 25px; border: none;
+  background: var(--brand); color: var(--brand-contrast); box-shadow: var(--shadow-pop);
+  font: inherit; font-size: 14px; font-weight: 600; align-items: center; gap: 6px; cursor: pointer;
+  i { font-size: 20px; }
+}
+
+.dp-detail .modal-head { gap: 11px; justify-content: flex-start; }
+.dp-detail-title {
+  flex: 1; min-width: 0;
+  h2 { display: flex; align-items: center; gap: 6px; }
+  span { display: block; font-size: 12px; color: var(--text-2); margin-top: 2px; }
+}
+.dp-big-step {
+  display: flex; align-items: center; justify-content: center; gap: 18px; margin: 6px 0 10px;
+  button {
+    width: 56px; height: 56px; border-radius: 28px; border: 0.5px solid var(--border-strong);
+    background: var(--surface); color: var(--text); font-size: 24px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    &:disabled { opacity: 0.35; cursor: default; }
+  }
+}
+.dp-big-val {
+  min-width: 90px; text-align: center;
+  b { display: block; font-size: 38px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  small { font-size: 12px; color: var(--text-3); }
+}
+.dp-quick {
+  display: flex; justify-content: center; gap: 6px; margin-bottom: 14px;
+  button {
+    font: inherit; font-size: 13px; min-width: 52px; min-height: 36px; padding: 0 12px; cursor: pointer;
+    border: 0.5px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 18px;
+    &:disabled { opacity: 0.35; cursor: default; }
+  }
+}
+.dp-detail-notes {
+  display: flex; gap: 6px; margin: 0 0 12px; padding: 8px 10px; border-radius: 8px;
+  background: var(--surface-2); font-size: 12.5px; color: var(--text-2);
+  i { color: var(--text-3); }
+}
+.dp-detail-actions {
+  display: flex; gap: 8px;
+  .btn { flex: 1; justify-content: center; min-height: 44px; font-size: 13px; }
+}
+.dp-detail-h {
+  display: flex; align-items: center; gap: 6px; margin: 18px 0 8px; font-size: 12.5px; font-weight: 600;
+}
+
 /* ── Celular / tablet ── */
 @include m.phone {
-  :host { padding: 14px 16px calc(24px + var(--zc-tabbar-h)); }
-  .dp-head { flex-wrap: wrap; align-items: flex-start; }
-  .dp-search { flex: 1; input { width: 100%; box-sizing: border-box; } }
-  .dp-table-wrap { border: none; border-radius: 0; background: none; overflow: visible; }
+  :host { padding: 14px 16px calc(84px + var(--zc-tabbar-h)); }
+  .dp-head { margin-bottom: 10px; p { display: none; } }
+  .dp-head-actions, .dp-rules, .dp-table-wrap { display: none; }
+  .dp-phone { display: block; }
+  .dp-fab { display: inline-flex; }
+  .dp-toolbar { margin-bottom: 4px; }
+  .dp-search { flex: 1; i { top: 11px; } input { width: 100%; box-sizing: border-box; padding: 9px 12px 9px 32px; border-radius: 10px; } }
   .sku-results { max-height: 40vh; max-height: 40dvh; }
   .seg { width: 100%; button { flex: 1; min-height: 44px; } }
   .modal-foot .btn { min-height: 44px; }
-}
-@include m.stack-table('.dp-table');
-@include m.phone {
-  .dp-table {
-    td { font-size: 13px; }
-    td.cell-main { grid-column: 1; grid-row: 1; font-size: 14px; font-weight: 500; }
-    td.cell-type { grid-column: 2; grid-row: 1; justify-self: end; }
-    td.notes { max-width: none; white-space: normal; }
-    td.cell-qty { grid-column: 1 / -1; }
-    .qty-stepper {
-      gap: 8px;
-      .icon-btn { width: 44px; height: 44px; font-size: 18px; display: inline-flex; align-items: center; justify-content: center; }
-      .qty-val { min-width: 40px; font-size: 16px; font-weight: 600; }
-    }
-    td.cell-actions {
-      justify-content: space-between;
-      padding-top: 4px;
-      border-top: 0.5px solid var(--border);
-      .icon-btn { width: 44px; height: 44px; font-size: 18px; display: inline-flex; align-items: center; justify-content: center; }
-    }
-  }
+  .modal.narrow { max-width: none; } // si no, gana sobre la hoja y queda pegada a la izquierda
 }
 @include m.sheet('.modal-backdrop', '.modal', '.modal-foot');
