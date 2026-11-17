@@ -9,7 +9,6 @@ import {
   DispatchService,
 } from '../../core/services/dispatch.service';
 import { ProductThumbComponent } from '../../shared/components/product-thumb/product-thumb.component';
-import { PhotoLightboxComponent } from '../../shared/components/photo-lightbox/photo-lightbox.component';
 
 export type DispatchTab = 'today' | 'upcoming' | 'all';
 export type ChannelFilter = 'all' | 'ml' | 'tn';
@@ -65,7 +64,7 @@ export function countdown(deadlineIso: string, now: number): string | null {
 @Component({
   selector: 'app-despachos',
   standalone: true,
-  imports: [ProductThumbComponent, PhotoLightboxComponent],
+  imports: [ProductThumbComponent],
   templateUrl: './despachos.component.html',
   styleUrl: './despachos.component.scss',
 })
@@ -86,8 +85,6 @@ export class DespachosComponent {
 
   /** Reloj para la cuenta regresiva ("faltan 2 h 40 min"). */
   readonly now = signal(Date.now());
-
-  readonly lightbox = signal<{ item: DispatchItem; pkg: DispatchPackage } | null>(null);
 
   readonly query = injectQuery(() => ({
     queryKey: DISPATCH_QUERY_KEY,
@@ -315,10 +312,6 @@ export class DespachosComponent {
       if (v === undefined) n.delete(k); else n.set(k, v);
       return n;
     });
-  }
-
-  openPhoto(pkg: DispatchPackage, item: DispatchItem): void {
-    this.lightbox.set({ pkg, item });
   }
 
   // ── Formato ──

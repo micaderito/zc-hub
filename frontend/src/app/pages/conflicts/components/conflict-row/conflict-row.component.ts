@@ -8,7 +8,7 @@ import { ProductThumbComponent } from '../../../../shared/components/product-thu
   template: `
     <div class="row-card" [class.ml-card]="channel() === 'mercadolibre'" [class.tn-card]="channel() === 'tiendanube'">
       <div class="row-body">
-        <zc-product-thumb [src]="thumbnail()" />
+        <zc-product-thumb [src]="thumbnail()" [title]="name()" [subtitle]="sku() ? 'SKU ' + sku() : null" />
         <div class="row-info">
           <div class="row-name">{{ name() }}</div>
           <div class="row-meta">

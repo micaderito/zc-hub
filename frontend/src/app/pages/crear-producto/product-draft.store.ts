@@ -366,6 +366,16 @@ export class ProductDraftStore {
     return { ...d, ml: { ...d.ml, images: strip(d.ml.images) }, tn: { ...d.tn, images: strip(d.tn.images) } };
   }
 
+  /**
+   * La foto entera, para el zoom (el preview es una miniatura): la del canal si ya está publicada,
+   * el original del backend si ya se subió, o la miniatura local mientras se sube.
+   */
+  fullImageUrl(img: DraftImage): string {
+    if (img.remote?.url) return img.remote.url;
+    if (img.uploading || img.id.startsWith('local-')) return img.previewUrl;
+    return `${this.api.baseUrl}/products/images/${img.id}`;
+  }
+
   /** Preview de cada foto: la URL del canal si ya está publicada, si no la miniatura del backend. */
   private restoreImages(images: unknown): DraftImage[] {
     const list = (Array.isArray(images) ? images : []) as { id: string; name: string; remote?: DraftImage['remote'] }[];

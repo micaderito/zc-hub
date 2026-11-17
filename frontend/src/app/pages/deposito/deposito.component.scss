@@ -148,9 +148,7 @@
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 7px 10px; border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg);
   font-size: 12.5px; color: var(--text); font-weight: 400;
-  .sku-thumb {
-    width: 26px; height: 26px; object-fit: cover; border-radius: 6px; flex-shrink: 0;
-  }
+  .sku-thumb { --thumb-size: 26px; --thumb-radius: 6px; }
   .sku-selected-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
   .muted { color: var(--text-2); font-weight: 400; }
 }
@@ -177,13 +175,7 @@
   &:last-child { border-bottom: none; }
   @include m.hover { &:hover { background: var(--surface-2); } }
   @include m.touch { min-height: 48px; }
-  .result-thumb {
-    width: 28px; height: 28px; object-fit: cover; border-radius: 6px; flex-shrink: 0;
-  }
-  .result-thumb-empty {
-    display: flex; align-items: center; justify-content: center;
-    background: var(--surface-2); color: var(--text-3); font-size: 13px;
-  }
+  .result-thumb { --thumb-size: 28px; --thumb-radius: 6px; }
   .result-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow: hidden; }
   .result-sku { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
   .result-label {
@@ -223,13 +215,9 @@
   &:first-child { border-top: none; }
   &:active { background: var(--surface-2); }
 }
-.dp-thumb {
-  width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; object-fit: cover;
-  &.empty {
-    display: inline-flex; align-items: center; justify-content: center;
-    background: var(--surface-2); color: var(--text-2); font-size: 20px;
-  }
-}
+.dp-thumb { --thumb-size: 44px; --thumb-radius: 10px; }
+.dp-desc { display: inline-flex; align-items: center; gap: 8px; }
+.dp-table-thumb { --thumb-size: 28px; --thumb-radius: 6px; }
 .dp-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .dp-row-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp-row-title {

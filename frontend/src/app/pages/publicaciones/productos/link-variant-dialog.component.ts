@@ -34,7 +34,7 @@ import { ProductThumbComponent } from '../../../shared/components/product-thumb/
               <button type="button" class="lk-opt" role="option" [class.on]="selectedId() === candidateId(c)"
                       [attr.aria-selected]="selectedId() === candidateId(c)" (click)="select(c)">
                 <span class="lk-radio" aria-hidden="true"></span>
-                <zc-product-thumb [src]="c.thumbnail" />
+                <zc-product-thumb [src]="c.thumbnail" zoom="badge" [title]="c.name" [subtitle]="c.variant || null" />
                 <span class="lk-opt-main">
                   <span class="lk-opt-name">{{ c.name }}@if (c.variant) { · {{ c.variant }} }</span>
                   <span class="lk-opt-sub">

@@ -3,6 +3,7 @@ import { provideRouter } from '@angular/router';
 
 import { PairCardComponent, PairPrices } from './pair-card.component';
 import { MlRow, TnRow } from '../../../../core/services/conflicts.service';
+import { PhotoLightboxService } from '../../../../shared/components/photo-lightbox/photo-lightbox.service';
 
 function makeMlRow(overrides: Partial<MlRow> = {}): MlRow {
   return {
@@ -37,6 +38,8 @@ function makeTnRow(overrides: Partial<TnRow> = {}): TnRow {
 describe('PairCardComponent', () => {
   let fixture: ComponentFixture<PairCardComponent>;
   let component: PairCardComponent;
+
+  afterEach(() => TestBed.inject(PhotoLightboxService).close());
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -186,10 +189,10 @@ describe('PairCardComponent', () => {
     const el: HTMLElement = fixture.nativeElement;
     const mlCard = el.querySelector('.ch-card.ml-card');
     const tnCard = el.querySelector('.ch-card.tn-card');
-    expect(mlCard?.querySelector('img.thumb')).not.toBeNull();
-    expect(mlCard?.querySelector('.no-thumb')).toBeNull();
-    expect(tnCard?.querySelector('img.thumb')).toBeNull();
-    expect(tnCard?.querySelector('.no-thumb')).not.toBeNull();
+    expect(mlCard?.querySelector('img.thumb-img')).not.toBeNull();
+    expect(mlCard?.querySelector('.thumb-placeholder')).toBeNull();
+    expect(tnCard?.querySelector('img.thumb-img')).toBeNull();
+    expect(tnCard?.querySelector('.thumb-placeholder')).not.toBeNull();
   });
 
   it('debería abrir el zoom de la foto desde ML (en grande) y poder pasar a la de TN', () => {
@@ -200,14 +203,14 @@ describe('PairCardComponent', () => {
       },
     });
     const el: HTMLElement = fixture.nativeElement;
-    expect(el.querySelector('zc-photo-lightbox')).toBeNull();
+    expect(document.querySelector('zc-photo-lightbox')).toBeNull();
 
-    (el.querySelector('.ml-card .thumb-btn') as HTMLButtonElement).click();
+    (el.querySelector('.ml-card .thumb-wrap') as HTMLElement).click();
     fixture.detectChanges();
 
-    const img = el.querySelector('zc-photo-lightbox .lb-stage img') as HTMLImageElement;
+    const img = document.querySelector('zc-photo-lightbox .lb-stage img') as HTMLImageElement;
     expect(img.getAttribute('src')).toBe('https://http2.mlstatic.com/D_123-O.jpg');
-    expect(el.querySelector('zc-photo-lightbox .lb-count')?.textContent).toContain('1 / 2');
+    expect(document.querySelector('zc-photo-lightbox .lb-count')?.textContent).toContain('1 / 2');
   });
 
   it('debería abrir el zoom en la foto de TN al clickear la miniatura de TN y cerrarlo', () => {
@@ -218,20 +221,20 @@ describe('PairCardComponent', () => {
       },
     });
     const el: HTMLElement = fixture.nativeElement;
-    (el.querySelector('.tn-card .thumb-btn') as HTMLButtonElement).click();
+    (el.querySelector('.tn-card .thumb-wrap') as HTMLElement).click();
     fixture.detectChanges();
 
-    const img = el.querySelector('zc-photo-lightbox .lb-stage img') as HTMLImageElement;
+    const img = document.querySelector('zc-photo-lightbox .lb-stage img') as HTMLImageElement;
     expect(img.getAttribute('src')).toBe('https://tn.example.com/foto.jpg');
 
-    (el.querySelector('zc-photo-lightbox .lb-icon') as HTMLButtonElement).click();
+    (document.querySelector('zc-photo-lightbox .lb-icon') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(el.querySelector('zc-photo-lightbox')).toBeNull();
+    expect(document.querySelector('zc-photo-lightbox')).toBeNull();
   });
 
   it('no debería ofrecer zoom en un canal sin foto', () => {
     setInputs({ pair: { ml: makeMlRow({ thumbnail: null }), tn: makeTnRow({ thumbnail: null }) } });
-    expect(fixture.nativeElement.querySelector('.thumb-btn')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.thumb-wrap')).toBeNull();
   });
 
   it('debería mostrar el nombre del producto de cada canal usando mlLabel/tnLabel', () => {
