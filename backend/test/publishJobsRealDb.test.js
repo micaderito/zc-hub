@@ -446,3 +446,42 @@ test(
     }
   },
 );
+
+test(
+  'depósito: cada alta, ajuste, cambio de cantidad y baja deja su movimiento contra Postgres real',
+  { skip: hasDb ? false : 'requiere DATABASE_URL (correr con el .env symlinkeado del worktree, o el de backend/)' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined,
+    });
+    assert.equal(await db.initDb(), true);
+    let id = null;
+    try {
+      const item = await db.createDepositoItem({ label: `t-dep-${Date.now()}`, itemType: 'embalaje', quantity: 3, unit: 'rollos' }, 'test');
+      id = item.id;
+      assert.equal((await db.adjustDepositoQuantity(id, 2, 'test')).quantity, 5);
+      assert.equal((await db.adjustDepositoQuantity(id, -10, 'test')).quantity, 0, 'nunca baja de 0');
+      await db.updateDepositoItem(id, { label: item.label, itemType: 'embalaje', unit: 'rollos', quantity: 0, notes: 'solo nota' }, 'test');
+      await db.updateDepositoItem(id, { label: item.label, itemType: 'embalaje', unit: 'rollos', quantity: 8 }, 'test');
+      assert.equal(await db.deleteDepositoItem(id, 'test'), true);
+
+      const moves = await db.getDepositoMovements(id);
+      assert.deepEqual(
+        moves.map((m) => [m.kind, m.delta, m.quantityAfter]),
+        [['baja', -8, 0], ['edicion', 8, 8], ['ajuste', -5, 0], ['ajuste', 2, 5], ['alta', 3, 3]],
+        'el ajuste que choca con 0 registra lo que cambió de verdad; editar solo la nota no deja movimiento',
+      );
+      assert.ok(moves.every((m) => m.actor === 'test' && m.label === item.label));
+      assert.equal(await db.adjustDepositoQuantity(id, 1, 'test'), null, 'una fila borrada no se ajusta');
+    } finally {
+      if (id != null) {
+        await pool.query('DELETE FROM deposito_movements WHERE item_id = $1', [id]);
+        await pool.query('DELETE FROM deposito_stock WHERE id = $1', [id]);
+      }
+      await pool.end();
+    }
+  },
+);

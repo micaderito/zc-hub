@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Depósito Marañón — celular</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd; --brand-contrast:#fff;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --shadow-pop:0 8px 28px rgba(20,22,40,.12); --page:#dfe2e8;
+}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f; --brand-contrast:#fff;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+  --shadow-pop:0 8px 28px rgba(0,0,0,.5); --page:#05060a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:-apple-system, 'Inter', system-ui, sans-serif; }
+.top { max-width:1200px; margin:0 auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.top h1 { margin:0; font-size:18px; font-weight:500; }
+.top p { margin:4px 0 0; font-size:12.5px; color:var(--text-2); max-width:640px; }
+.theme-btn { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; padding:7px 12px; cursor:pointer; }
+.grid { max-width:1200px; margin:0 auto; padding:16px; display:flex; gap:28px; flex-wrap:wrap; justify-content:center; }
+.opt { display:flex; flex-direction:column; gap:10px; width:375px; max-width:100%; }
+.opt h2 { margin:0; font-size:15px; font-weight:600; }
+.opt .why { font-size:12px; color:var(--text-2); margin:0; line-height:1.45; }
+.pair { display:flex; gap:14px; flex-wrap:wrap; }
+
+/* Phone */
+.phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:34px; border:8px solid #111; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.status { height:36px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:12px; font-weight:600; }
+.appbar { height:48px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:.5px solid var(--border); background:var(--surface); }
+.appbar b { font-size:15px; font-weight:600; flex:1; }
+.appbar i { font-size:20px; color:var(--text-2); }
+.scroll { flex:1; overflow-y:auto; padding:12px 14px 90px; }
+.tabbar { height:62px; flex-shrink:0; border-top:.5px solid var(--border); background:var(--surface); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--text-3); }
+.tabbar div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.tabbar i { font-size:21px; }
+.tabbar .on { color:var(--brand); }
+
+.search { position:relative; margin-bottom:10px; }
+.search i { position:absolute; left:11px; top:11px; color:var(--text-3); font-size:16px; }
+.search input { width:100%; font:inherit; font-size:16px; padding:9px 12px 9px 34px; border:.5px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); }
+.seg { display:flex; background:var(--surface-2); border-radius:10px; padding:3px; margin-bottom:12px; }
+.seg button { flex:1; font:inherit; font-size:12.5px; border:none; background:none; color:var(--text-2); padding:7px 4px; border-radius:8px; }
+.seg button.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.seg small { color:var(--text-3); font-weight:400; margin-left:3px; }
+
+.fab { position:absolute; right:16px; bottom:78px; height:50px; padding:0 18px; border-radius:25px; border:none; background:var(--brand); color:var(--brand-contrast); font:inherit; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px; box-shadow:var(--shadow-pop); }
+.fab i { font-size:20px; }
+
+.thumb { width:44px; height:44px; border-radius:10px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:20px; }
+.thumb.p1 { background:linear-gradient(135deg,#f6c1d0,#e98fae); }
+.thumb.p2 { background:linear-gradient(135deg,#bfe3d5,#7cc4a8); }
+.thumb.p3 { background:linear-gradient(135deg,#c9c6f6,#8c86e8); }
+.thumb.p4 { background:linear-gradient(135deg,#fde4b4,#f1b35b); }
+.thumb.emb { background:var(--surface-2); color:var(--text-2); }
+
+/* ── Opción A: tarjetas con stepper ── */
+.card { background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:12px; margin-bottom:10px; }
+.card-top { display:flex; gap:11px; align-items:flex-start; }
+.card-info { flex:1; min-width:0; }
+.card-title { font-size:14.5px; font-weight:500; line-height:1.3; }
+.card-sub { font-size:12px; color:var(--text-2); margin-top:3px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.card-note { font-size:12px; color:var(--text-2); margin-top:8px; padding:7px 9px; background:var(--surface-2); border-radius:8px; display:flex; gap:6px; }
+.card-note i { color:var(--text-3); }
+.more { border:none; background:none; color:var(--text-3); font-size:20px; width:36px; height:36px; margin:-6px -6px 0 0; border-radius:8px; }
+.card-bottom { display:flex; align-items:center; justify-content:space-between; margin-top:12px; padding-top:10px; border-top:.5px solid var(--border); }
+.hist-btn { display:inline-flex; align-items:center; gap:6px; font:inherit; font-size:12.5px; color:var(--text-2); background:none; border:none; padding:8px 4px; }
+.hist-btn i { font-size:18px; }
+.hist-btn em { font-style:normal; color:var(--text-3); }
+.stepper { display:flex; align-items:center; border:.5px solid var(--border-strong); border-radius:12px; overflow:hidden; }
+.stepper button { width:44px; height:42px; border:none; background:var(--surface); color:var(--text); font-size:18px; }
+.stepper span { min-width:56px; text-align:center; font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; line-height:1.1; }
+.stepper span small { display:block; font-size:10px; font-weight:400; color:var(--text-3); }
+.badge { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:3px; }
+.badge.prod { background:var(--brand-bg); color:var(--brand); }
+.badge.emb { background:var(--surface-2); color:var(--text-2); }
+.badge.zero { background:var(--warn-bg); color:var(--warn); }
+.sku { font-variant-numeric:tabular-nums; }
+
+/* ── Opción B: lista + hoja ── */
+.group-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); font-weight:600; margin:14px 4px 6px; display:flex; justify-content:space-between; }
+.list { background:var(--surface); border:.5px solid var(--border); border-radius:14px; overflow:hidden; }
+.row { display:flex; align-items:center; gap:11px; padding:10px 12px; border-top:.5px solid var(--border); min-height:64px; }
+.row:first-child { border-top:none; }
+.row-info { flex:1; min-width:0; }
+.row-title { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row-sub { font-size:11.5px; color:var(--text-2); margin-top:2px; }
+.row-qty { text-align:right; }
+.row-qty b { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; display:block; line-height:1; }
+.row-qty small { font-size:10.5px; color:var(--text-3); }
+.row-qty.zero b { color:var(--warn); }
+.row > i.chev { color:var(--text-3); font-size:16px; }
+.row.sel { background:var(--brand-bg); }
+
+/* Sheet */
+.scrim { position:absolute; inset:0; background:rgba(10,12,20,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; padding:8px 16px 24px; max-height:84%; overflow-y:auto; }
+.grab { width:38px; height:5px; border-radius:3px; background:var(--border-strong); margin:0 auto 12px; }
+.sheet-head { display:flex; gap:11px; align-items:center; }
+.sheet-head .t { flex:1; min-width:0; }
+.sheet-head .t b { font-size:15.5px; font-weight:600; display:block; }
+.sheet-head .t span { font-size:12px; color:var(--text-2); }
+.x { border:none; background:var(--surface-2); color:var(--text-2); width:32px; height:32px; border-radius:16px; font-size:16px; }
+.big-step { display:flex; align-items:center; justify-content:center; gap:18px; margin:18px 0 6px; }
+.big-step button { width:56px; height:56px; border-radius:28px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:24px; }
+.big-step .v { text-align:center; min-width:90px; }
+.big-step .v b { font-size:38px; font-weight:600; font-variant-numeric:tabular-nums; display:block; line-height:1; }
+.big-step .v small { font-size:12px; color:var(--text-3); }
+.quick { display:flex; gap:6px; justify-content:center; margin-bottom:14px; }
+.quick button { font:inherit; font-size:12.5px; border:.5px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:16px; padding:6px 12px; }
+.sheet-actions { display:flex; gap:8px; margin-top:4px; }
+.sheet-actions button { flex:1; font:inherit; font-size:13px; height:44px; border-radius:11px; border:.5px solid var(--border); background:var(--surface); color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px; }
+.sheet-actions .danger { color:var(--err); }
+.sec-h { font-size:12px; font-weight:600; margin:18px 0 8px; display:flex; justify-content:space-between; align-items:center; }
+.sec-h a { font-weight:400; color:var(--brand); font-size:12px; }
+
+/* Timeline (historial) */
+.tl { list-style:none; margin:0; padding:0; }
+.tl li { display:flex; gap:10px; padding:9px 0; border-top:.5px solid var(--border); align-items:center; }
+.tl li:first-child { border-top:none; }
+.delta { width:46px; height:30px; border-radius:8px; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.delta.up { background:var(--ok-bg); color:var(--ok); }
+.delta.down { background:var(--err-bg); color:var(--err); }
+.delta.set { background:var(--surface-2); color:var(--text-2); font-size:15px; }
+.tl .d { flex:1; min-width:0; }
+.tl .d b { font-size:13px; font-weight:500; display:block; }
+.tl .d span { font-size:11.5px; color:var(--text-3); }
+.tl .after { font-size:12px; color:var(--text-2); text-align:right; font-variant-numeric:tabular-nums; }
+.tl .after b { color:var(--text); font-size:14px; }
+.day { font-size:11px; color:var(--text-3); font-weight:600; text-transform:uppercase; letter-spacing:.04em; margin:12px 0 2px; }
+
+.label { font-size:11px; text-align:center; color:var(--text-2); }
+.notes-box { max-width:1200px; margin:0 auto; padding:4px 16px 40px; }
+.notes-box ul { font-size:12.5px; color:var(--text-2); line-height:1.6; padding-left:18px; max-width:760px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div>
+    <h1>Depósito Marañón en el celular — dos opciones</h1>
+    <p>Las dos resuelven lo mismo: se lee de un vistazo cuánto hay de cada cosa, sumar/restar es fácil con el dedo y cada fila tiene su historial (ícono del relojito). Cambia dónde vive cada acción.</p>
+  </div>
+  <button class="theme-btn" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+</div>
+
+<div class="grid">
+  <!-- ═════════════ OPCIÓN A ═════════════ -->
+  <section class="opt" style="width:auto">
+    <h2>A · Tarjetas con +/− a mano</h2>
+    <p class="why" style="max-width:764px">Cada fila es una tarjeta: foto, nombre, SKU y la nota a la vista; abajo el relojito del historial (con el último movimiento) y el +/− grande. Editar y borrar van al menú ⋯. Ideal si lo que más hacés en el celu es <b>sumar y restar parado en el depósito</b>.</p>
+    <div class="pair">
+      <div>
+        <div class="phone">
+          <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+          <div class="appbar"><b>Depósito Marañón</b><i class="ti ti-bell"></i></div>
+          <div class="scroll">
+            <div class="search"><i class="ti ti-search"></i><input placeholder="Buscar SKU o descripción…" /></div>
+            <div class="seg"><button class="on">Todo<small>9</small></button><button>Productos<small>7</small></button><button>Embalaje<small>2</small></button></div>
+
+            <div class="card">
+              <div class="card-top">
+                <div class="thumb p1"></div>
+                <div class="card-info">
+                  <div class="card-title">Cuaderno A5 Mármol rosa rayado</div>
+                  <div class="card-sub"><span class="sku">39000</span> · <span class="badge prod"><i class="ti ti-box"></i> Producto</span></div>
+                </div>
+                <button class="more"><i class="ti ti-dots-vertical"></i></button>
+              </div>
+              <div class="card-bottom">
+                <button class="hist-btn"><i class="ti ti-history"></i> −2 <em>· hoy 10:12</em></button>
+                <div class="stepper"><button><i class="ti ti-minus"></i></button><span>14<small>unidades</small></span><button><i class="ti ti-plus"></i></button></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-top">
+                <div class="thumb p2"></div>
+                <div class="card-info">
+                  <div class="card-title">Agenda 2027 semanal Be Positive verde</div>
+                  <div class="card-sub"><span class="sku">BP3505</span> · <span class="badge prod"><i class="ti ti-box"></i> Producto</span></div>
+                </div>
+                <button class="more"><i class="ti ti-dots-vertical"></i></button>
+              </div>
+              <div class="card-note"><i class="ti ti-note"></i> Caja 3, estante de arriba</div>
+              <div class="card-bottom">
+                <button class="hist-btn"><i class="ti ti-history"></i> +12 <em>· ayer</em></button>
+                <div class="stepper"><button><i class="ti ti-minus"></i></button><span>36<small>unidades</small></span><button><i class="ti ti-plus"></i></button></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-top">
+                <div class="thumb emb"><i class="ti ti-package"></i></div>
+                <div class="card-info">
+                  <div class="card-title">Burbupack</div>
+                  <div class="card-sub"><span class="badge emb"><i class="ti ti-package"></i> Embalaje</span> <span class="badge zero">Sin stock</span></div>
+                </div>
+                <button class="more"><i class="ti ti-dots-vertical"></i></button>
+              </div>
+              <div class="card-bottom">
+                <button class="hist-btn"><i class="ti ti-history"></i> −1 <em>· 12/11</em></button>
+                <div class="stepper"><button disabled style="opacity:.35"><i class="ti ti-minus"></i></button><span>0<small>rollos</small></span><button><i class="ti ti-plus"></i></button></div>
+              </div>
+            </div>
+          </div>
+          <button class="fab"><i class="ti ti-plus"></i> Agregar</button>
+          <div class="tabbar"><div><i class="ti ti-truck"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+        </div>
+        <p class="label">Lista</p>
+      </div>
+
+      <div>
+        <div class="phone">
+          <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+          <div class="appbar"><b>Depósito Marañón</b><i class="ti ti-bell"></i></div>
+          <div class="scroll" style="filter:blur(.5px)">
+            <div class="card"><div class="card-top"><div class="thumb p1"></div><div class="card-info"><div class="card-title">Cuaderno A5 Mármol rosa rayado</div></div></div></div>
+          </div>
+          <div class="scrim"></div>
+          <div class="sheet">
+            <div class="grab"></div>
+            <div class="sheet-head">
+              <i class="ti ti-history" style="font-size:22px;color:var(--brand)"></i>
+              <div class="t"><b>Historial</b><span>Cuaderno A5 Mármol rosa rayado · 39000</span></div>
+              <button class="x"><i class="ti ti-x"></i></button>
+            </div>
+            <div class="day">Hoy</div>
+            <ul class="tl">
+              <li><span class="delta down">−2</span><div class="d"><b>Restado a mano</b><span>10:12 · Mica</span></div><div class="after">quedó <b>14</b></div></li>
+              <li><span class="delta up">+1</span><div class="d"><b>Sumado a mano</b><span>09:40 · Mica</span></div><div class="after">quedó <b>16</b></div></li>
+            </ul>
+            <div class="day">Lun 15/11</div>
+            <ul class="tl">
+              <li><span class="delta set"><i class="ti ti-pencil"></i></span><div class="d"><b>Editado: 20 → 15</b><span>17:03 · Caro</span></div><div class="after">quedó <b>15</b></div></li>
+              <li><span class="delta up">+20</span><div class="d"><b>Alta en el depósito</b><span>11:30 · Mica</span></div><div class="after">quedó <b>20</b></div></li>
+            </ul>
+          </div>
+        </div>
+        <p class="label">Tocar el relojito → historial en hoja</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════ OPCIÓN B ═════════════ -->
+  <section class="opt" style="width:auto">
+    <h2>B · Lista compacta + hoja de detalle</h2>
+    <p class="why" style="max-width:764px">Filas finitas, agrupadas por Productos / Embalaje, con la cantidad grande a la derecha: entran ~8 por pantalla. Tocar una abre una hoja con el +/− grande (y atajos ±5, ±10), editar, borrar y el historial ahí mismo. Ideal si en el celu <b>más que nada consultás</b> cuánto hay.</p>
+    <div class="pair">
+      <div>
+        <div class="phone">
+          <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+          <div class="appbar"><b>Depósito Marañón</b><i class="ti ti-bell"></i></div>
+          <div class="scroll">
+            <div class="search"><i class="ti ti-search"></i><input placeholder="Buscar SKU o descripción…" /></div>
+            <div class="group-h"><span>Productos · 7</span><span>133 u.</span></div>
+            <div class="list">
+              <div class="row"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A5 Mármol rosa rayado</div><div class="row-sub">39000</div></div><div class="row-qty"><b>14</b><small>unidades</small></div><i class="ti ti-chevron-right chev"></i></div>
+              <div class="row"><div class="thumb p2"></div><div class="row-info"><div class="row-title">Agenda 2027 semanal Be Positive verde</div><div class="row-sub">BP3505 · Caja 3, estante de arriba</div></div><div class="row-qty"><b>36</b><small>unidades</small></div><i class="ti ti-chevron-right chev"></i></div>
+              <div class="row"><div class="thumb p3"></div><div class="row-info"><div class="row-title">Cuaderno A4 cuadriculado lila</div><div class="row-sub">C39000</div></div><div class="row-qty"><b>48</b><small>unidades</small></div><i class="ti ti-chevron-right chev"></i></div>
+              <div class="row"><div class="thumb p4"></div><div class="row-info"><div class="row-title">Carpeta escolar N°3 naranja</div><div class="row-sub">V100</div></div><div class="row-qty"><b>35</b><small>unidades</small></div><i class="ti ti-chevron-right chev"></i></div>
+            </div>
+            <div class="group-h"><span>Embalaje · 2</span></div>
+            <div class="list">
+              <div class="row"><div class="thumb emb"><i class="ti ti-package"></i></div><div class="row-info"><div class="row-title">Burbupack</div><div class="row-sub">Insumo</div></div><div class="row-qty zero"><b>0</b><small>rollos</small></div><i class="ti ti-chevron-right chev"></i></div>
+              <div class="row"><div class="thumb emb"><i class="ti ti-package"></i></div><div class="row-info"><div class="row-title">Cartón corrugado</div><div class="row-sub">Insumo</div></div><div class="row-qty"><b>3</b><small>rollos</small></div><i class="ti ti-chevron-right chev"></i></div>
+            </div>
+          </div>
+          <button class="fab"><i class="ti ti-plus"></i> Agregar</button>
+          <div class="tabbar"><div><i class="ti ti-truck"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+        </div>
+        <p class="label">Lista</p>
+      </div>
+
+      <div>
+        <div class="phone">
+          <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+          <div class="appbar"><b>Depósito Marañón</b><i class="ti ti-bell"></i></div>
+          <div class="scroll"><div class="list"><div class="row sel"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A5 Mármol rosa rayado</div></div></div></div></div>
+          <div class="scrim"></div>
+          <div class="sheet">
+            <div class="grab"></div>
+            <div class="sheet-head">
+              <div class="thumb p1"></div>
+              <div class="t"><b>Cuaderno A5 Mármol rosa rayado</b><span>39000 · Producto</span></div>
+              <button class="x"><i class="ti ti-x"></i></button>
+            </div>
+            <div class="big-step"><button><i class="ti ti-minus"></i></button><div class="v"><b>14</b><small>unidades</small></div><button><i class="ti ti-plus"></i></button></div>
+            <div class="quick"><button>−10</button><button>−5</button><button>+5</button><button>+10</button></div>
+            <div class="sheet-actions"><button><i class="ti ti-pencil"></i> Editar</button><button class="danger"><i class="ti ti-trash"></i> Borrar</button></div>
+            <div class="sec-h"><span><i class="ti ti-history"></i> Historial</span><a>Ver todo</a></div>
+            <ul class="tl">
+              <li><span class="delta down">−2</span><div class="d"><b>Restado a mano</b><span>Hoy 10:12 · Mica</span></div><div class="after">quedó <b>14</b></div></li>
+              <li><span class="delta up">+1</span><div class="d"><b>Sumado a mano</b><span>Hoy 09:40 · Mica</span></div><div class="after">quedó <b>16</b></div></li>
+              <li><span class="delta set"><i class="ti ti-pencil"></i></span><div class="d"><b>Editado: 20 → 15</b><span>Lun 15/11 · Caro</span></div><div class="after">quedó <b>15</b></div></li>
+            </ul>
+          </div>
+        </div>
+        <p class="label">Tocar una fila → hoja con +/−, acciones e historial</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="notes-box">
+  <ul>
+    <li><b>Historial (las dos opciones):</b> hoy el depósito no guarda movimientos, así que hace falta una tabla nueva (<code>deposito_movements</code>): cada +/−, edición de cantidad, alta y borrado deja una fila con delta, cantidad resultante, quién y cuándo. Lo de antes de este cambio no se puede reconstruir.</li>
+    <li>En escritorio también aparece el relojito en cada fila de la tabla y abre el mismo historial.</li>
+    <li>Agregar pasa a un botón flotante abajo a la derecha (no se pierde al scrollear). El formulario de alta/edición sigue siendo una hoja que sube desde abajo.</li>
+  </ul>
+</div>
+</body>
+</html>

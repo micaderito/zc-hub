@@ -629,6 +629,22 @@ export async function initDb() {
       );
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_deposito_stock_sku ON deposito_stock (sku);`);
+    // Historial de cada fila del depósito: alta, +/-, cambio de cantidad al editar y baja. Sin FK a
+    // propósito: al borrar la fila el historial queda (con label/unidad copiados) como registro.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS deposito_movements (
+        id SERIAL PRIMARY KEY,
+        item_id INTEGER NOT NULL,
+        kind VARCHAR(16) NOT NULL CHECK (kind IN ('alta', 'ajuste', 'edicion', 'baja')),
+        delta INTEGER NOT NULL,
+        quantity_after INTEGER NOT NULL,
+        label VARCHAR(512),
+        unit VARCHAR(32),
+        actor VARCHAR(128),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_deposito_movements_item ON deposito_movements (item_id, created_at DESC);`);
     // Precarga los dos insumos de embalaje que ya se guardan en Marañón. Solo si la tabla está
     // vacía: así una fila borrada a mano (ya no se compra ese insumo) no resucita en cada reinicio.
     const depositoCount = await p.query(`SELECT COUNT(*)::int AS n FROM deposito_stock`);
@@ -3372,82 +3388,137 @@ export async function getDepositoItems() {
   }
 }
 
-/** Alta de una fila de depósito (producto vinculado a un SKU o insumo de embalaje). */
-export async function createDepositoItem(data = {}) {
+const DEPOSITO_RETURNING = `RETURNING id, sku, label, item_type AS "itemType", quantity, unit, notes,
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
+
+/**
+ * Corre `fn(client)` en una transacción: el cambio de la fila y su movimiento en el historial
+ * quedan juntos o no queda ninguno.
+ */
+async function withDepositoTx(name, fn, fallback) {
   const p = getPool();
-  if (!p) return null;
+  if (!p) return fallback;
+  const client = await p.connect();
   try {
-    const r = await p.query(
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(`${name}:`, e.message);
+    return fallback;
+  } finally {
+    client.release();
+  }
+}
+
+async function insertDepositoMovement(client, item, kind, delta, actor) {
+  await client.query(
+    `INSERT INTO deposito_movements (item_id, kind, delta, quantity_after, label, unit, actor)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [item.id, kind, delta, item.quantity, item.label, item.unit, actor || null]
+  );
+}
+
+/** Alta de una fila de depósito (producto vinculado a un SKU o insumo de embalaje). */
+export async function createDepositoItem(data = {}, actor = null) {
+  return withDepositoTx('createDepositoItem', async (client) => {
+    const r = await client.query(
       `INSERT INTO deposito_stock (sku, label, item_type, quantity, unit, notes)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, sku, label, item_type AS "itemType", quantity, unit, notes,
-         created_at AS "createdAt", updated_at AS "updatedAt"`,
+       VALUES ($1, $2, $3, $4, $5, $6) ${DEPOSITO_RETURNING}`,
       [
         data.sku || null, data.label, data.itemType || 'producto',
         Number.isFinite(Number(data.quantity)) ? Number(data.quantity) : 0,
         data.unit || 'unidades', data.notes || null,
       ]
     );
-    return mapDepositoItem(r.rows[0]);
-  } catch (e) {
-    console.error('createDepositoItem:', e.message);
-    return null;
-  }
+    const item = mapDepositoItem(r.rows[0]);
+    await insertDepositoMovement(client, item, 'alta', item.quantity, actor);
+    return item;
+  }, null);
 }
 
-/** Edición de una fila existente (pisa sku/label/tipo/unidad/notas y opcionalmente la cantidad). */
-export async function updateDepositoItem(id, data = {}) {
-  const p = getPool();
-  if (!p) return null;
-  try {
-    const r = await p.query(
+/**
+ * Edición de una fila existente (pisa sku/label/tipo/unidad/notas y opcionalmente la cantidad).
+ * Solo deja movimiento si la cantidad cambió: renombrar o cambiar la nota no es un movimiento de stock.
+ */
+export async function updateDepositoItem(id, data = {}, actor = null) {
+  return withDepositoTx('updateDepositoItem', async (client) => {
+    const prev = await client.query('SELECT quantity FROM deposito_stock WHERE id = $1 FOR UPDATE', [id]);
+    if (!prev.rows[0]) return null;
+    const r = await client.query(
       `UPDATE deposito_stock SET
          sku = $2, label = $3, item_type = $4, unit = $5, notes = $6,
          quantity = COALESCE($7, quantity), updated_at = NOW()
-       WHERE id = $1
-       RETURNING id, sku, label, item_type AS "itemType", quantity, unit, notes,
-         created_at AS "createdAt", updated_at AS "updatedAt"`,
+       WHERE id = $1 ${DEPOSITO_RETURNING}`,
       [
         id, data.sku || null, data.label, data.itemType || 'producto', data.unit || 'unidades',
         data.notes || null, Number.isFinite(Number(data.quantity)) ? Number(data.quantity) : null,
       ]
     );
-    return r.rows[0] ? mapDepositoItem(r.rows[0]) : null;
-  } catch (e) {
-    console.error('updateDepositoItem:', e.message);
-    return null;
-  }
+    const item = mapDepositoItem(r.rows[0]);
+    const delta = item.quantity - Number(prev.rows[0].quantity);
+    if (delta !== 0) await insertDepositoMovement(client, item, 'edicion', delta, actor);
+    return item;
+  }, null);
 }
 
-/** Suma (o resta, con delta negativo) a la cantidad. Nunca deja la cantidad por debajo de 0. */
-export async function adjustDepositoQuantity(id, delta) {
-  const p = getPool();
-  if (!p) return null;
-  try {
-    const r = await p.query(
+/**
+ * Suma (o resta, con delta negativo) a la cantidad. Nunca deja la cantidad por debajo de 0; el
+ * movimiento registra lo que realmente cambió (restar 5 con 3 en stock queda como −3).
+ */
+export async function adjustDepositoQuantity(id, delta, actor = null) {
+  return withDepositoTx('adjustDepositoQuantity', async (client) => {
+    const prev = await client.query('SELECT quantity FROM deposito_stock WHERE id = $1 FOR UPDATE', [id]);
+    if (!prev.rows[0]) return null;
+    const r = await client.query(
       `UPDATE deposito_stock SET quantity = GREATEST(quantity + $2, 0), updated_at = NOW()
-       WHERE id = $1
-       RETURNING id, sku, label, item_type AS "itemType", quantity, unit, notes,
-         created_at AS "createdAt", updated_at AS "updatedAt"`,
+       WHERE id = $1 ${DEPOSITO_RETURNING}`,
       [id, Number(delta) || 0]
     );
-    return r.rows[0] ? mapDepositoItem(r.rows[0]) : null;
-  } catch (e) {
-    console.error('adjustDepositoQuantity:', e.message);
-    return null;
-  }
+    const item = mapDepositoItem(r.rows[0]);
+    const real = item.quantity - Number(prev.rows[0].quantity);
+    if (real !== 0) await insertDepositoMovement(client, item, 'ajuste', real, actor);
+    return item;
+  }, null);
 }
 
-/** Borra una fila de depósito. */
-export async function deleteDepositoItem(id) {
+/** Borra una fila de depósito (su historial queda, con un movimiento de baja al final). */
+export async function deleteDepositoItem(id, actor = null) {
+  return withDepositoTx('deleteDepositoItem', async (client) => {
+    const r = await client.query(
+      `DELETE FROM deposito_stock WHERE id = $1 RETURNING id, label, unit, quantity`,
+      [id]
+    );
+    const row = r.rows[0];
+    if (!row) return false;
+    await insertDepositoMovement(client, { ...row, quantity: 0 }, 'baja', -Number(row.quantity), actor);
+    return true;
+  }, false);
+}
+
+/** Historial de una fila del depósito, del más nuevo al más viejo. */
+export async function getDepositoMovements(itemId, limit = 100) {
   const p = getPool();
-  if (!p) return false;
+  if (!p) return [];
   try {
-    const r = await p.query('DELETE FROM deposito_stock WHERE id = $1', [id]);
-    return (r.rowCount ?? 0) > 0;
+    const r = await p.query(
+      `SELECT id, item_id AS "itemId", kind, delta, quantity_after AS "quantityAfter",
+         label, unit, actor, created_at AS "createdAt"
+       FROM deposito_movements WHERE item_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT $2`,
+      [itemId, limit]
+    );
+    return r.rows.map((row) => ({
+      ...row,
+      delta: Number(row.delta),
+      quantityAfter: Number(row.quantityAfter),
+      createdAt: new Date(row.createdAt).toISOString(),
+    }));
   } catch (e) {
-    console.error('deleteDepositoItem:', e.message);
-    return false;
+    console.error('getDepositoMovements:', e.message);
+    return [];
   }
 }
 
