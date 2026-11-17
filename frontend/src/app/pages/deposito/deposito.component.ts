@@ -117,6 +117,17 @@ export class DepositoComponent {
     setTimeout(() => this.skuDropdownOpen.set(false), 150);
   }
 
+  /**
+   * Elegir en `pointerdown` (no en `click`): en el celular el toque saca el foco del input y el
+   * cierre por `blur` (150 ms) a veces gana y la opción se pierde. `preventDefault` deja el foco
+   * en el input, así el `blur` ni se dispara. El `(click)` queda para el teclado.
+   */
+  onSkuResultPointerDown(event: PointerEvent, option: CatalogOption): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    this.selectSku(option);
+  }
+
   selectSku(option: CatalogOption): void {
     this.form.update((f) => ({ ...f, sku: option.sku, label: f.label.trim() ? f.label : option.label }));
     this.skuQuery.set('');

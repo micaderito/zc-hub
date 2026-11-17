@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 /* Mismo esqueleto que shared/components/confirm-dialog, con el cuerpo scrolleable del
    product-history-dialog. */
 .vpd-backdrop {
@@ -168,11 +170,11 @@
   cursor: grab;
   flex-shrink: 0;
 
-  &:first-child {
+  .vpd-order-item:first-child > & {
     border-color: var(--brand);
     cursor: default;
   }
-  &:hover:not(:first-child) {
+  .vpd-order-item:not(:first-child) > &:hover {
     border-color: var(--border-strong);
   }
   &:focus-visible {
@@ -259,5 +261,78 @@
   &:hover {
     color: var(--err);
     background: var(--surface-2);
+  }
+}
+
+.vpd-order-item {
+  display: flex;
+}
+.vpd-move,
+.touch-hint {
+  display: none;
+}
+
+/* Pantallas táctiles: ‹ › debajo de cada foto del orden (no hay drag & drop). */
+@media (hover: none) {
+  .vpd-order-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .vpd-move {
+    display: flex;
+    justify-content: space-between;
+    button {
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      color: var(--text-2);
+      &:disabled {
+        opacity: 0.35;
+      }
+    }
+  }
+  .vpd-order-tile {
+    width: 68px;
+    height: 68px;
+  }
+  .drag-hint {
+    display: none;
+  }
+  .touch-hint {
+    display: inline;
+  }
+}
+
+/* Celular: hoja que sube desde abajo, con "Listo" siempre visible. */
+@include m.sheet('.vpd-backdrop', '.vpd-card', '.vpd-foot');
+@include m.phone {
+  .vpd-head,
+  .vpd-body,
+  .vpd-foot {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+  .vpd-foot .zc-btn {
+    flex: 1;
+    justify-content: center;
+  }
+  .vpd-grid {
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  }
+}
+
+@include m.touch {
+  .icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
   }
 }

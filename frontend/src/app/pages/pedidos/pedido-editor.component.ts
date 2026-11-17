@@ -27,7 +27,7 @@ const AUTOSAVE_MS = 700;
   standalone: true,
   imports: [CanWriteDirective, CurrencyPipe, DatePipe, FormsModule, RouterLink, SearchBarComponent, ConfirmDialogComponent, FactorySheetDialogComponent],
   templateUrl: './pedido-editor.component.html',
-  styleUrl: './pedido-editor.component.scss',
+  styleUrls: ['./pedido-editor.component.scss', './pedido-editor.mobile.scss'],
 })
 export class PedidoEditorComponent implements OnDestroy {
   readonly session = inject(SessionService);
@@ -262,6 +262,8 @@ export class PedidoEditorComponent implements OnDestroy {
   readonly catalogUnits = computed<CatalogUnit[]>(() => this.catalogQuery.data()?.units ?? []);
   readonly catalogByKey = computed(() => new Map(this.catalogUnits().map((u) => [u.key, u])));
   readonly catalogFilter = signal<'alert' | 'all'>('alert');
+  /** Celular: el catálogo se abre como hoja desde abajo (en pantallas grandes está siempre a la vista). */
+  readonly catalogSheetOpen = signal(false);
   readonly catalogSearch = signal('');
   /** Packs desplegados (se ven sus modelos). Los que avisaron arrancan abiertos. */
   private readonly toggledPacks = signal<Set<string>>(new Set());

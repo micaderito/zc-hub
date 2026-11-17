@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .zc-confirm-backdrop {
   position: fixed;
   inset: 0;
@@ -45,6 +47,7 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  overflow-wrap: anywhere; // un SKU largo sin espacios no desborda en el celular
 
   p { margin: 0; }
 }
@@ -56,6 +59,18 @@
 
   .primary.danger {
     background: var(--err);
-    &:hover:not(:disabled) { background: var(--err); opacity: 0.9; }
+    @include m.hover {
+      &:hover:not(:disabled) { background: var(--err); opacity: 0.9; }
+    }
+  }
+}
+
+// Celular: hoja desde abajo, con los botones a todo el ancho (el principal arriba).
+@include m.sheet('.zc-confirm-backdrop', '.zc-confirm-card');
+@include m.phone {
+  .zc-confirm-card { padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
+  .zc-confirm-actions {
+    flex-direction: column-reverse;
+    .zc-btn { width: 100%; justify-content: center; min-height: 44px; }
   }
 }

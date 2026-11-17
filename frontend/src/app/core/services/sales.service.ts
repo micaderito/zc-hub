@@ -100,16 +100,36 @@ export class SalesService {
     this.queryClient.invalidateQueries({ queryKey: SALES_SYNC_STATE_QUERY_KEY });
   }
 
-  /** Descarga el CSV por provincia del rango — mismo cálculo que el informe, hecho en el backend. */
+  /**
+   * Descarga el CSV por provincia del rango — mismo cálculo que el informe, hecho en el backend.
+   * En el celular (PWA en iOS sobre todo) el link con `download` no anda bien: si el sistema sabe
+   * compartir archivos, se abre la hoja de compartir (guardar en Archivos, mandar por WhatsApp…).
+   */
   async exportCsv(from: string, to: string): Promise<void> {
     const blob = await lastValueFrom(
       this.http.get(`${this.api.baseUrl}/sales/export`, { params: this.dateRangeParams(from, to), responseType: 'blob' })
     );
+    const filename = `ventas_${from}_${to}.csv`;
+    const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+    if (typeof File !== 'undefined' && nav.canShare && nav.share) {
+      const file = new File([blob], filename, { type: 'text/csv' });
+      if (nav.canShare({ files: [file] })) {
+        try {
+          await nav.share({ files: [file], title: filename });
+          return;
+        } catch (err) {
+          // Cerrar la hoja de compartir no es un error. Otro rechazo (ej. NotAllowedError porque la
+          // descarga tardó y se venció el gesto del usuario) cae a la descarga por link.
+          if ((err as DOMException)?.name === 'AbortError') return;
+        }
+      }
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ventas_${from}_${to}.csv`;
+    a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    // Revocar en el acto corta la descarga en algunos navegadores (Safari): se da un margen.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 }

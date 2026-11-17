@@ -38,7 +38,7 @@
         @for (u of visible(); track u.key) {
           @let multi = u.members.length > 1;
           <tr [class.group]="multi" (click)="multi && toggle(u)">
-            <td>
+            <td class="cell-main">
               <div class="unit-name">
                 @if (multi) {
                   <i class="ti ti-chevron-right caret" [class.open]="isOpen(u)" aria-hidden="true"></i>
@@ -61,23 +61,23 @@
                 </div>
               </div>
             </td>
-            <td class="num">
+            <td class="num" data-label="Stock ML · TN">
               @if (!multi) {
                 <span class="stock-dot ml"></span>{{ u.members[0].stockMl ?? '—' }}
                 <span class="stock-dot tn"></span>{{ u.members[0].stockTn ?? '—' }}
               }
             </td>
-            <td class="num">@if (!multi) { {{ u.members[0].threshold ?? '—' }} }</td>
-            <td>
+            <td class="num" data-label="Umbral">@if (!multi) { {{ u.members[0].threshold ?? '—' }} }</td>
+            <td data-label="Depósito">
               @if (u.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ u.depositoStock }} u.</span> }
               @else { <span class="hint">—</span> }
             </td>
-            <td>
+            <td data-label="Proveedor">
               @if (u.suppliers.length) {
                 <span class="sup-names">@for (k of u.suppliers; track k; let last = $last) { {{ supplierName(k) }}@if (!last) {, } }</span>
               } @else { <span class="hint">sin proveedor</span> }
             </td>
-            <td>
+            <td data-label="Pedido">
               @if (u.pendingOrder; as p) {
                 <a class="zc-badge busy" [routerLink]="['/pedidos', p.orderId]" (click)="$event.stopPropagation()" title="{{ p.orderName }}">
                   <i class="ti ti-truck" aria-hidden="true"></i> en camino · #{{ p.orderId }}
@@ -91,13 +91,13 @@
             @for (m of u.members; track m.sku) {
               @let a = memberLabel(m);
               <tr class="member" [class.dim]="a.cls === 'plain'">
-                <td>
+                <td class="cell-main">
                   <div class="prod-name">{{ m.label }}</div>
                   <div class="unit-summary"><span class="zc-badge" [class]="a.cls">{{ a.text }}</span><span class="prod-sku">{{ m.sku }}</span></div>
                 </td>
-                <td class="num"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }}<span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</td>
-                <td class="num">{{ m.threshold ?? '—' }}</td>
-                <td>
+                <td class="num" data-label="Stock ML · TN"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }}<span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</td>
+                <td class="num" data-label="Umbral">{{ m.threshold ?? '—' }}</td>
+                <td data-label="Depósito">
                   @if (m.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ m.depositoStock }} u.</span> }
                   @else { <span class="hint">—</span> }
                 </td>
@@ -106,7 +106,7 @@
             }
           }
         } @empty {
-          <tr><td colspan="6"><p class="empty">Sin coincidencias.</p></td></tr>
+          <tr><td colspan="6" class="cell-main"><p class="empty">Sin coincidencias.</p></td></tr>
         }
       </tbody>
     </table>

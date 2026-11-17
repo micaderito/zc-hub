@@ -22,10 +22,22 @@ export class ThemeService {
   set(theme: Theme): void {
     this.theme.set(theme);
     document.documentElement.setAttribute('data-theme', theme);
+    syncThemeColor(theme);
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch {
       /* localStorage no disponible: el tema vive solo en memoria */
     }
   }
+}
+
+/** Color de la barra de estado en la app instalada (PWA): el fondo de la barra lateral/superior. */
+export const THEME_COLORS: Record<Theme, string> = { light: '#ffffff', dark: '#171a22' };
+
+/**
+ * index.html trae un theme-color por esquema del sistema; si la usuaria eligió otro tema en el hub,
+ * los dos pasan a ser el del hub.
+ */
+export function syncThemeColor(theme: Theme): void {
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', THEME_COLORS[theme]));
 }

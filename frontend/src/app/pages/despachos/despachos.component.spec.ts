@@ -184,6 +184,7 @@ describe('DespachosComponent', () => {
     expect(text).toContain('Despachado 17:01');
     const row = fixture.nativeElement.querySelector('.pk.dispatched');
     expect(row.querySelector('.pk-check')).toBeNull();
+    expect(row.querySelector('.pk-done')).toBeNull();
     expect(row.textContent).not.toContain('Venció');
   });
 
@@ -230,6 +231,17 @@ describe('DespachosComponent', () => {
     expect(component.counts().prepared).toBe(1);
     component.hidePrepared.set(true);
     expect(component.sections().length).toBe(0);
+  });
+
+  it('el botón grande de preparado (celular) usa el mismo toggle y cambia su rótulo', async () => {
+    await load([pkg({ saleId: 'a', preparedAt: '2026-10-09T13:00:00Z' }), pkg({ saleId: 'b' })]);
+    const btns = fixture.nativeElement.querySelectorAll('.pk-done') as NodeListOf<HTMLButtonElement>;
+    expect(btns[0].textContent).toContain('deshacer');
+    expect(btns[0].classList).toContain('undo');
+    expect(btns[1].textContent).toContain('Marcar preparado');
+    spyOn(component, 'togglePrepared').and.resolveTo();
+    btns[1].click();
+    expect(component.togglePrepared).toHaveBeenCalledWith(jasmine.objectContaining({ saleId: 'b' }));
   });
 
   it('un preparado queda en su lugar y la card se marca como preparada', async () => {

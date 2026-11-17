@@ -148,4 +148,20 @@ describe('HubProductsComponent', () => {
     await render();
     expect(fixture.nativeElement.textContent).toContain('Tienda Nube no está conectada');
   });
+  it('en táctil, tocar una fila marca sus publicaciones y tocarla de nuevo las desmarca', () => {
+    const row = detail().rows[0];
+    spyOn(window, 'matchMedia').and.returnValue({ matches: true } as MediaQueryList);
+    component.tapRow(row);
+    expect(component.isHovered('ml', 'MLA1')).toBeTrue();
+    expect(component.isHovered('tn', 10)).toBeTrue();
+    component.tapRow(row);
+    expect(component.isHovered('ml', 'MLA1')).toBeFalse();
+  });
+
+  it('con mouse, el click en una fila no cambia el resaltado', () => {
+    spyOn(window, 'matchMedia').and.returnValue({ matches: false } as MediaQueryList);
+    component.tapRow(detail().rows[0]);
+    expect(component.tappedRow()).toBeNull();
+    expect(component.isHovered('ml', 'MLA1')).toBeFalse();
+  });
 });

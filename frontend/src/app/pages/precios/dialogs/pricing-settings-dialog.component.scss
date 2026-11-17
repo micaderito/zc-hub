@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .modal-sub { font-size: 12px; font-weight: 500; margin: 18px 0 4px; display: flex; align-items: center; gap: 6px; }
 .fees-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -19,6 +21,8 @@
 .fees-warn { font-size: 10.5px; color: var(--warn); display: flex; gap: 5px; margin: 0 0 9px; line-height: 1.4; }
 .tiers {
   width: 100%; border-collapse: collapse;
+  // Celular: la tabla de tramos se desliza de costado en vez de salirse del modal
+  @include m.phone { display: block; overflow-x: auto; white-space: nowrap; }
   th { font-size: 10px; color: var(--text-3); font-weight: 500; text-align: left; padding: 5px 8px; text-transform: uppercase; }
   td { padding: 4px 8px; }
   .num { text-align: right; }

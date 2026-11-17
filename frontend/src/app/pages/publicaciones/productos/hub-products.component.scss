@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 :host { display: block; container-type: inline-size; container-name: hp; }
 
 .hp-toolbar {
@@ -126,6 +128,7 @@
   position: sticky;
   top: 12px;
   max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
   overflow-y: auto;
 }
 
@@ -214,7 +217,7 @@
   padding: 8px 10px;
   transition: background 0.15s ease, border-color 0.15s ease;
   &.hl { border-color: var(--brand); background: var(--brand-bg); }
-  a { color: var(--text-3); &:hover { color: var(--brand); } }
+  a { color: var(--text-3); @include m.tap-target(40px); &:hover { color: var(--brand); } }
 }
 .hp-pub-main { display: flex; flex-direction: column; min-width: 0; }
 .hp-pub-title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -252,7 +255,7 @@
   }
   td { padding: 8px 10px; border-bottom: 0.5px solid var(--border); font-size: 12.5px; vertical-align: middle; }
   tbody tr:last-child td { border-bottom: 0; }
-  tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+  @include m.hover { tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 60%, transparent); } }
   .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   td.diff { color: var(--warn); font-weight: 600; }
   td.side-ml { border-left: 3px solid var(--ml); }
@@ -282,6 +285,7 @@
   padding: 3px 9px;
   font-size: 12px;
   &:hover:not(:disabled) { background: var(--brand-bg); }
+  @include m.touch { min-height: 40px; }
 }
 
 // Se adapta al ancho real de la página (sin el menú lateral), no al de la ventana.
@@ -294,4 +298,42 @@
 }
 @container hp (max-width: 560px) {
   .hp-pubs-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+// ── Celular / tablet ──
+.hint-touch, .hp-bridge-txt, .hp-dup-more { display: none; }
+@include m.touch {
+  .hint-mouse { display: none; }
+  .hint-touch { display: inline; }
+  .hp-chip { min-height: 36px; }
+  .hp-back { min-width: 40px; }
+  .hp-variants tbody tr.tapped td { background: var(--brand-bg); }
+}
+.hp-chips { @include m.scroll-row; }
+
+// Tablet: la tabla se desliza de costado con el SKU fijo a la izquierda.
+@include m.tablet-down {
+  .hp-variants tr > :first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+}
+
+@include m.stack-table('.hp-variants table');
+@include m.phone {
+  .hp-dhead { flex-wrap: wrap; }
+  .hp-dhead-actions { flex-basis: 100%; a { width: 100%; justify-content: center; } }
+  .hp-dup-more { display: inline; }
+  .hp-variants {
+    .table-scroll { padding: 4px 10px 10px; }
+    tr > :first-child { position: static; }
+    tbody tr.tapped { border-color: var(--brand); }
+    tbody tr.tapped td { background: none; }
+    .num { text-align: left; }
+    td.side-ml { border-left: 0; }
+    td.ch-ml::before { color: var(--ml-text); font-weight: 500; }
+    td.ch-tn::before { color: var(--tn-text); font-weight: 500; }
+    td[colspan] { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; &::before { flex-basis: 100%; } }
+    .hp-link { margin-left: 0; }
+    td.bridge { width: auto; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-3);
+      &::before, &::after { content: ''; flex: 1; height: 0; border-top: 0.5px solid var(--border); } }
+  }
+  .hp-bridge-txt { display: inline; }
 }

@@ -196,6 +196,17 @@ export class HubProductsComponent {
     this.hoverPubs.set(out);
   }
 
+  /** Fila marcada con un toque (pantallas sin mouse, donde no hay mouseenter). */
+  readonly tappedRow = signal<HubVariantRow | null>(null);
+
+  /** En táctil, tocar una fila marca sus publicaciones; tocarla de nuevo las desmarca. Con mouse no hace nada. */
+  tapRow(r: HubVariantRow): void {
+    if (typeof window === 'undefined' || !window.matchMedia?.('(hover: none)').matches) return;
+    const same = this.tappedRow() === r && this.hoverPubs().length > 0;
+    this.tappedRow.set(same ? null : r);
+    this.hover(same ? null : r);
+  }
+
   isHovered(ch: 'ml' | 'tn', id: string | number): boolean {
     return this.hoverPubs().includes(`${ch}:${id}`);
   }

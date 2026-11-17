@@ -1,4 +1,5 @@
-import { APP_INITIALIZER, ApplicationConfig, LOCALE_ID, provideZoneChangeDetection } from '@angular/core';
+import { APP_INITIALIZER, ApplicationConfig, ENVIRONMENT_INITIALIZER, LOCALE_ID, inject, isDevMode, provideZoneChangeDetection } from '@angular/core';
+import { provideServiceWorker } from '@angular/service-worker';
 import { provideRouter } from '@angular/router';
 import { HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
@@ -7,6 +8,7 @@ import { routes } from './app.routes';
 import { errorInterceptor } from './core/interceptors/error.interceptor';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { SessionService } from './core/services/session.service';
+import { AppUpdateService } from './core/services/app-update.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -34,6 +36,18 @@ export const appConfig: ApplicationConfig = {
       useFactory: (session: SessionService) => () => session.restore(),
       deps: [SessionService],
       multi: true
+    },
+    // PWA: el service worker solo existe en el build de producción (ver ngsw-config.json).
+    // registerWhenStable: no compite con la primera carga de datos; a los 30 s se registra igual.
+    provideServiceWorker('ngsw-worker.js', {
+      enabled: !isDevMode(),
+      registrationStrategy: 'registerWhenStable:30000'
+    }),
+    // Toma cada deploy sola (recarga o aviso "Actualizar"), ver AppUpdateService.
+    {
+      provide: ENVIRONMENT_INITIALIZER,
+      multi: true,
+      useValue: () => inject(AppUpdateService).start()
     }
   ]
 };

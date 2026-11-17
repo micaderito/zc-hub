@@ -58,6 +58,7 @@
                 "output": "/"
               }
             ],
+            "stylePreprocessorOptions": { "includePaths": ["src/styles"] },
             "styles": [
               "src/styles.scss"
             ],
@@ -74,7 +75,7 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "500kB",
+                  "maximumWarning": "560kB",
                   "maximumError": "1MB"
                 },
                 {
@@ -83,7 +84,8 @@
                   "maximumError": "16kB"
                 }
               ],
-              "outputHashing": "all"
+              "outputHashing": "all",
+              "serviceWorker": "ngsw-config.json"
             },
             "github": {
               "fileReplacements": [
@@ -94,10 +96,11 @@
               ],
               "baseHref": "/zc-hub/",
               "budgets": [
-                { "type": "initial", "maximumWarning": "500kB", "maximumError": "1MB" },
+                { "type": "initial", "maximumWarning": "560kB", "maximumError": "1MB" },
                 { "type": "anyComponentStyle", "maximumWarning": "12kB", "maximumError": "16kB" }
               ],
-              "outputHashing": "all"
+              "outputHashing": "all",
+              "serviceWorker": "ngsw-config.json"
             },
             "development": {
               "optimization": false,
@@ -137,6 +140,7 @@
                 "input": "public"
               }
             ],
+            "stylePreprocessorOptions": { "includePaths": ["src/styles"] },
             "styles": [
               "src/styles.scss"
             ],

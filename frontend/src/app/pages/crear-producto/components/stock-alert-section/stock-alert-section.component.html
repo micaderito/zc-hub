@@ -15,7 +15,7 @@
       <label class="field threshold">
         <span class="lbl">Umbral <span class="req">*</span></span>
         <div class="with-unit">
-          <input class="zc-input" type="number" min="0" step="1" [(ngModel)]="alert().threshold" (ngModelChange)="store.touch()" />
+          <input class="zc-input" type="number" inputmode="numeric" min="0" step="1" [(ngModel)]="alert().threshold" (ngModelChange)="store.touch()" />
           <span class="muted">unidades</span>
         </div>
         <span class="hint">Avisa cuando el menor de los dos canales (ML / TN) quede en este número o menos.</span>
@@ -89,7 +89,7 @@
           </label>
           <label>
             <span class="lbl">Unidades por pack <span class="req">*</span></span>
-            <input class="zc-input" type="number" min="1" step="1" [(ngModel)]="alert().newPack.unitCount" (ngModelChange)="store.touch()" />
+            <input class="zc-input" type="number" inputmode="numeric" min="1" step="1" [(ngModel)]="alert().newPack.unitCount" (ngModelChange)="store.touch()" />
           </label>
           <label>
             <span class="lbl">Tipo</span>

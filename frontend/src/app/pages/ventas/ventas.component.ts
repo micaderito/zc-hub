@@ -165,6 +165,14 @@ export class VentasComponent {
     }));
   });
 
+  /** Barra tocada: en el celular no hay tooltip (`title`), así que el día y el monto se muestran abajo. */
+  readonly selectedDay = signal<string | null>(null);
+  readonly selectedBar = computed(() => this.dailyBars().find((b) => b.day === this.selectedDay()) ?? null);
+
+  toggleDay(day: string): void {
+    this.selectedDay.update((d) => (d === day ? null : day));
+  }
+
   readonly maxProvinceFacturado = computed(() => {
     const provinces = this.report()?.provinces ?? [];
     return provinces.reduce((m, p) => Math.max(m, p.facturado), 0) || 1;

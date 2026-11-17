@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .alertas {
   max-width: 100%;
 
@@ -247,9 +249,14 @@
     cursor: pointer;
     color: var(--text-2);
 
-    &:hover { border-color: var(--border-strong); color: var(--text); background: var(--surface-2); }
-    &.danger:hover { color: var(--err); border-color: var(--err); }
+    @include m.tap-target(40px);
+    @include m.hover {
+      &:hover { border-color: var(--border-strong); color: var(--text); background: var(--surface-2); }
+      &.danger:hover { color: var(--err); border-color: var(--err); }
+    }
   }
+
+  .btn-txt { display: none; }
 
   tr.editing { background: var(--brand-bg); }
 
@@ -323,7 +330,8 @@
     color: var(--text);
     font-family: inherit;
 
-    &:hover { background: var(--surface-2); }
+    @include m.hover { &:hover { background: var(--surface-2); } }
+    @include m.touch { min-height: 44px; }
 
     input[type='checkbox'] { flex-shrink: 0; cursor: pointer; }
   }
@@ -416,7 +424,10 @@
       padding: 0.2rem 0.5rem;
       cursor: pointer;
 
-      &:hover { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+      @include m.hover {
+        &:hover { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+      }
+      @include m.touch { min-height: 40px; padding: 0 0.8rem; font-size: 0.78rem; }
     }
   }
 }
@@ -435,5 +446,43 @@
   b { color: var(--text); font-weight: 500; }
   > .ti:first-child { font-size: 1.15rem; color: var(--brand); }
   > .ti:last-child { margin-left: auto; color: var(--brand); }
-  &:hover { border-color: var(--border-strong); }
+  @include m.hover { &:hover { border-color: var(--border-strong); } }
+}
+
+// ── Celular / tablet ──────────────────────────────────────────────────────
+.alertas {
+  .seg button { @include m.touch { min-height: 40px; padding: 0 0.9rem; } }
+
+  @include m.stack-table('.zc-table');
+
+  @include m.phone {
+    .restock-search { flex: 1 1 100%; max-width: none; }
+    .add-rule {
+      .fld { min-width: 0; flex: 1 1 100%; }
+      .threshold-fld { flex: 1 1 auto; }
+      > .zc-btn { flex: 1 1 auto; }
+    }
+    .table-scroll { overflow: visible; background: none; border: none; box-shadow: none; padding: 0; }
+    .zc-table {
+      .num { text-align: left; }
+      .prod-name { font-weight: 500; }
+      td.c-stock { order: 1; }
+      td.c-state { order: 2; }
+      td.c-pack { order: 3; }
+      td.c-thr { order: 4; }
+      td.cell-actions { order: 5; }
+    }
+    tr.editing { background: var(--brand-bg); }
+    .cell-input { width: 100%; text-align: left; }
+    .cell-actions.is-editing .zc-btn { flex: 1 1 0; }
+    .icon-btn { gap: 0.35rem; padding: 0 0.8rem; font-family: inherit; font-size: 0.78rem; }
+    .btn-txt { display: inline; }
+    .notif-actions { flex-wrap: wrap; }
+  }
+}
+
+.pedidos-callout {
+  @include m.phone {
+    .callout-more { display: none; }
+  }
 }

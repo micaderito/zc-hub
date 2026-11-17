@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .attrs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -147,5 +149,13 @@
   }
   .attrs {
     margin-top: 0.5rem;
+  }
+}
+
+@include m.touch {
+  .attr-na {
+    min-height: 36px;
+    padding: 0.2rem 0.75rem;
+    font-size: 0.72rem;
   }
 }

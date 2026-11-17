@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .lk-backdrop {
   position: fixed;
   inset: 0;
@@ -122,3 +124,12 @@
   border-radius: var(--radius-sm);
   padding: 0.45rem 0.65rem;
 }
+
+// Celular: hoja que sube desde abajo, con los botones siempre a la vista.
+@include m.sheet('.lk-backdrop', '.lk-card', '.lk-card footer');
+@include m.phone {
+  .lk-card { padding-bottom: 0; }
+  .lk-card footer { padding: 0.5rem 0 calc(0.75rem + env(safe-area-inset-bottom)); margin-top: auto; }
+  .lk-card footer .zc-btn { flex: 1; justify-content: center; }
+}
+@include m.touch { .lk-opt { min-height: 44px; } }

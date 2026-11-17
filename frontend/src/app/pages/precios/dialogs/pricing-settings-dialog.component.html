@@ -10,25 +10,25 @@
 
         <div class="grid2">
           <label class="fld">Comisión por vender (%)
-            <input type="number" [ngModel]="s.commissionPct" (ngModelChange)="updateSettingsDraft('commissionPct', $event)" />
+            <input type="number" inputmode="decimal" [ngModel]="s.commissionPct" (ngModelChange)="updateSettingsDraft('commissionPct', $event)" />
           </label>
           <label class="fld">Impuestos por venta ($)
-            <input type="number" [ngModel]="s.taxes" (ngModelChange)="updateSettingsDraft('taxes', $event)" />
+            <input type="number" inputmode="decimal" [ngModel]="s.taxes" (ngModelChange)="updateSettingsDraft('taxes', $event)" />
           </label>
           <label class="fld">Costo de envío ($)
-            <input type="number" [ngModel]="s.shippingCost" (ngModelChange)="updateSettingsDraft('shippingCost', $event)" />
+            <input type="number" inputmode="decimal" [ngModel]="s.shippingCost" (ngModelChange)="updateSettingsDraft('shippingCost', $event)" />
           </label>
           <label class="fld">Umbral de envío gratis ($)
-            <input type="number" [ngModel]="s.freeShippingThreshold" (ngModelChange)="updateSettingsDraft('freeShippingThreshold', $event)" />
+            <input type="number" inputmode="decimal" [ngModel]="s.freeShippingThreshold" (ngModelChange)="updateSettingsDraft('freeShippingThreshold', $event)" />
           </label>
           <label class="fld">Recargo tarjeta (×)
-            <input type="number" step="0.01" [ngModel]="s.cardMultiplier" (ngModelChange)="updateSettingsDraft('cardMultiplier', $event)" />
+            <input type="number" inputmode="decimal" step="0.01" [ngModel]="s.cardMultiplier" (ngModelChange)="updateSettingsDraft('cardMultiplier', $event)" />
           </label>
           <label class="fld">Redondeo (múltiplo)
-            <input type="number" [ngModel]="s.roundStep" (ngModelChange)="updateSettingsDraft('roundStep', $event)" />
+            <input type="number" inputmode="decimal" [ngModel]="s.roundStep" (ngModelChange)="updateSettingsDraft('roundStep', $event)" />
           </label>
           <label class="fld">Ganancia por default (%)
-            <input type="number" [ngModel]="s.defaultMarginPct" (ngModelChange)="updateSettingsDraft('defaultMarginPct', $event)" />
+            <input type="number" inputmode="decimal" [ngModel]="s.defaultMarginPct" (ngModelChange)="updateSettingsDraft('defaultMarginPct', $event)" />
           </label>
         </div>
 
@@ -67,9 +67,9 @@
               <tr>
                 <td>
                   @if (t.maxPrice == null) { <span class="tier-top">sin tope</span> }
-                  @else { <input type="number" [ngModel]="t.maxPrice" (ngModelChange)="updateTier($index, 'maxPrice', $event)" /> }
+                  @else { <input type="number" inputmode="decimal" [ngModel]="t.maxPrice" (ngModelChange)="updateTier($index, 'maxPrice', $event)" /> }
                 </td>
-                <td class="num"><input type="number" [ngModel]="t.fixedFee" (ngModelChange)="updateTier($index, 'fixedFee', $event)" /></td>
+                <td class="num"><input type="number" inputmode="decimal" [ngModel]="t.fixedFee" (ngModelChange)="updateTier($index, 'fixedFee', $event)" /></td>
               </tr>
             }
           </tbody>

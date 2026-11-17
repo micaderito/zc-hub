@@ -1,9 +1,17 @@
+@use 'mobile' as m;
+
 .pagination {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 1rem;
   padding: 1.25rem 0 0.5rem;
+
+  // Celular: "(N resultados)" baja a su propia línea, debajo de los números.
+  @include m.phone {
+    .page-info { flex-wrap: wrap; justify-content: center; row-gap: 0.1rem; }
+    .page-info .page-results { flex-basis: 100%; text-align: center; }
+  }
 
   .page-btn {
     display: flex;
@@ -20,10 +28,13 @@
     font-size: 1rem;
     transition: background 0.12s, color 0.12s;
 
-    &:hover:not(:disabled) {
-      background: var(--surface-2);
-      color: var(--text);
+    @include m.hover {
+      &:hover:not(:disabled) {
+        background: var(--surface-2);
+        color: var(--text);
+      }
     }
+    @include m.touch { width: 40px; height: 40px; }
     &:disabled { opacity: 0.35; cursor: default; }
   }
 

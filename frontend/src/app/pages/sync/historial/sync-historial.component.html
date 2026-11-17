@@ -28,7 +28,7 @@
     <p class="hint">Volvé a procesar una venta si el webhook no descontó el stock automáticamente.</p>
   </div>
   <div class="reprocess-form">
-    <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta" class="zc-input reprocess-input" (keyup.enter)="reprocessOrder()" />
+    <input type="text" [(ngModel)]="reprocessOrderId" placeholder="Nro de venta" inputmode="numeric" class="zc-input reprocess-input" (keyup.enter)="reprocessOrder()" />
     <button type="button" class="btn-secondary" (click)="reprocessOrder()" [disabled]="!reprocessOrderId().trim() || reprocessingOrder()">
       @if (reprocessingOrder()) {
         <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
@@ -68,6 +68,7 @@
     }
   </div>
 } @else {
+  <p class="audit-legend"><i class="ti ti-cloud-down" aria-hidden="true"></i> = lo movió ML/TN, no el hub · Revertir deshace el descuento de una venta.</p>
   <div class="audit-list" [class.is-fetching]="store.auditFetching()">
     @for (row of store.auditRows(); track row.id) {
       <div class="audit-row" [class.audit-ml]="row.channelSale === 'mercadolibre'" [class.audit-tn]="row.channelSale === 'tiendanube'" [class.audit-reverted]="row.revertedAt">
@@ -97,7 +98,8 @@
                se movió el stock. -->
           <span class="zc-badge" [class.ml]="row.updatedChannel === 'mercadolibre'"
                 [class.tn]="row.updatedChannel === 'tiendanube'"
-                [title]="row.actor === 'plataforma' ? 'Movimiento hecho por la plataforma' : 'Escrito por el hub'">
+                [title]="row.actor === 'plataforma' ? 'Movimiento hecho por la plataforma' : 'Escrito por el hub'"
+                [attr.aria-label]="(row.updatedChannel === 'mercadolibre' ? 'ML' : 'TN') + (row.actor === 'plataforma' ? ': movimiento hecho por la plataforma' : ': escrito por el hub')">
             {{ row.updatedChannel === 'mercadolibre' ? 'ML' : 'TN' }}
             @if (row.actor === 'plataforma') {
               <i class="ti ti-cloud-down" aria-hidden="true"></i>
@@ -112,7 +114,7 @@
           @if (row.revertedAt) {
             <span class="reverted-badge">Revertido</span>
           } @else if (canRevert(row) && session.isAdmin()) {
-            <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId() === row.id" [title]="revertTitle(row)">
+            <button type="button" class="btn-revert" (click)="revertAudit(row)" [disabled]="revertingAuditId() === row.id" [title]="revertTitle(row)" [attr.aria-label]="'Revertir: ' + revertTitle(row)">
               @if (revertingAuditId() === row.id) {
                 <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
               }

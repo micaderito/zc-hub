@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .packs-tab {
   margin-top: 1rem;
 
@@ -170,8 +172,11 @@
     cursor: pointer;
     color: var(--text-2);
 
-    &:hover { border-color: var(--border-strong); color: var(--text); background: var(--surface-2); }
-    &.danger:hover { color: var(--err); border-color: var(--err); }
+    @include m.tap-target(40px);
+    @include m.hover {
+      &:hover { border-color: var(--border-strong); color: var(--text); background: var(--surface-2); }
+      &.danger:hover { color: var(--err); border-color: var(--err); }
+    }
   }
 
   .pack-body {
@@ -263,7 +268,8 @@
     font-family: inherit;
 
     &:last-child { border-bottom: none; }
-    &:hover { background: var(--surface-2); }
+    @include m.hover { &:hover { background: var(--surface-2); } }
+    @include m.touch { min-height: 44px; }
 
     input[type='checkbox'] { flex-shrink: 0; cursor: pointer; }
   }
@@ -309,5 +315,31 @@
   .result-sku {
     font-size: 0.68rem;
     color: var(--text-3);
+  }
+}
+
+// ── Celular ───────────────────────────────────────────────────────
+@include m.phone {
+  .packs-tab {
+    .packs-search { flex: 1 1 100%; }
+    .spacer { display: none; }
+    .toolbar > .zc-btn { margin-left: auto; }
+
+    .new-pack-form {
+      padding: 0.75rem;
+      .fld, .small-fld { flex: 1 1 100%; min-width: 0; }
+    }
+
+    // Cabecera: nombre e info arriba, acciones en su propia fila.
+    .pack-head { flex-wrap: wrap; padding: 0.6rem 0.75rem; }
+    .pack-info { flex: 1 1 calc(100% - 3.5rem); }
+    .pack-head-actions { margin-left: auto; }
+    .pack-info + .zc-badge { margin-left: 1.9rem; }
+    .pack-edit {
+      flex: 1 1 100%;
+      input.zc-input, .unit-input, select.zc-select { flex: 1 1 100%; min-width: 0; }
+    }
+    .pack-edit-suppliers { padding: 0 0.75rem 0.75rem; }
+    .pack-body { padding: 0.5rem 0.75rem 0.75rem; }
   }
 }

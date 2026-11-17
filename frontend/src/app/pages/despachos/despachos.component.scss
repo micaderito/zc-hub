@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 :host {
   display: block;
   padding: 18px 20px 90px;
@@ -16,7 +18,7 @@
   border: 0.5px solid var(--border); background: var(--surface); color: var(--text);
   border-radius: 9px; padding: 7px 13px; cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
-  &:hover { background: var(--surface-2); }
+  @include m.hover { &:hover { background: var(--surface-2); } }
   &:disabled { opacity: 0.45; cursor: default; }
   &.small { padding: 5px 10px; font-size: 12px; }
 }
@@ -184,7 +186,7 @@
   &.tn { background: var(--tn-bg); color: var(--tn-text); }
 }
 .pk-sale { font-size: 13px; font-weight: 500; color: var(--text); text-decoration: none; }
-a.pk-sale:hover { color: var(--brand); text-decoration: underline; }
+@include m.hover { a.pk-sale:hover { color: var(--brand); text-decoration: underline; } }
 .pk-meta { font-size: 12px; color: var(--text-2); }
 .pk-when {
   display: inline-flex; align-items: center; gap: 3px;
@@ -225,7 +227,7 @@ a.pk-sale:hover { color: var(--brand); text-decoration: underline; }
     background: var(--surface); color: var(--text-2); font-size: 11px;
     display: flex; align-items: center; justify-content: center; border: 0.5px solid var(--border);
   }
-  &:hover:not(:disabled) .zoom { color: var(--brand); border-color: var(--brand); }
+  @include m.hover { &:hover:not(:disabled) .zoom { color: var(--brand); border-color: var(--brand); } }
 }
 .it-body { flex: 1; min-width: 0; }
 .it-title { font-size: 13px; color: var(--text); }
@@ -244,4 +246,40 @@ a.pk-sale:hover { color: var(--brand); text-decoration: underline; }
   .ds-progress { margin: -14px -16px 11px; }
   .pk-chips { margin-left: 0; width: 100%; }
   .thumb-btn { --thumb-size: 48px; }
+}
+
+/* Botón grande de "Preparado" al pie de cada paquete: solo en el celular */
+.pk-done { display: none; }
+
+@include m.touch {
+  .btn, .btn.small, .link { min-height: 40px; }
+  .sec-toggle { min-height: 40px; }
+  .fchip { min-height: 38px; padding: 4px 12px; }
+  .pk-check { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -12px -6px -12px -12px; cursor: pointer; }
+  .pk-check input { width: 22px; height: 22px; }
+}
+
+@include m.phone {
+  .ds-progress { top: var(--zc-topbar-h); }
+  .ds-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .kpi {
+    padding: 8px; min-width: 0;
+    span { font-size: 12px; line-height: 1.2; }
+    b { font-size: 18px; }
+  }
+  .ds-toolbar { flex-direction: column; align-items: stretch; }
+  .tabs {
+    display: flex;
+    button { flex: 1; justify-content: center; min-height: 40px; padding: 6px 8px; }
+  }
+  .filters { @include m.scroll-row; }
+  .ch, .st, .count { font-size: 12px; }
+  .pk-done {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; min-height: 44px; margin-top: 10px;
+    font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+    border-radius: var(--radius-md); border: 0.5px solid var(--ok);
+    background: var(--ok); color: var(--surface);
+    &.undo { background: var(--surface); color: var(--ok); }
+  }
 }

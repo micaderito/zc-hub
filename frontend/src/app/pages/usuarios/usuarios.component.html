@@ -39,28 +39,28 @@
         <tbody>
           @for (item of items(); track item.id) {
             <tr>
-              <td><span class="user-handle">{{ item.username }}</span></td>
-              <td>{{ item.displayName || '—' }}</td>
-              <td>
+              <td class="cell-main"><span class="user-handle">{{ item.username }}</span></td>
+              <td data-label="Nombre">{{ item.displayName || '—' }}</td>
+              <td data-label="Rol">
                 @if (item.role === 'admin') {
                   <span class="badge admin"><i class="ti ti-shield"></i> Admin</span>
                 } @else {
                   <span class="badge off"><i class="ti ti-eye"></i> Solo lectura</span>
                 }
               </td>
-              <td>
+              <td data-label="Estado">
                 @if (item.activo) {
                   <span class="badge ok"><i class="ti ti-circle-check"></i> Activo</span>
                 } @else {
                   <span class="badge off"><i class="ti ti-circle-minus"></i> Desactivado</span>
                 }
               </td>
-              <td class="muted">{{ item.lastLoginAt ? (item.lastLoginAt | date: 'short') : 'Nunca' }}</td>
-              <td class="col-actions">
-                <button type="button" class="icon-btn" (click)="cerrarSesiones(item)" [disabled]="closingSessionsId() === item.id" title="Cerrar sesiones en todos lados">
+              <td class="muted" data-label="Último ingreso">{{ item.lastLoginAt ? (item.lastLoginAt | date: 'short') : 'Nunca' }}</td>
+              <td class="col-actions cell-actions">
+                <button type="button" class="icon-btn" (click)="cerrarSesiones(item)" [disabled]="closingSessionsId() === item.id" title="Cerrar sesiones en todos lados" aria-label="Cerrar sesiones en todos lados">
                   <i class="ti ti-lock-square"></i>
                 </button>
-                <button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar">
+                <button type="button" class="icon-btn" (click)="openEdit(item)" title="Editar" aria-label="Editar">
                   <i class="ti ti-pencil"></i>
                 </button>
                 <button
@@ -69,6 +69,7 @@
                   (click)="confirmDelete(item)"
                   [disabled]="item.id === currentUserId()"
                   [title]="item.id === currentUserId() ? 'No podés borrarte a vos misma' : 'Borrar'"
+                  aria-label="Borrar"
                 >
                   <i class="ti ti-trash"></i>
                 </button>

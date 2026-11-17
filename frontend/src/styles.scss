@@ -123,8 +123,11 @@ button,
   gap: 0.4rem;
   transition: background 0.15s ease, opacity 0.15s ease;
 
-  &:hover:not(:disabled) {
-    background: var(--surface-2);
+  // Con mouse nada más: en el celu el :hover queda "pegado" después de tocar.
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      background: var(--surface-2);
+    }
   }
   &:active:not(:disabled) {
     transform: scale(0.98);
@@ -138,9 +141,11 @@ button,
     background: var(--brand);
     color: var(--brand-contrast);
     border-color: transparent;
-    &:hover:not(:disabled) {
-      opacity: 0.9;
-      background: var(--brand);
+    @media (hover: hover) {
+      &:hover:not(:disabled) {
+        opacity: 0.9;
+        background: var(--brand);
+      }
     }
   }
   &.small {
@@ -217,5 +222,53 @@ button,
   &.busy {
     background: var(--brand-bg);
     color: var(--brand);
+  }
+}
+
+/* ===== Celular y tablet (pantallas táctiles) =====
+   Solo con dedo: el escritorio no cambia. Lo específico de cada página va en su componente con los
+   mixins de styles/_mobile.scss. */
+@media (pointer: coarse) {
+  // iOS hace zoom al enfocar un campo con letra < 16px.
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea,
+  .zc-input,
+  .zc-select,
+  .zc-textarea {
+    font-size: 16px;
+  }
+
+  // Área táctil mínima.
+  .zc-btn {
+    min-height: 40px;
+  }
+  .zc-btn.small {
+    min-height: 36px;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 20px;
+    height: 20px;
+  }
+
+  // El toque no deja el recuadro gris de iOS.
+  a,
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+
+// Alto de la barra de arriba y de la barra de pestañas de abajo en el celular (layout). Lo usan las
+// barras pegajosas de las páginas: `top: var(--zc-topbar-h)` / `bottom: var(--zc-tabbar-h)`.
+:root {
+  --zc-topbar-h: 0px;
+  --zc-tabbar-h: 0px;
+}
+@media (max-width: 760px) {
+  :root {
+    --zc-topbar-h: calc(52px + env(safe-area-inset-top));
+    --zc-tabbar-h: calc(58px + env(safe-area-inset-bottom));
   }
 }

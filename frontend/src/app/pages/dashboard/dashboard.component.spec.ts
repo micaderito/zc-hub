@@ -176,6 +176,51 @@ describe('DashboardComponent', () => {
     });
   });
 
+  describe('volver a la app (OAuth fuera de la PWA)', () => {
+    it('relee el estado del servidor al volver visible, sin mostrar "Cargando…"', () => {
+      setup('/', { mercadolibre: false, tiendanube: true });
+      fixture.detectChanges();
+      expect(authSpy.getStatus).toHaveBeenCalledTimes(1);
+
+      authSpy.getStatus.and.returnValue(of(okStatus));
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(authSpy.getStatus).toHaveBeenCalledTimes(2);
+      expect(component.status).toEqual(okStatus);
+      expect(component.loading).toBeFalse();
+    });
+
+    it('focus + visibilitychange juntos recargan una sola vez', () => {
+      setup('/');
+      fixture.detectChanges();
+
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(authSpy.getStatus).toHaveBeenCalledTimes(2);
+    });
+
+    it('no recarga si la pestaña quedó oculta', () => {
+      setup('/');
+      fixture.detectChanges();
+      spyOnProperty(document, 'visibilityState', 'get').and.returnValue('hidden');
+
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(authSpy.getStatus).toHaveBeenCalledTimes(1);
+    });
+
+    it('deja de escuchar al destruir el componente', () => {
+      setup('/');
+      fixture.detectChanges();
+      fixture.destroy();
+
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(authSpy.getStatus).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('conectar Mercado Libre', () => {
     it('setea error cuando conectML() falla', () => {
       setup();

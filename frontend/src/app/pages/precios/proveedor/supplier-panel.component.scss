@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 :host { display: block; }
 .pr-supplier {
   background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg);
@@ -8,7 +10,10 @@
 }
 .pr-supplier-name { font-weight: 500; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; i { color: var(--brand); } }
 .confirm-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
-.pr-profiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.pr-profiles {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px;
+  @include m.phone { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
 .pr-profile {
   display: flex; flex-direction: column; gap: 2px; text-align: left;
   background: var(--surface-2); border: 0.5px solid transparent; border-radius: var(--radius-sm);
@@ -21,7 +26,7 @@
 .pr-profile-new {
   align-items: center; justify-content: center; flex-direction: row; gap: 6px; cursor: pointer;
   background: none; border: 1px dashed var(--border-strong); color: var(--text-2); font: inherit; font-size: 11.5px;
-  &:hover { color: var(--brand); border-color: var(--brand); }
+  @include m.hover { &:hover { color: var(--brand); border-color: var(--brand); } }
 }
 .pr-error { margin: 8px 0 0; }
 

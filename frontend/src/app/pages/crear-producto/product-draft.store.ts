@@ -1310,6 +1310,12 @@ export class ProductDraftStore {
     this.touch();
   }
 
+  /** Corre una foto un lugar (-1 = antes, +1 = después). Es el reordenar de las pantallas táctiles,
+   *  donde no hay drag & drop. Fuera de rango no hace nada. */
+  moveImage(channel: Channel, index: number, delta: -1 | 1): void {
+    this.reorderImage(channel, index, index + delta);
+  }
+
   onImageDragStart(channel: Channel, index: number): void {
     this.dragIndex = { channel, index };
   }
@@ -1371,6 +1377,11 @@ export class ProductDraftStore {
     const [moved] = list.splice(from, 1);
     list.splice(to, 0, moved);
     this.touch();
+  }
+
+  /** Corre una foto ya elegida de la variante un lugar (táctil: sin drag & drop). */
+  moveVariantImage(channel: Channel, v: ProductVariant, index: number, delta: -1 | 1): void {
+    this.reorderVariantImage(channel, v, index, index + delta);
   }
 
   /** Mueve una foto ya elegida de la variante al frente (= portada de esa publicación). */

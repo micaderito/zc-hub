@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 /* Primitivas de formulario compartidas por las secciones de crear-producto.
    Los estilos de componente son scoped, así que cada sección necesita su copia. */
 .block {
@@ -322,4 +324,43 @@ label {
   .ti-lock { margin-top: 2px; color: var(--text-3); }
   .locked-value { display: block; color: var(--text); font-weight: 500; }
   small { display: block; margin-top: 2px; font-size: 0.72rem; color: var(--text-3); }
+}
+
+/* Celular / táctil. Viven acá (y no en crear-producto.component.scss) porque estas clases están en
+   los sub-componentes: con la encapsulación emulada, una regla del padre no les llega. */
+@include m.phone {
+  .block {
+    padding: 0.85rem 0.8rem;
+  }
+  .block-head {
+    flex-wrap: wrap;
+    row-gap: 0.2rem;
+  }
+  .grid-2,
+  .grid-3,
+  .grid-4,
+  .attrs,
+  .ship-row {
+    grid-template-columns: 1fr;
+  }
+  /* Medidas (peso, largo, ancho, grosor): dos por fila entran bien. */
+  .grid-4.dims {
+    grid-template-columns: 1fr 1fr;
+  }
+  .with-btn {
+    flex-wrap: wrap;
+  }
+  .mode-opt {
+    min-width: 0;
+  }
+  /* .axis-input / .axis-ml-attr: en variants-section.component.scss (allí se redefine el ancho). */
+}
+
+@include m.touch {
+  .icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+  }
 }

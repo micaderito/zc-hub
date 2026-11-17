@@ -1,9 +1,15 @@
+@use 'mobile' as m;
+
 :host {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100%;
   background: var(--bg);
+  @include m.phone {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
 }
 
 .login-page {

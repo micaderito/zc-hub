@@ -1,4 +1,5 @@
 @use './pedidos-shared' as *;
+@use 'mobile' as m;
 
 .pedidos { max-width: 100%; }
 
@@ -41,7 +42,7 @@
   // franjas blancas entre medio.
   .order-row {
     cursor: pointer;
-    &:hover { background: var(--surface-2); }
+    @include m.hover { &:hover { background: var(--surface-2); } }
   }
 
   .strong { font-weight: 500; }
@@ -56,3 +57,19 @@
   }
 }
 
+
+// ── Celular ──
+.toolbar > .seg {
+  @include m.phone { display: flex; max-width: 100%; }
+  @include m.scroll-row;
+}
+
+@include m.phone {
+  .toolbar > .long-hint { display: none; }
+  .toolbar zc-search-bar { max-width: none; min-width: 0; }
+  .supplier-select { flex: 1 1 auto; }
+  .table-scroll { background: none; border: none; box-shadow: none; padding: 0; }
+  .supplier-option { flex-wrap: wrap; .hint { margin-left: 1.6rem; flex-basis: 100%; } }
+}
+
+@include m.stack-table('.zc-table');

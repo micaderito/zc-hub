@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 // Sin encapsulación (ver PreciosComponent): todo va bajo `.pr-page`. Los estilos de base que
 // comparten la planilla, el panel del proveedor y los diálogos van con `:where(.pr-page)`, que no
 // suma especificidad: cualquier estilo propio de un componente (encapsulado) los pisa — por eso
@@ -17,7 +19,11 @@ app-precios { display: block; }
   .pr-head-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
   .pr-supplier-tabs {
     display: flex; align-items: flex-end; gap: 10px; margin-bottom: 12px;
-    zc-tabs { flex: 1; min-width: 0; overflow-x: auto; }
+    zc-tabs {
+      flex: 1; min-width: 0; overflow-x: auto;
+      // Que se note que hay más proveedores a la derecha
+      @include m.tablet-down { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+    }
     > .btn { margin-bottom: 6px; flex-shrink: 0; }
   }
   .pr-view-tabs { margin-bottom: 12px; }
@@ -28,9 +34,9 @@ app-precios { display: block; }
   .btn {
     font: inherit; font-size: 12.5px; border: 0.5px solid var(--border); background: var(--surface); color: var(--text);
     border-radius: 9px; padding: 7px 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
-    &:hover { background: var(--surface-2); }
+    @include m.hover { &:hover { background: var(--surface-2); } }
     &.pri { background: var(--brand); color: var(--brand-contrast); border-color: transparent; }
-    &.pri:hover { filter: brightness(1.08); }
+    @include m.hover { &.pri:hover { filter: brightness(1.08); } }
     &:disabled { opacity: 0.45; cursor: default; }
     &.danger { background: var(--err); color: var(--brand-contrast); border-color: transparent; }
     // El `button:hover:not(:disabled)` global (styles.scss) pisa el fondo de `.pri`/`.danger`: acá
@@ -38,15 +44,19 @@ app-precios { display: block; }
     &.pri:hover:not(:disabled) { background: var(--brand); }
     &.danger:hover:not(:disabled) { background: var(--err); }
   }
-  .btn-s { font-size: 11px; padding: 5px 10px; }
+  .btn-s { font-size: 11px; padding: 5px 10px; @include m.touch { min-height: 36px; } }
   .link {
     border: none; background: none; color: var(--brand); cursor: pointer; font: inherit; font-size: 11px; padding: 0 4px;
     &.danger { color: var(--err); }
+    @include m.touch { min-height: 36px; display: inline-flex; align-items: center; }
   }
   .icon-btn {
     border: none; background: none; color: var(--text-2); cursor: pointer; padding: 4px; border-radius: 6px; font-size: 15px; line-height: 1;
-    &:hover { background: var(--surface-2); color: var(--text); }
-    &.danger:hover { color: var(--err); }
+    @include m.hover {
+      &:hover { background: var(--surface-2); color: var(--text); }
+      &.danger:hover { color: var(--err); }
+    }
+    @include m.tap-target(40px);
   }
   .spacer { flex: 1; }
   .muted { color: var(--text-3); }
@@ -119,12 +129,25 @@ app-precios { display: block; }
     i { font-size: 13px; color: var(--text-3); }
     .why { font-size: 10.5px; color: var(--text-3); }
   }
+
+  // Celular: los modales suben desde abajo, con los botones siempre a la vista
+  @include m.sheet('.modal-backdrop', '.modal, .modal.narrow', '.modal-foot');
+  @include m.phone {
+    .modal-foot { flex-wrap: wrap; }
+    .mapping-row { flex-wrap: wrap; }
+  }
 }
 
-@media (max-width: 640px) {
+@include m.phone {
   .pr-page {
     padding: 14px 16px;
-    .pr-head { flex-direction: column; align-items: flex-start; }
+    // Título a la izquierda, acciones como íconos a la derecha (el texto queda en aria-label/title)
+    .pr-head { align-items: center; }
+    .pr-head-title p { display: none; }
+    .pr-head-actions {
+      gap: 4px; flex-wrap: nowrap;
+      .btn { font-size: 0; gap: 0; padding: 0; width: 40px; height: 40px; justify-content: center; i { font-size: 18px; } }
+    }
   }
   :where(.pr-page) .grid2 { grid-template-columns: 1fr; }
 }

@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 // Lo propio de Devoluciones. La base (botones, alertas, inputs, estado vacío) viene de sync.component.scss.
 
 // ── Returns ─────────────────────────────────────────────────────
@@ -19,7 +21,7 @@
   align-items: center;
   transition: border-color 0.12s;
 
-  &:hover { border-color: var(--border-strong); border-left-color: var(--ml); }
+  @include m.hover { &:hover { border-color: var(--border-strong); border-left-color: var(--ml); } }
 }
 
 .return-product {
@@ -91,8 +93,9 @@
   transition: opacity 0.12s;
 
   .ti { font-size: 12px; }
-  &:hover:not(:disabled) { opacity: 0.85; }
+  @include m.hover { &:hover:not(:disabled) { opacity: 0.85; } }
   &:disabled { opacity: 0.5; cursor: default; }
+  @include m.touch { min-height: 40px; justify-content: center; }
 }
 
 .btn-approve {
@@ -126,4 +129,16 @@
   }
 
   .zc-input { max-width: 220px; }
+}
+
+@include m.phone {
+  .return-card { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; }
+  .return-card-right {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+    .qty-badge { grid-column: 1 / -1; justify-self: start; }
+    .btn-approve, .btn-dismiss { min-height: 40px; justify-content: center; }
+  }
+  .add-return-row .zc-input { max-width: none; flex: 1 1 160px; min-width: 0; }
 }

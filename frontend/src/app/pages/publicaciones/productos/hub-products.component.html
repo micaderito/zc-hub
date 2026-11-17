@@ -148,7 +148,7 @@
       </div>
 
       <div class="hp-variants zc-card">
-        <h3>Variantes <span>una fila por SKU · pasá el mouse para ver a qué publicación pertenece</span></h3>
+        <h3>Variantes <span>una fila por SKU · <span class="hint-mouse">pasá el mouse</span><span class="hint-touch">tocá una fila</span> para ver a qué publicación pertenece</span></h3>
         <div class="table-scroll">
           <table>
             <thead>
@@ -157,40 +157,40 @@
             </thead>
             <tbody>
               @for (r of d.rows; track $index) {
-                <tr (mouseenter)="hover(r)" (mouseleave)="hover(null)">
-                  <td>
+                <tr (mouseenter)="hover(r)" (mouseleave)="hover(null)" (click)="tapRow(r)" [class.tapped]="tappedRow() === r">
+                  <td class="cell-main">
                     @if (r.sku) { <code>{{ r.sku }}</code> } @else { <span class="hp-nosku">Sin SKU</span> }
-                    @if (r.duplicate) { <span class="hp-dup" title="Este SKU se repite en un mismo canal">repetido</span> }
+                    @if (r.duplicate) { <span class="hp-dup" title="Este SKU se repite en un mismo canal">repetido<span class="hp-dup-more"> en un canal</span></span> }
                   </td>
                   @if (r.ml; as m) {
-                    <td class="side-ml">
+                    <td class="side-ml cell-wide ch-ml" data-label="Mercado Libre">
                       <span class="hp-vname">{{ m.variationName || 'Sin variantes' }}</span>
                       <span class="hp-key ml small">{{ pubKey(d, 'ml', m.itemId) }}</span>
                     </td>
-                    <td class="num">{{ money(m.price) }}</td>
-                    <td class="num" [class.diff]="stockDiffers(r)">{{ m.stock }}</td>
+                    <td class="num" data-label="Precio ML">{{ money(m.price) }}</td>
+                    <td class="num" data-label="Stock ML" [class.diff]="stockDiffers(r)">{{ m.stock }}</td>
                   } @else {
-                    <td class="side-ml" colspan="3">
+                    <td class="side-ml cell-wide ch-ml" colspan="3" data-label="Mercado Libre">
                       <span class="muted">No está en ML</span>
                       <button *zcCanWrite type="button" class="hp-link" (click)="linking.set(r)"><i class="ti ti-link"></i> Vincular…</button>
                     </td>
                   }
-                  <td class="bridge">
+                  <td class="bridge cell-wide">
                     @if (r.ml && r.tn) {
-                      <span class="hp-bridge ok" title="Vinculadas por SKU"><i class="ti ti-link"></i></span>
+                      <span class="hp-bridge ok" title="Vinculadas por SKU"><i class="ti ti-link"></i></span><span class="hp-bridge-txt">Vinculadas por SKU</span>
                     } @else {
-                      <span class="hp-bridge off" title="Sin par"><i class="ti ti-unlink"></i></span>
+                      <span class="hp-bridge off" title="Sin par"><i class="ti ti-unlink"></i></span><span class="hp-bridge-txt">Sin par</span>
                     }
                   </td>
                   @if (r.tn; as t) {
-                    <td>
+                    <td class="cell-wide ch-tn" data-label="Tienda Nube">
                       <span class="hp-vname">{{ tnVariantLabel(d, t) }}</span>
                       <span class="hp-key tn small">{{ pubKey(d, 'tn', t.productId) }}</span>
                     </td>
-                    <td class="num">{{ money(t.price) }}</td>
-                    <td class="num" [class.diff]="stockDiffers(r)">{{ t.stock }}</td>
+                    <td class="num" data-label="Precio TN">{{ money(t.price) }}</td>
+                    <td class="num" data-label="Stock TN" [class.diff]="stockDiffers(r)">{{ t.stock }}</td>
                   } @else {
-                    <td colspan="3">
+                    <td class="cell-wide ch-tn" colspan="3" data-label="Tienda Nube">
                       <span class="muted">No está en TN</span>
                       <button *zcCanWrite type="button" class="hp-link" (click)="linking.set(r)"><i class="ti ti-link"></i> Vincular…</button>
                     </td>

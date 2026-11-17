@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .ventas {
   max-width: 100%;
 
@@ -51,7 +53,8 @@
     gap: 0.4rem;
     transition: background 0.15s ease;
 
-    &:hover:not(:disabled) { background: var(--surface-2); }
+    @include m.hover { &:hover:not(:disabled) { background: var(--surface-2); } }
+    @include m.touch { min-height: 44px; }
     &:disabled { opacity: 0.5; cursor: default; }
     &.busy { color: var(--brand); border-color: var(--brand); }
 
@@ -295,7 +298,11 @@
     min-width: 2px;
     background: var(--brand);
     border-radius: 1.5px 1.5px 0 0;
+    @include m.touch { cursor: pointer; &.on { background: var(--text); } }
   }
+
+  .share-inline { display: none; }
+  .chart-pick { display: none; font-size: 0.75rem; color: var(--text-2); b { color: var(--text); } }
 
   .chart-legend {
     font-size: 0.7rem;
@@ -314,6 +321,39 @@
 
     i { color: var(--warn); font-size: 0.85rem; }
     b { color: var(--text-2); font-weight: 500; }
+  }
+}
+
+// ── Celular / tablet ──
+.ventas {
+  @include m.touch { .chart-pick { display: block; } }
+
+  @include m.tablet-down {
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .top-table { min-width: 0; }
+  }
+
+  @include m.phone {
+    .page-header { flex-direction: column; gap: 0.6rem; }
+    .header-right { align-items: flex-start; }
+    .toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .period-select, .export-btn { grid-column: 1 / -1; width: 100%; }
+    .export-btn { min-height: 44px; justify-content: center; }
+    .spacer, .range-dash { display: none; }
+    .field-inline { display: contents; input { width: 100%; min-height: 44px; box-sizing: border-box; } }
+    .kpi-tile { padding: 0.7rem 0.8rem; }
+    .kpi-value { font-size: 1.1rem; }
+    .prov-table {
+      min-width: 0;
+      .col-share, .col-delta { display: none; }
+      th, td { padding: 0.55rem 0.45rem; }
+    }
+    .share-inline {
+      display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem;
+      .share-bar { flex: 1; width: auto; max-width: 120px; }
+      .share-pct { width: auto; text-align: left; font-size: 0.68rem; }
+    }
+    .chart-bars { height: 120px; }
   }
 }
 

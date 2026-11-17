@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 /* Estilos compartidos por los tab components de Conflictos */
 
 .tab-hint {
@@ -22,6 +24,7 @@
   .pair-body {
     display: flex;
     align-items: stretch;
+    @include m.phone { flex-direction: column; }
   }
 
   .pair-half {
@@ -34,6 +37,7 @@
 
     & + .pair-half {
       border-left: 0.5px solid var(--border);
+      @include m.phone { border-left: none; border-top: 0.5px solid var(--border); }
     }
 
     .half-info {
@@ -48,6 +52,12 @@
         text-overflow: ellipsis;
         line-height: 1.3;
         margin-top: 0.2rem;
+        @include m.phone {
+          white-space: normal;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+        }
       }
     }
   }
@@ -59,11 +69,13 @@
     padding: 0.45rem 0.75rem;
     border-top: 0.5px solid var(--border);
     background: var(--surface-2);
+    @include m.phone { flex-wrap: wrap; }
 
     .pair-actions {
       margin-left: auto;
       display: flex;
       gap: 0.35rem;
+      @include m.phone { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; }
     }
   }
 }
@@ -88,6 +100,7 @@
     border-bottom: 0.5px solid var(--border);
     font-size: 0.78rem;
     color: var(--text);
+    @include m.phone { flex-wrap: wrap; }
 
     .dup-count {
       font-size: 0.72rem;
@@ -103,6 +116,10 @@
     border-top: 0.5px solid var(--border);
     font-size: 0.78rem;
     color: var(--text);
+    @include m.phone {
+      flex-wrap: wrap;
+      .btn-action { margin-left: auto; }
+    }
 
     .dup-name {
       flex: 1;
@@ -110,6 +127,13 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      @include m.phone {
+        flex-basis: calc(100% - 40px);
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
     }
   }
 }
@@ -130,8 +154,9 @@
   gap: 0.2rem;
   transition: opacity 0.12s ease;
   white-space: nowrap;
+  @include m.touch { min-height: 40px; padding-inline: 0.75rem; }
 
-  &:hover:not(:disabled) { opacity: 0.8; }
+  @include m.hover { &:hover:not(:disabled) { opacity: 0.8; } }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 
   &.ghost {
@@ -139,7 +164,7 @@
     border-color: var(--border);
     color: var(--text-2);
 
-    &:hover:not(:disabled) { background: var(--surface-2); opacity: 1; }
+    @include m.hover { &:hover:not(:disabled) { background: var(--surface-2); opacity: 1; } }
   }
 
   &.link-btn {

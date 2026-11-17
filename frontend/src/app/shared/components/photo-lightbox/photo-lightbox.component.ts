@@ -1,9 +1,10 @@
-import { Component, HostListener, OnInit, computed, input, output, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 
 /**
  * Foto grande de un producto, con flechas para pasar entre sus fotos. Pensado para identificar
  * qué armar ("¿cuál era el de lunares?"): ocupa casi toda la pantalla, se cierra con Esc, con la X
- * o tocando afuera.
+ * o tocando afuera. En el celular se pasa de foto deslizando de costado.
  */
 @Component({
   selector: 'zc-photo-lightbox',
@@ -16,17 +17,18 @@ import { Component, HostListener, OnInit, computed, input, output, signal } from
             <span>{{ title() }}</span>
             @if (subtitle()) { <small>{{ subtitle() }}</small> }
           </div>
-          <button type="button" class="lb-icon" (click)="closed.emit()" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+          <button type="button" class="lb-icon" (click)="closed.emit()" aria-label="Cerrar"><i class="ti ti-x" aria-hidden="true"></i></button>
         </div>
-        <div class="lb-stage">
+        <div class="lb-stage" (pointerdown)="onPointerDown($event)" (pointerup)="onPointerUp($event)"
+             (pointercancel)="swipeStart = null">
           @if (current()) {
             <img [src]="current()" [alt]="title()" />
           } @else {
             <span class="lb-empty"><i class="ti ti-photo-off" aria-hidden="true"></i> Sin foto</span>
           }
           @if (list().length > 1) {
-            <button type="button" class="lb-nav prev" (click)="step(-1)" aria-label="Foto anterior"><i class="ti ti-chevron-left"></i></button>
-            <button type="button" class="lb-nav next" (click)="step(1)" aria-label="Foto siguiente"><i class="ti ti-chevron-right"></i></button>
+            <button type="button" class="lb-nav prev" (click)="step(-1)" aria-label="Foto anterior"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
+            <button type="button" class="lb-nav next" (click)="step(1)" aria-label="Foto siguiente"><i class="ti ti-chevron-right" aria-hidden="true"></i></button>
             <span class="lb-count">{{ index() + 1 }} / {{ list().length }}</span>
           }
         </div>
@@ -43,9 +45,12 @@ import { Component, HostListener, OnInit, computed, input, output, signal } from
     </div>
   `,
   styles: [`
+    @use 'mobile' as m;
     .lb-backdrop {
       position: fixed; inset: 0; z-index: 120;
       display: flex; align-items: center; justify-content: center; padding: 16px;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+               max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
       background: color-mix(in srgb, var(--bg) 82%, transparent);
       backdrop-filter: blur(2px);
     }
@@ -62,12 +67,15 @@ import { Component, HostListener, OnInit, computed, input, output, signal } from
       border: none; background: none; color: var(--text-2); cursor: pointer;
       font-size: 18px; padding: 4px; border-radius: 6px; line-height: 1;
     }
-    .lb-icon:hover { background: var(--surface-2); color: var(--text); }
+    @include m.hover { .lb-icon:hover { background: var(--surface-2); color: var(--text); } }
+    .lb-icon { @include m.tap-target(44px); }
     .lb-stage {
       position: relative; display: flex; align-items: center; justify-content: center;
       background: var(--surface-2); border-radius: var(--radius-md);
-      min-height: 240px; height: min(70vh, 640px);
+      min-height: 240px; height: min(70vh, 640px); height: min(70dvh, 640px);
+      touch-action: pan-y; /* el gesto horizontal es nuestro (pasar de foto), el vertical del navegador */
     }
+    .lb-stage img { -webkit-user-drag: none; user-select: none; }
     .lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius-md); }
     .lb-empty { color: var(--text-3); font-size: 0.8rem; display: inline-flex; gap: 6px; align-items: center; }
     /* Centrado sin transform: el button:active global (scale) lo pisaba, la flecha saltaba 18px al
@@ -78,6 +86,7 @@ import { Component, HostListener, OnInit, computed, input, output, signal } from
       border: 0.5px solid var(--border-strong); background: var(--surface); color: var(--text);
       cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px;
     }
+    @include m.touch { .lb-nav { width: 44px; height: 44px; top: calc(50% - 22px); } }
     .lb-nav.prev { left: 10px; }
     .lb-nav.next { right: 10px; }
     .lb-count {
@@ -94,7 +103,12 @@ import { Component, HostListener, OnInit, computed, input, output, signal } from
     .lb-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
   `],
 })
-export class PhotoLightboxComponent implements OnInit {
+export class PhotoLightboxComponent implements OnInit, OnDestroy {
+  private readonly doc = inject(DOCUMENT);
+  private prevBodyOverflow = '';
+  /** Dónde arrancó el gesto sobre la foto (null = no hay uno en curso). */
+  swipeStart: { x: number; y: number } | null = null;
+
   readonly photos = input<string[]>([]);
   readonly title = input('');
   readonly subtitle = input<string | null>(null);
@@ -108,7 +122,29 @@ export class PhotoLightboxComponent implements OnInit {
 
   /** La foto inicial se fija una sola vez al abrir: nada que re-renderice el padre la vuelve a pisar. */
   ngOnInit(): void {
+    // Que la página de atrás no scrollee mientras se mira la foto (en iOS el gesto se "escapaba").
+    this.prevBodyOverflow = this.doc.body.style.overflow;
+    this.doc.body.style.overflow = 'hidden';
     this.index.set(Math.min(Math.max(this.startIndex(), 0), Math.max(this.list().length - 1, 0)));
+  }
+
+  ngOnDestroy(): void {
+    this.doc.body.style.overflow = this.prevBodyOverflow;
+  }
+
+  onPointerDown(e: PointerEvent): void {
+    // Solo dedo/lápiz: con el mouse el escritorio sigue igual (flechas, miniaturas, teclado).
+    this.swipeStart = e.pointerType === 'mouse' ? null : { x: e.clientX, y: e.clientY };
+  }
+
+  /** Deslizar con el dedo más de 50px de costado (y más de costado que de arriba a abajo) pasa de foto. */
+  onPointerUp(e: PointerEvent): void {
+    const start = this.swipeStart;
+    this.swipeStart = null;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) this.step(dx < 0 ? 1 : -1);
   }
 
   step(delta: number): void {

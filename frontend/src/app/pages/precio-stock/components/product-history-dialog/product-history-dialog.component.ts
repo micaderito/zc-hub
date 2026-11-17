@@ -149,6 +149,7 @@ const GROUP_WINDOW_MS = 60_000;
                             {{ missing === 'mercadolibre' ? 'ML' : 'TN' }}
                           </span>
                           <span class="hist-stock">sin cambio</span>
+                          <span class="hist-why">(no quedó registrado)</span>
                         </span>
                       }
                       @if (ev.mlAfter !== null && ev.tnAfter !== null) {

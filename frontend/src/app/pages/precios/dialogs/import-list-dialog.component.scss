@@ -1,11 +1,13 @@
-.modal.wide { max-width: 680px; }
+@use 'mobile' as m;
+
+.modal.wide { max-width: 680px; @include m.phone { max-width: none; } }
 .modal-sub { font-size: 12px; font-weight: 500; margin: 18px 0 4px; display: flex; align-items: center; gap: 6px; }
 
 .dropzone {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 22px 16px; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--bg);
   cursor: pointer; text-align: center; font-size: 12.5px; color: var(--text-2);
-  &:hover { border-color: var(--brand); }
+  @include m.hover { &:hover { border-color: var(--brand); } }
   i { font-size: 24px; color: var(--text-3); }
   b { color: var(--text); font-weight: 500; }
   .hint { font-size: 10.5px; color: var(--text-3); }

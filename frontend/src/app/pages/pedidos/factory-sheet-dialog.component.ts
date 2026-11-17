@@ -1,4 +1,4 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, computed, effect, input, output, signal } from '@angular/core';
 import { SupplierOrder } from '../../core/services/orders.service';
 import {
   drawFactorySheet, factorySheetDate, factorySheetFilename, factorySheetHtml, factorySheetRows,
@@ -42,7 +42,11 @@ import {
         </div>
 
         <div class="actions">
-          @if (feedback()) { <span class="feedback"><i class="ti ti-check" aria-hidden="true"></i> {{ feedback() }}</span> }
+          @if (feedback(); as f) {
+            <span class="feedback" [class.err]="f.error" [attr.role]="f.error ? 'alert' : 'status'">
+              <i class="ti" [class.ti-check]="!f.error" [class.ti-alert-triangle]="f.error" aria-hidden="true"></i> {{ f.text }}
+            </span>
+          }
           <span class="spacer"></span>
           <button type="button" class="zc-btn small" (click)="copyTable()"><i class="ti ti-table" aria-hidden="true"></i> Copiar como tabla</button>
           <button type="button" class="zc-btn small primary" (click)="downloadImage()"><i class="ti ti-photo-down" aria-hidden="true"></i> Descargar imagen</button>
@@ -51,6 +55,7 @@ import {
     </div>
   `,
   styles: `
+    @use 'mobile' as m;
     .backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-start; justify-content: center;
       padding: 4vh 1rem; overflow-y: auto; background: color-mix(in srgb, var(--bg) 60%, transparent); backdrop-filter: blur(2px); }
     .card { width: 100%; max-width: 50rem; background: var(--surface); border: 0.5px solid var(--border-strong);
@@ -58,7 +63,7 @@ import {
     .head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.8rem; flex-wrap: wrap;
       h2 { font-size: 0.95rem; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 0.4rem; .ti { color: var(--brand); } } }
     .hint { font-size: 0.7rem; color: var(--text-3); }
-    .icon-close { margin-left: auto; border: none; background: none; padding: 0.3rem; color: var(--text-3); }
+    .icon-close { margin-left: auto; border: none; background: none; padding: 0.3rem; color: var(--text-3); @include m.tap-target; }
     /* La hoja va SIEMPRE en blanco, sin tokens: es lo que se manda afuera, no parte de la app. */
     .sheet { background: #ffffff; color: #1a1c2e; border: 0.5px solid rgba(20, 22, 40, 0.14); border-radius: var(--radius-sm); padding: 1.4rem 1.5rem; overflow-x: auto; }
     .sheet-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; margin-bottom: 0.9rem; }
@@ -75,7 +80,19 @@ import {
     .sheet-note { font-size: 0.78rem; margin: 0.7rem 0 0; }
     .actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.9rem; }
     .spacer { flex: 1; }
-    .feedback { font-size: 0.74rem; color: var(--ok); display: inline-flex; align-items: center; gap: 0.25rem; }
+    .feedback { font-size: 0.74rem; color: var(--ok); display: inline-flex; align-items: center; gap: 0.25rem; &.err { color: var(--err); } }
+    .backdrop { padding-top: max(4vh, env(safe-area-inset-top)); }
+    @include m.phone {
+      .backdrop { align-items: flex-end; padding: env(safe-area-inset-top) 0 0; overflow: hidden; }
+      .card { max-height: 92vh; max-height: 92dvh; overflow-y: auto; overscroll-behavior: contain; border-radius: 16px 16px 0 0;
+        border-bottom: none; padding: 1rem 16px calc(1rem + env(safe-area-inset-bottom)); }
+      .head .hint { flex-basis: 100%; order: 3; }
+      .sheet { padding: 1rem; }
+      table { min-width: 0; }
+      .c-code { width: auto; white-space: normal; }
+      .c-qty { width: auto; }
+      .actions { flex-wrap: wrap; .zc-btn { flex: 1 1 100%; justify-content: center; } .spacer { display: none; } }
+    }
   `,
 })
 export class FactorySheetDialogComponent {
@@ -85,7 +102,27 @@ export class FactorySheetDialogComponent {
   readonly rows = computed(() => factorySheetRows(this.order()));
   readonly date = computed(() => factorySheetDate(this.order()));
   readonly totalPacks = computed(() => factorySheetTotalPacks(this.order()));
-  readonly feedback = signal<string | null>(null);
+  readonly feedback = signal<{ text: string; error?: boolean } | null>(null);
+
+  /**
+   * La imagen se arma apenas se abre el diálogo: en el celular `navigator.share` tiene que llamarse
+   * en el mismo clic (Safari rechaza un share que viene después de un callback asíncrono).
+   */
+  private pngFile: File | null = null;
+
+  constructor() {
+    effect(() => {
+      const order = this.order();
+      this.pngFile = null;
+      try {
+        drawFactorySheet(order).toBlob((blob) => {
+          if (blob && this.order() === order) this.pngFile = new File([blob], factorySheetFilename(order), { type: 'image/png' });
+        }, 'image/png');
+      } catch {
+        // Sin canvas: "Descargar imagen" la arma al hacer clic, como siempre.
+      }
+    });
+  }
 
   /** HTML (para mail) + TSV (para Excel/Sheets) en el mismo portapapeles; si no se puede, solo el TSV. */
   async copyTable(): Promise<void> {
@@ -99,23 +136,44 @@ export class FactorySheetDialogComponent {
       } else {
         await navigator.clipboard.writeText(factorySheetTsv(order));
       }
-      this.feedback.set('Tabla copiada — pegala en un mail o en Excel');
+      this.feedback.set({ text: 'Tabla copiada — pegala en un mail o en Excel' });
     } catch {
-      this.feedback.set(null);
+      this.feedback.set({ text: 'No se pudo copiar la tabla. Probá con “Descargar imagen” o sacale captura.', error: true });
     }
   }
 
   downloadImage(): void {
     const order = this.order();
+    const file = this.pngFile;
+    // Con el dedo (celular/tablet) y si el navegador comparte archivos: la hoja de compartir de iOS/Android
+    // (guardar en Fotos, WhatsApp…). Con mouse, la descarga de siempre.
+    if (file && isTouch() && navigator.canShare?.({ files: [file] })) {
+      navigator.share({ files: [file], title: order.name }).then(
+        () => this.feedback.set({ text: 'Imagen lista para mandar' }),
+        (err: unknown) => {
+          if ((err as { name?: string } | null)?.name !== 'AbortError') this.feedback.set({ text: 'No se pudo compartir la imagen.', error: true });
+        },
+      );
+      return;
+    }
+    if (file) {
+      this.saveBlob(file, order);
+      return;
+    }
     drawFactorySheet(order).toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = factorySheetFilename(order);
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      this.feedback.set('Imagen descargada');
+      if (blob) this.saveBlob(blob, order);
     }, 'image/png');
   }
+
+  private saveBlob(blob: Blob, order: SupplierOrder): void {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = factorySheetFilename(order);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    this.feedback.set({ text: 'Imagen descargada' });
+  }
 }
+
+const isTouch = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;

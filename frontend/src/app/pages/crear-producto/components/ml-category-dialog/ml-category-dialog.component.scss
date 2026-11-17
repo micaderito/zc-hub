@@ -1,3 +1,5 @@
+@use 'mobile' as m;
+
 .cat-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -123,5 +125,25 @@
   }
   .zc-btn {
     margin-top: 0.4rem;
+  }
+}
+
+/* Celular: hoja de casi toda la altura (el árbol es largo). */
+@include m.sheet('.cat-modal-backdrop', '.cat-modal');
+@include m.phone {
+  .cat-modal {
+    height: 92vh;
+    height: 92dvh;
+  }
+  .cat-modal-body {
+    flex: 1;
+  }
+}
+@include m.touch {
+  .cat-child {
+    min-height: 44px;
+  }
+  .cat-breadcrumb .crumb {
+    min-height: 32px;
   }
 }
