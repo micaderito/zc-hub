@@ -1,0 +1,47 @@
+<div class="pl-tiles">
+  @for (t of tiles; track t.key) {
+    <button type="button" class="pl-tile {{ t.key }}" [class.on]="statusFilter() === t.key" [attr.aria-pressed]="statusFilter() === t.key" (click)="toggle(t.key)">
+      <b>{{ counts()[t.key] }}</b>
+      <span>{{ t.tile }}</span>
+    </button>
+  }
+</div>
+
+@for (s of sections(); track s.key) {
+  <div class="pl-section {{ s.key }}">
+    <span><i class="ti {{ s.icon }}" aria-hidden="true"></i> {{ s.title }}</span>
+    <span>{{ s.total }}</span>
+  </div>
+  @for (o of s.orders; track o.id) {
+    <a class="pl-card {{ tone(o) }}" [routerLink]="['/pedidos', o.id]">
+      <span class="pl-info">
+        <span class="pl-title">{{ o.name }}</span>
+        <span class="pl-sub">
+          #{{ o.id }}@if (o.supplierKey) { · {{ supplierName(o.supplierKey) }} }
+          @if (o.status === 'borrador') { · creado {{ o.createdAt | date: 'dd/MM' }} }
+          @else if (o.status === 'pendiente') { · pedido {{ o.orderedAt | date: 'dd/MM' }}@if (daysAgo(o); as d) { · {{ d }} } }
+          @else { · recibido {{ (o.receivedAt ?? o.orderedAt) | date: 'dd/MM/yy' }} }
+        </span>
+        <span class="pl-sub">
+          {{ o.totals.lineCount }} línea{{ o.totals.lineCount === 1 ? '' : 's' }} · {{ o.totals.packs }} pack{{ o.totals.packs === 1 ? '' : 's' }}
+          @if (o.status === 'recibido' && o.partial) { <span class="zc-badge warn">incompleto</span> }
+          @if (partlyReceived(o)) { <span class="zc-badge warn">recepción a medias</span> }
+          @if (o.basedOnId) { <span class="pl-muted">copia del #{{ o.basedOnId }}</span> }
+        </span>
+      </span>
+      <span class="pl-total">
+        <b>{{ o.totals.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</b>
+        <small>−{{ o.discount1 }}%@if (o.discount2) { −{{ o.discount2 }}% }</small>
+      </span>
+      <i class="ti ti-chevron-right pl-chev" aria-hidden="true"></i>
+    </a>
+  }
+  @if (s.hidden) {
+    <button type="button" class="pl-more" (click)="showAllReceived.set(true)">Ver {{ s.hidden }} más <i class="ti ti-chevron-down" aria-hidden="true"></i></button>
+  }
+} @empty {
+  <p class="pl-empty">
+    @if (!hasAny()) { Todavía no hay pedidos. Armá el primero con <b>Nuevo pedido</b>. }
+    @else { No hay pedidos con ese filtro. }
+  </p>
+}

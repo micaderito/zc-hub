@@ -1,9 +1,7 @@
-// Celular y tablet del editor de pedidos. Hoja aparte de pedido-editor.component.scss por el tope
-// de 16 kB por hoja; va segunda en styleUrls, así pisa a la principal. Todo adentro de los mixins.
+// Tablet (y cualquier pantalla táctil) del editor de pedidos. Hoja aparte de
+// pedido-editor.component.scss por el tope de 16 kB por hoja; va segunda en styleUrls, así pisa a la
+// principal. En el celular (≤ 760px) no se usa la tabla: ver pedido-editor.phone.scss.
 @use 'mobile' as m;
-
-// Solo existen en el celular (botón del catálogo, cierre de la hoja, barra de abajo).
-.open-catalog, .catalog-close, .catalog-backdrop, .mobile-bar { display: none; }
 
 // Sin mouse no hay hover: los campos editables muestran su borde, si no parecen texto.
 @media (hover: none) {
@@ -16,91 +14,3 @@
   .pct .zc-input, .sum-row.profile-row .zc-select { font-size: 16px; }
   .zc-table.lines .cell-text { line-height: 40px; min-height: 40px; }
 }
-
-@include m.phone {
-  .title-row .name-input { min-width: 0; width: 100%; margin-left: 0; }
-  .save-state { margin-left: 0; }
-  .table-scroll { background: none; border: none; padding: 0; }
-  .add-free { border-top: none; padding: 0.6rem 0 0; }
-
-  .open-catalog { display: flex; justify-content: center; width: 100%; }
-
-  // Catálogo: hoja que sube desde abajo.
-  .catalog { display: none; }
-  .catalog.open {
-    display: block;
-    position: fixed;
-    inset: auto 0 0 0;
-    z-index: 100;
-    max-height: 92vh;
-    max-height: 92dvh;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    margin: 0;
-    padding: 0 16px calc(1rem + env(safe-area-inset-bottom));
-    background: var(--bg);
-    border-radius: 16px 16px 0 0;
-    box-shadow: var(--shadow-pop);
-
-    > .toolbar {
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      padding: 0.75rem 0 0.6rem;
-      background: var(--bg);
-      h2 { flex: 1; }
-      .spacer { display: none; }
-      zc-search-bar { flex-basis: 100%; max-width: none; min-width: 0; }
-    }
-  }
-  .catalog-close { display: inline-flex; }
-  .catalog-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 99;
-    background: color-mix(in srgb, var(--bg) 60%, transparent);
-  }
-  .zc-table.cat tr.member { margin-left: 1rem; }
-  .zc-table.cat tr.member td:first-child,
-  .zc-table.lines td:first-child { padding-left: 0; }
-
-  // Líneas: código, descripción, después Packs · (Llegó) · Precio · Subtotal · ✕ y abajo el detalle.
-  .zc-table.lines tbody tr {
-    display: flex;
-    flex-wrap: wrap;
-    > td { flex: 1 1 0; width: auto; order: 3; }
-    > td.cell-wide, > td.cell-main { flex-basis: 100%; }
-    > .c-code { order: 1; }
-    > .c-desc { order: 2; }
-    > .c-del { flex: 0 0 auto; align-self: flex-end; }
-    > .c-detail { order: 4; }
-  }
-  .zc-table.lines tr.free { background: color-mix(in srgb, var(--brand-bg) 40%, var(--surface)); }
-  .zc-table.lines tr.miss { background: color-mix(in srgb, var(--err-bg) 60%, var(--surface)); }
-  .zc-table.lines tr.part { background: color-mix(in srgb, var(--warn-bg) 60%, var(--surface)); }
-  .zc-table.lines tr:is(.free, .miss, .part) td { background: none; }
-  .code-pick, .line-meta { padding-left: 0; }
-  .price-tag { justify-content: flex-start; flex-wrap: wrap; }
-
-  // Barra fija arriba de las pestañas: total + "Marcar como pedido".
-  .pedido:has(> .mobile-bar) { padding-bottom: 5rem; }
-  .mobile-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: var(--zc-tabbar-h);
-    z-index: 25;
-    padding: 0.55rem 16px;
-    background: var(--surface);
-    border-top: 0.5px solid var(--border);
-    .mb-total { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-    b { font-size: 1rem; font-variant-numeric: tabular-nums; }
-  }
-}
-
-@include m.stack-table('.zc-table.lines');
-@include m.stack-table('.zc-table.cat');

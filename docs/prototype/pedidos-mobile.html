@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pedidos — celular</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd; --brand-contrast:#fff;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --ml:#e6b800; --tn:#2c6ecb; --shadow-pop:0 8px 28px rgba(20,22,40,.12); --page:#dfe2e8;
+}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f; --brand-contrast:#fff;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+  --ml:#f2cc33; --tn:#6aa0ef; --shadow-pop:0 8px 28px rgba(0,0,0,.5); --page:#05060a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:-apple-system, 'Inter', system-ui, sans-serif; }
+.top { max-width:1200px; margin:0 auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.top h1 { margin:0; font-size:18px; font-weight:500; }
+.top p { margin:4px 0 0; font-size:12.5px; color:var(--text-2); max-width:680px; line-height:1.45; }
+.theme-btn { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; padding:7px 12px; cursor:pointer; }
+.grid { max-width:1200px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:36px; align-items:center; }
+.opt { display:flex; flex-direction:column; gap:10px; }
+.opt h2 { margin:0; font-size:15px; font-weight:600; }
+.opt .why { font-size:12.5px; color:var(--text-2); margin:0; line-height:1.5; max-width:764px; }
+.pair { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+
+/* Teléfono */
+.phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:34px; border:8px solid #111; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.status { height:36px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:12px; font-weight:600; }
+.appbar { height:48px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:.5px solid var(--border); background:var(--surface); }
+.appbar b { font-size:15px; font-weight:600; flex:1; }
+.appbar i { font-size:20px; color:var(--text-2); }
+.scroll { flex:1; overflow-y:auto; padding:12px 14px 24px; }
+.tabbar { height:62px; flex-shrink:0; border-top:.5px solid var(--border); background:var(--surface); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--text-3); }
+.tabbar div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.tabbar i { font-size:21px; }
+.tabbar .on { color:var(--brand); }
+
+.search { position:relative; margin-bottom:10px; }
+.search i { position:absolute; left:11px; top:11px; color:var(--text-3); font-size:16px; }
+.search input { width:100%; font:inherit; font-size:16px; padding:9px 12px 9px 34px; border:.5px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); }
+.filters { display:flex; gap:6px; overflow-x:auto; margin-bottom:12px; scrollbar-width:none; }
+.chip { flex-shrink:0; font:inherit; font-size:12.5px; border:.5px solid var(--border); background:var(--surface); color:var(--text-2); padding:6px 11px; border-radius:16px; display:inline-flex; align-items:center; gap:5px; }
+.chip.on { background:var(--brand-bg); color:var(--brand); border-color:transparent; font-weight:500; }
+.chip i { font-size:14px; }
+
+.thumb { width:42px; height:42px; border-radius:10px; flex-shrink:0; }
+.thumb.p1 { background:linear-gradient(135deg,#f6c1d0,#e98fae); }
+.thumb.p2 { background:linear-gradient(135deg,#bfe3d5,#7cc4a8); }
+.thumb.p3 { background:linear-gradient(135deg,#c9c6f6,#8c86e8); }
+.thumb.p4 { background:linear-gradient(135deg,#fde4b4,#f1b35b); }
+.thumb.p5 { background:linear-gradient(135deg,#cfe1f7,#86aee3); }
+.thumb.sm { width:32px; height:32px; border-radius:8px; }
+
+.badge { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.badge.warn { background:var(--warn-bg); color:var(--warn); }
+.badge.err { background:var(--err-bg); color:var(--err); }
+.badge.ok { background:var(--ok-bg); color:var(--ok); }
+.badge.busy { background:var(--brand-bg); color:var(--brand); }
+.badge.plain { background:var(--surface-2); color:var(--text-2); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:3px; vertical-align:1px; }
+.dot.ml { background:var(--ml); } .dot.tn { background:var(--tn); }
+.num { font-variant-numeric:tabular-nums; }
+
+.group-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); font-weight:600; margin:14px 4px 6px; display:flex; justify-content:space-between; align-items:center; }
+.group-h.err { color:var(--err); } .group-h.warn { color:var(--warn); }
+.list { background:var(--surface); border:.5px solid var(--border); border-radius:14px; overflow:hidden; }
+.row { display:flex; align-items:center; gap:11px; padding:10px 12px; border-top:.5px solid var(--border); min-height:62px; }
+.row:first-child { border-top:none; }
+.row-info { flex:1; min-width:0; }
+.row-title { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row-sub { font-size:11.5px; color:var(--text-2); margin-top:3px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.row > i.chev { color:var(--text-3); font-size:16px; }
+.muted { color:var(--text-3); }
+
+/* Hoja */
+.scrim { position:absolute; inset:0; background:rgba(10,12,20,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; padding:8px 16px 22px; max-height:86%; overflow-y:auto; }
+.grab { width:38px; height:5px; border-radius:3px; background:var(--border-strong); margin:0 auto 12px; }
+.sheet-head { display:flex; gap:11px; align-items:center; }
+.sheet-head .t { flex:1; min-width:0; }
+.sheet-head .t b { font-size:15.5px; font-weight:600; display:block; line-height:1.25; }
+.sheet-head .t span { font-size:12px; color:var(--text-2); }
+.x { border:none; background:var(--surface-2); color:var(--text-2); width:32px; height:32px; border-radius:16px; font-size:16px; flex-shrink:0; }
+.lbl { font-size:12px; color:var(--text-2); margin:16px 0 6px; }
+.big-step { display:flex; align-items:center; justify-content:center; gap:16px; }
+.big-step button { width:52px; height:52px; border-radius:16px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:22px; }
+.big-step span { min-width:70px; text-align:center; font-size:34px; font-weight:600; font-variant-numeric:tabular-nums; }
+.presets { display:flex; gap:6px; justify-content:center; margin-top:10px; }
+.presets .chip { padding:6px 14px; }
+.explain { font-size:12px; color:var(--text-2); background:var(--surface-2); border-radius:10px; padding:9px 11px; margin-top:14px; line-height:1.45; display:flex; gap:7px; }
+.explain i { color:var(--text-3); font-size:15px; margin-top:1px; }
+.btns { display:flex; gap:8px; margin-top:16px; }
+.btn { flex:1; height:46px; border-radius:12px; font:inherit; font-size:14px; font-weight:500; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px; }
+.btn.primary { background:var(--brand); color:var(--brand-contrast); border-color:transparent; font-weight:600; }
+.btn.danger { color:var(--err); }
+.btn.ghost { border:none; }
+.btn i { font-size:18px; }
+
+
+/* ── Pedidos ── */
+.seg { display:flex; background:var(--surface-2); border-radius:10px; padding:3px; margin-bottom:12px; }
+.seg button { flex:1; font:inherit; font-size:12.5px; border:none; background:none; color:var(--text-2); padding:7px 2px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:4px; }
+.seg button.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:6px; }
+.tile { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:9px 10px; }
+.tile b { font-size:22px; font-weight:600; display:block; line-height:1.1; font-variant-numeric:tabular-nums; }
+.tile span { font-size:11px; color:var(--text-2); }
+.tile.draft b { color:var(--text-2); } .tile.busy b { color:var(--brand); } .tile.ok b { color:var(--ok); }
+.tile.on { box-shadow:0 0 0 1.5px var(--brand) inset; }
+
+.ocard { background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:11px 12px; margin-bottom:8px; display:flex; gap:11px; align-items:center; border-left:4px solid var(--border-strong); }
+.ocard.busy { border-left-color:var(--brand); }
+.ocard.ok { border-left-color:var(--ok); }
+.ocard.warn { border-left-color:var(--warn); }
+.ocard .tot { text-align:right; flex-shrink:0; }
+.ocard .tot b { font-size:14px; font-weight:600; display:block; font-variant-numeric:tabular-nums; }
+.ocard .tot small { font-size:10.5px; color:var(--text-3); }
+.oicon { width:38px; height:38px; border-radius:10px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; font-size:19px; background:var(--surface-2); color:var(--text-2); }
+.oicon.busy { background:var(--brand-bg); color:var(--brand); }
+.oicon.ok { background:var(--ok-bg); color:var(--ok); }
+.oicon.warn { background:var(--warn-bg); color:var(--warn); }
+
+.fab { position:absolute; right:16px; bottom:78px; height:50px; padding:0 18px; border:none; border-radius:25px; background:var(--brand); color:var(--brand-contrast); font:inherit; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px; box-shadow:var(--shadow-pop); }
+.fab i { font-size:19px; }
+
+/* Encabezado del pedido */
+.ohead { margin-bottom:10px; }
+.ohead .n { font-size:17px; font-weight:600; display:flex; align-items:center; gap:6px; }
+.ohead .n i { font-size:15px; color:var(--text-3); }
+.ohead .m { font-size:11.5px; color:var(--text-2); margin-top:4px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.saved { font-size:11px; color:var(--text-3); display:inline-flex; gap:3px; align-items:center; }
+
+/* Líneas */
+.line { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-top:.5px solid var(--border); }
+.line:first-child { border-top:none; }
+.line .info { flex:1; min-width:0; }
+.code { font-family:ui-monospace, 'SF Mono', Menlo, monospace; font-size:11px; color:var(--text-2); background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.line .d { font-size:13.5px; font-weight:500; line-height:1.3; margin-top:3px; }
+.line .det { font-size:11.5px; color:var(--text-2); margin-top:3px; display:flex; gap:4px; align-items:center; }
+.line .det i { font-size:13px; color:var(--text-3); }
+.line .right { text-align:right; flex-shrink:0; }
+.line .right .q { font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; }
+.line .right .q small { font-size:11px; font-weight:400; color:var(--text-2); }
+.line .right .p { font-size:11.5px; color:var(--text-2); margin-top:2px; font-variant-numeric:tabular-nums; }
+.line.free { background:color-mix(in srgb, var(--brand-bg) 45%, var(--surface)); }
+.line.miss { background:color-mix(in srgb, var(--err-bg) 60%, var(--surface)); }
+.line.part { background:color-mix(in srgb, var(--warn-bg) 60%, var(--surface)); }
+.warn-t { color:var(--warn); } .err-t { color:var(--err); } .ok-t { color:var(--ok); }
+
+.step { display:inline-flex; align-items:center; border:.5px solid var(--border-strong); border-radius:10px; overflow:hidden; background:var(--surface); }
+.step button { width:34px; height:34px; border:none; background:none; color:var(--text); font-size:16px; }
+.step span { min-width:28px; text-align:center; font-weight:600; font-size:14px; font-variant-numeric:tabular-nums; }
+.step.sm button { width:30px; height:30px; }
+
+.addrow { display:flex; gap:8px; margin:10px 0 4px; }
+.addrow .btn { height:44px; font-size:13px; }
+
+.bottombar { position:absolute; left:0; right:0; bottom:62px; background:var(--surface); border-top:.5px solid var(--border); padding:9px 14px; display:flex; align-items:center; gap:10px; }
+.bottombar .t { flex:1; min-width:0; }
+.bottombar .t small { font-size:10.5px; color:var(--text-2); display:block; }
+.bottombar .t b { font-size:16px; font-variant-numeric:tabular-nums; }
+.bottombar .btn { flex:0 0 auto; padding:0 14px; height:44px; }
+
+/* Catálogo */
+.cunit { display:flex; gap:10px; align-items:center; padding:10px 12px; border-top:.5px solid var(--border); }
+.cunit:first-child { border-top:none; }
+.cunit .info { flex:1; min-width:0; }
+.cunit .t { font-size:13.5px; font-weight:500; line-height:1.3; }
+.cunit .s { font-size:11.5px; color:var(--text-2); margin-top:3px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.addb { flex-shrink:0; height:34px; padding:0 11px; border-radius:10px; border:.5px solid var(--brand); color:var(--brand); background:none; font:inherit; font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+.addb.in { background:var(--brand-bg); border-color:transparent; }
+.cunit.in { background:color-mix(in srgb, var(--brand-bg) 35%, var(--surface)); }
+.cmembers { padding:2px 12px 8px 60px; background:var(--surface-2); }
+.toolrow { display:flex; gap:6px; align-items:center; margin-bottom:10px; }
+.toolrow .search { flex:1; margin:0; }
+
+.sumrow { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:7px 0; border-top:.5px solid var(--border); }
+.sumrow:first-child { border-top:none; }
+.sumrow .v { font-variant-numeric:tabular-nums; font-weight:500; }
+.sumrow.total { font-size:15px; font-weight:600; }
+.pctin { width:52px; font:inherit; font-size:16px; text-align:right; padding:5px 6px; border:.5px solid var(--border-strong); border-radius:8px; background:var(--bg); color:var(--text); }
+.select { width:100%; font:inherit; font-size:15px; padding:9px 10px; border:.5px solid var(--border-strong); border-radius:10px; background:var(--bg); color:var(--text); }
+.field { width:100%; font:inherit; font-size:16px; padding:9px 11px; border:.5px solid var(--border-strong); border-radius:10px; background:var(--bg); color:var(--text); }
+.field.mono { font-family:ui-monospace, Menlo, monospace; font-size:15px; }
+.flbl { font-size:11.5px; color:var(--text-2); margin:12px 0 5px; display:flex; justify-content:space-between; align-items:center; }
+.pick { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
+.pick .chip { padding:4px 10px; font-size:12px; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+.tabs { display:flex; gap:2px; border-bottom:.5px solid var(--border); margin:-12px -14px 12px; padding:0 8px; background:var(--surface); }
+.tabs button { flex:1; font:inherit; font-size:13px; border:none; background:none; color:var(--text-2); padding:11px 4px 10px; border-bottom:2px solid transparent; display:flex; align-items:center; justify-content:center; gap:5px; }
+.tabs button.on { color:var(--brand); border-bottom-color:var(--brand); font-weight:600; }
+
+.cart { position:absolute; left:10px; right:10px; bottom:72px; border-radius:14px; background:var(--brand); color:var(--brand-contrast); padding:10px 14px; display:flex; align-items:center; gap:10px; box-shadow:var(--shadow-pop); }
+.cart .c { width:30px; height:30px; border-radius:15px; background:rgba(255,255,255,.22); display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
+.cart .t { flex:1; font-size:13px; }
+.cart .t b { display:block; font-size:15px; }
+.cart i { font-size:18px; }
+
+.banner { background:var(--brand-bg); color:var(--brand); border-radius:12px; padding:10px 12px; font-size:12.5px; display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+.banner i { font-size:18px; }
+.banner.warn { background:var(--warn-bg); color:var(--warn); }
+.recv { display:flex; align-items:center; gap:6px; margin-top:8px; }
+.recv .of { font-size:12px; color:var(--text-2); }
+.tick { width:34px; height:34px; border-radius:10px; border:.5px solid var(--ok); background:var(--ok-bg); color:var(--ok); font-size:17px; display:inline-flex; align-items:center; justify-content:center; }
+.menu { position:absolute; right:12px; top:126px; width:230px; background:var(--surface); border:.5px solid var(--border); border-radius:13px; box-shadow:var(--shadow-pop); overflow:hidden; }
+.menu div { padding:11px 13px; font-size:13.5px; display:flex; gap:9px; align-items:center; border-top:.5px solid var(--border); }
+.menu div:first-child { border-top:none; }
+.menu i { font-size:17px; color:var(--text-2); }
+.menu .danger, .menu .danger i { color:var(--err); }
+.tag { font-size:10.5px; padding:1px 6px; border-radius:5px; background:var(--surface-2); color:var(--text-2); }
+.chooser { display:flex; gap:8px; justify-content:center; margin:6px 0 2px; }
+/* Notas al pie */
+.notes { max-width:764px; margin:0 auto 40px; padding:0 16px; font-size:12.5px; color:var(--text-2); line-height:1.55; }
+.notes h3 { font-size:14px; color:var(--text); margin:18px 0 6px; font-weight:600; }
+.notes ul { margin:0; padding-left:18px; }
+.notes code { font-size:11.5px; background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.cap { font-size:11.5px; color:var(--text-3); text-align:center; margin-top:6px; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Pedidos al proveedor en el celular — opciones</h1>
+    <p>Hoy en el celu la lista es la tabla apilada (una tarjeta por pedido con rótulos "Estado", "Fecha", "Contenido", "Total estimado" y los botones Repetir / Duplicar en cada una). En el editor cada línea es una tarjeta con <b>cinco campos de texto abiertos</b> (código, descripción, detalle, packs, precio) más los chips Lista / Pack: con 10 líneas es una pared de inputs, y el estimado, los descuentos y las acciones quedan al fondo de todo. El catálogo ya se abre como hoja, pero es la tabla apilada. Abajo: <b>dos opciones para la lista</b> y <b>tres para el editor</b> (se eligen por separado).</p>
+  </div>
+  <button class="theme-btn" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+</div>
+
+<div class="grid">
+
+<!-- ═══════════════════════ LISTA ═══════════════════════ -->
+<section class="opt">
+  <h2>Lista de pedidos</h2>
+  <p class="why"><b>1 · Chips + tarjetas:</b> los mismos filtros de hoy (estado en chips deslizables, proveedor en un chip que abre una hoja) y una tarjeta por pedido: nombre, proveedor, fecha, líneas · packs y el total a la derecha. Repetir / Duplicar salen de la tarjeta y pasan adentro del pedido (menú ⋯). <b>2 · Como Alertas:</b> tres números arriba que filtran (Borradores / En camino / Recibidos) y la lista separada en secciones por estado, con el borde de color. "En camino" primero: es lo que hay que mirar cuando llega el correo. En las dos, <b>Nuevo pedido</b> es un botón flotante.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-truck-delivery"></i><b>Pedidos</b><i class="ti ti-bell"></i></div>
+        <div class="scroll" style="padding-bottom:84px">
+          <div class="search"><i class="ti ti-search"></i><input placeholder="Buscar pedido o producto…" /></div>
+          <div class="filters">
+            <span class="chip on">Todos <b>12</b></span><span class="chip">Borradores 2</span><span class="chip">Pendientes 3</span><span class="chip">Recibidos 7</span><span class="chip"><i class="ti ti-building-factory-2"></i> Proveedor</span>
+          </div>
+          <div class="ocard"><span class="oicon"><i class="ti ti-pencil"></i></span><div class="row-info"><div class="row-title">Pedido noviembre</div><div class="row-sub">#58 · Punto Cero · 18/11</div><div class="row-sub"><span class="badge plain">Borrador</span> 6 líneas · 11 packs</div></div><div class="tot"><b>$412.300</b><small>−25% −5%</small></div></div>
+          <div class="ocard busy"><span class="oicon busy"><i class="ti ti-truck"></i></span><div class="row-info"><div class="row-title">Agendas 2027</div><div class="row-sub">#57 · Be Positive · 10/11</div><div class="row-sub"><span class="badge busy">Pendiente</span> 4 líneas · 9 packs</div></div><div class="tot"><b>$268.900</b><small>−30% −5%</small></div></div>
+          <div class="ocard busy"><span class="oicon busy"><i class="ti ti-truck"></i></span><div class="row-info"><div class="row-title">Repuestos escolar</div><div class="row-sub">#55 · Escolar · 03/11</div><div class="row-sub"><span class="badge busy">Pendiente</span> 3 líneas · 6 packs</div></div><div class="tot"><b>$96.400</b><small>−25% −5%</small></div></div>
+          <div class="ocard warn"><span class="oicon warn"><i class="ti ti-package-import"></i></span><div class="row-info"><div class="row-title">Pedido octubre</div><div class="row-sub">#52 · Punto Cero · 14/10</div><div class="row-sub"><span class="badge warn">Recibido incompleto</span> 8 líneas</div></div><div class="tot"><b>$530.100</b><small>−25% −5%</small></div></div>
+          <div class="ocard ok"><span class="oicon ok"><i class="ti ti-check"></i></span><div class="row-info"><div class="row-title">Cuadernos A5</div><div class="row-sub">#49 · Punto Cero · 30/09</div><div class="row-sub"><span class="badge ok">Recibido</span> 5 líneas</div></div><div class="tot"><b>$310.000</b><small>−25% −5%</small></div></div>
+        </div>
+        <button class="fab"><i class="ti ti-plus"></i> Nuevo pedido</button>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div class="on"><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">1 · Chips + tarjetas</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-truck-delivery"></i><b>Pedidos</b><i class="ti ti-bell"></i></div>
+        <div class="scroll" style="padding-bottom:84px">
+          <div class="toolrow"><div class="search"><i class="ti ti-search"></i><input placeholder="Buscar…" /></div><span class="chip"><i class="ti ti-building-factory-2"></i> Todos</span></div>
+          <div class="tiles">
+            <div class="tile draft"><b>2</b><span>Borradores</span></div>
+            <div class="tile busy on"><b>3</b><span>En camino</span></div>
+            <div class="tile ok"><b>7</b><span>Recibidos</span></div>
+          </div>
+          <div class="group-h" style="color:var(--brand)"><span><i class="ti ti-truck"></i> En camino</span><span>3</span></div>
+          <div class="ocard busy"><div class="row-info"><div class="row-title">Agendas 2027</div><div class="row-sub">#57 · Be Positive · pedido 10/11 · hace 9 días</div><div class="row-sub">4 líneas · 9 packs</div></div><div class="tot"><b>$268.900</b></div><i class="ti ti-chevron-right chev muted"></i></div>
+          <div class="ocard busy"><div class="row-info"><div class="row-title">Repuestos escolar</div><div class="row-sub">#55 · Escolar · pedido 03/11 · hace 16 días</div><div class="row-sub"><span class="badge warn">recepción a medias</span></div></div><div class="tot"><b>$96.400</b></div><i class="ti ti-chevron-right chev muted"></i></div>
+          <div class="ocard busy"><div class="row-info"><div class="row-title">Lapiceras Bic</div><div class="row-sub">#54 · Bic · pedido 01/11</div><div class="row-sub">2 líneas · 4 packs</div></div><div class="tot"><b>$41.200</b></div><i class="ti ti-chevron-right chev muted"></i></div>
+          <p class="cap" style="text-align:left;margin:10px 4px">Tocando "En camino" de nuevo se ven todas las secciones: Borradores · En camino · Recibidos (los últimos 30 días, "ver más" para el resto).</p>
+        </div>
+        <button class="fab"><i class="ti ti-plus"></i> Nuevo pedido</button>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div class="on"><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">2 · Como Alertas: números + secciones</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-truck-delivery"></i><b>Pedidos</b><i class="ti ti-bell"></i></div>
+        <div class="scroll"><div class="ocard"><div class="row-info"><div class="row-title">Pedido noviembre</div></div></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><span class="oicon busy"><i class="ti ti-plus"></i></span><div class="t"><b>Nuevo pedido</b><span>¿A qué proveedor?</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="list" style="margin-top:14px">
+            <div class="row"><i class="ti ti-circle-dot" style="color:var(--brand);font-size:19px"></i><div class="row-info"><div class="row-title">Punto Cero</div><div class="row-sub">General · −25% −5%</div></div></div>
+            <div class="row"><i class="ti ti-circle muted" style="font-size:19px"></i><div class="row-info"><div class="row-title">Be Positive</div><div class="row-sub">Agendas · −30% −5%</div></div></div>
+            <div class="row"><i class="ti ti-circle muted" style="font-size:19px"></i><div class="row-info"><div class="row-title">Bic</div><div class="row-sub">sin configuración de descuento</div></div></div>
+          </div>
+          <div class="btns"><button class="btn primary">Crear pedido</button></div>
+        </div>
+      </div>
+      <p class="cap">En las dos: Nuevo pedido elige el proveedor en una hoja</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ EDITOR A ═══════════════════════ -->
+<section class="opt">
+  <h2>Editor A · Lista de líneas + hoja por línea</h2>
+  <p class="why">El pedido es una <b>lista finita de líneas</b> (código, descripción, detalle en chico; packs y subtotal a la derecha) — sin campos abiertos. <b>Tocar una línea abre una hoja</b> con todo lo editable: packs con +/− grande, detalle, código y título (con los chips Lista / Pack / Producto), precio con "editado · volver a $X" y Quitar. Abajo, fija, la barra con el total y <b>Marcar como pedido</b>; tocar el total abre el estimado (config de descuento, los dos %, nota). "Agregar productos" abre el catálogo como hoja alta con un <b>+</b> por fila. Vista para la fábrica, Duplicar y Borrar van en el menú ⋯. Recibir: cada línea muestra "Llegó [−  n  +] de 3 ✓". Ideal si querés ver <b>el pedido entero de un vistazo</b> y editar de a una cosa.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido #58</b><i class="ti ti-dots-vertical"></i></div>
+        <div class="scroll" style="padding-bottom:140px">
+          <div class="ohead"><div class="n">Pedido noviembre <i class="ti ti-pencil"></i></div><div class="m"><span class="badge plain">Borrador</span> <span class="badge plain"><i class="ti ti-building-factory-2"></i> Punto Cero</span> <span class="saved"><i class="ti ti-cloud-check"></i> Guardado</span></div></div>
+          <div class="list">
+            <div class="line"><div class="info"><span class="code">39021</span> <span class="badge warn">alerta</span><div class="d">Cuaderno Mi Punto Cero A4 surtido</div><div class="det"><i class="ti ti-notes"></i> sin unicornios, 2 de mármol</div></div><div class="right"><div class="q">2 <small>packs</small></div><div class="p">$76.800</div></div></div>
+            <div class="line"><div class="info"><span class="code">1040</span><div class="d">Repuesto rayado x48 hojas</div><div class="det muted">pack de 12 u.</div></div><div class="right"><div class="q">3 <small>packs</small></div><div class="p">$54.000</div></div></div>
+            <div class="line"><div class="info"><span class="code">39000</span> <span class="badge busy"><i class="ti ti-pencil"></i> precio editado</span><div class="d">Cuaderno A5 Mármol rosa</div></div><div class="right"><div class="q">1 <small>pack</small></div><div class="p">$31.000</div></div></div>
+            <div class="line"><div class="info"><span class="code err-t">sin código</span><div class="d">Agenda 2027 semanal</div><div class="det warn-t"><i class="ti ti-alert-triangle"></i> sin código en Precios</div></div><div class="right"><div class="q">2 <small>packs</small></div><div class="p">$88.000</div></div></div>
+            <div class="line free"><div class="info"><span class="badge busy">ítem libre</span><div class="d">Resaltadores pastel x6</div></div><div class="right"><div class="q">1 <small>pack</small></div><div class="p muted">sin precio</div></div></div>
+          </div>
+          <div class="addrow"><button class="btn primary"><i class="ti ti-plus"></i> Agregar productos</button><button class="btn"><i class="ti ti-pencil-plus"></i> Ítem libre</button></div>
+        </div>
+        <div class="bottombar"><div class="t"><small>Total estimado · 5 líneas <i class="ti ti-chevron-up"></i></small><b>$412.300</b></div><button class="btn primary"><i class="ti ti-send"></i> Marcar como pedido</button></div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div class="on"><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Borrador</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido #58</b><i class="ti ti-dots-vertical"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><span class="oicon"><i class="ti ti-stack-2"></i></span><div class="t"><b>Cuaderno Mi Punto Cero A4 surtido</b><span>pack de 8 u. · surtido · $38.400 c/pack</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="lbl" style="text-align:center">Packs</div>
+          <div class="big-step"><button>−</button><span>2</span><button>+</button></div>
+          <div class="flbl">Detalle <span class="muted">diseños, colores…</span></div>
+          <input class="field" value="sin unicornios, 2 de mármol" />
+          <div class="two">
+            <div><div class="flbl">Código</div><input class="field mono" value="39021" /><div class="pick"><span class="chip on">Lista</span><span class="chip">Pack</span></div></div>
+            <div><div class="flbl">Precio lista</div><input class="field" value="38400" /><div class="pick"><span class="muted" style="font-size:11.5px"><i class="ti ti-link"></i> de Precios</span></div></div>
+          </div>
+          <div class="flbl">Descripción</div>
+          <input class="field" value="CUADERNO MI PUNTO CERO A4" />
+          <div class="pick"><span class="chip on">Lista</span><span class="chip">Pack</span><span class="chip">Producto</span></div>
+          <div class="btns"><button class="btn danger"><i class="ti ti-trash"></i> Quitar</button><button class="btn primary">Listo</button></div>
+        </div>
+      </div>
+      <p class="cap">Tocar una línea</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido #58</b><i class="ti ti-dots-vertical"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet" style="max-height:92%;height:92%">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="t"><b>Agregar productos</b><span>de Punto Cero</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="seg" style="margin-top:12px"><button class="on"><i class="ti ti-bell-ringing"></i> Con alerta 7</button><button>Todos</button></div>
+          <div class="toolrow"><div class="search"><i class="ti ti-search"></i><input placeholder="Producto, SKU o código…" /></div><button class="chip"><i class="ti ti-playlist-add"></i> Sugeridos</button></div>
+          <div class="list">
+            <div class="cunit in"><div class="info"><div class="t">Cuaderno Mi Punto Cero A4 surtido <span class="code">39021</span></div><div class="s"><span class="err-t">2 sin stock</span><span class="warn-t">1 bajo</span><span>de 8 · pack 8 u.</span></div></div><button class="addb in"><i class="ti ti-check"></i> 2</button></div>
+            <div class="cunit"><div class="info"><div class="t">Repuesto cuadriculado x48 <span class="code">1041</span></div><div class="s"><span class="dot ml"></span>1 <span class="dot tn"></span>2 <span class="badge warn">bajo · umbral 3</span><span class="badge busy"><i class="ti ti-building-warehouse"></i> 4</span></div></div><button class="addb"><i class="ti ti-plus"></i> 2</button></div>
+            <div class="cunit"><div class="info"><div class="t">Cuaderno A5 Mármol verde <span class="code">39000</span></div><div class="s"><span class="dot ml"></span>0 <span class="dot tn"></span>0 <span class="badge err">sin stock</span><span class="badge busy"><i class="ti ti-truck"></i> en camino #55</span></div></div><button class="addb"><i class="ti ti-plus"></i></button></div>
+            <div class="cunit"><div class="info"><div class="t">Block de notas A6 <span class="code">2210</span></div><div class="s"><span class="dot ml"></span>2 <span class="dot tn"></span>2 <span class="badge warn">bajo</span> último 12/09 · 2</div></div><button class="addb"><i class="ti ti-plus"></i> 1</button></div>
+          </div>
+          <p class="cap" style="text-align:left">El número del + es la sugerencia. Tocar la fila (no el +) abre los modelos del pack con su stock.</p>
+        </div>
+      </div>
+      <p class="cap">Agregar productos</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido #57</b><i class="ti ti-dots-vertical"></i></div>
+        <div class="scroll" style="padding-bottom:140px">
+          <div class="ohead"><div class="n">Agendas 2027</div><div class="m"><span class="badge busy">Pendiente</span> <span class="badge plain"><i class="ti ti-building-factory-2"></i> Be Positive</span> pedido 10/11</div></div>
+          <div class="banner"><i class="ti ti-package-import"></i><span>Anotá cuántos packs llegaron. Vacío = no llegó.</span></div>
+          <div class="list">
+            <div class="line"><div class="info"><span class="code">BP700V</span><div class="d">Agenda semanal 2027 tapa dura</div><div class="recv"><span class="of">Llegó</span><span class="step sm"><button>−</button><span>3</span><button>+</button></span><span class="of">de 3</span><span class="ok-t" style="margin-left:auto"><i class="ti ti-circle-check"></i></span></div></div></div>
+            <div class="line part"><div class="info"><span class="code">BP3505</span><div class="d">Agenda diaria 2027</div><div class="recv"><span class="of">Llegó</span><span class="step sm"><button>−</button><span>1</span><button>+</button></span><span class="of">de 4</span><button class="tick" style="margin-left:auto"><i class="ti ti-check"></i></button></div></div></div>
+            <div class="line"><div class="info"><span class="code">BP710</span><div class="d">Planner mensual</div><div class="recv"><span class="of">Llegó</span><span class="step sm"><button>−</button><span class="muted">–</span><button>+</button></span><span class="of">de 2</span><button class="tick" style="margin-left:auto"><i class="ti ti-check"></i></button></div></div></div>
+          </div>
+          <div class="addrow"><button class="btn"><i class="ti ti-checks"></i> Llegó todo</button><button class="btn">Guardar y seguir</button></div>
+        </div>
+        <div class="bottombar"><div class="t"><small>Completas</small><b>1 de 3</b></div><button class="btn primary">Cerrar recepción</button></div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div class="on"><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Registrar recepción</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ EDITOR B ═══════════════════════ -->
+<section class="opt">
+  <h2>Editor B · Tres pestañas: Pedido / Agregar / Resumen</h2>
+  <p class="why">Lo mismo que hoy está todo junto, separado en pestañas arriba. <b>Pedido</b>: tarjetas con el <b>+/− de packs directo</b> en la tarjeta (lo que más se toca) y el detalle como campo; código, título y precio se abren con "Más" dentro de la tarjeta. <b>Agregar</b>: el catálogo en la misma pantalla (no hoja). <b>Resumen</b>: estimado, config de descuento, los %, nota y las acciones (fábrica, marcar como pedido, duplicar, borrar). Ideal si querés <b>tocar cantidades rápido</b> sin abrir nada.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido noviembre</b><span class="saved"><i class="ti ti-cloud-check"></i></span></div>
+        <div class="scroll">
+          <div class="tabs"><button class="on">Pedido <span class="cnt">5</span></button><button><i class="ti ti-plus"></i> Agregar</button><button>Resumen</button></div>
+          <div class="ocard" style="display:block;border-left-width:.5px">
+            <div style="display:flex;gap:8px;align-items:center"><span class="code">39021</span><span class="badge warn">alerta</span><span style="flex:1"></span><i class="ti ti-x muted"></i></div>
+            <div class="row-title" style="white-space:normal;margin-top:5px">Cuaderno Mi Punto Cero A4 surtido</div>
+            <input class="field" style="margin-top:8px;font-size:14px;padding:7px 10px" value="sin unicornios, 2 de mármol" />
+            <div style="display:flex;align-items:center;gap:10px;margin-top:9px"><span class="step"><button>−</button><span>2</span><button>+</button></span><span class="row-sub" style="margin:0">× $38.400</span><b style="margin-left:auto;font-size:14px">$76.800</b></div>
+            <div class="row-sub" style="margin-top:8px;color:var(--brand)"><i class="ti ti-chevron-down"></i> Código, título y precio</div>
+          </div>
+          <div class="ocard" style="display:block;border-left-width:.5px">
+            <div style="display:flex;gap:8px;align-items:center"><span class="code">1040</span><span style="flex:1"></span><i class="ti ti-x muted"></i></div>
+            <div class="row-title" style="white-space:normal;margin-top:5px">Repuesto rayado x48 hojas</div>
+            <input class="field" style="margin-top:8px;font-size:14px;padding:7px 10px" placeholder="diseños, colores…" />
+            <div style="display:flex;align-items:center;gap:10px;margin-top:9px"><span class="step"><button>−</button><span>3</span><button>+</button></span><span class="row-sub" style="margin:0">× $18.000</span><b style="margin-left:auto;font-size:14px">$54.000</b></div>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div class="on"><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Pestaña Pedido</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido noviembre</b><span class="saved"><i class="ti ti-cloud-check"></i></span></div>
+        <div class="scroll">
+          <div class="tabs"><button>Pedido <span class="cnt">5</span></button><button class="on"><i class="ti ti-plus"></i> Agregar</button><button>Resumen</button></div>
+          <div class="seg"><button class="on"><i class="ti ti-bell-ringing"></i> Con alerta 7</button><button>Todos</button></div>
+          <div class="toolrow"><div class="search"><i class="ti ti-search"></i><input placeholder="Producto, SKU o código…" /></div><button class="chip"><i class="ti ti-playlist-add"></i> Sugeridos</button></div>
+          <div class="list">
+            <div class="cunit in"><div class="info"><div class="t">Cuaderno Mi Punto Cero A4 surtido</div><div class="s"><span class="err-t">2 sin stock</span><span class="warn-t">1 bajo</span><span>de 8</span></div></div><button class="addb in"><i class="ti ti-check"></i> 2</button></div>
+            <div class="cunit"><div class="info"><div class="t">Repuesto cuadriculado x48</div><div class="s"><span class="dot ml"></span>1 <span class="dot tn"></span>2 <span class="badge warn">bajo</span></div></div><button class="addb"><i class="ti ti-plus"></i> 2</button></div>
+            <div class="cunit"><div class="info"><div class="t">Cuaderno A5 Mármol verde</div><div class="s"><span class="badge err">sin stock</span><span class="badge busy"><i class="ti ti-truck"></i> #55</span></div></div><button class="addb"><i class="ti ti-plus"></i></button></div>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div class="on"><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Pestaña Agregar</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido noviembre</b><span class="saved"><i class="ti ti-cloud-check"></i></span></div>
+        <div class="scroll">
+          <div class="tabs"><button>Pedido <span class="cnt">5</span></button><button><i class="ti ti-plus"></i> Agregar</button><button class="on">Resumen</button></div>
+          <div class="list" style="padding:4px 12px">
+            <div class="sumrow"><span>Subtotal de lista</span><span class="v">$578.400</span></div>
+            <div class="sumrow"><span>Config</span><span class="v">General · −25% −5%</span></div>
+            <div class="sumrow"><span>Descuento <input class="pctin" value="25" /> %</span><span class="v ok-t">−$144.600</span></div>
+            <div class="sumrow"><span>Sobre el total <input class="pctin" value="5" /> %</span><span class="v ok-t">−$21.690</span></div>
+            <div class="sumrow total"><span>Total estimado</span><span class="v">$412.110</span></div>
+          </div>
+          <p class="cap warn-t" style="text-align:left"><i class="ti ti-alert-triangle"></i> 1 línea sin precio no suma.</p>
+          <textarea class="field" rows="2" placeholder="Nota del pedido…"></textarea>
+          <div class="btns" style="flex-direction:column"><button class="btn primary"><i class="ti ti-send"></i> Marcar como pedido</button><button class="btn"><i class="ti ti-file-text"></i> Vista para la fábrica</button><button class="btn ghost danger"><i class="ti ti-trash"></i> Borrar borrador</button></div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div class="on"><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Pestaña Resumen</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ EDITOR C ═══════════════════════ -->
+<section class="opt">
+  <h2>Editor C · Catálogo primero, pedido como carrito</h2>
+  <p class="why">Un borrador abre <b>directo en el catálogo</b> ("Con alerta" arriba), con el <b>+ / −</b> en cada fila como en una tienda. El pedido es una <b>barra flotante</b> ("5 en el pedido · $412.300 · Ver") que sube como hoja con las líneas (las mismas filas finitas de A; tocar una abre su hoja de edición) y abajo el estimado y Marcar como pedido. Pendiente / recibido abren en la lista de líneas como en A (no hay catálogo). Ideal si el pedido <b>se arma recorriendo las alertas</b> más que revisándolo.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido noviembre</b><i class="ti ti-dots-vertical"></i></div>
+        <div class="scroll" style="padding-bottom:150px">
+          <div class="seg"><button class="on"><i class="ti ti-bell-ringing"></i> Con alerta 7</button><button>Todos</button></div>
+          <div class="toolrow"><div class="search"><i class="ti ti-search"></i><input placeholder="Producto, SKU o código…" /></div><button class="chip"><i class="ti ti-playlist-add"></i> Sugeridos</button></div>
+          <div class="list">
+            <div class="cunit in"><div class="info"><div class="t">Cuaderno Mi Punto Cero A4 surtido</div><div class="s"><span class="err-t">2 sin stock</span><span class="warn-t">1 bajo</span><span>$38.400</span></div></div><span class="step sm"><button>−</button><span>2</span><button>+</button></span></div>
+            <div class="cunit"><div class="info"><div class="t">Repuesto cuadriculado x48</div><div class="s"><span class="dot ml"></span>1 <span class="dot tn"></span>2 <span class="badge warn">bajo</span> sug. 2</div></div><button class="addb"><i class="ti ti-plus"></i></button></div>
+            <div class="cunit"><div class="info"><div class="t">Cuaderno A5 Mármol verde</div><div class="s"><span class="badge err">sin stock</span><span class="badge busy"><i class="ti ti-truck"></i> #55</span></div></div><button class="addb"><i class="ti ti-plus"></i></button></div>
+            <div class="cunit in"><div class="info"><div class="t">Agenda 2027 semanal</div><div class="s"><span class="badge err">sin stock</span> $44.000</div></div><span class="step sm"><button>−</button><span>2</span><button>+</button></span></div>
+            <div class="cunit"><div class="info"><div class="t">Block de notas A6</div><div class="s"><span class="badge warn">bajo</span> último 12/09</div></div><button class="addb"><i class="ti ti-plus"></i></button></div>
+          </div>
+        </div>
+        <div class="cart"><span class="c">5</span><div class="t">en el pedido<b>$412.300</b></div><span>Ver <i class="ti ti-chevron-up"></i></span></div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div class="on"><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Borrador: abre en el catálogo</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Pedido noviembre</b><i class="ti ti-dots-vertical"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet" style="max-height:90%">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="t"><b>Pedido noviembre</b><span>Punto Cero · 5 líneas · 8 packs</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="list" style="margin-top:12px">
+            <div class="line"><div class="info"><span class="code">39021</span><div class="d">Cuaderno Mi Punto Cero A4 surtido</div><div class="det"><i class="ti ti-notes"></i> sin unicornios</div></div><div class="right"><div class="q">2</div><div class="p">$76.800</div></div></div>
+            <div class="line"><div class="info"><span class="code">1040</span><div class="d">Repuesto rayado x48</div></div><div class="right"><div class="q">3</div><div class="p">$54.000</div></div></div>
+            <div class="line free"><div class="info"><span class="badge busy">ítem libre</span><div class="d">Resaltadores pastel x6</div></div><div class="right"><div class="q">1</div><div class="p muted">—</div></div></div>
+          </div>
+          <div class="addrow"><button class="btn"><i class="ti ti-pencil-plus"></i> Ítem libre</button></div>
+          <div class="list" style="padding:2px 12px;margin-top:8px">
+            <div class="sumrow"><span>General · −25% −5%</span><span class="v">editar <i class="ti ti-chevron-right"></i></span></div>
+            <div class="sumrow total"><span>Total estimado</span><span class="v">$412.300</span></div>
+          </div>
+          <div class="btns"><button class="btn primary"><i class="ti ti-send"></i> Marcar como pedido</button></div>
+        </div>
+      </div>
+      <p class="cap">Ver el pedido (carrito)</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="notes">
+  <h3>En todas</h3>
+  <ul>
+    <li><b>Escritorio y tablet no cambian.</b> Lo nuevo es un componente de celular aparte (como Alertas), elegido con <code>mediaSignal(PHONE_QUERY)</code> (≤ 760px). En la tablet (768 / 1024) ya entra la tabla con el panel lateral del estimado, con los ajustes táctiles de la pasada general: no hace falta nada propio.</li>
+    <li><b>Solo lectura</b> (usuario <i>lectura</i> o pedido ya pedido/recibido): las mismas filas, la hoja de una línea muestra los datos sin campos, y no hay catálogo ni barra de Marcar como pedido.</li>
+    <li><b>Recibido incompleto:</b> las líneas cortas en ámbar / rojo con "llegaron 1 de 4", y arriba el aviso con "Pasar lo que faltó a un borrador".</li>
+    <li><b>Vista para la fábrica:</b> la misma de hoy (ya tiene Compartir imagen en el celu); se abre desde el menú ⋯ (A / C) o Resumen (B), y sola después de Marcar como pedido.</li>
+    <li>Autoguardado, descuentos encadenados, sugeridos, "en camino" y ítems libres funcionan igual que hoy: ningún cambio en el backend.</li>
+  </ul>
+</div>
+</body>
+</html>
