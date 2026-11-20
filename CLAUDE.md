@@ -360,6 +360,21 @@ solo mientras se ven: Devoluciones crawlea ML al montarse (una vez por apertura,
 base de estilos va sin encapsulación bajo `:where(.sync-page)`; cada pestaña trae lo suyo. Fixtures de
 los specs en `sync.testing.ts`.
 
+**En el celular** (2026-11-20, prototipo `docs/prototype/sync-mobile.html`, opción B): sin pestañas.
+`SyncComponent` elige con `mediaSignal(PHONE_QUERY)` y muestra `zc-sync-phone` (`phone/`): tres números
+arriba que filtran (Devoluciones · Con error · En cola — las `stuck` cuentan como error aunque el backend
+las cuente activas), debajo lo que espera algo (devoluciones con Restaurar/Descartar, tareas falladas o
+trabadas con Reintentar) y después el historial compacto por día. Tocar un movimiento abre una hoja con el
+antes → después, los ids, Revertir y "Ver todo el historial de este SKU" (el `zc-product-history-dialog` de
+Precio y stock); una tarea, su error completo. Reintentar una venta / agregar una devolución son botones
+flotantes con hoja, y Estado va en una hoja que abre el engranaje (mismo `ng-template` que la pestaña). El
+acceso directo "Devoluciones" del menú abre el celu filtrado en devoluciones (`initialFocus`). Como las
+devoluciones están en la pantalla principal, en el celu el crawl de reclamos corre al abrir la página (el
+backend se protege igual). Las etiquetas que comparten las dos vistas están en `sync.utils.ts`. En tablet la
+tabla de la Cola ML esconde Variación e Intentos. Specs: `mockPhone()` de `sync.testing.ts`.
+**Usuarios en el celu**: lista compacta (avatar, rol, último ingreso) + hoja con Editar / Cerrar sesiones /
+Borrar, y "Nuevo" flotante (`phone()` en `usuarios.component`).
+
 ### Actualizar precios: varias listas del proveedor + pestaña "Mapeo con el proveedor"
 
 Incidente 2026-10-13: al importar una lista, "34 mapeos automáticos · 0 costos actualizados", y la
