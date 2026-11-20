@@ -1238,6 +1238,20 @@ su propio `try` después de cerrar el job: un fallo acá nunca cambia el resulta
 Con la alerta activada, `alertBlockers` (umbral, pack elegido, nombre/unidades del pack nuevo) se
 suma a `publishBlockers`.
 
+**En el celular** (2026-11-19, prototipo `docs/prototype/crear-producto-mobile.html`, opción B; vale
+también para Editar publicación): cada sección es una tarjeta plegable (`zc-phone-section`,
+`components/phone-section/`) que cerrada muestra un resumen de una línea, o lo primero que le falta,
+con ✓ / cantidad de faltantes; se abre una a la vez. Arriba, un índice fijo de chips para saltar a
+cada sección. Abajo, una barra fija (`.mbar`, estilos en `crear-producto-phone.component.scss`) con
+"Faltan N datos" —abre una hoja con la lista; cada faltante lleva a su sección— y Publicar con el
+menú de canal; en Editar dice "N cambios · Revisar y guardar" (lleva a "Cambios a aplicar"). La
+sección de cada faltante sale de `store.publishBlockerItems` (`{ section, text }`; `publishBlockers`
+es la misma lista como texto) y los resúmenes de `phoneSectionStates` (`phone-sections.ts`). La
+tablet (≤ 1023px) usa el formulario de escritorio + la misma barra fija. Se elige con
+`mediaSignal(...)`; fuera del celular la tarjeta es `display: contents` y el escritorio no cambia.
+Las secciones cerradas siguen montadas (solo se esconden). Specs: mockear `matchMedia` (los de
+Crear producto arrancan en escritorio, ver `media()` en `crear-producto.component.spec.ts`).
+
 ### Página "Publicaciones" (`/publicaciones`): productos del hub + historial
 
 Diseño completo (incluye las fases siguientes: editor y aplicar cambios):

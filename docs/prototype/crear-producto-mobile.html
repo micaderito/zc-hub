@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crear producto — celular</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd; --brand-contrast:#fff;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --ml:#e6b800; --tn:#2c6ecb; --shadow-pop:0 8px 28px rgba(20,22,40,.12); --page:#dfe2e8;
+}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f; --brand-contrast:#fff;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+  --ml:#f2cc33; --tn:#6aa0ef; --shadow-pop:0 8px 28px rgba(0,0,0,.5); --page:#05060a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:-apple-system, 'Inter', system-ui, sans-serif; }
+.top { max-width:1200px; margin:0 auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.top h1 { margin:0; font-size:18px; font-weight:500; }
+.top p { margin:4px 0 0; font-size:12.5px; color:var(--text-2); max-width:760px; line-height:1.45; }
+.theme-btn { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; padding:7px 12px; cursor:pointer; }
+.grid { max-width:1200px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:40px; align-items:center; }
+.opt { display:flex; flex-direction:column; gap:10px; }
+.opt h2 { margin:0; font-size:15px; font-weight:600; }
+.opt .why { font-size:12.5px; color:var(--text-2); margin:0; line-height:1.5; max-width:764px; }
+.pair { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+.cap { font-size:11.5px; color:var(--text-3); text-align:center; margin-top:6px; max-width:375px; }
+
+/* Teléfono */
+.phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:34px; border:8px solid #111; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.status { height:36px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:12px; font-weight:600; }
+.appbar { height:48px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:.5px solid var(--border); background:var(--surface); }
+.appbar b { font-size:15px; font-weight:600; flex:1; }
+.appbar i { font-size:20px; color:var(--text-2); }
+.scroll { flex:1; overflow-y:auto; padding:12px 14px 24px; }
+.tabbar { height:62px; flex-shrink:0; border-top:.5px solid var(--border); background:var(--surface); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--text-3); }
+.tabbar div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.tabbar i { font-size:21px; }
+.tabbar .on { color:var(--brand); }
+
+.badge { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.badge.warn { background:var(--warn-bg); color:var(--warn); }
+.badge.err { background:var(--err-bg); color:var(--err); }
+.badge.ok { background:var(--ok-bg); color:var(--ok); }
+.badge.plain { background:var(--surface-2); color:var(--text-2); }
+.dot { display:inline-block; width:9px; height:9px; border-radius:3px; flex-shrink:0; }
+.dot.ml { background:var(--ml); } .dot.tn { background:var(--tn); }
+.muted { color:var(--text-3); }
+.num { font-variant-numeric:tabular-nums; }
+
+/* Campos */
+.f { margin-bottom:12px; }
+.f label { font-size:12px; color:var(--text-2); font-weight:500; display:flex; gap:5px; align-items:center; margin-bottom:5px; }
+.f label .req { color:var(--err); }
+.inp { width:100%; font:inherit; font-size:16px; padding:10px 12px; border:.5px solid var(--border-strong); border-radius:10px; background:var(--surface); color:var(--text); min-height:44px; display:flex; align-items:center; justify-content:space-between; }
+.inp.ph { color:var(--text-3); }
+.inp.com { background:var(--surface-2); border-style:dashed; color:var(--text-2); font-size:14px; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.tag { font-size:10.5px; color:var(--text-2); background:var(--surface-2); padding:1px 6px; border-radius:6px; display:inline-flex; gap:3px; align-items:center; }
+.seg { display:flex; background:var(--surface-2); border-radius:10px; padding:3px; margin-bottom:12px; }
+.seg span { flex:1; font-size:12.5px; color:var(--text-2); padding:8px 2px; border-radius:8px; text-align:center; }
+.seg span.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.chip-btn { display:inline-flex; gap:6px; align-items:center; font-size:13px; border:.5px solid var(--border-strong); border-radius:10px; padding:9px 12px; background:var(--surface); }
+.chip-btn i { font-size:16px; color:var(--brand); }
+
+.photos { display:flex; gap:7px; overflow-x:auto; scrollbar-width:none; }
+.ph-th { width:66px; height:66px; border-radius:10px; flex-shrink:0; position:relative; }
+.ph-th.p1 { background:linear-gradient(135deg,#f6c1d0,#e98fae); }
+.ph-th.p2 { background:linear-gradient(135deg,#bfe3d5,#7cc4a8); }
+.ph-th.p3 { background:linear-gradient(135deg,#c9c6f6,#8c86e8); }
+.ph-th.cover::after { content:'Portada'; position:absolute; left:4px; bottom:4px; font-size:9px; background:rgba(0,0,0,.55); color:#fff; padding:1px 4px; border-radius:4px; }
+.ph-add { width:66px; height:66px; border-radius:10px; flex-shrink:0; border:1.5px dashed var(--border-strong); display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--brand); font-size:10.5px; gap:2px; }
+.ph-add i { font-size:20px; }
+
+/* Barra fija de publicar (todas las opciones) */
+.pubbar { flex-shrink:0; background:var(--surface); border-top:.5px solid var(--border); padding:9px 12px; display:flex; gap:8px; align-items:center; }
+.pubbar .miss { flex:1; min-width:0; font-size:12px; color:var(--warn); display:flex; gap:5px; align-items:center; font-weight:500; }
+.pubbar .miss i { font-size:16px; }
+.pubbar .miss.ok { color:var(--ok); }
+.pbtn { height:44px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; border:none; background:var(--brand); color:var(--brand-contrast); display:flex; align-items:center; justify-content:center; gap:6px; padding:0 14px; }
+.pbtn.dis { opacity:.45; }
+.pbtn.sec { background:var(--surface); color:var(--text); border:.5px solid var(--border-strong); font-weight:500; }
+.pbtn i { font-size:18px; }
+.split { display:flex; }
+.split .pbtn:first-child { border-radius:12px 0 0 12px; }
+.split .pbtn:last-child { border-radius:0 12px 12px 0; border-left:1px solid rgba(255,255,255,.3); padding:0 10px; }
+
+/* Hoja */
+.scrim { position:absolute; inset:0; background:rgba(10,12,20,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; padding:8px 16px 18px; max-height:88%; overflow-y:auto; display:flex; flex-direction:column; }
+.sheet.full { top:44px; max-height:none; }
+.grab { width:38px; height:5px; border-radius:3px; background:var(--border-strong); margin:0 auto 12px; flex-shrink:0; }
+.sheet-head { display:flex; gap:11px; align-items:center; margin-bottom:12px; }
+.sheet-head .t { flex:1; min-width:0; }
+.sheet-head .t b { font-size:15.5px; font-weight:600; display:block; }
+.sheet-head .t span { font-size:12px; color:var(--text-2); }
+.x { border:none; background:var(--surface-2); color:var(--text-2); width:32px; height:32px; border-radius:16px; font-size:16px; flex-shrink:0; }
+.miss-list { border:.5px solid var(--border); border-radius:12px; overflow:hidden; }
+.miss-row { display:flex; gap:10px; align-items:center; padding:11px 12px; border-top:.5px solid var(--border); font-size:13.5px; }
+.miss-row:first-child { border-top:none; }
+.miss-row .s { font-size:11px; color:var(--text-3); display:block; margin-top:1px; }
+.miss-row .t { flex:1; min-width:0; }
+.miss-row i.chev { color:var(--text-3); }
+.miss-row i.w { color:var(--warn); font-size:17px; }
+.explain { font-size:12px; color:var(--text-2); background:var(--surface-2); border-radius:10px; padding:9px 11px; margin-top:12px; line-height:1.45; display:flex; gap:7px; }
+.explain i { color:var(--text-3); font-size:15px; margin-top:1px; }
+
+/* ── A · asistente ── */
+.stepper { background:var(--surface); border-bottom:.5px solid var(--border); padding:10px 14px 11px; flex-shrink:0; }
+.stepper .lbl { display:flex; justify-content:space-between; font-size:12px; color:var(--text-2); margin-bottom:7px; }
+.stepper .lbl b { color:var(--text); font-size:14px; font-weight:600; }
+.segs { display:flex; gap:4px; }
+.segs span { flex:1; height:4px; border-radius:2px; background:var(--surface-2); }
+.segs span.done { background:var(--ok); }
+.segs span.on { background:var(--brand); }
+.segs span.warn { background:var(--warn); }
+.navbar { flex-shrink:0; background:var(--surface); border-top:.5px solid var(--border); padding:9px 12px; display:flex; gap:8px; }
+.navbar .pbtn { flex:1; }
+.rev-row { display:flex; gap:11px; align-items:center; padding:11px 12px; border-top:.5px solid var(--border); }
+.rev-row:first-child { border-top:none; }
+.rev-row .ic { width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }
+.ic.ok { background:var(--ok-bg); color:var(--ok); } .ic.warn { background:var(--warn-bg); color:var(--warn); }
+.rev-row .t { flex:1; min-width:0; }
+.rev-row .t b { font-size:13.5px; font-weight:600; display:block; }
+.rev-row .t span { font-size:11.5px; color:var(--text-2); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rev-row .t span.w { color:var(--warn); }
+.box { background:var(--surface); border:.5px solid var(--border); border-radius:14px; overflow:hidden; }
+.warnbox { font-size:12px; line-height:1.45; background:var(--warn-bg); color:var(--text); border-radius:11px; padding:9px 11px; display:flex; gap:7px; margin-top:12px; }
+.warnbox i { color:var(--warn); font-size:16px; }
+
+/* ── B · plegables ── */
+.idx { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; margin:-12px -14px 10px; padding:9px 14px; background:var(--surface); border-bottom:.5px solid var(--border); position:sticky; top:-12px; z-index:1; }
+.idx span { flex-shrink:0; font-size:12px; border:.5px solid var(--border); border-radius:16px; padding:5px 10px; display:inline-flex; gap:5px; align-items:center; color:var(--text-2); }
+.idx span i { font-size:13px; }
+.idx span.ok i { color:var(--ok); } .idx span.warn i { color:var(--warn); }
+.idx span.on { background:var(--brand-bg); color:var(--brand); border-color:transparent; font-weight:500; }
+.acc { background:var(--surface); border:.5px solid var(--border); border-radius:14px; margin-bottom:8px; overflow:hidden; }
+.acc.ml { border-top:3px solid var(--ml); } .acc.tn { border-top:3px solid var(--tn); }
+.acc-h { display:flex; gap:10px; align-items:center; padding:12px; min-height:58px; }
+.acc-h .t { flex:1; min-width:0; }
+.acc-h .t b { font-size:14px; font-weight:600; display:flex; gap:6px; align-items:center; }
+.acc-h .t span { font-size:11.5px; color:var(--text-2); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.acc-h > i { color:var(--text-3); font-size:17px; }
+.acc-h .st { font-size:16px; } .st.ok { color:var(--ok); } .st.warn { color:var(--warn); }
+.acc-b { padding:0 12px 12px; border-top:.5px solid var(--border); padding-top:12px; }
+
+/* ── C · resumen + hojas ── */
+.hero { display:flex; gap:12px; align-items:center; background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:12px; margin-bottom:12px; }
+.hero .ph-th { width:58px; height:58px; }
+.hero b { font-size:15px; font-weight:600; display:block; }
+.hero span { font-size:12px; color:var(--text-2); }
+.prog { height:5px; border-radius:3px; background:var(--surface-2); margin-top:7px; overflow:hidden; }
+.prog span { display:block; height:100%; background:var(--brand); border-radius:3px; }
+.sum-row { display:flex; gap:11px; align-items:center; padding:11px 12px; border-top:.5px solid var(--border); min-height:60px; }
+.sum-row:first-child { border-top:none; }
+.sum-row .ic { width:34px; height:34px; border-radius:10px; background:var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:17px; color:var(--text-2); flex-shrink:0; }
+.sum-row .t { flex:1; min-width:0; }
+.sum-row .t b { font-size:14px; font-weight:600; display:flex; gap:6px; align-items:center; }
+.sum-row .t span { font-size:11.5px; color:var(--text-2); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.sum-row .t span.w { color:var(--warn); }
+.sum-row > i.chev { color:var(--text-3); font-size:16px; }
+.sheet-foot { position:sticky; bottom:-18px; background:var(--surface); padding:10px 0 4px; margin-top:auto; display:flex; gap:8px; border-top:.5px solid var(--border); }
+.sheet-foot .pbtn { flex:1; }
+
+.notes { max-width:764px; margin:0 auto 40px; padding:0 16px; font-size:12.5px; color:var(--text-2); line-height:1.55; }
+.notes h3 { font-size:14px; color:var(--text); margin:18px 0 6px; font-weight:600; }
+.notes ul { margin:0; padding-left:18px; }
+.notes code { font-size:11.5px; background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Crear producto / Editar publicación en el celular — tres opciones</h1>
+    <p>Hoy en el celu el formulario es una sola columna de <b>~4700 px vacío</b> (6 pantallas; con variantes y características de ML, el doble): Datos comunes → Mercado Libre → Tienda Nube → Precios → Variantes → Alerta. <b>No hay forma de saber dónde estás ni qué falta</b> hasta llegar al final, donde está la lista "Faltan datos para publicar" y el botón Publicar. Las fotos quedan enterradas dentro de cada canal, la tabla de variantes se apila en tarjetas larguísimas, y en Editar publicación el panel "Cambios a aplicar" + Guardar también está al fondo. Las tres opciones reusan los mismos campos de hoy (no cambia qué se carga, cambia cómo se recorre) y comparten una <b>barra fija abajo con lo que falta y el botón Publicar</b> (en Editar: "Guardar cambios").</p>
+  </div>
+  <button class="theme-btn" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+</div>
+
+<div class="grid">
+
+<!-- ═══════════════════════ OPCIÓN A ═══════════════════════ -->
+<section class="opt">
+  <h2>A · Asistente por pasos</h2>
+  <p class="why">Un paso por pantalla: <b>Producto · Mercado Libre · Tienda Nube · Precio · Variantes · Revisar</b>. Arriba una barra de progreso (verde = completo, ámbar = le falta algo); abajo <b>Atrás / Siguiente</b> (se puede avanzar con cosas sin completar). El último paso es un resumen con cada sección, lo que falta y Publicar. Bueno para cargar <b>un producto nuevo de cero</b>; para corregir un dato suelto (o en Editar publicación) hay que ir al paso, y el resumen tiene links directos.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Crear producto</b><i class="ti ti-files"></i></div>
+        <div class="stepper">
+          <div class="lbl"><b>2 · Mercado Libre</b><span>paso 2 de 6</span></div>
+          <div class="segs"><span class="done"></span><span class="on"></span><span></span><span class="warn"></span><span></span><span></span></div>
+        </div>
+        <div class="scroll">
+          <div class="f"><label>¿Cómo se publica en ML?</label>
+            <div class="seg" style="margin:0"><span class="on">Agrupadas en una ficha</span><span>Independientes</span></div></div>
+          <div class="f"><label>Nombre de familia <span class="req">*</span> <span class="tag"><i class="ti ti-link"></i>del común</span></label><div class="inp com">Cuaderno A4 Tapa Dura Mármol <i class="ti ti-pencil"></i></div></div>
+          <div class="f"><label>Categoría ML <span class="req">*</span></label>
+            <div style="display:flex;gap:6px"><span class="chip-btn"><i class="ti ti-wand"></i>Sugerir por título</span><span class="chip-btn"><i class="ti ti-list-tree"></i>Explorar</span></div></div>
+          <div class="f"><label>Fotos de ML · 3 de 12</label>
+            <div class="photos"><div class="ph-add"><i class="ti ti-camera-plus"></i>Agregar</div><div class="ph-th p1 cover"></div><div class="ph-th p2"></div><div class="ph-th p3"></div></div></div>
+          <div class="f"><label>Tipo de publicación <span class="req">*</span></label><div class="inp">Clásica <i class="ti ti-chevron-down"></i></div></div>
+          <div class="f"><label>Envío</label><div class="inp">Mercado Envíos <i class="ti ti-chevron-down"></i></div></div>
+        </div>
+        <div class="navbar"><button class="pbtn sec"><i class="ti ti-arrow-left"></i>Atrás</button><button class="pbtn">Siguiente <i class="ti ti-arrow-right"></i></button></div>
+      </div>
+      <p class="cap">Paso 2. Las fotos de cada canal van en su paso, arriba de todo.</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrow-left"></i><b>Crear producto</b><i class="ti ti-files"></i></div>
+        <div class="stepper">
+          <div class="lbl"><b>6 · Revisar y publicar</b><span>paso 6 de 6</span></div>
+          <div class="segs"><span class="done"></span><span class="done"></span><span class="warn"></span><span class="done"></span><span class="done"></span><span class="on"></span></div>
+        </div>
+        <div class="scroll">
+          <div class="box">
+            <div class="rev-row"><div class="ic ok"><i class="ti ti-check"></i></div><div class="t"><b>Producto</b><span>Cuaderno A4 Tapa Dura Mármol · Nuevo · 480 g</span></div><i class="ti ti-pencil muted"></i></div>
+            <div class="rev-row"><div class="ic ok"><i class="ti ti-check"></i></div><div class="t"><b>Mercado Libre</b><span>Cuadernos · Clásica · 3 fotos</span></div><i class="ti ti-pencil muted"></i></div>
+            <div class="rev-row"><div class="ic warn"><i class="ti ti-alert-triangle"></i></div><div class="t"><b>Tienda Nube</b><span class="w">Elegí al menos una categoría</span></div><i class="ti ti-pencil muted"></i></div>
+            <div class="rev-row"><div class="ic ok"><i class="ti ti-check"></i></div><div class="t"><b>Precio</b><span>ML $8.900 · TN $8.200 · ganancia 42%</span></div><i class="ti ti-pencil muted"></i></div>
+            <div class="rev-row"><div class="ic ok"><i class="ti ti-check"></i></div><div class="t"><b>Variantes</b><span>3 colores · stock 12</span></div><i class="ti ti-pencil muted"></i></div>
+          </div>
+          <div class="f" style="margin-top:14px"><label><input type="checkbox" checked> Avisarme cuando quede poco stock (umbral 3)</label></div>
+          <div class="warnbox"><i class="ti ti-alert-triangle"></i><span>Al publicar se crean <b>publicaciones reales y activas</b> en Mercado Libre y Tienda Nube.</span></div>
+        </div>
+        <div class="navbar"><button class="pbtn sec" style="flex:0 0 auto"><i class="ti ti-arrow-left"></i></button><div class="split" style="flex:1"><button class="pbtn dis" style="flex:1"><i class="ti ti-rocket"></i>Publicar en ambos</button><button class="pbtn dis"><i class="ti ti-chevron-up"></i></button></div></div>
+      </div>
+      <p class="cap">Revisar: cada sección con su resumen o lo que le falta; tocar el lápiz vuelve a ese paso.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ OPCIÓN B ═══════════════════════ -->
+<section class="opt">
+  <h2>B · Secciones plegables + índice + barra de publicar</h2>
+  <p class="why">La misma página de hoy, pero <b>cada sección es una tarjeta plegable</b> que cerrada muestra su resumen y un ✓ o ⚠ (se abre una a la vez). Arriba, un <b>índice fijo</b> con chips para saltar a cada sección. Abajo, la <b>barra fija</b>: "Faltan 2" (tocarla abre una hoja con la lista; cada ítem lleva a su sección) y <b>Publicar</b> con el menú de canal. Es la que menos cambia la costumbre y sirve igual para un producto nuevo que para corregir un campo o editar una publicación.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Crear producto</b><i class="ti ti-files"></i></div>
+        <div class="scroll">
+          <div class="idx"><span class="ok"><i class="ti ti-circle-check"></i>Comunes</span><span class="on"><i class="ti ti-point-filled"></i>ML</span><span class="warn"><i class="ti ti-alert-triangle"></i>TN</span><span class="ok"><i class="ti ti-circle-check"></i>Precio</span><span class="ok"><i class="ti ti-circle-check"></i>Variantes</span><span>Alerta</span></div>
+          <div class="acc"><div class="acc-h"><div class="t"><b>Datos comunes</b><span>Cuaderno A4 Tapa Dura Mármol · Nuevo · 480 g</span></div><i class="ti ti-circle-check st ok"></i><i class="ti ti-chevron-down"></i></div></div>
+          <div class="acc ml"><div class="acc-h"><div class="t"><b><span class="dot ml"></span>Mercado Libre</b><span>1 publicación · ficha agrupada</span></div><i class="ti ti-chevron-up"></i></div>
+            <div class="acc-b">
+              <div class="f"><label>Fotos · 3 de 12</label><div class="photos"><div class="ph-add"><i class="ti ti-camera-plus"></i>Agregar</div><div class="ph-th p1 cover"></div><div class="ph-th p2"></div><div class="ph-th p3"></div></div></div>
+              <div class="f"><label>Nombre de familia <span class="req">*</span> <span class="tag"><i class="ti ti-link"></i>del común</span></label><div class="inp com">Cuaderno A4 Tapa Dura Mármol <i class="ti ti-pencil"></i></div></div>
+              <div class="f"><label>Categoría ML <span class="req">*</span></label><div class="inp">Cuadernos <i class="ti ti-x muted"></i></div></div>
+              <div class="f"><label>Tipo de publicación</label><div class="inp">Clásica <i class="ti ti-chevron-down"></i></div></div>
+            </div></div>
+          <div class="acc tn"><div class="acc-h"><div class="t"><b><span class="dot tn"></span>Tienda Nube</b><span style="color:var(--warn)">Falta la categoría</span></div><i class="ti ti-alert-triangle st warn"></i><i class="ti ti-chevron-down"></i></div></div>
+          <div class="acc"><div class="acc-h"><div class="t"><b>Precios y ganancia</b><span>ML $8.900 · TN $8.200 · 42%</span></div><i class="ti ti-circle-check st ok"></i><i class="ti ti-chevron-down"></i></div></div>
+        </div>
+        <div class="pubbar"><span class="miss"><i class="ti ti-alert-triangle"></i>Falta 1 dato</span><div class="split"><button class="pbtn dis"><i class="ti ti-rocket"></i>Publicar</button><button class="pbtn dis"><i class="ti ti-chevron-up"></i></button></div></div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">ML abierto (las fotos del canal arriba de todo); el resto plegado con su resumen.</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Crear producto</b><i class="ti ti-files"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="t"><b>Faltan 3 datos para publicar</b><span>Tocá uno para ir a completarlo</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="miss-list">
+            <div class="miss-row"><i class="ti ti-alert-triangle w"></i><div class="t">Elegí al menos una categoría de Tienda Nube<span class="s">Tienda Nube</span></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="miss-row"><i class="ti ti-alert-triangle w"></i><div class="t">Completá en Mercado Libre: Unidades por pack<span class="s">Mercado Libre · características</span></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="miss-row"><i class="ti ti-alert-triangle w"></i><div class="t">2 variante(s) sin precio de Tienda Nube<span class="s">Variantes</span></div><i class="ti ti-chevron-right chev"></i></div>
+          </div>
+          <div class="explain"><i class="ti ti-info-circle"></i><span>Al publicar se crean publicaciones reales y activas en los dos canales. El borrador se guarda solo.</span></div>
+        </div>
+      </div>
+      <p class="cap">Tocar "Faltan…" en la barra abre la lista; cada uno abre su sección y la lleva a la vista.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ OPCIÓN C ═══════════════════════ -->
+<section class="opt">
+  <h2>C · Resumen del producto + una hoja por sección</h2>
+  <p class="why">Como Depósito: la pantalla es <b>una ficha del producto</b> (foto de portada, nombre, SKU y una barrita de "qué tan listo está") y abajo <b>una fila por sección</b> con su resumen y estado. Tocar una fila abre <b>esa sección en una hoja de pantalla casi completa</b> con botón <b>Listo</b>. La página nunca es larga y lo que falta se ve sin scrollear; la contra es que no se ve el formulario "de corrido" y cada sección es un ir y venir.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Crear producto</b><i class="ti ti-files"></i></div>
+        <div class="scroll">
+          <div class="hero"><div class="ph-th p1"></div><div style="flex:1;min-width:0"><b>Cuaderno A4 Tapa Dura Mármol</b><span>3 variantes · CUA-A4-MAR</span><div class="prog"><span style="width:80%"></span></div></div></div>
+          <div class="box">
+            <div class="sum-row"><div class="ic"><i class="ti ti-stack-2"></i></div><div class="t"><b>Datos comunes</b><span>Nuevo · 480 g · 30×22×2 cm</span></div><span class="badge ok"><i class="ti ti-check"></i></span><i class="ti ti-chevron-right chev"></i></div>
+            <div class="sum-row"><div class="ic"><span class="dot ml"></span></div><div class="t"><b>Mercado Libre</b><span>Cuadernos · Clásica · 3 fotos</span></div><span class="badge ok"><i class="ti ti-check"></i></span><i class="ti ti-chevron-right chev"></i></div>
+            <div class="sum-row"><div class="ic"><span class="dot tn"></span></div><div class="t"><b>Tienda Nube</b><span class="w">Falta la categoría</span></div><span class="badge warn">1</span><i class="ti ti-chevron-right chev"></i></div>
+            <div class="sum-row"><div class="ic"><i class="ti ti-currency-dollar"></i></div><div class="t"><b>Precios y ganancia</b><span>Punto Cero · costo $5.100 · 42%</span></div><span class="badge ok"><i class="ti ti-check"></i></span><i class="ti ti-chevron-right chev"></i></div>
+            <div class="sum-row"><div class="ic"><i class="ti ti-arrows-split"></i></div><div class="t"><b>Variantes</b><span>Rosa · Verde · Lila · stock 12</span></div><span class="badge ok"><i class="ti ti-check"></i></span><i class="ti ti-chevron-right chev"></i></div>
+            <div class="sum-row"><div class="ic"><i class="ti ti-bell"></i></div><div class="t"><b>Alerta de stock</b><span>Avisar con 3 o menos</span></div><i class="ti ti-chevron-right chev"></i></div>
+          </div>
+        </div>
+        <div class="pubbar"><span class="miss"><i class="ti ti-alert-triangle"></i>Falta 1 dato</span><div class="split"><button class="pbtn dis"><i class="ti ti-rocket"></i>Publicar</button><button class="pbtn dis"><i class="ti ti-chevron-up"></i></button></div></div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">La ficha: todo el producto en una pantalla.</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Crear producto</b><i class="ti ti-files"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet full">
+          <div class="grab"></div>
+          <div class="sheet-head"><span class="dot tn" style="width:12px;height:12px"></span><div class="t"><b>Tienda Nube</b><span>1 producto con variantes</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="f"><label>Fotos · 3 de 9</label><div class="photos"><div class="ph-add"><i class="ti ti-camera-plus"></i>Agregar</div><div class="ph-th p1 cover"></div><div class="ph-th p2"></div><div class="ph-th p3"></div></div></div>
+          <div class="f"><label>Nombre <span class="req">*</span> <span class="tag"><i class="ti ti-link"></i>del común</span></label><div class="inp com">Cuaderno A4 Tapa Dura Mármol <i class="ti ti-pencil"></i></div></div>
+          <div class="f"><label>Categorías TN <span class="req">*</span></label><span class="chip-btn"><i class="ti ti-plus"></i>Elegir categorías</span></div>
+          <div class="f"><label>Descripción</label><div class="inp com" style="min-height:70px;align-items:flex-start">Cuaderno tapa dura de 80 hojas…</div></div>
+          <div class="f"><label>SEO — título</label><div class="inp ph">Ej. Cuaderno A4 Tapa Dura</div></div>
+          <div class="sheet-foot"><button class="pbtn">Listo</button></div>
+        </div>
+      </div>
+      <p class="cap">Hoja de una sección: los mismos campos de hoy, con "Listo" abajo.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="notes">
+  <h3>Elegida: B</h3>
+  <ul>
+    <li>Se implementó la <b>B</b> (2026-11-19). Diferencias con lo de abajo: "Mis borradores" sigue como botón al lado del título, el progreso de la publicación queda en su panel de la página (la barra lleva a él mientras publica) y las leyendas de ayuda no se tocaron.</li>
+  </ul>
+  <h3>En las tres</h3>
+  <ul>
+    <li><b>Barra fija abajo</b> (arriba de las pestañas): cuántos datos faltan + <b>Publicar</b> con el menú "Solo ML / Solo TN". En <b>Editar publicación</b> la misma barra dice "N cambios · <b>Guardar</b>" y "Cambios a aplicar" se abre en una hoja.</li>
+    <li>"Mis borradores" pasa al ícono <i class="ti ti-files"></i> de arriba y se abre en una hoja. El progreso de la publicación (X de Y, errores, Reintentar) también va en una hoja que se abre sola al publicar.</li>
+    <li>Fotos: el botón "Agregar" abre el selector del teléfono, que ya ofrece <b>Sacar foto / Fototeca</b> (no hace falta un botón de cámara aparte).</li>
+    <li>Las leyendas largas de ayuda quedan detrás de un <i class="ti ti-info-circle"></i> para acortar la página.</li>
+  </ul>
+  <h3>Tablet</h3>
+  <ul>
+    <li>En 768–1023px el formulario de escritorio ya entra bien (grillas de 2 columnas, menú lateral angosto): <b>no necesita un diseño propio</b>. Solo se le suma la barra fija de publicar, para no tener que bajar hasta el final. El escritorio (&gt; 1023px con mouse) no cambia.</li>
+  </ul>
+</div>
+</body>
+</html>
