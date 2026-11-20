@@ -24,6 +24,15 @@ function makeRouterSpy(initialUrl: string) {
 }
 
 describe('DashboardComponent', () => {
+  /** Escritorio por defecto: el navegador de los tests es más angosto que 760px. */
+  let phone = false;
+  beforeEach(() => {
+    phone = false;
+    spyOn(window, 'matchMedia').and.callFake(
+      () => ({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList,
+    );
+  });
+
   let fixture: ComponentFixture<DashboardComponent>;
   let component: DashboardComponent;
   let authSpy: jasmine.SpyObj<AuthService>;
@@ -359,6 +368,57 @@ describe('DashboardComponent', () => {
 
       expect(component.syncing).toBeFalse();
       expect(component.error).toBe('fallo de sync');
+    });
+  });
+
+  describe('en el celular', () => {
+    it('lista los canales: vencido con Reconectar en la fila, conectado abre una hoja', () => {
+      phone = true;
+      setup('/', { mercadolibre: true, tiendanube: false, tiendanubeExpired: true });
+      fixture.detectChanges();
+      const el: HTMLElement = fixture.nativeElement;
+
+      const rows = el.querySelectorAll('.cx-row');
+      expect(rows[0].textContent).toContain('Mercado Libre');
+      expect(rows[0].textContent).toContain('Conectado');
+      expect(rows[1].textContent).toContain('Sesión vencida');
+      expect(rows[1].querySelector('.cx-btn')?.textContent).toContain('Reconectar');
+      expect(el.querySelector('.connections-grid')).toBeNull();
+
+      (rows[0] as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.sheet()).toBe('ml');
+      expect(el.querySelector('zc-bottom-sheet')?.textContent).toContain('Desconectar');
+    });
+
+    it('desconectar pide confirmar antes de cortar el canal', () => {
+      phone = true;
+      setup('/', okStatus);
+      authSpy.disconnectMercadoLibre.and.returnValue(of({ ok: true }));
+      fixture.detectChanges();
+      component.openSheet('ml');
+      fixture.detectChanges();
+      const el: HTMLElement = fixture.nativeElement;
+
+      (el.querySelector('zc-bottom-sheet .cx-danger') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(authSpy.disconnectMercadoLibre).not.toHaveBeenCalled();
+      expect(el.querySelector('.cx-confirm')?.textContent).toContain('¿Desconectar Mercado Libre?');
+
+      const confirm = el.querySelectorAll<HTMLButtonElement>('.cx-btns button')[1];
+      confirm.click();
+      expect(authSpy.disconnectMercadoLibre).toHaveBeenCalled();
+      expect(component.sheet()).toBeNull();
+    });
+
+    it('con los dos canales conectados ofrece Sincronizar precios en una hoja', () => {
+      phone = true;
+      setup('/', okStatus);
+      fixture.detectChanges();
+      const row = [...fixture.nativeElement.querySelectorAll('.cx-row')].find((r: Element) => r.textContent?.includes('Sincronizar')) as HTMLButtonElement;
+      row.click();
+      fixture.detectChanges();
+      expect(component.sheet()).toBe('sync');
     });
   });
 });

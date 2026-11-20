@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { ApplyResult, PreviewRow, PreviewRowPack, PricingService, PricingTarget, UncostedProduct } from '../../../core/services/pricing.service';
 import { ProductHistoryDialogComponent } from '../../precio-stock/components/product-history-dialog/product-history-dialog.component';
 import { AssignDialogComponent, AssignMode } from '../dialogs/assign-dialog.component';
+import { PlanillaPhoneComponent } from './planilla-phone.component';
 import { PreciosStore } from '../precios.store';
 import { PHONE_QUERY, mediaSignal } from '../../../shared/utils/media-signal';
 import { PriceGroup, apiError, buildPriceGroups, discountChain, discountPcts, isPendingRow } from '../precios.utils';
@@ -26,7 +27,7 @@ interface UncostedGroup {
   selector: 'zc-precios-planilla',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CurrencyPipe, FormsModule, NgTemplateOutlet, ProductHistoryDialogComponent, AssignDialogComponent],
+  imports: [CurrencyPipe, FormsModule, NgTemplateOutlet, ProductHistoryDialogComponent, AssignDialogComponent, PlanillaPhoneComponent],
   templateUrl: './precios-planilla.component.html',
   styleUrl: './precios-planilla.component.scss',
 })
@@ -52,18 +53,19 @@ export class PreciosPlanillaComponent {
   readonly assignMode = signal<AssignMode | null>(null);
 
   /**
-   * En tablet (≤ 1023px) se esconden Bulto y Descuento, y en el celular (≤ 760px) también "Te
-   * queda" (por CSS). Las celdas con colspan de los encabezados de pack se ajustan a eso: con
-   * `display: none` esas columnas dejan de existir y un colspan fijo correría las de precio.
+   * En tablet (≤ 1023px) se esconden Bulto y Descuento (por CSS). Las celdas con colspan de los
+   * encabezados de pack se ajustan a eso: con `display: none` esas columnas dejan de existir y un
+   * colspan fijo correría las de precio. En el celular (≤ 760px) la tabla no se muestra: va
+   * `zc-planilla-phone`.
    */
   private readonly narrow = mediaSignal('(max-width: 1023px)');
-  private readonly phone = mediaSignal(PHONE_QUERY);
+  readonly phone = mediaSignal(PHONE_QUERY);
   /** Producto … Costo u. en el encabezado de un pack (4 en escritorio). */
   readonly packSpan = computed(() => (this.narrow() ? 2 : 4));
-  /** "Te queda" + acciones (2 en escritorio). */
-  readonly tailSpan = computed(() => (this.phone() ? 1 : 2));
+  /** "Te queda" + acciones. */
+  readonly tailSpan = 2;
   /** Toda la fila (9 en escritorio). */
-  readonly fullSpan = computed(() => 9 - (this.narrow() ? 2 : 0) - (this.phone() ? 1 : 0));
+  readonly fullSpan = computed(() => 9 - (this.narrow() ? 2 : 0));
 
   constructor() {
     // La selección es de la pestaña: al cambiar de proveedor se empieza de cero.

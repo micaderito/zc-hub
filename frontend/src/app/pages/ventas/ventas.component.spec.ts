@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import { VentasComponent } from './ventas.component';
+import { formatDay } from './ventas.utils';
 import { SalesReport, SalesService } from '../../core/services/sales.service';
 
 const REPORT: SalesReport = {
@@ -18,6 +19,15 @@ const REPORT: SalesReport = {
 };
 
 describe('VentasComponent — gráfico diario', () => {
+  /** Escritorio por defecto: el navegador de los tests es más angosto que 760px. */
+  let phone = false;
+  beforeEach(() => {
+    phone = false;
+    spyOn(window, 'matchMedia').and.callFake(
+      () => ({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList,
+    );
+  });
+
   async function setup() {
     TestBed.configureTestingModule({
       imports: [VentasComponent],
@@ -36,7 +46,7 @@ describe('VentasComponent — gráfico diario', () => {
     });
     const fixture = TestBed.createComponent(VentasComponent);
     fixture.detectChanges();
-    for (let i = 0; i < 5 && !fixture.nativeElement.querySelector('.chart-bar'); i++) {
+    for (let i = 0; i < 5 && !fixture.nativeElement.querySelector('.chart-bar, .vp-hero'); i++) {
       await fixture.whenStable();
       await new Promise((r) => setTimeout(r));
       fixture.detectChanges();
@@ -60,5 +70,20 @@ describe('VentasComponent — gráfico diario', () => {
     bars[1].click();
     fixture.detectChanges();
     expect(el.querySelector('.chart-pick')).toBeNull();
+  });
+
+  it('en el celular muestra zc-ventas-phone en vez del encabezado y la tabla', async () => {
+    phone = true;
+    const fixture = await setup();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('zc-ventas-phone')).not.toBeNull();
+    expect(el.querySelector('.page-header')).toBeNull();
+    expect(el.querySelector('.prov-table')).toBeNull();
+    expect(el.querySelector('.vp-big')?.textContent).toContain('$3.000');
+  });
+
+  it('formatDay no corre el día por la zona horaria', () => {
+    expect(formatDay('2026-10-01T00:00:00.000Z')).toBe('1/10');
+    expect(formatDay('2026-10-31')).toBe('31/10');
   });
 });

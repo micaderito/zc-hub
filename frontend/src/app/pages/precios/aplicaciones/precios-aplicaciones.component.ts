@@ -6,6 +6,8 @@ import {
   ApplyChannelCounts, ApplyItemStatus, ApplyRun, ApplyRunItem, PricingService,
 } from '../../../core/services/pricing.service';
 import { PaginationComponent } from '../../../shared/components/pagination/pagination.component';
+import { BottomSheetComponent } from '../../../shared/components/bottom-sheet/bottom-sheet.component';
+import { PHONE_QUERY, mediaSignal } from '../../../shared/utils/media-signal';
 import { apiError } from '../precios.utils';
 
 const PAGE_SIZE = 20;
@@ -33,14 +35,17 @@ const PROBLEMS: ApplyItemStatus[] = ['failed', 'retrying', 'skipped'];
   selector: 'zc-precios-aplicaciones',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CurrencyPipe, DatePipe, PaginationComponent],
+  imports: [CurrencyPipe, DatePipe, PaginationComponent, BottomSheetComponent],
   templateUrl: './precios-aplicaciones.component.html',
-  styleUrl: './precios-aplicaciones.component.scss',
+  styleUrls: ['./precios-aplicaciones.component.scss', './precios-aplicaciones-phone.component.scss'],
 })
 export class PreciosAplicacionesComponent {
   private readonly pricing = inject(PricingService);
 
   readonly statusLabel = APPLY_STATUS_LABEL;
+  /** En el celular cada aplicación es una tarjeta y el detalle va en una hoja (sin la tabla). */
+  readonly phone = mediaSignal(PHONE_QUERY);
+  readonly openRun = computed(() => this.runs().find((r) => r.id === this.expanded()) ?? null);
   readonly page = signal(1);
   readonly expanded = signal<number | null>(null);
   readonly onlyProblems = signal(true);

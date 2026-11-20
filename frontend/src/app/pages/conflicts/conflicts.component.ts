@@ -31,6 +31,8 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 export type Tab = 'resumen' | 'coincidencias' | 'solo-ml' | 'solo-tn' | 'sin-sku' | 'duplicados';
 
 import { ProductThumbComponent } from '../../shared/components/product-thumb/product-thumb.component';
+import { ConflictsPhoneComponent } from './phone/conflicts-phone.component';
+import { mediaSignal, PHONE_QUERY } from '../../shared/utils/media-signal';
 @Component({
   selector: 'app-conflicts',
   standalone: true,
@@ -47,7 +49,8 @@ import { ProductThumbComponent } from '../../shared/components/product-thumb/pro
     SoloTnTabComponent,
     SinSkuTabComponent,
     DuplicadosTabComponent,
-    ProductThumbComponent
+    ProductThumbComponent,
+    ConflictsPhoneComponent
   ],
   templateUrl: './conflicts.component.html',
   styleUrl: './conflicts.component.scss'
@@ -59,6 +62,11 @@ export class ConflictsComponent implements OnInit {
   fetching = false;
   error: string | null = null;
   readonly activeTab = signal<Tab>('resumen');
+  /**
+   * En el celular la lista es `zc-conflicts-phone` (números que filtran + secciones): pide la pestaña
+   * `resumen`, que trae todo sin paginar, y busca en el navegador. El escritorio no cambia.
+   */
+  readonly phone = mediaSignal(PHONE_QUERY);
   readonly currentPage = signal(1);
   readonly searchQuery = signal('');
   readonly debouncedSearch = toSignal(
@@ -116,13 +124,11 @@ export class ConflictsComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
 
   readonly analysisQuery = injectQuery(() => ({
-    queryKey: [...CONFLICTS_ANALYSIS_QUERY_KEY, this.activeTab(), this.currentPage(), this.debouncedSearch()],
-    queryFn: () => this.conflicts.getAnalysisPromise({
-      tab: this.activeTab(),
-      page: this.currentPage(),
-      limit: 25,
-      search: this.debouncedSearch() || undefined,
-    }),
+    queryKey: [...CONFLICTS_ANALYSIS_QUERY_KEY, ...this.queryArgs()],
+    queryFn: () => {
+      const [tab, page, search] = this.queryArgs();
+      return this.conflicts.getAnalysisPromise({ tab, page, limit: 25, search: search || undefined });
+    },
     refetchOnWindowFocus: false,
     /** No refetch al entrar si los datos son recientes. Tras 1 h se consideran viejos y puede refetchear al volver. */
     staleTime: 60 * 60 * 1000,
@@ -140,6 +146,10 @@ export class ConflictsComponent implements OnInit {
         : null;
       this.cdr.markForCheck();
     });
+  }
+
+  private queryArgs(): [Tab, number, string] {
+    return this.phone() ? ['resumen', 1, ''] : [this.activeTab(), this.currentPage(), this.debouncedSearch()];
   }
 
   onTabChange(tab: Tab): void {
