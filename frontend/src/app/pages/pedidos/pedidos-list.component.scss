@@ -59,17 +59,70 @@
 
 
 // ── Celular ──
-.toolbar > .seg {
-  @include m.phone { display: flex; max-width: 100%; }
-  @include m.scroll-row;
-}
-
+// La tabla, los chips de estado y el encabezado no se renderizan en el celu (ver
+// zc-pedidos-list-phone); acá solo lo que rodea a la lista: buscador, proveedor y botón flotante.
 @include m.phone {
-  .toolbar > .long-hint { display: none; }
-  .toolbar zc-search-bar { max-width: none; min-width: 0; }
-  .supplier-select { flex: 1 1 auto; }
-  .table-scroll { background: none; border: none; box-shadow: none; padding: 0; }
   .supplier-option { flex-wrap: wrap; .hint { margin-left: 1.6rem; flex-basis: 100%; } }
 }
 
-@include m.stack-table('.zc-table');
+.ph-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+
+  zc-search-bar { flex: 1; min-width: 0; }
+}
+
+// Chip de proveedor: un <select> nativo transparente por encima (en iOS abre la ruedita).
+.ph-supplier {
+  position: relative;
+  flex-shrink: 0;
+  max-width: 45%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 40px;
+  padding: 0 11px;
+  font-size: 0.8rem;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 20px;
+
+  span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  &.on { background: var(--brand-bg); color: var(--brand); border-color: transparent; font-weight: 500; }
+
+  select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    opacity: 0;
+    font-size: 16px;
+  }
+}
+
+.ph-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--zc-tabbar-h) + 16px);
+  z-index: 20;
+  height: 50px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 25px;
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--shadow-pop);
+
+  i { font-size: 1.15rem; }
+}
+
+// Lugar para que el botón flotante no tape la última tarjeta.
+:host:has(.ph-fab) { display: block; padding-bottom: 4.5rem; }

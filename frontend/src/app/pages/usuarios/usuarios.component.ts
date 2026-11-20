@@ -6,6 +6,8 @@ import { firstValueFrom } from 'rxjs';
 import { UsuariosService, AppUser } from '../../core/services/usuarios.service';
 import { SessionService, UserRole } from '../../core/services/session.service';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
+import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 
 /** Estado del formulario de alta/edición de un usuario. */
 interface UserForm {
@@ -25,11 +27,14 @@ function emptyForm(): UserForm {
 /**
  * Panel de administración de usuarios del hub (solo admins: ruta con adminGuard). Calcado de la página de Depósito
  * Marañón: mismo patrón de signals, modal de alta/edición y refetch tras guardar.
+ *
+ * En el celular (`phone()`) la tabla pasa a una lista compacta: tocar un usuario abre una hoja con
+ * Editar / Cerrar sesiones / Borrar, y "Nuevo" es un botón flotante. El escritorio no cambia.
  */
 @Component({
   selector: 'app-usuarios',
   standalone: true,
-  imports: [FormsModule, DatePipe, ConfirmDialogComponent],
+  imports: [FormsModule, DatePipe, ConfirmDialogComponent, BottomSheetComponent],
   templateUrl: './usuarios.component.html',
   styleUrl: './usuarios.component.scss',
 })
@@ -38,6 +43,17 @@ export class UsuariosComponent {
   private readonly session = inject(SessionService);
 
   readonly currentUserId = computed(() => this.session.user()?.id ?? null);
+
+  readonly phone = mediaSignal(PHONE_QUERY);
+  /** Usuario cuya hoja de acciones está abierta (solo celular). */
+  readonly openSheet = signal<AppUser | null>(null);
+
+  /** "MI" para Mica, "DM" para Depósito Marañón. */
+  initials(item: AppUser): string {
+    const words = (item.displayName || item.username).trim().split(/\s+/);
+    const letters = words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2);
+    return letters.toUpperCase();
+  }
 
   readonly itemsQuery = injectQuery(() => ({
     queryKey: ['usuarios', 'items'],

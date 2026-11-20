@@ -88,7 +88,7 @@ $cell-h: 30px;
     grid-template-columns: 1fr;
 
     .main-col { display: contents; }
-    .lines-card, .open-catalog { order: 1; }
+    .lines-card { order: 1; }
     .side { order: 2; }
     .catalog { order: 3; margin-top: 0.5rem; }
   }

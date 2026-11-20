@@ -148,6 +148,7 @@ describe('PrecioStockComponent', () => {
   let fixture: ComponentFixture<PrecioStockComponent>;
   let component: PrecioStockComponent;
   let conflictsSpy: jasmine.SpyObj<ConflictsService>;
+  let phone = false;
 
   beforeEach(() => {
     conflictsSpy = jasmine.createSpyObj<ConflictsService>('ConflictsService', [
@@ -168,6 +169,11 @@ describe('PrecioStockComponent', () => {
     // Cola vacía por defecto: sin tareas en vuelo la query no deja timers y los tests con
     // fakeAsync pueden drenar el polling de las tareas puntuales sin chocar con este.
     conflictsSpy.getActiveTasks.and.returnValue(of({ tasks: [] }));
+    // Escritorio por defecto: el navegador de Karma puede ser más angosto que 760px (ver `phone`).
+    phone = false;
+    spyOn(window, 'matchMedia').and.callFake(
+      () => ({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList,
+    );
 
     TestBed.configureTestingModule({
       imports: [PrecioStockComponent],
@@ -823,6 +829,92 @@ describe('PrecioStockComponent', () => {
 
       component.clearSelection();
       expect(component.selectedSkus().size).toBe(0);
+    });
+  });
+
+  describe('en el celular (fila + hoja)', () => {
+    beforeEach(() => (phone = true));
+
+    const el = (): HTMLElement => fixture.nativeElement;
+
+    it('cambia las tarjetas por filas compactas y saca el título y la explicación', async () => {
+      await createAndLoad();
+      expect(el().querySelectorAll('zc-pair-row').length).toBe(3);
+      expect(el().querySelector('zc-pair-card')).toBeNull();
+      expect(el().querySelector('.page-header')).toBeNull();
+      expect(el().querySelector('zc-phone-filters')).not.toBeNull();
+      expect(el().querySelector('zc-product-filters')).toBeNull();
+    });
+
+    it('la fila marca el stock distinto con los dos números', async () => {
+      await createAndLoad();
+      const rows = el().querySelectorAll('zc-pair-row');
+      expect(rows[0].textContent).toContain('en los dos');
+      expect(rows[1].querySelector('.pr-row')!.classList).toContain('diff');
+      expect(rows[1].textContent).toContain('distinto');
+    });
+
+    it('tocar una fila abre la hoja; Sincronizar deja los dos en el número elegido y la cierra', async () => {
+      await createAndLoad();
+      (el().querySelectorAll('zc-pair-row .pr-main')[1] as HTMLButtonElement).click();
+      fixture.detectChanges();
+      const sheet = el().querySelector('zc-pair-sheet')!;
+      expect(sheet).not.toBeNull();
+      expect(sheet.textContent).toContain('SKU SKU2');
+
+      (sheet.querySelector('[aria-label="Uno más"]') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      const sync = Array.from(sheet.querySelectorAll('button')).find((b) => b.textContent?.includes('Sincronizar stock')) as HTMLButtonElement;
+      sync.click();
+      fixture.detectChanges();
+
+      // Arranca en el stock de ML (5) y se le sumó uno.
+      expect(conflictsSpy.updatePricesAndStock).toHaveBeenCalledWith(jasmine.objectContaining({ stockML: 6, stockTN: 6, itemId: 'MLA2' }));
+      expect(el().querySelector('zc-pair-sheet')).toBeNull();
+    });
+
+    it('desde la hoja se abre el historial (y la hoja se cierra)', async () => {
+      await createAndLoad();
+      (el().querySelector('zc-pair-row .pr-main') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      const hist = Array.from(el().querySelectorAll('zc-pair-sheet button')).find((b) => b.textContent?.includes('Historial')) as HTMLButtonElement;
+      hist.click();
+      fixture.detectChanges();
+      expect(component.historySku()).toBe('SKU1');
+      expect(component.phoneOpenId()).toBeNull();
+    });
+
+    it('los tildes aparecen con "Seleccionar" y "Listo" limpia la selección', async () => {
+      await createAndLoad();
+      expect(el().querySelector('.pr-check')).toBeNull();
+      component.togglePhoneSelecting();
+      fixture.detectChanges();
+      (el().querySelector('.pr-check') as HTMLInputElement).click();
+      fixture.detectChanges();
+      expect(component.selectedSkus().has('SKU1')).toBeTrue();
+      expect(el().querySelector('.bulk-bar-phone')).not.toBeNull();
+
+      component.togglePhoneSelecting();
+      fixture.detectChanges();
+      expect(component.selectedSkus().size).toBe(0);
+      expect(el().querySelector('.pr-check')).toBeNull();
+    });
+
+    it('el chip "Distinto" filtra por stock distinto', async () => {
+      await createAndLoad();
+      const chip = Array.from(el().querySelectorAll('zc-phone-filters .pf-chip')).find((b) => b.textContent?.includes('Distinto')) as HTMLButtonElement;
+      chip.click();
+      expect(component.stockFilter()).toBe('mismatch');
+    });
+
+    it('"Filtros" abre la hoja con Proveedor / Alerta / Pack', async () => {
+      await createAndLoad();
+      const chip = Array.from(el().querySelectorAll('zc-phone-filters .pf-chip')).find((b) => b.textContent?.includes('Filtros')) as HTMLButtonElement;
+      chip.click();
+      fixture.detectChanges();
+      const sinAlerta = Array.from(el().querySelectorAll('zc-phone-filters zc-bottom-sheet .pf-chip')).find((b) => b.textContent?.includes('Sin alerta')) as HTMLButtonElement;
+      sinAlerta.click();
+      expect(component.alertFilter()).toBe('without');
     });
   });
 });

@@ -21,7 +21,9 @@ describe('PedidosListComponent', () => {
   let component: PedidosListComponent;
   let orders: jasmine.SpyObj<OrdersService>;
 
-  async function create(suppliers: OrderSupplier[]): Promise<void> {
+  /** Por defecto escritorio (la tabla); el navegador de los tests puede ser más angosto que 760px. */
+  async function create(suppliers: OrderSupplier[], phone = false): Promise<void> {
+    spyOn(window, 'matchMedia').and.returnValue({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as MediaQueryList);
     orders = jasmine.createSpyObj<OrdersService>('OrdersService', ['list', 'suppliers', 'create', 'duplicate']);
     orders.list.and.resolveTo({ orders: [order(), order({ id: 2, supplierKey: 'filgo', status: 'pendiente' })] });
     orders.suppliers.and.resolveTo({ suppliers });
@@ -69,5 +71,17 @@ describe('PedidosListComponent', () => {
     await settle();
     expect(component.choosingSupplier()).toBeFalse();
     expect(orders.create).toHaveBeenCalledWith({ supplierKey: 'punto_cero' });
+  });
+
+  it('en el celular muestra los números por estado y la lista por secciones, sin la tabla', async () => {
+    await create([PC, FILGO], true);
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('table')).toBeNull();
+    expect(root.querySelector('zc-pedidos-list-phone')).not.toBeNull();
+    expect(root.querySelectorAll('.pl-card').length).toBe(2);
+    expect(root.querySelector('.ph-fab')!.textContent).toContain('Nuevo pedido');
+    component.supplierFilter.set('filgo');
+    fixture.detectChanges();
+    expect(root.querySelectorAll('.pl-card').length).toBe(1);
   });
 });

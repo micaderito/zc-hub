@@ -50,6 +50,14 @@ class HubMock {
   link = jasmine.createSpy('link').and.resolveTo({ ok: true, sku: 'RIV-AZU', pendingMl: true });
 }
 
+
+/** Karma corre más angosto que 760px: sin mock, todos los specs verían la versión de celular. */
+function mockMedia(phone: boolean): void {
+  const fake = (q: string) => ({ matches: phone && q.includes('760'), media: q, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList;
+  if (jasmine.isSpy(window.matchMedia)) (window.matchMedia as jasmine.Spy).and.callFake(fake);
+  else spyOn(window, 'matchMedia').and.callFake(fake);
+}
+
 describe('HubProductsComponent', () => {
   let fixture: ComponentFixture<HubProductsComponent>;
   let component: HubProductsComponent;
@@ -65,6 +73,7 @@ describe('HubProductsComponent', () => {
         { provide: HubProductsService, useValue: hub },
       ],
     }).compileComponents();
+    mockMedia(false);
     fixture = TestBed.createComponent(HubProductsComponent);
     component = fixture.componentInstance;
   });
@@ -150,7 +159,7 @@ describe('HubProductsComponent', () => {
   });
   it('en táctil, tocar una fila marca sus publicaciones y tocarla de nuevo las desmarca', () => {
     const row = detail().rows[0];
-    spyOn(window, 'matchMedia').and.returnValue({ matches: true } as MediaQueryList);
+    (window.matchMedia as jasmine.Spy).and.returnValue({ matches: true } as MediaQueryList);
     component.tapRow(row);
     expect(component.isHovered('ml', 'MLA1')).toBeTrue();
     expect(component.isHovered('tn', 10)).toBeTrue();
@@ -159,9 +168,95 @@ describe('HubProductsComponent', () => {
   });
 
   it('con mouse, el click en una fila no cambia el resaltado', () => {
-    spyOn(window, 'matchMedia').and.returnValue({ matches: false } as MediaQueryList);
+    (window.matchMedia as jasmine.Spy).and.returnValue({ matches: false } as MediaQueryList);
     component.tapRow(detail().rows[0]);
     expect(component.tappedRow()).toBeNull();
     expect(component.isHovered('ml', 'MLA1')).toBeFalse();
+  });
+
+  describe('en el celular', () => {
+    beforeEach(() => {
+      mockMedia(true);
+      fixture = TestBed.createComponent(HubProductsComponent);
+      component = fixture.componentInstance;
+    });
+
+    function listResponse(rows: HubProductSummary[]) {
+      return Promise.resolve({
+        rows, total: rows.length,
+        counts: { all: 9, orphan: 2, duplicate: 1, desync: 3, only_ml: 1, only_tn: 0, linked: 2 },
+        mlConnected: true, tnConnected: true, at: 1,
+      });
+    }
+
+    it('muestra los números que filtran y la lista en secciones, con Vinculados plegada', async () => {
+      hub.list.and.callFake(() => listResponse([
+        summary(),
+        summary({ key: 'ml:MLA2', name: 'Agenda', status: 'desync', mlStock: 7, tnStock: 5 }),
+        summary({ key: 'ml:MLA3', name: 'Repuesto', status: 'only_ml', tnCount: 0 }),
+        summary({ key: 'ml:MLA4', name: 'Lapicera', status: 'linked' }),
+      ]));
+      await render();
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('.hp-split')).toBeNull();
+      const tiles = Array.from(el.querySelectorAll('.ph-tile')).map((t) => Array.from(t.children).map((c) => c.textContent!.trim()).join(' '));
+      expect(tiles).toEqual(['2 Sin par', '3 Stock distinto', '1 SKU repetido']);
+      const sections = Array.from(el.querySelectorAll('.ph-section')).map((s) => Array.from(s.children).map((c) => c.textContent!.trim()).join(' '));
+      expect(sections).toEqual(['Para revisar 2', 'Solo en un canal 1', 'Vinculados 1']);
+      expect(el.querySelectorAll('.ph-card').length).toBe(3);
+      expect(el.textContent).toContain('stock 7 / 5');
+      expect(el.textContent).not.toContain('Lapicera');
+
+      (el.querySelector('.ph-collapsed') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(el.textContent).toContain('Lapicera');
+    });
+
+    it('tocar un número filtra por ese estado y tocarlo de nuevo saca el filtro', async () => {
+      await render();
+      const tile = () => fixture.nativeElement.querySelector('.ph-tile.warn') as HTMLButtonElement;
+      tile().click();
+      fixture.detectChanges();
+      expect(component.status()).toBe('desync');
+      expect(tile().classList).toContain('on');
+      tile().click();
+      expect(component.status()).toBe('');
+    });
+
+    it('abre el producto a pantalla completa con las variantes con problema primero', async () => {
+      await render();
+      (fixture.nativeElement.querySelector('.ph-card') as HTMLButtonElement).click();
+      await render();
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('.ph-tiles')).toBeNull();
+      expect(el.querySelector('.ph-detail-bar')!.textContent).toContain('Cuaderno Rivadavia A4');
+      const vars = el.querySelectorAll('.ph-var');
+      expect(vars.length).toBe(2);
+      // La de sin SKU (sin par) va primero, aunque en la lista venga segunda.
+      expect(vars[0].classList).toContain('err');
+      expect(vars[0].textContent).toContain('No está en TN');
+      expect(vars[1].classList).toContain('warn');
+      expect(vars[1].querySelectorAll('.ph-s.warn').length).toBe(2);
+      expect(el.querySelector('.ph-cta')?.textContent).toContain('Editar publicación');
+
+      (el.querySelectorAll('.ph-seg button')[1] as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(el.querySelectorAll('.ph-pub').length).toBe(3);
+      expect(el.querySelector('.ph-pub a')?.getAttribute('href')).toContain('MLA-1');
+
+      (el.querySelector('.ph-back') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.selectedKey()).toBeNull();
+      expect(el.querySelector('.ph-tiles')).not.toBeNull();
+    });
+
+    it('Vincular desde la tarjeta de la variante abre el diálogo', async () => {
+      await render();
+      component.open('ml:MLA1');
+      await render();
+      (fixture.nativeElement.querySelector('.ph-link') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.linking()?.ml?.variationId).toBe('2');
+    });
   });
 });

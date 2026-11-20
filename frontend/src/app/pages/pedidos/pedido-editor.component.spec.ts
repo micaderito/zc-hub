@@ -50,7 +50,9 @@ describe('PedidoEditorComponent', () => {
   let component: PedidoEditorComponent;
   let orders: OrdersMock;
 
-  async function create(order: SupplierOrder, units?: CatalogUnit[]): Promise<void> {
+  /** Por defecto escritorio (la tabla); el navegador de los tests puede ser más angosto que 760px. */
+  async function create(order: SupplierOrder, units?: CatalogUnit[], phone = false): Promise<void> {
+    spyOn(window, 'matchMedia').and.returnValue({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as MediaQueryList);
     orders = new OrdersMock();
     orders.current = order;
     if (units) orders.units = units;
@@ -259,5 +261,95 @@ describe('PedidoEditorComponent', () => {
     await create(draft({ supplierKey: 'filgo' }));
     expect(component.discountProfiles()).toEqual([]);
     expect(fixture.nativeElement.querySelector('.profile-row')).toBeNull();
+  });
+
+  describe('en el celular', () => {
+    const line = (over: Partial<SupplierOrder['lines'][number]> = {}): SupplierOrder['lines'][number] => ({
+      id: 1, kind: 'pack', packId: 1, sku: null, code: '4410', description: 'CUADERNO X8', detail: 'sin unicornios', qty: 2,
+      unitPrice: 96000, priceSource: 'precios', unitsPerPack: 8, origin: 'alerta', receivedQty: null, ...over,
+    });
+    const el = (sel: string) => fixture.nativeElement.querySelector(sel) as HTMLElement | null;
+    const all = (sel: string) => Array.from(fixture.nativeElement.querySelectorAll(sel)) as HTMLElement[];
+
+    it('muestra las líneas como lista (sin la tabla) y la barra con el total', async () => {
+      await create(draft({ lines: [line()] }), undefined, true);
+      expect(el('table')).toBeNull();
+      const rows = all('.ph-line');
+      expect(rows.length).toBe(1);
+      expect(rows[0].textContent).toContain('CUADERNO X8');
+      expect(rows[0].textContent).toContain('sin unicornios');
+      expect(el('.ph-bar')!.textContent).toContain('Marcar como pedido');
+    });
+
+    it('tocar una línea abre su hoja: +/− de packs, detalle y quitar', async () => {
+      await create(draft({ lines: [line(), line({ id: 2, code: 'GEL', description: 'LAPICERA', packId: null, kind: 'sku', sku: 'LG' })] }), undefined, true);
+      all('.ph-line')[0].click();
+      fixture.detectChanges();
+      expect(el('zc-bottom-sheet')!.textContent).toContain('Packs');
+      const plus = el('.ph-bigstep button[aria-label="Un pack más"]') as HTMLButtonElement;
+      plus.click();
+      expect(component.order()!.lines[0].qty).toBe(3);
+      component.stepLineQty(0, -5);
+      expect(component.order()!.lines[0].qty).toBe(1, 'nunca menos de 1');
+      component.removeSheetLine();
+      fixture.detectChanges();
+      expect(component.lineSheet()).toBeNull();
+      expect(component.order()!.lines.map((l) => l.code)).toEqual(['GEL']);
+    });
+
+    it('el ítem libre se agrega y abre su hoja para cargarlo', async () => {
+      await create(draft(), undefined, true);
+      component.addFreeItemAndEdit();
+      fixture.detectChanges();
+      expect(component.lineSheet()).toBe(0);
+      expect(el('.bs-title')!.textContent).toContain('Ítem libre');
+    });
+
+    it('"Agregar productos" abre el catálogo en una hoja y el + suma la sugerencia', async () => {
+      await create(draft(), undefined, true);
+      (all('.ph-add .ph-btn')[0] as HTMLButtonElement).click();
+      fixture.detectChanges();
+      const add = el('.ph-addb') as HTMLButtonElement;
+      expect(add.textContent).toContain('2');
+      add.click();
+      fixture.detectChanges();
+      expect(component.order()!.lines[0].qty).toBe(2);
+      expect(el('.ph-addb.in')!.textContent).toContain('2');
+    });
+
+    it('un pedido mandado no se edita: la hoja muestra los datos sin campos', async () => {
+      await create(draft({ status: 'pendiente', orderedAt: '2026-10-09T00:00:00Z', lines: [line()] }), undefined, true);
+      all('.ph-line')[0].click();
+      fixture.detectChanges();
+      expect(el('.ph-bigstep')).toBeNull();
+      expect(el('.ph-stats')!.textContent).toContain('Packs');
+      expect(el('.ph-bar')!.textContent).toContain('Registrar recepción');
+    });
+
+    it('recepción: +/− y "llegó completo" por línea; la barra cuenta las completas', async () => {
+      await create(draft({ status: 'pendiente', orderedAt: '2026-10-09T00:00:00Z', lines: [line(), line({ id: 2, qty: 3 })] }), undefined, true);
+      component.startReceiving();
+      fixture.detectChanges();
+      const lines = component.order()!.lines;
+      component.stepReceived(lines[0], 1);
+      component.stepReceived(lines[0], 5);
+      expect(component.received()[1]).toBe(2, 'no pasa de lo pedido');
+      fixture.detectChanges();
+      expect(all('.ph-tick').length).toBe(1, 'la completa ya no ofrece el tilde');
+      (all('.ph-tick')[0] as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.received()[2]).toBe(3);
+      expect(el('.ph-bar')!.textContent).toContain('2 de 2');
+    });
+
+    it('el menú ⋯ ofrece la vista para la fábrica y borrar el borrador', async () => {
+      await create(draft({ lines: [line()] }), undefined, true);
+      (el('.ph-more') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      const items = all('.ph-menu button').map((b) => b.textContent!.trim());
+      expect(items).toEqual(['Vista para la fábrica', 'Duplicar como borrador', 'Borrar borrador']);
+      component.askDeleteFromMenu();
+      expect(component.showDeleteConfirm()).toBeTrue();
+    });
   });
 });

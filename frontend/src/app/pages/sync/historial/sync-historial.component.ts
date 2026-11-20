@@ -7,7 +7,7 @@ import { PaginationComponent } from '../../../shared/components/pagination/pagin
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
 import { SyncStore } from '../sync.store';
-import { channelLabel, errorMessage, formatDate } from '../sync.utils';
+import { auditSourceLabel, canRevertAudit, errorMessage, formatDate, revertTitle } from '../sync.utils';
 
 /** Pestaña Historial: cada cambio de stock, con búsqueda, filtro por origen, revertir y reintentar una venta. */
 @Component({
@@ -107,29 +107,9 @@ export class SyncHistorialComponent {
     });
   }
 
-  revertTitle(row: SyncAuditRow): string {
-    const verb = row.stockAfter > row.stockBefore ? 'Descontar' : 'Sumar';
-    return `${verb} ${row.quantity} de nuevo en ${channelLabel(row.updatedChannel)}`;
-  }
-
-  /**
-   * Revertir deshace el descuento que hizo una venta. Un cambio manual no tiene venta detrás ni
-   * cantidad que deshacer: se corrige volviendo a fijar el stock desde Precio y stock. Tampoco se
-   * revierte lo que movió la plataforma por su cuenta (actor 'plataforma'): esa fila es el registro
-   * de lo que hizo ML/TN, no una escritura nuestra que se pueda deshacer. El backend también lo
-   * rechaza; esto evita ofrecer un botón que solo puede fallar.
-   */
-  canRevert(row: SyncAuditRow): boolean {
-    return row.source !== 'manual' && row.actor !== 'plataforma';
-  }
-
-  /** Etiqueta del chip de origen de cada fila del historial. */
-  auditSourceLabel(source: AuditSource): string {
-    if (source === 'manual') return 'Manual';
-    if (source === 'devolucion') return 'Devolución';
-    if (source === 'externo') return 'Externo';
-    return 'Venta';
-  }
+  readonly revertTitle = revertTitle;
+  readonly canRevert = canRevertAudit;
+  readonly auditSourceLabel = auditSourceLabel;
 
   stateChipClass(label: string | null | undefined): string {
     if (!label) return 'state-chip n';

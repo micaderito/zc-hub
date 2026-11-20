@@ -59,7 +59,12 @@ describe('DespachosComponent', () => {
     fixture.detectChanges();
   }
 
+  /** El navegador de Karma es más angosto que 760px: sin esto, todo se vería como en el celular. */
+  let phone = false;
+
   beforeEach(async () => {
+    phone = false;
+    spyOn(window, 'matchMedia').and.callFake(() => ({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList);
     svc = new DispatchMock();
     await TestBed.configureTestingModule({
       imports: [DespachosComponent],
@@ -71,6 +76,13 @@ describe('DespachosComponent', () => {
     fixture = TestBed.createComponent(DespachosComponent);
     component = fixture.componentInstance;
   });
+
+  function asPhone() {
+    phone = true;
+    fixture.destroy();
+    fixture = TestBed.createComponent(DespachosComponent);
+    component = fixture.componentInstance;
+  }
 
   afterEach(() => TestBed.inject(PhotoLightboxService).close());
 
@@ -187,7 +199,6 @@ describe('DespachosComponent', () => {
     expect(text).toContain('Despachado 17:01');
     const row = fixture.nativeElement.querySelector('.pk.dispatched');
     expect(row.querySelector('.pk-check')).toBeNull();
-    expect(row.querySelector('.pk-done')).toBeNull();
     expect(row.textContent).not.toContain('Venció');
   });
 
@@ -236,15 +247,41 @@ describe('DespachosComponent', () => {
     expect(component.sections().length).toBe(0);
   });
 
-  it('el botón grande de preparado (celular) usa el mismo toggle y cambia su rótulo', async () => {
-    await load([pkg({ saleId: 'a', preparedAt: '2026-10-09T13:00:00Z' }), pkg({ saleId: 'b' })]);
-    const btns = fixture.nativeElement.querySelectorAll('.pk-done') as NodeListOf<HTMLButtonElement>;
-    expect(btns[0].textContent).toContain('deshacer');
-    expect(btns[0].classList).toContain('undo');
-    expect(btns[1].textContent).toContain('Marcar preparado');
-    spyOn(component, 'togglePrepared').and.resolveTo();
-    btns[1].click();
-    expect(component.togglePrepared).toHaveBeenCalledWith(jasmine.objectContaining({ saleId: 'b' }));
+  describe('en el celular', () => {
+    beforeEach(() => asPhone());
+
+    it('muestra la lista compacta en vez de las tarjetas y el encabezado de escritorio', async () => {
+      await load([pkg({ saleId: 'a' }), pkg({ saleId: 'b', items: [pkg().items[0], { ...pkg().items[0], sku: 'X', title: 'Repuesto' }] })]);
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('zc-despachos-phone')).not.toBeNull();
+      expect(el.querySelector('article.pk')).toBeNull();
+      expect(el.querySelector('.ds-kpis')).toBeNull();
+      expect(el.querySelectorAll('.dp-row').length).toBe(2);
+      expect(el.querySelector('.ds-phone-head .ds-icon-btn')).not.toBeNull();
+    });
+
+    it('el tilde de la fila usa el mismo toggle del hub', async () => {
+      await load([pkg({ saleId: 'a' })]);
+      spyOn(component, 'togglePrepared').and.resolveTo();
+      (fixture.nativeElement.querySelector('.dp-tick') as HTMLButtonElement).click();
+      expect(component.togglePrepared).toHaveBeenCalledWith(jasmine.objectContaining({ saleId: 'a' }));
+    });
+
+    it('Próximos días desde el número de arriba cambia la pestaña', async () => {
+      await load([pkg({ saleId: 'a' }), pkg({ saleId: 'd', bucket: 'upcoming', bufferedDay: '2026-10-12' })]);
+      const tiles = fixture.nativeElement.querySelectorAll('.dp-tile') as NodeListOf<HTMLButtonElement>;
+      tiles[2].click();
+      fixture.detectChanges();
+      expect(component.tab()).toBe('upcoming');
+      expect(fixture.nativeElement.textContent).toContain('12/10');
+    });
+
+    it('"Entendido" en un cancelado lo guarda', async () => {
+      await load([pkg({ saleId: 'x', cancelled: true, bucket: 'cancelled', state: { label: 'Cancelado', tone: 'err' } })]);
+      (fixture.nativeElement.querySelector('.dp-cancel button') as HTMLButtonElement).click();
+      await settle();
+      expect(svc.markCancelSeen).toHaveBeenCalledWith(jasmine.objectContaining({ saleId: 'x' }));
+    });
   });
 
   it('un preparado queda en su lugar y la card se marca como preparada', async () => {

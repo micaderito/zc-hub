@@ -1,5 +1,8 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { HubProductsComponent } from './productos/hub-products.component';
 import { PublicacionesComponent } from './publicaciones.component';
@@ -17,6 +20,7 @@ type TabKey = 'productos' | 'historial';
   imports: [TabsComponent, HubProductsComponent, PublicacionesComponent],
   template: `
     <div class="pp">
+      @if (!(phone() && detailOpen())) {
       <header class="pp-head">
         <div>
           <h1>Publicaciones</h1>
@@ -24,6 +28,7 @@ type TabKey = 'productos' | 'historial';
         </div>
         <zc-tabs [tabs]="tabs()" [activeKey]="tab()" (tabChange)="setTab($event)" />
       </header>
+      }
       @if (tab() === 'productos') {
         <zc-hub-products />
       } @else {
@@ -45,12 +50,22 @@ type TabKey = 'productos' | 'historial';
       p { margin: 3px 0 0; font-size: 12px; color: var(--text-2); }
     }
     // El shell ya pone su margen en el celular: acá no se suma otro.
-    @include m.phone { :host { padding: 0 0 24px; } }
+    @include m.phone {
+      :host { padding: 0 0 24px; }
+      // En el celu el título ya está en la barra de arriba: queda solo el de la página, sin la explicación.
+      .pp-head { margin-bottom: 12px; p { display: none; } }
+      .pp-head > zc-tabs { flex-basis: 100%; }
+    }
   `],
 })
 export class PublicacionesPageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  readonly phone = mediaSignal(PHONE_QUERY);
+  /** En el celu el producto abierto (`?p=`) ocupa la pantalla entera: sin encabezado ni pestañas. */
+  readonly detailOpen = toSignal(this.route.queryParamMap.pipe(map((q) => !!q.get('p') && q.get('tab') !== 'historial')), {
+    initialValue: !!this.route.snapshot.queryParamMap.get('p'),
+  });
 
   /** En un celular muy angosto el rótulo largo no entra al lado de "Productos". */
   private readonly narrow = signal(false);

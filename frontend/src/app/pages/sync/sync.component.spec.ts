@@ -8,7 +8,7 @@ import { SyncHistorialComponent } from './historial/sync-historial.component';
 import { SyncDevolucionesComponent } from './devoluciones/sync-devoluciones.component';
 import { SyncColaComponent } from './cola/sync-cola.component';
 import {
-  auditRow, configConDb, configSinDb, createSyncServiceSpy, failedTask, flushQuery, returnRow, syncTestProviders
+  auditRow, configConDb, configSinDb, createSyncServiceSpy, failedTask, flushQuery, mockPhone, returnRow, syncTestProviders
 } from './sync.testing';
 
 describe('SyncComponent', () => {
@@ -18,6 +18,7 @@ describe('SyncComponent', () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
+    mockPhone(false);
     syncServiceSpy = createSyncServiceSpy();
     TestBed.configureTestingModule({
       imports: [SyncComponent],

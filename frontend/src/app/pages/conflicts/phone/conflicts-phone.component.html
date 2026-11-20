@@ -1,0 +1,106 @@
+<div class="cp-tiles">
+  @for (t of tiles; track t.key) {
+    <button type="button" class="cp-tile {{ t.tone }}" [class.on]="filter() === t.key" [class.zero]="!counts()[t.key]" (click)="toggle(t.key)">
+      <b>{{ counts()[t.key] }}</b><span>{{ t.label }}</span>
+    </button>
+  }
+</div>
+
+<label class="cp-search">
+  <i class="ti ti-search" aria-hidden="true"></i>
+  <input type="search" placeholder="Buscar por título o SKU…" aria-label="Buscar producto" [value]="search()" (input)="search.set($any($event.target).value)" />
+</label>
+
+@if (filter() === 'matched') {
+  <button type="button" class="cp-back" (click)="toggle('matched')"><i class="ti ti-chevron-left" aria-hidden="true"></i> Lo que hay que resolver</button>
+  <div class="cp-h ok">Coinciden <span>{{ counts().matched }}</span></div>
+  @if (matched().length) {
+    <div class="cp-list">
+      @for (i of matched().slice(0, matchedShown()); track i.key) {
+        <ng-container *ngTemplateOutlet="row; context: { $implicit: i }" />
+      }
+    </div>
+    @if (matched().length > matchedShown()) {
+      <button type="button" class="cp-more" (click)="showMore()">Mostrar más ({{ matched().length - matchedShown() }})</button>
+    }
+  } @else {
+    <p class="cp-empty">Sin resultados para la búsqueda.</p>
+  }
+} @else {
+  @for (s of sections(); track s.key) {
+    <div class="cp-h {{ s.tone }}">{{ s.title }} <span>{{ s.items.length }}</span></div>
+    <div class="cp-list">
+      @for (i of s.items; track i.key) {
+        <ng-container *ngTemplateOutlet="row; context: { $implicit: i }" />
+      }
+    </div>
+  } @empty {
+    <p class="cp-empty">
+      @if (search().trim()) { Nada por resolver que coincida con la búsqueda. }
+      @else { <i class="ti ti-circle-check" aria-hidden="true"></i> Todo vinculado: no hay nada por resolver. }
+    </p>
+  }
+
+  <div class="cp-list cp-matched">
+    <button type="button" class="cp-row" (click)="toggle('matched')">
+      <i class="ti ti-circle-check cp-ok" aria-hidden="true"></i>
+      <span class="cp-info">
+        <span class="cp-title">{{ counts().matched }} {{ counts().matched === 1 ? 'par coincide' : 'pares coinciden' }}</span>
+        <span class="cp-sub">Mismo SKU en ML y TN</span>
+      </span>
+      <i class="ti ti-chevron-right cp-chev" aria-hidden="true"></i>
+    </button>
+  </div>
+}
+
+<ng-template #row let-i>
+  <button type="button" class="cp-row" (click)="open.set(i)">
+    <zc-product-thumb class="cp-thumb" [src]="thumb(i)" zoom="badge" [title]="title(i)" />
+    <span class="cp-info">
+      <span class="cp-title">{{ title(i) }}</span>
+      <span class="cp-sub">
+        @if (i.kind === 'pair') {
+          <span class="cp-dot ml"></span><span class="cp-dot tn"></span> ML y TN
+        } @else {
+          <span class="cp-dot {{ short(i.channel).toLowerCase() }}"></span>
+          {{ i.kind === 'row' && i.bucket === 'unpaired' ? 'solo ' + short(i.channel) : short(i.channel) }}
+        }
+        @if (sku(i); as s) { <code>{{ s }}</code> } @else { <span class="cp-nosku">sin SKU</span> }
+      </span>
+    </span>
+    <i class="ti ti-chevron-right cp-chev" aria-hidden="true"></i>
+  </button>
+</ng-template>
+
+@if (open(); as i) {
+  <zc-bottom-sheet [title]="title(i)" [subtitle]="subtitle(i)" (closed)="close()">
+    <zc-product-thumb sheet-lead class="cp-thumb" [src]="thumb(i)" [title]="title(i)" />
+    <p class="cp-explain"><i class="ti ti-info-circle" aria-hidden="true"></i> {{ explain(i) }}</p>
+
+    @if (i.kind === 'pair') {
+      <div class="cp-lbl">En cada canal</div>
+      <div class="cp-sides">
+        <div class="cp-side"><span class="cp-dot ml"></span><span class="cp-info"><b>Mercado Libre</b><span>{{ mlLabel(i.pair.ml) }}</span></span><code>{{ i.pair.ml.sku || '—' }}</code></div>
+        <div class="cp-side"><span class="cp-dot tn"></span><span class="cp-info"><b>Tienda Nube</b><span>{{ tnLabel(i.pair.tn) }}</span></span><code>{{ i.pair.tn.sku || '—' }}</code></div>
+      </div>
+    } @else if (i.kind === 'dup') {
+      <div class="cp-lbl">Con el SKU {{ i.sku }}</div>
+      <div class="cp-sides">
+        @for (r of i.items; track $index) {
+          <div class="cp-side"><span class="cp-dot {{ short(i.channel).toLowerCase() }}"></span><span class="cp-info"><span>{{ label(i.channel, r) }}</span></span></div>
+        }
+      </div>
+    }
+
+    <div class="cp-btns" *zcCanWrite>
+      @if (i.kind === 'row') {
+        <button type="button" class="zc-btn" (click)="doEdit(i)"><i class="ti ti-pencil" aria-hidden="true"></i> {{ i.bucket === 'nosku' ? 'Asignar SKU' : 'Editar SKU' }}</button>
+        <button type="button" class="zc-btn primary" (click)="doLink(i)"><i class="ti ti-link" aria-hidden="true"></i> Vincular</button>
+      } @else if (i.kind === 'dup') {
+        <button type="button" class="zc-btn primary" (click)="doEdit(i)"><i class="ti ti-pencil" aria-hidden="true"></i> Darle un SKU a cada uno</button>
+      } @else {
+        <button type="button" class="zc-btn primary" (click)="doEdit(i)"><i class="ti ti-pencil" aria-hidden="true"></i> Editar SKU</button>
+      }
+    </div>
+  </zc-bottom-sheet>
+}

@@ -9,444 +9,780 @@
     @let o = order()!;
     @let t = totals()!;
 
-    <!-- ── Encabezado ── -->
-    <div class="title-row">
-      @if (canEdit()) {
-        <input class="name-input" [ngModel]="o.name" (ngModelChange)="setName($event)" aria-label="Nombre del pedido" placeholder="Nombre del pedido" />
-      } @else {
-        <h1>{{ o.name }}</h1>
-      }
-      <span class="zc-badge"
-            [class.neutral]="o.status === 'borrador'"
-            [class.busy]="o.status === 'pendiente'"
-            [class.ok]="o.status === 'recibido' && !o.partial"
-            [class.warn]="o.status === 'recibido' && o.partial">
-        {{ statusLabel(o) }}
-      </span>
-      <span class="hint">
-        #{{ o.id }} ·
-        @if (o.status === 'borrador') { creado {{ o.createdAt | date: 'dd/MM/yy' }} }
-        @else { pedido {{ o.orderedAt | date: 'dd/MM/yy' }} }
-        @if (o.receivedAt) { · recibido {{ o.receivedAt | date: 'dd/MM/yy' }} }
-        @if (o.basedOnId) { · copia del <a [routerLink]="['/pedidos', o.basedOnId]">#{{ o.basedOnId }}</a> }
-      </span>
-      @if (o.supplierKey) {
-        <span class="zc-badge neutral supplier-chip"><i class="ti ti-building-factory-2" aria-hidden="true"></i> {{ supplierName(o.supplierKey) }}</span>
-      }
-      @if (canEdit()) {
-        <span class="save-state" [class.err]="saveState() === 'error'">
-          @switch (saveState()) {
-            @case ('saving') { <i class="ti ti-loader-2" aria-hidden="true"></i> Guardando… }
-            @case ('pending') { <i class="ti ti-pencil" aria-hidden="true"></i> Cambios sin guardar }
-            @case ('error') { <i class="ti ti-alert-triangle" aria-hidden="true"></i> No se pudo guardar — <button type="button" class="link-btn" (click)="saveNow()">reintentar</button> }
-            @default { <i class="ti ti-cloud-check" aria-hidden="true"></i> Guardado }
-          }
-        </span>
-      }
-    </div>
+    @if (phone()) {
+      <!-- ══════════ Celular: lista de líneas + hojas ══════════ -->
+      <div class="ph">
+        <div class="ph-head">
+          <div class="ph-name">
+            @if (canEdit()) {
+              <input class="ph-name-input" [ngModel]="o.name" (ngModelChange)="setName($event)" aria-label="Nombre del pedido" placeholder="Nombre del pedido" />
+            } @else {
+              <h1>{{ o.name }}</h1>
+            }
+            <button type="button" class="ph-more" (click)="menuSheetOpen.set(true)" aria-label="Más acciones"><i class="ti ti-dots-vertical" aria-hidden="true"></i></button>
+          </div>
+          <div class="ph-meta">
+            <span class="zc-badge"
+                  [class.neutral]="o.status === 'borrador'"
+                  [class.busy]="o.status === 'pendiente'"
+                  [class.ok]="o.status === 'recibido' && !o.partial"
+                  [class.warn]="o.status === 'recibido' && o.partial">{{ statusLabel(o) }}</span>
+            @if (o.supplierKey) {
+              <span class="zc-badge neutral"><i class="ti ti-building-factory-2" aria-hidden="true"></i> {{ supplierName(o.supplierKey) }}</span>
+            }
+            <span>#{{ o.id }} ·
+              @if (o.status === 'borrador') { creado {{ o.createdAt | date: 'dd/MM' }} } @else { pedido {{ o.orderedAt | date: 'dd/MM' }} }
+              @if (o.receivedAt) { · recibido {{ o.receivedAt | date: 'dd/MM' }} }
+              @if (o.basedOnId) { · copia del <a [routerLink]="['/pedidos', o.basedOnId]">#{{ o.basedOnId }}</a> }
+            </span>
+            @if (canEdit()) {
+              <span class="ph-save" [class.err]="saveState() === 'error'">
+                @switch (saveState()) {
+                  @case ('saving') { <i class="ti ti-loader-2" aria-hidden="true"></i> Guardando… }
+                  @case ('pending') { <i class="ti ti-pencil" aria-hidden="true"></i> Sin guardar }
+                  @case ('error') { <i class="ti ti-alert-triangle" aria-hidden="true"></i> No se guardó — <button type="button" class="link-btn" (click)="saveNow()">reintentar</button> }
+                  @default { <i class="ti ti-cloud-check" aria-hidden="true"></i> Guardado }
+                }
+              </span>
+            }
+          </div>
+        </div>
 
-    @if (actionError()) { <p class="alert-error">{{ actionError() }}</p> }
-    @if (flash()) { <p class="flash"><i class="ti ti-check" aria-hidden="true"></i> {{ flash() }}</p> }
+        @if (actionError()) { <p class="alert-error">{{ actionError() }}</p> }
+        @if (flash()) { <p class="flash"><i class="ti ti-check" aria-hidden="true"></i> {{ flash() }}</p> }
 
-    <!-- ── Avisos según estado ── -->
-    @if (isPending() && !receiving() && session.isAdmin()) {
-      <div class="zc-card banner">
-        <i class="ti ti-truck" aria-hidden="true"></i>
-        <span>Esperando la mercadería. Cuando llegue, anotá qué vino y qué no.</span>
-        <span class="spacer"></span>
-        <button type="button" class="zc-btn small primary" (click)="startReceiving()">
-          <i class="ti ti-package-import" aria-hidden="true"></i> Registrar recepción
-        </button>
-      </div>
-    }
-    @if (receiving()) {
-      <div class="zc-card banner">
-        <i class="ti ti-package-import" aria-hidden="true"></i>
-        <span>Anotá cuántos packs llegaron de cada línea. Vacío = no llegó.</span>
-        <span class="spacer"></span>
-        <button type="button" class="zc-btn small" (click)="allArrived()"><i class="ti ti-checks" aria-hidden="true"></i> Llegó todo</button>
-        <button type="button" class="zc-btn small" [disabled]="busy()" (click)="saveReceiving()">Guardar y seguir después</button>
-        <button type="button" class="zc-btn small primary" [disabled]="busy()" (click)="showCloseReceive.set(true)">Cerrar recepción</button>
-      </div>
-    }
-    @if (o.status === 'recibido' && o.partial) {
-      <div class="zc-card banner">
-        <i class="ti ti-alert-triangle warn" aria-hidden="true"></i>
-        <span>No llegó todo: las líneas marcadas quedaron cortas.</span>
-        <span class="spacer"></span>
-        @if (missingDraftId(); as draftId) {
-          <a class="zc-btn small" [routerLink]="['/pedidos', draftId]">
-            <i class="ti ti-arrow-right" aria-hidden="true"></i> Abrir el borrador #{{ draftId }} con lo que faltó
-          </a>
-        } @else {
-          <button type="button" class="zc-btn small" *zcCanWrite [disabled]="busy()" (click)="duplicate('missing')">
-            <i class="ti ti-copy" aria-hidden="true"></i> Pasar lo que faltó a un borrador
-          </button>
+        @if (receiving()) {
+          <div class="ph-banner"><i class="ti ti-package-import" aria-hidden="true"></i><span>Anotá cuántos packs llegaron de cada línea. Vacío = no llegó.</span></div>
+        } @else if (isPending() && session.isAdmin()) {
+          <div class="ph-banner"><i class="ti ti-truck" aria-hidden="true"></i><span>Esperando la mercadería. Cuando llegue, anotá qué vino.</span></div>
         }
-      </div>
-    }
+        @if (o.status === 'recibido' && o.partial) {
+          <div class="ph-banner warn">
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+            <span>No llegó todo: las líneas marcadas quedaron cortas.</span>
+          </div>
+          @if (missingDraftId(); as draftId) {
+            <a class="ph-btn wide" [routerLink]="['/pedidos', draftId]"><i class="ti ti-arrow-right" aria-hidden="true"></i> Abrir el borrador #{{ draftId }} con lo que faltó</a>
+          } @else {
+            <button type="button" class="ph-btn wide" *zcCanWrite [disabled]="busy()" (click)="duplicate('missing')">
+              <i class="ti ti-copy" aria-hidden="true"></i> Pasar lo que faltó a un borrador
+            </button>
+          }
+        }
 
-    <div class="layout">
-      <div class="main-col">
-        <!-- ── Líneas del pedido ── -->
-        <div class="zc-card table-scroll lines-card">
-          <table class="zc-table lines">
-            <thead>
-              <tr>
-                <th class="c-code">Código</th>
-                <th class="c-desc">Descripción</th>
-                <th class="c-detail">Detalle</th>
-                <th class="num c-qty">Packs</th>
-                @if (receiving() || o.status === 'recibido') { <th class="num c-recv">Llegó</th> }
-                <th class="num c-price">Precio lista</th>
-                <th class="num c-sub">Subtotal</th>
-                @if (canEdit()) { <th class="c-del"></th> }
-              </tr>
-            </thead>
-            <tbody>
-              @for (l of o.lines; track $index; let i = $index) {
-                <tr [class.free]="l.kind === 'free'" [class]="o.status === 'recibido' ? receivedClass(l) : ''">
-                  <td class="c-code cell-wide" data-label="Código">
-                    @if (canEdit()) {
-                      <input class="cell-input" [ngModel]="l.code" (ngModelChange)="setLineText(i, 'code', $event)" placeholder="código" aria-label="Código" />
-                      @let opts = lineCodeOptions(l);
-                      @if (opts.length) {
-                        <div class="code-pick" role="group" aria-label="Elegir código">
-                          @for (c of opts; track c.code) {
-                            <button type="button" class="code-opt" [class.on]="c.code === l.code" (click)="pickLineCode(i, c)" [title]="c.code" [attr.aria-pressed]="c.code === l.code">
-                              {{ codeSourceLabel(c.source) }}
-                            </button>
-                          }
-                        </div>
-                      }
-                    } @else { <span class="cell-text mono">{{ l.code || '—' }}</span> }
-                  </td>
-                  <td class="c-desc cell-main" data-label="Descripción">
-                    @if (canEdit()) {
-                      <input class="cell-input" [ngModel]="l.description" (ngModelChange)="setLineText(i, 'description', $event)" placeholder="descripción" aria-label="Descripción" />
-                      @let titles = lineTitleOptions(l);
-                      @if (titles.length) {
-                        <div class="code-pick" role="group" aria-label="Elegir título">
-                          @for (t of titles; track t.source + '|' + t.text) {
-                            <button type="button" class="code-opt" [class.on]="t.text === l.description" (click)="pickLineTitle(i, t)" [title]="t.text" [attr.aria-pressed]="t.text === l.description">
-                              {{ titleSourceLabel(t.source) }}
-                            </button>
-                          }
-                        </div>
-                      }
-                    } @else { <span class="cell-text">{{ l.description }}</span> }
-                    <div class="line-meta">
-                      @switch (l.origin) {
-                        @case ('alerta') { <span class="zc-badge warn tiny">alerta</span> }
-                        @case ('copia') { <span class="zc-badge neutral tiny">copia</span> }
-                        @case ('libre') { <span class="zc-badge busy tiny">ítem libre</span> }
-                        @default { <span class="zc-badge neutral tiny">a mano</span> }
-                      }
-                      @if (l.kind !== 'free') { <span>{{ lineSource(l) }}</span> }
-                      @if (canEdit() && l.kind !== 'free' && !l.code) { <span class="warn-text">sin código en Precios</span> }
-                    </div>
-                  </td>
-                  <td class="c-detail cell-wide" data-label="Detalle">
-                    @if (canEdit()) {
-                      <input class="cell-input" [ngModel]="l.detail" (ngModelChange)="setLineText(i, 'detail', $event)" placeholder="diseños, colores…" aria-label="Detalle" />
-                    } @else { <span class="cell-text">{{ l.detail }}</span> }
-                  </td>
-                  <td class="num c-qty" data-label="Packs">
-                    @if (canEdit()) {
-                      <input class="cell-input boxed num-input" type="number" min="1" inputmode="numeric" enterkeyhint="next" [ngModel]="l.qty" (ngModelChange)="setLineQty(i, $event)" aria-label="Packs" />
-                    } @else { <span class="cell-text">{{ l.qty }}</span> }
-                  </td>
-                  @if (receiving()) {
-                    <td class="num c-recv" data-label="Llegó">
-                      <span class="recv">
-                        <input class="cell-input boxed num-input small" type="number" min="0" [max]="l.qty" placeholder="0" inputmode="numeric" enterkeyhint="next"
-                               [ngModel]="l.id != null ? received()[l.id] : null" (ngModelChange)="setReceived(l, $event)" aria-label="Packs que llegaron" />
-                        <button type="button" class="tick" (click)="fillReceived(l)" title="Llegó completo" aria-label="Llegó completo"><i class="ti ti-check" aria-hidden="true"></i></button>
-                      </span>
-                    </td>
-                  } @else if (o.status === 'recibido') {
-                    <td class="num c-recv" data-label="Llegó"><span class="cell-text recv-text">{{ l.receivedQty ?? 0 }} / {{ l.qty }}</span></td>
-                  }
-                  <td class="num c-price" data-label="Precio lista">
-                    @if (canEdit()) {
-                      <input class="cell-input boxed num-input price-input" type="number" min="0" placeholder="$ a mano" inputmode="decimal" enterkeyhint="next"
-                             [class.is-own]="l.kind !== 'free' && l.priceSource === 'manual'"
-                             [ngModel]="l.unitPrice" (ngModelChange)="setLinePrice(i, $event)" aria-label="Precio de lista por pack" />
-                      <div class="price-tag">
-                        @if (l.kind === 'free') {
-                        } @else if (l.priceSource === 'manual') {
-                          <span class="zc-badge busy tiny"><i class="ti ti-pencil" aria-hidden="true"></i> editado</span>
-                          <button type="button" class="link-btn tiny" (click)="revertLinePrice(i)"
-                                  [title]="'Volver al precio de Precios'"><i class="ti ti-rotate" aria-hidden="true"></i>
-                            {{ catalogPrice(l) != null ? (catalogPrice(l) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') : 'quitar' }}</button>
-                        } @else if (l.unitPrice == null) {
-                          <span class="warn-text">no está en Precios</span>
-                        } @else {
-                          <span class="muted"><i class="ti ti-link" aria-hidden="true"></i> de Precios</span>
-                        }
-                      </div>
+        <div class="ph-lines">
+          @for (l of o.lines; track $index; let i = $index) {
+            @if (receiving()) {
+              @let got = receivedOf(l);
+              <div class="ph-line" [class.part]="got != null && got < l.qty" [class.done]="got === l.qty">
+                <div class="ph-info">
+                  <span class="ph-code">{{ l.code || 'sin código' }}</span>
+                  <span class="ph-desc">{{ lineTitle(l) }}</span>
+                  <span class="ph-recv">
+                    <span>Llegó</span>
+                    <span class="ph-step sm">
+                      <button type="button" (click)="stepReceived(l, -1)" [disabled]="!got" aria-label="Uno menos">−</button>
+                      <span [class.empty]="got == null">{{ got ?? 0 }}</span>
+                      <button type="button" (click)="stepReceived(l, 1)" [disabled]="got === l.qty" aria-label="Uno más">+</button>
+                    </span>
+                    <span>de {{ l.qty }}</span>
+                    @if (got === l.qty) {
+                      <i class="ti ti-circle-check ok-text ph-tick-done" aria-label="Llegó completo"></i>
                     } @else {
-                      <span class="cell-text">
-                        @if (l.unitPrice == null) { <span class="zc-badge warn">sin precio</span> }
-                        @else { {{ l.unitPrice | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }} }
-                      </span>
+                      <button type="button" class="ph-tick" (click)="fillReceived(l)" aria-label="Llegó completo"><i class="ti ti-check" aria-hidden="true"></i></button>
                     }
-                  </td>
-                  <td class="num c-sub" data-label="Subtotal">
-                    <span class="cell-text">{{ l.unitPrice == null ? '—' : ((l.unitPrice * l.qty) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') }}</span>
-                  </td>
-                  @if (canEdit()) {
-                    <td class="c-del">
-                      <button type="button" class="icon-btn" (click)="removeLine(i)" aria-label="Quitar línea"><i class="ti ti-x" aria-hidden="true"></i></button>
-                    </td>
+                  </span>
+                </div>
+              </div>
+            } @else {
+              <button type="button" class="ph-line" [class.free]="l.kind === 'free'" [class]="o.status === 'recibido' ? receivedClass(l) : ''" (click)="openLine(i)">
+                <span class="ph-info">
+                  <span class="ph-tags">
+                    @if (l.code) { <span class="ph-code">{{ l.code }}</span> }
+                    @else if (l.kind === 'free') { <span class="zc-badge busy tiny">ítem libre</span> }
+                    @else { <span class="ph-code err-text">sin código</span> }
+                    @if (l.origin === 'alerta') { <span class="zc-badge warn tiny">alerta</span> }
+                    @if (l.kind !== 'free' && l.priceSource === 'manual') { <span class="zc-badge busy tiny"><i class="ti ti-pencil" aria-hidden="true"></i> precio editado</span> }
+                  </span>
+                  <span class="ph-desc">{{ lineTitle(l) }}</span>
+                  @if (l.detail) { <span class="ph-detail"><i class="ti ti-notes" aria-hidden="true"></i> {{ l.detail }}</span> }
+                  @else if (l.kind !== 'free' && lineSource(l)) { <span class="ph-detail muted">{{ lineSource(l) }}</span> }
+                  @if (o.status === 'recibido') {
+                    <span class="ph-detail" [class.warn-text]="(l.receivedQty ?? 0) < l.qty">llegaron {{ l.receivedQty ?? 0 }} de {{ l.qty }}</span>
                   }
-                </tr>
-              } @empty {
-                <tr><td colspan="8" class="cell-main"><p class="empty">El pedido está vacío. Sumá productos desde abajo o agregá un ítem libre.</p></td></tr>
-              }
-            </tbody>
-          </table>
-          @if (canEdit()) {
-            <div class="add-free">
-              <button type="button" class="zc-btn small" (click)="addFreeItem()"><i class="ti ti-pencil-plus" aria-hidden="true"></i> Ítem libre</button>
-              <span class="hint">Para productos nuevos del proveedor que todavía no cargaste: código, descripción, cantidad y precio si lo sabés.</span>
-            </div>
+                </span>
+                <span class="ph-right">
+                  <span class="ph-qty">{{ l.qty }} <small>pack{{ l.qty === 1 ? '' : 's' }}</small></span>
+                  <span class="ph-sub">{{ l.unitPrice == null ? 'sin precio' : ((l.unitPrice * l.qty) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') }}</span>
+                </span>
+              </button>
+            }
+          } @empty {
+            <p class="empty">El pedido está vacío.@if (canEdit()) { Sumá productos o agregá un ítem libre. }</p>
           }
         </div>
+
         @if (canEdit()) {
-          <!-- Solo en el celular: el catálogo se abre como hoja desde abajo. -->
-          <button type="button" class="zc-btn open-catalog" (click)="catalogSheetOpen.set(true)">
-            <i class="ti ti-plus" aria-hidden="true"></i> Agregar productos
-          </button>
+          <div class="ph-add">
+            <button type="button" class="ph-btn primary" (click)="catalogSheetOpen.set(true)"><i class="ti ti-plus" aria-hidden="true"></i> Agregar productos</button>
+            <button type="button" class="ph-btn" (click)="addFreeItemAndEdit()"><i class="ti ti-pencil-plus" aria-hidden="true"></i> Ítem libre</button>
+          </div>
         }
-
-        <!-- ── Catálogo para agregar (solo borradores) ── -->
-        @if (canEdit()) {
-          @if (catalogSheetOpen()) { <div class="catalog-backdrop" (click)="catalogSheetOpen.set(false)"></div> }
-          <div class="catalog" [class.open]="catalogSheetOpen()">
-            <div class="toolbar">
-              <h2><i class="ti ti-plus" aria-hidden="true"></i> Agregar productos
-                @if (o.supplierKey) { <span class="hint">de {{ supplierName(o.supplierKey) }}</span> }</h2>
-              <button type="button" class="icon-btn catalog-close" (click)="catalogSheetOpen.set(false)" aria-label="Cerrar catálogo"><i class="ti ti-x" aria-hidden="true"></i></button>
-              <span class="spacer"></span>
-              @if (unassignedCount()) {
-                <label class="check" title="Productos que en Precios no tienen ningún proveedor asignado">
-                  <input type="checkbox" [ngModel]="showUnassigned()" (ngModelChange)="showUnassigned.set($event)" />
-                  Sin proveedor <span class="count">{{ unassignedCount() }}</span>
-                </label>
-              }
-              <div class="seg" role="group" aria-label="Qué productos mostrar">
-                <button type="button" [class.on]="catalogFilter() === 'alert'" (click)="catalogFilter.set('alert')">
-                  <i class="ti ti-bell-ringing" aria-hidden="true"></i> Con alerta <span class="count">{{ alertedCount() }}</span>
-                </button>
-                <button type="button" [class.on]="catalogFilter() === 'all'" (click)="catalogFilter.set('all')">
-                  <i class="ti ti-list" aria-hidden="true"></i> Todos
-                </button>
-              </div>
-              <zc-search-bar [value]="catalogSearch()" (valueChange)="catalogSearch.set($event)" placeholder="Buscar producto, SKU o código…" ariaLabel="Buscar en el catálogo" />
-              <button type="button" class="zc-btn small" (click)="addAllSuggested()" title="Suma la sugerencia de cada alerta que todavía no está en el pedido">
-                <i class="ti ti-playlist-add" aria-hidden="true"></i> Agregar sugeridos
-              </button>
-            </div>
-
-            @if (catalogLoading()) {
-              <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando productos…</p>
-            } @else {
-              <div class="zc-card table-scroll">
-                <table class="zc-table cat">
-                  <thead>
-                    <tr>
-                      <th>Producto</th>
-                      <th class="num">Stock ML · TN</th>
-                      <th>Depósito</th>
-                      <th>Alerta</th>
-                      <th>Último pedido</th>
-                      <th class="num">Precio pack</th>
-                      <th class="num"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (u of visibleUnits(); track u.key) {
-                      @let multi = u.members.length > 1;
-                      @let inOrder = qtyInOrder().get(u.key);
-                      @let sum = unitStockSummary(u);
-                      <tr [class.group]="multi" [class.in-order]="inOrder" (click)="multi && togglePack(u)">
-                        <td class="cell-main">
-                          <div class="unit-name">
-                            @if (multi) {
-                              <i class="ti ti-chevron-right caret" [class.open]="isPackOpen(u)" aria-hidden="true"></i>
-                              <i class="ti ti-stack-2 pack-icon" aria-hidden="true"></i>
-                            } @else {
-                              <i class="ti ti-box box-icon" aria-hidden="true"></i>
-                            }
-                            <div>
-                              <div class="prod-name" [class.strong]="multi">{{ u.name }} <span class="prod-sku">{{ u.code ?? 'sin código' }}</span></div>
-                              <div class="unit-summary">
-                                <span>{{ u.kind === 'pack' ? 'pack' : 'bulto' }} de {{ u.unitsPerPack }} u.@if (u.mode === 'assorted') { · surtido }</span>
-                                @if (multi) {
-                                  @if (sum.out) { <span class="err-text">{{ sum.out }} sin stock</span> }
-                                  @if (sum.low) { <span class="warn-text">{{ sum.low }} bajo{{ sum.low === 1 ? '' : 's' }}</span> }
-                                  <span class="ok-text">{{ sum.fine }} de {{ u.members.length }} con stock</span>
-                                }
-                                @if (u.pendingOrder; as p) {
-                                  <span class="zc-badge busy tiny"><i class="ti ti-truck" aria-hidden="true"></i> en camino · #{{ p.orderId }}</span>
-                                }
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td class="num" data-label="Stock ML · TN">
-                          @if (!multi) {
-                            <span class="stock-dot ml"></span>{{ u.members[0].stockMl ?? '—' }}
-                            <span class="stock-dot tn"></span>{{ u.members[0].stockTn ?? '—' }}
-                          }
-                        </td>
-                        <td data-label="Depósito">
-                          @if (u.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ u.depositoStock }} u.</span> }
-                          @else { <span class="hint">—</span> }
-                        </td>
-                        <td data-label="Alerta">
-                          @if (!multi) {
-                            @if (memberAlertLabel(u.members[0]); as a) { <span class="zc-badge" [class]="a.cls">{{ a.text }}</span> }
-                            @else { <span class="hint">sin regla</span> }
-                          } @else if (u.alerted) {
-                            <span class="zc-badge warn"><i class="ti ti-bell-ringing" aria-hidden="true"></i> avisó</span>
-                          } @else { <span class="hint">—</span> }
-                        </td>
-                        <td data-label="Último pedido">
-                          @if (u.lastOrder; as lo) {
-                            <span class="last">{{ lo.date | date: 'dd/MM/yy' }} · {{ lo.qty }} pack{{ lo.qty === 1 ? '' : 's' }}</span>
-                          } @else { <span class="hint">nunca</span> }
-                        </td>
-                        <td class="num" data-label="Precio pack">
-                          @if (u.price == null) { <span class="hint">sin precio</span> }
-                          @else {
-                            {{ u.price | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}
-                            @if (otherPriceSupplier(u); as other) { <div class="hint" title="El precio de Precios es el del proveedor vigente">precio de {{ other }}</div> }
-                          }
-                        </td>
-                        <td class="num add-cell cell-actions">
-                          @if (inOrder) {
-                            <button type="button" class="add-btn in" (click)="removeUnit(u, $event)" title="Quitar del pedido">
-                              <i class="ti ti-check" aria-hidden="true"></i> En el pedido · {{ inOrder }}
-                            </button>
-                          } @else {
-                            <button type="button" class="add-btn" (click)="addUnit(u, $event)">
-                              <i class="ti ti-plus" aria-hidden="true"></i> Agregar
-                            </button>
-                            @if (u.suggestedQty) { <div class="hint">sugerido: {{ u.suggestedQty }} pack{{ u.suggestedQty === 1 ? '' : 's' }}</div> }
-                          }
-                        </td>
-                      </tr>
-                      @if (multi && isPackOpen(u)) {
-                        @for (m of u.members; track m.sku) {
-                          <tr class="member">
-                            <td class="cell-main"><div class="prod-name">{{ m.label }}</div><div class="prod-sku">{{ m.sku }}</div></td>
-                            <td class="num" data-label="Stock ML · TN"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }}<span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</td>
-                            <td data-label="Depósito">
-                              @if (m.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ m.depositoStock }} u.</span> }
-                              @else { <span class="hint">—</span> }
-                            </td>
-                            <td data-label="Alerta">
-                              @if (memberAlertLabel(m); as a) { <span class="zc-badge" [class]="a.cls">{{ a.text }}</span> }
-                              @else { <span class="hint">sin regla</span> }
-                            </td>
-                            <td></td><td></td><td></td>
-                          </tr>
-                        }
-                      }
-                    } @empty {
-                      <tr><td colspan="7" class="cell-main">
-                        <p class="empty">
-                          @if (catalogFilter() === 'alert' && !catalogSearch()) { No hay productos con el stock en el umbral o por debajo. Mirá <b>Todos</b> para pedir algo igual. }
-                          @else if (!catalogUnits().length && o.supplierKey) { Ningún producto tiene a {{ supplierName(o.supplierKey) }} como proveedor en Precios. }
-                          @else { Sin coincidencias. }
-                        </p>
-                      </td></tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-              <p class="footnote">
-                <i class="ti ti-info-circle" aria-hidden="true"></i>
-                Solo aparecen los productos que en Precios se le compran a este proveedor (asignados, con su código o como
-                vigente), con <b>su</b> código. Todo se pide por pack (o por el bulto cargado en Precios, si el producto no tiene pack). Un pack surtido muestra
-                <b>todos</b> sus modelos aunque haya avisado uno solo — los diseños que querés van en la columna <b>Detalle</b>.
-              </p>
-            }
+        @if (receiving()) {
+          <div class="ph-add">
+            <button type="button" class="ph-btn" (click)="allArrived()"><i class="ti ti-checks" aria-hidden="true"></i> Llegó todo</button>
+            <button type="button" class="ph-btn" [disabled]="busy()" (click)="saveReceiving()">Guardar y seguir</button>
           </div>
         }
       </div>
 
-      <!-- ── Panel lateral: estimado + acciones ── -->
-      <aside class="zc-card side">
-        <h2><i class="ti ti-receipt" aria-hidden="true"></i> Estimado</h2>
-        <div class="sum-row muted">{{ t.lineCount }} línea{{ t.lineCount === 1 ? '' : 's' }} · {{ t.packs }} pack{{ t.packs === 1 ? '' : 's' }}</div>
-        <div class="sum-row"><span>Subtotal de lista</span><span class="v">{{ t.subtotal | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
-        @if (discountProfiles().length) {
-          <label class="sum-row profile-row">
-            <span>Config de descuento</span>
-            @if (canEdit()) {
-              <select class="zc-select" [ngModel]="selectedProfile()?.id ?? ''" (ngModelChange)="applyProfile($event)" aria-label="Config de descuento del proveedor">
-                @for (p of discountProfiles(); track p.id) {
-                  <option [ngValue]="p.id">{{ profileLabel(p) }}</option>
-                }
-                @if (!selectedProfile()) { <option value="" disabled>Personalizado</option> }
-              </select>
-            } @else {
-              <span class="v">{{ selectedProfile()?.name ?? 'Personalizado' }}</span>
-            }
-          </label>
-        }
-        <div class="sum-row">
-          <span class="pct">Descuento
-            <input class="zc-input" type="number" min="0" max="100" inputmode="decimal" enterkeyhint="next" [disabled]="!canEdit()" [ngModel]="o.discount1" (ngModelChange)="setDiscount('discount1', $event)" aria-label="Descuento sobre los productos" />%</span>
-          <span class="v ok-text">−{{ t.discount1Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
-        </div>
-        <div class="sum-row">
-          <span class="pct">Sobre el total
-            <input class="zc-input" type="number" min="0" max="100" inputmode="decimal" enterkeyhint="next" [disabled]="!canEdit()" [ngModel]="o.discount2" (ngModelChange)="setDiscount('discount2', $event)" aria-label="Descuento sobre el total" />%</span>
-          <span class="v ok-text">−{{ t.discount2Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
-        </div>
-        <div class="sum-row total"><span>Total estimado</span><span class="v">{{ t.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
-        @if (t.missingPrices) {
-          <p class="warn-text small"><i class="ti ti-alert-triangle" aria-hidden="true"></i>
-            {{ t.missingPrices }} línea{{ t.missingPrices === 1 ? '' : 's' }} sin precio no suma{{ t.missingPrices === 1 ? '' : 'n' }}.</p>
-        }
-        <p class="hint">El precio de lista sale de <b>Precios</b>@if (canEdit()) { y se puede pisar en cada línea (solo para este pedido) }. El
-          primer descuento va sobre los productos y el segundo sobre el total.@if (canEdit() && discountProfiles().length) { Elegí una config
-          del proveedor (las de <b>Precios</b>) o tocá los % a mano para un pedido especial. }</p>
-
-        <textarea class="zc-textarea note" rows="2" placeholder="Nota del pedido…" [disabled]="!canEdit()"
-                  [ngModel]="o.note" (ngModelChange)="setNote($event)" aria-label="Nota del pedido"></textarea>
-
-        <div class="side-actions">
-          <button type="button" class="zc-btn" [disabled]="!o.lines.length" (click)="openSheet()">
-            <i class="ti ti-file-text" aria-hidden="true"></i> Vista para la fábrica
+      <!-- Barra fija arriba de las pestañas: el total (abre el estimado) + la acción principal. -->
+      <div class="ph-bar">
+        @if (receiving()) {
+          <div class="ph-bar-total"><small>Completas</small><b>{{ completeLines() }} de {{ o.lines.length }}</b></div>
+          <button type="button" class="ph-btn primary" [disabled]="busy()" (click)="showCloseReceive.set(true)">Cerrar recepción</button>
+        } @else {
+          <button type="button" class="ph-bar-total" (click)="summarySheetOpen.set(true)" aria-label="Ver el estimado">
+            <small>Total estimado · {{ t.packs }} pack{{ t.packs === 1 ? '' : 's' }} <i class="ti ti-chevron-up" aria-hidden="true"></i></small>
+            <b>{{ t.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</b>
           </button>
           @if (canEdit()) {
-            <button type="button" class="zc-btn primary" [disabled]="!o.lines.length || busy()" (click)="showPlaceConfirm.set(true)">
+            <button type="button" class="ph-btn primary" [disabled]="!o.lines.length || busy()" (click)="showPlaceConfirm.set(true)">
               <i class="ti ti-send" aria-hidden="true"></i> Marcar como pedido
             </button>
-            <button type="button" class="link-btn danger" (click)="showDeleteConfirm.set(true)">
-              <i class="ti ti-trash" aria-hidden="true"></i> Borrar borrador
+          } @else if (isPending() && session.isAdmin()) {
+            <button type="button" class="ph-btn primary" (click)="startReceiving()">
+              <i class="ti ti-package-import" aria-hidden="true"></i> Registrar recepción
             </button>
-          } @else if (session.isAdmin()) {
-            <button type="button" class="zc-btn" [disabled]="busy()" (click)="duplicate()">
-              <i class="ti ti-copy" aria-hidden="true"></i> Duplicar como borrador
+          } @else {
+            <button type="button" class="ph-btn" [disabled]="!o.lines.length" (click)="openSheet()">
+              <i class="ti ti-file-text" aria-hidden="true"></i> Vista para la fábrica
+            </button>
+          }
+        }
+      </div>
+
+      <!-- Hoja de una línea -->
+      @if (sheetLine(); as l) {
+        @let i = lineSheet()!;
+        <zc-bottom-sheet [title]="lineTitle(l)" [subtitle]="lineSource(l) || null" (closed)="lineSheet.set(null)">
+          <span sheet-lead class="ph-lead"><i class="ti {{ l.kind === 'free' ? 'ti-pencil-plus' : (l.kind === 'pack' ? 'ti-stack-2' : 'ti-box') }}" aria-hidden="true"></i></span>
+          @if (canEdit()) {
+            <div class="ph-lbl center">Packs</div>
+            <div class="ph-bigstep">
+              <button type="button" (click)="stepLineQty(i, -1)" [disabled]="l.qty <= 1" aria-label="Un pack menos">−</button>
+              <span>{{ l.qty }}</span>
+              <button type="button" (click)="stepLineQty(i, 1)" aria-label="Un pack más">+</button>
+            </div>
+            <label class="ph-lbl">Detalle <span>diseños, colores…</span></label>
+            <input class="ph-field" [ngModel]="l.detail" (ngModelChange)="setLineText(i, 'detail', $event)" placeholder="diseños, colores…" aria-label="Detalle" />
+            <div class="ph-two">
+              <div>
+                <label class="ph-lbl">Código</label>
+                <input class="ph-field mono" [ngModel]="l.code" (ngModelChange)="setLineText(i, 'code', $event)" placeholder="código" aria-label="Código" />
+                @let opts = lineCodeOptions(l);
+                @if (opts.length) {
+                  <div class="ph-pick" role="group" aria-label="Elegir código">
+                    @for (c of opts; track c.code) {
+                      <button type="button" class="ph-chip" [class.on]="c.code === l.code" (click)="pickLineCode(i, c)" [attr.aria-pressed]="c.code === l.code">{{ codeSourceLabel(c.source) }}</button>
+                    }
+                  </div>
+                }
+              </div>
+              <div>
+                <label class="ph-lbl">Precio lista</label>
+                <input class="ph-field" type="number" min="0" inputmode="decimal" placeholder="$ a mano" [ngModel]="l.unitPrice" (ngModelChange)="setLinePrice(i, $event)" aria-label="Precio de lista por pack" />
+                <div class="ph-pick">
+                  @if (l.kind === 'free') {
+                  } @else if (l.priceSource === 'manual') {
+                    <button type="button" class="link-btn" (click)="revertLinePrice(i)"><i class="ti ti-rotate" aria-hidden="true"></i>
+                      {{ catalogPrice(l) != null ? (catalogPrice(l) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') : 'quitar' }}</button>
+                  } @else if (l.unitPrice == null) {
+                    <span class="warn-text">no está en Precios</span>
+                  } @else {
+                    <span class="muted"><i class="ti ti-link" aria-hidden="true"></i> de Precios</span>
+                  }
+                </div>
+              </div>
+            </div>
+            <label class="ph-lbl">Descripción</label>
+            <input class="ph-field" [ngModel]="l.description" (ngModelChange)="setLineText(i, 'description', $event)" placeholder="descripción" aria-label="Descripción" />
+            @let titles = lineTitleOptions(l);
+            @if (titles.length) {
+              <div class="ph-pick" role="group" aria-label="Elegir título">
+                @for (tt of titles; track tt.source + '|' + tt.text) {
+                  <button type="button" class="ph-chip" [class.on]="tt.text === l.description" (click)="pickLineTitle(i, tt)" [attr.aria-pressed]="tt.text === l.description">{{ titleSourceLabel(tt.source) }}</button>
+                }
+              </div>
+            }
+            <div class="ph-btns">
+              <button type="button" class="ph-btn danger" (click)="removeSheetLine()"><i class="ti ti-trash" aria-hidden="true"></i> Quitar</button>
+              <button type="button" class="ph-btn primary" (click)="lineSheet.set(null)">Listo</button>
+            </div>
+          } @else {
+            <div class="ph-stats">
+              <div><small>Packs</small><b>{{ l.qty }}</b></div>
+              @if (o.status === 'recibido') { <div><small>Llegaron</small><b [class.warn-text]="(l.receivedQty ?? 0) < l.qty">{{ l.receivedQty ?? 0 }} de {{ l.qty }}</b></div> }
+              <div><small>Precio lista</small><b>{{ l.unitPrice == null ? 'sin precio' : (l.unitPrice | currency: 'ARS' : 'symbol-narrow' : '1.0-0') }}</b></div>
+              <div><small>Subtotal</small><b>{{ l.unitPrice == null ? '—' : ((l.unitPrice * l.qty) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') }}</b></div>
+            </div>
+            <div class="ph-lbl">Código</div><div class="ph-read mono">{{ l.code || '—' }}</div>
+            @if (l.detail) { <div class="ph-lbl">Detalle</div><div class="ph-read">{{ l.detail }}</div> }
+          }
+        </zc-bottom-sheet>
+      }
+
+      <!-- Hoja del catálogo (agregar productos) -->
+      @if (catalogSheetOpen() && canEdit()) {
+        <zc-bottom-sheet title="Agregar productos" [subtitle]="o.supplierKey ? 'de ' + supplierName(o.supplierKey) : null" (closed)="catalogSheetOpen.set(false)">
+          <div class="ph-seg" role="group" aria-label="Qué productos mostrar">
+            <button type="button" [class.on]="catalogFilter() === 'alert'" (click)="catalogFilter.set('alert')"><i class="ti ti-bell-ringing" aria-hidden="true"></i> Con alerta {{ alertedCount() }}</button>
+            <button type="button" [class.on]="catalogFilter() === 'all'" (click)="catalogFilter.set('all')">Todos</button>
+          </div>
+          <div class="ph-cat-tools">
+            <zc-search-bar [value]="catalogSearch()" (valueChange)="catalogSearch.set($event)" placeholder="Producto, SKU o código…" ariaLabel="Buscar en el catálogo" />
+            <button type="button" class="ph-chip" (click)="addAllSuggested()"><i class="ti ti-playlist-add" aria-hidden="true"></i> Sugeridos</button>
+          </div>
+          @if (unassignedCount()) {
+            <label class="ph-check"><input type="checkbox" [ngModel]="showUnassigned()" (ngModelChange)="showUnassigned.set($event)" /> Mostrar los {{ unassignedCount() }} sin proveedor</label>
+          }
+          @if (flash()) { <p class="flash"><i class="ti ti-check" aria-hidden="true"></i> {{ flash() }}</p> }
+          @if (catalogLoading()) {
+            <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando productos…</p>
+          } @else {
+            <div class="ph-cat">
+              @for (u of visibleUnits(); track u.key) {
+                @let multi = u.members.length > 1;
+                @let inOrder = qtyInOrder().get(u.key);
+                @let sum = unitStockSummary(u);
+                <div class="ph-unit" [class.in]="inOrder">
+                  <button type="button" class="ph-unit-info" (click)="multi && togglePack(u)" [attr.aria-expanded]="multi ? isPackOpen(u) : null">
+                    <span class="ph-desc">{{ u.name }} <span class="ph-code">{{ u.code ?? 'sin código' }}</span></span>
+                    <span class="ph-detail">
+                      @if (multi) {
+                        @if (sum.out) { <span class="err-text">{{ sum.out }} sin stock</span> }
+                        @if (sum.low) { <span class="warn-text">{{ sum.low }} bajo{{ sum.low === 1 ? '' : 's' }}</span> }
+                        <span>de {{ u.members.length }} · pack {{ u.unitsPerPack }} u.</span>
+                        <i class="ti ti-chevron-down ph-caret" [class.open]="isPackOpen(u)" aria-hidden="true"></i>
+                      } @else if (u.members.length) {
+                        @let m = u.members[0];
+                        <span><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }} <span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</span>
+                        @if (memberAlertLabel(m); as a) { <span class="zc-badge tiny" [class]="a.cls">{{ a.text }}</span> }
+                      } @else {
+                        <span>{{ u.kind === 'pack' ? 'pack' : 'bulto' }} de {{ u.unitsPerPack }} u.</span>
+                      }
+                      @if (u.depositoStock) { <span class="zc-badge busy tiny"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ u.depositoStock }}</span> }
+                      @if (u.pendingOrder; as p) { <span class="zc-badge busy tiny"><i class="ti ti-truck" aria-hidden="true"></i> en camino #{{ p.orderId }}</span> }
+                      @if (u.price != null) { <span>{{ u.price | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}@if (otherPriceSupplier(u); as other) { (de {{ other }}) }</span> }
+                    </span>
+                  </button>
+                  @if (inOrder) {
+                    <button type="button" class="ph-addb in" (click)="removeUnit(u, $event)" [attr.aria-label]="'Quitar ' + u.name + ' del pedido'"><i class="ti ti-check" aria-hidden="true"></i> {{ inOrder }}</button>
+                  } @else {
+                    <button type="button" class="ph-addb" (click)="addUnit(u, $event)" [attr.aria-label]="'Agregar ' + u.name"><i class="ti ti-plus" aria-hidden="true"></i>@if (u.suggestedQty) { {{ u.suggestedQty }} }</button>
+                  }
+                </div>
+                @if (multi && isPackOpen(u)) {
+                  <div class="ph-members">
+                    @for (m of u.members; track m.sku) {
+                      <div class="ph-member">
+                        <span class="ph-mname">{{ m.label }}<small>{{ m.sku }}</small></span>
+                        <span class="ph-mstock"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }} <span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</span>
+                        @if (memberAlertLabel(m); as a) { <span class="zc-badge tiny" [class]="a.cls">{{ a.text }}</span> }
+                      </div>
+                    }
+                  </div>
+                }
+              } @empty {
+                <p class="empty">
+                  @if (catalogFilter() === 'alert' && !catalogSearch()) { No hay productos con el stock en el umbral o por debajo. Mirá <b>Todos</b> para pedir algo igual. }
+                  @else if (!catalogUnits().length && o.supplierKey) { Ningún producto tiene a {{ supplierName(o.supplierKey) }} como proveedor en Precios. }
+                  @else { Sin coincidencias. }
+                </p>
+              }
+            </div>
+            <p class="ph-hint">El número del <b>+</b> es la sugerencia. Tocá un pack para ver sus modelos; los diseños que querés van en el <b>Detalle</b> de la línea.</p>
+          }
+        </zc-bottom-sheet>
+      }
+
+      <!-- Hoja del estimado -->
+      @if (summarySheetOpen()) {
+        <zc-bottom-sheet title="Estimado" [subtitle]="t.lineCount + ' línea' + (t.lineCount === 1 ? '' : 's') + ' · ' + t.packs + ' pack' + (t.packs === 1 ? '' : 's')" (closed)="summarySheetOpen.set(false)">
+          <div class="ph-sum">
+            <div class="ph-sum-row"><span>Subtotal de lista</span><span class="v">{{ t.subtotal | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
+            @if (discountProfiles().length) {
+              <label class="ph-sum-row">
+                <span>Config</span>
+                @if (canEdit()) {
+                  <select class="ph-select" [ngModel]="selectedProfile()?.id ?? ''" (ngModelChange)="applyProfile($event)" aria-label="Config de descuento del proveedor">
+                    @for (p of discountProfiles(); track p.id) { <option [ngValue]="p.id">{{ profileLabel(p) }}</option> }
+                    @if (!selectedProfile()) { <option value="" disabled>Personalizado</option> }
+                  </select>
+                } @else {
+                  <span class="v">{{ selectedProfile()?.name ?? 'Personalizado' }}</span>
+                }
+              </label>
+            }
+            <div class="ph-sum-row">
+              <span>Descuento <input class="ph-pct" type="number" min="0" max="100" inputmode="decimal" [disabled]="!canEdit()" [ngModel]="o.discount1" (ngModelChange)="setDiscount('discount1', $event)" aria-label="Descuento sobre los productos" /> %</span>
+              <span class="v ok-text">−{{ t.discount1Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
+            </div>
+            <div class="ph-sum-row">
+              <span>Sobre el total <input class="ph-pct" type="number" min="0" max="100" inputmode="decimal" [disabled]="!canEdit()" [ngModel]="o.discount2" (ngModelChange)="setDiscount('discount2', $event)" aria-label="Descuento sobre el total" /> %</span>
+              <span class="v ok-text">−{{ t.discount2Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
+            </div>
+            <div class="ph-sum-row total"><span>Total estimado</span><span class="v">{{ t.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
+          </div>
+          @if (t.missingPrices) {
+            <p class="warn-text ph-hint"><i class="ti ti-alert-triangle" aria-hidden="true"></i>
+              {{ t.missingPrices }} línea{{ t.missingPrices === 1 ? '' : 's' }} sin precio no suma{{ t.missingPrices === 1 ? '' : 'n' }}.</p>
+          }
+          <p class="ph-hint">El primer descuento va sobre los productos y el segundo sobre el total.</p>
+          <label class="ph-lbl">Nota del pedido</label>
+          <textarea class="ph-field" rows="2" placeholder="Nota del pedido…" [disabled]="!canEdit()" [ngModel]="o.note" (ngModelChange)="setNote($event)" aria-label="Nota del pedido"></textarea>
+        </zc-bottom-sheet>
+      }
+
+      <!-- Hoja de más acciones -->
+      @if (menuSheetOpen()) {
+        <zc-bottom-sheet [title]="o.name" subtitle="Más acciones" (closed)="menuSheetOpen.set(false)">
+          <div class="ph-menu">
+            <button type="button" [disabled]="!o.lines.length" (click)="openSheetFromMenu()"><i class="ti ti-file-text" aria-hidden="true"></i> Vista para la fábrica</button>
+            @if (session.isAdmin()) {
+              <button type="button" [disabled]="busy()" (click)="duplicateFromMenu()"><i class="ti ti-copy" aria-hidden="true"></i> Duplicar como borrador</button>
+              @if (!isDraft()) {
+                <button type="button" [disabled]="busy()" (click)="repeatAndPlace()"><i class="ti ti-repeat" aria-hidden="true"></i> Repetir y marcar como pedido</button>
+              }
+            }
+            @if (canEdit()) {
+              <button type="button" class="danger" (click)="askDeleteFromMenu()"><i class="ti ti-trash" aria-hidden="true"></i> Borrar borrador</button>
+            }
+          </div>
+        </zc-bottom-sheet>
+      }
+    } @else {
+      <!-- ── Encabezado ── -->
+      <div class="title-row">
+        @if (canEdit()) {
+          <input class="name-input" [ngModel]="o.name" (ngModelChange)="setName($event)" aria-label="Nombre del pedido" placeholder="Nombre del pedido" />
+        } @else {
+          <h1>{{ o.name }}</h1>
+        }
+        <span class="zc-badge"
+              [class.neutral]="o.status === 'borrador'"
+              [class.busy]="o.status === 'pendiente'"
+              [class.ok]="o.status === 'recibido' && !o.partial"
+              [class.warn]="o.status === 'recibido' && o.partial">
+          {{ statusLabel(o) }}
+        </span>
+        <span class="hint">
+          #{{ o.id }} ·
+          @if (o.status === 'borrador') { creado {{ o.createdAt | date: 'dd/MM/yy' }} }
+          @else { pedido {{ o.orderedAt | date: 'dd/MM/yy' }} }
+          @if (o.receivedAt) { · recibido {{ o.receivedAt | date: 'dd/MM/yy' }} }
+          @if (o.basedOnId) { · copia del <a [routerLink]="['/pedidos', o.basedOnId]">#{{ o.basedOnId }}</a> }
+        </span>
+        @if (o.supplierKey) {
+          <span class="zc-badge neutral supplier-chip"><i class="ti ti-building-factory-2" aria-hidden="true"></i> {{ supplierName(o.supplierKey) }}</span>
+        }
+        @if (canEdit()) {
+          <span class="save-state" [class.err]="saveState() === 'error'">
+            @switch (saveState()) {
+              @case ('saving') { <i class="ti ti-loader-2" aria-hidden="true"></i> Guardando… }
+              @case ('pending') { <i class="ti ti-pencil" aria-hidden="true"></i> Cambios sin guardar }
+              @case ('error') { <i class="ti ti-alert-triangle" aria-hidden="true"></i> No se pudo guardar — <button type="button" class="link-btn" (click)="saveNow()">reintentar</button> }
+              @default { <i class="ti ti-cloud-check" aria-hidden="true"></i> Guardado }
+            }
+          </span>
+        }
+      </div>
+
+      @if (actionError()) { <p class="alert-error">{{ actionError() }}</p> }
+      @if (flash()) { <p class="flash"><i class="ti ti-check" aria-hidden="true"></i> {{ flash() }}</p> }
+
+      <!-- ── Avisos según estado ── -->
+      @if (isPending() && !receiving() && session.isAdmin()) {
+        <div class="zc-card banner">
+          <i class="ti ti-truck" aria-hidden="true"></i>
+          <span>Esperando la mercadería. Cuando llegue, anotá qué vino y qué no.</span>
+          <span class="spacer"></span>
+          <button type="button" class="zc-btn small primary" (click)="startReceiving()">
+            <i class="ti ti-package-import" aria-hidden="true"></i> Registrar recepción
+          </button>
+        </div>
+      }
+      @if (receiving()) {
+        <div class="zc-card banner">
+          <i class="ti ti-package-import" aria-hidden="true"></i>
+          <span>Anotá cuántos packs llegaron de cada línea. Vacío = no llegó.</span>
+          <span class="spacer"></span>
+          <button type="button" class="zc-btn small" (click)="allArrived()"><i class="ti ti-checks" aria-hidden="true"></i> Llegó todo</button>
+          <button type="button" class="zc-btn small" [disabled]="busy()" (click)="saveReceiving()">Guardar y seguir después</button>
+          <button type="button" class="zc-btn small primary" [disabled]="busy()" (click)="showCloseReceive.set(true)">Cerrar recepción</button>
+        </div>
+      }
+      @if (o.status === 'recibido' && o.partial) {
+        <div class="zc-card banner">
+          <i class="ti ti-alert-triangle warn" aria-hidden="true"></i>
+          <span>No llegó todo: las líneas marcadas quedaron cortas.</span>
+          <span class="spacer"></span>
+          @if (missingDraftId(); as draftId) {
+            <a class="zc-btn small" [routerLink]="['/pedidos', draftId]">
+              <i class="ti ti-arrow-right" aria-hidden="true"></i> Abrir el borrador #{{ draftId }} con lo que faltó
+            </a>
+          } @else {
+            <button type="button" class="zc-btn small" *zcCanWrite [disabled]="busy()" (click)="duplicate('missing')">
+              <i class="ti ti-copy" aria-hidden="true"></i> Pasar lo que faltó a un borrador
             </button>
           }
         </div>
-      </aside>
-    </div>
+      }
 
-    @if (canEdit()) {
-      <!-- Solo en el celular: total + acción principal siempre a mano. -->
-      <div class="mobile-bar">
-        <div class="mb-total"><span class="hint">Total estimado</span><b>{{ t.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</b></div>
-        <button type="button" class="zc-btn primary" [disabled]="!o.lines.length || busy()" (click)="showPlaceConfirm.set(true)">
-          <i class="ti ti-send" aria-hidden="true"></i> Marcar como pedido
-        </button>
+      <div class="layout">
+        <div class="main-col">
+          <!-- ── Líneas del pedido ── -->
+          <div class="zc-card table-scroll lines-card">
+            <table class="zc-table lines">
+              <thead>
+                <tr>
+                  <th class="c-code">Código</th>
+                  <th class="c-desc">Descripción</th>
+                  <th class="c-detail">Detalle</th>
+                  <th class="num c-qty">Packs</th>
+                  @if (receiving() || o.status === 'recibido') { <th class="num c-recv">Llegó</th> }
+                  <th class="num c-price">Precio lista</th>
+                  <th class="num c-sub">Subtotal</th>
+                  @if (canEdit()) { <th class="c-del"></th> }
+                </tr>
+              </thead>
+              <tbody>
+                @for (l of o.lines; track $index; let i = $index) {
+                  <tr [class.free]="l.kind === 'free'" [class]="o.status === 'recibido' ? receivedClass(l) : ''">
+                    <td class="c-code cell-wide" data-label="Código">
+                      @if (canEdit()) {
+                        <input class="cell-input" [ngModel]="l.code" (ngModelChange)="setLineText(i, 'code', $event)" placeholder="código" aria-label="Código" />
+                        @let opts = lineCodeOptions(l);
+                        @if (opts.length) {
+                          <div class="code-pick" role="group" aria-label="Elegir código">
+                            @for (c of opts; track c.code) {
+                              <button type="button" class="code-opt" [class.on]="c.code === l.code" (click)="pickLineCode(i, c)" [title]="c.code" [attr.aria-pressed]="c.code === l.code">
+                                {{ codeSourceLabel(c.source) }}
+                              </button>
+                            }
+                          </div>
+                        }
+                      } @else { <span class="cell-text mono">{{ l.code || '—' }}</span> }
+                    </td>
+                    <td class="c-desc cell-main" data-label="Descripción">
+                      @if (canEdit()) {
+                        <input class="cell-input" [ngModel]="l.description" (ngModelChange)="setLineText(i, 'description', $event)" placeholder="descripción" aria-label="Descripción" />
+                        @let titles = lineTitleOptions(l);
+                        @if (titles.length) {
+                          <div class="code-pick" role="group" aria-label="Elegir título">
+                            @for (t of titles; track t.source + '|' + t.text) {
+                              <button type="button" class="code-opt" [class.on]="t.text === l.description" (click)="pickLineTitle(i, t)" [title]="t.text" [attr.aria-pressed]="t.text === l.description">
+                                {{ titleSourceLabel(t.source) }}
+                              </button>
+                            }
+                          </div>
+                        }
+                      } @else { <span class="cell-text">{{ l.description }}</span> }
+                      <div class="line-meta">
+                        @switch (l.origin) {
+                          @case ('alerta') { <span class="zc-badge warn tiny">alerta</span> }
+                          @case ('copia') { <span class="zc-badge neutral tiny">copia</span> }
+                          @case ('libre') { <span class="zc-badge busy tiny">ítem libre</span> }
+                          @default { <span class="zc-badge neutral tiny">a mano</span> }
+                        }
+                        @if (l.kind !== 'free') { <span>{{ lineSource(l) }}</span> }
+                        @if (canEdit() && l.kind !== 'free' && !l.code) { <span class="warn-text">sin código en Precios</span> }
+                      </div>
+                    </td>
+                    <td class="c-detail cell-wide" data-label="Detalle">
+                      @if (canEdit()) {
+                        <input class="cell-input" [ngModel]="l.detail" (ngModelChange)="setLineText(i, 'detail', $event)" placeholder="diseños, colores…" aria-label="Detalle" />
+                      } @else { <span class="cell-text">{{ l.detail }}</span> }
+                    </td>
+                    <td class="num c-qty" data-label="Packs">
+                      @if (canEdit()) {
+                        <input class="cell-input boxed num-input" type="number" min="1" inputmode="numeric" enterkeyhint="next" [ngModel]="l.qty" (ngModelChange)="setLineQty(i, $event)" aria-label="Packs" />
+                      } @else { <span class="cell-text">{{ l.qty }}</span> }
+                    </td>
+                    @if (receiving()) {
+                      <td class="num c-recv" data-label="Llegó">
+                        <span class="recv">
+                          <input class="cell-input boxed num-input small" type="number" min="0" [max]="l.qty" placeholder="0" inputmode="numeric" enterkeyhint="next"
+                                 [ngModel]="l.id != null ? received()[l.id] : null" (ngModelChange)="setReceived(l, $event)" aria-label="Packs que llegaron" />
+                          <button type="button" class="tick" (click)="fillReceived(l)" title="Llegó completo" aria-label="Llegó completo"><i class="ti ti-check" aria-hidden="true"></i></button>
+                        </span>
+                      </td>
+                    } @else if (o.status === 'recibido') {
+                      <td class="num c-recv" data-label="Llegó"><span class="cell-text recv-text">{{ l.receivedQty ?? 0 }} / {{ l.qty }}</span></td>
+                    }
+                    <td class="num c-price" data-label="Precio lista">
+                      @if (canEdit()) {
+                        <input class="cell-input boxed num-input price-input" type="number" min="0" placeholder="$ a mano" inputmode="decimal" enterkeyhint="next"
+                               [class.is-own]="l.kind !== 'free' && l.priceSource === 'manual'"
+                               [ngModel]="l.unitPrice" (ngModelChange)="setLinePrice(i, $event)" aria-label="Precio de lista por pack" />
+                        <div class="price-tag">
+                          @if (l.kind === 'free') {
+                          } @else if (l.priceSource === 'manual') {
+                            <span class="zc-badge busy tiny"><i class="ti ti-pencil" aria-hidden="true"></i> editado</span>
+                            <button type="button" class="link-btn tiny" (click)="revertLinePrice(i)"
+                                    [title]="'Volver al precio de Precios'"><i class="ti ti-rotate" aria-hidden="true"></i>
+                              {{ catalogPrice(l) != null ? (catalogPrice(l) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') : 'quitar' }}</button>
+                          } @else if (l.unitPrice == null) {
+                            <span class="warn-text">no está en Precios</span>
+                          } @else {
+                            <span class="muted"><i class="ti ti-link" aria-hidden="true"></i> de Precios</span>
+                          }
+                        </div>
+                      } @else {
+                        <span class="cell-text">
+                          @if (l.unitPrice == null) { <span class="zc-badge warn">sin precio</span> }
+                          @else { {{ l.unitPrice | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }} }
+                        </span>
+                      }
+                    </td>
+                    <td class="num c-sub" data-label="Subtotal">
+                      <span class="cell-text">{{ l.unitPrice == null ? '—' : ((l.unitPrice * l.qty) | currency: 'ARS' : 'symbol-narrow' : '1.0-0') }}</span>
+                    </td>
+                    @if (canEdit()) {
+                      <td class="c-del">
+                        <button type="button" class="icon-btn" (click)="removeLine(i)" aria-label="Quitar línea"><i class="ti ti-x" aria-hidden="true"></i></button>
+                      </td>
+                    }
+                  </tr>
+                } @empty {
+                  <tr><td colspan="8" class="cell-main"><p class="empty">El pedido está vacío. Sumá productos desde abajo o agregá un ítem libre.</p></td></tr>
+                }
+              </tbody>
+            </table>
+            @if (canEdit()) {
+              <div class="add-free">
+                <button type="button" class="zc-btn small" (click)="addFreeItem()"><i class="ti ti-pencil-plus" aria-hidden="true"></i> Ítem libre</button>
+                <span class="hint">Para productos nuevos del proveedor que todavía no cargaste: código, descripción, cantidad y precio si lo sabés.</span>
+              </div>
+            }
+          </div>
+
+          <!-- ── Catálogo para agregar (solo borradores) ── -->
+          @if (canEdit()) {
+            <div class="catalog">
+              <div class="toolbar">
+                <h2><i class="ti ti-plus" aria-hidden="true"></i> Agregar productos
+                  @if (o.supplierKey) { <span class="hint">de {{ supplierName(o.supplierKey) }}</span> }</h2>
+                <span class="spacer"></span>
+                @if (unassignedCount()) {
+                  <label class="check" title="Productos que en Precios no tienen ningún proveedor asignado">
+                    <input type="checkbox" [ngModel]="showUnassigned()" (ngModelChange)="showUnassigned.set($event)" />
+                    Sin proveedor <span class="count">{{ unassignedCount() }}</span>
+                  </label>
+                }
+                <div class="seg" role="group" aria-label="Qué productos mostrar">
+                  <button type="button" [class.on]="catalogFilter() === 'alert'" (click)="catalogFilter.set('alert')">
+                    <i class="ti ti-bell-ringing" aria-hidden="true"></i> Con alerta <span class="count">{{ alertedCount() }}</span>
+                  </button>
+                  <button type="button" [class.on]="catalogFilter() === 'all'" (click)="catalogFilter.set('all')">
+                    <i class="ti ti-list" aria-hidden="true"></i> Todos
+                  </button>
+                </div>
+                <zc-search-bar [value]="catalogSearch()" (valueChange)="catalogSearch.set($event)" placeholder="Buscar producto, SKU o código…" ariaLabel="Buscar en el catálogo" />
+                <button type="button" class="zc-btn small" (click)="addAllSuggested()" title="Suma la sugerencia de cada alerta que todavía no está en el pedido">
+                  <i class="ti ti-playlist-add" aria-hidden="true"></i> Agregar sugeridos
+                </button>
+              </div>
+
+              @if (catalogLoading()) {
+                <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando productos…</p>
+              } @else {
+                <div class="zc-card table-scroll">
+                  <table class="zc-table cat">
+                    <thead>
+                      <tr>
+                        <th>Producto</th>
+                        <th class="num">Stock ML · TN</th>
+                        <th>Depósito</th>
+                        <th>Alerta</th>
+                        <th>Último pedido</th>
+                        <th class="num">Precio pack</th>
+                        <th class="num"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (u of visibleUnits(); track u.key) {
+                        @let multi = u.members.length > 1;
+                        @let inOrder = qtyInOrder().get(u.key);
+                        @let sum = unitStockSummary(u);
+                        <tr [class.group]="multi" [class.in-order]="inOrder" (click)="multi && togglePack(u)">
+                          <td class="cell-main">
+                            <div class="unit-name">
+                              @if (multi) {
+                                <i class="ti ti-chevron-right caret" [class.open]="isPackOpen(u)" aria-hidden="true"></i>
+                                <i class="ti ti-stack-2 pack-icon" aria-hidden="true"></i>
+                              } @else {
+                                <i class="ti ti-box box-icon" aria-hidden="true"></i>
+                              }
+                              <div>
+                                <div class="prod-name" [class.strong]="multi">{{ u.name }} <span class="prod-sku">{{ u.code ?? 'sin código' }}</span></div>
+                                <div class="unit-summary">
+                                  <span>{{ u.kind === 'pack' ? 'pack' : 'bulto' }} de {{ u.unitsPerPack }} u.@if (u.mode === 'assorted') { · surtido }</span>
+                                  @if (multi) {
+                                    @if (sum.out) { <span class="err-text">{{ sum.out }} sin stock</span> }
+                                    @if (sum.low) { <span class="warn-text">{{ sum.low }} bajo{{ sum.low === 1 ? '' : 's' }}</span> }
+                                    <span class="ok-text">{{ sum.fine }} de {{ u.members.length }} con stock</span>
+                                  }
+                                  @if (u.pendingOrder; as p) {
+                                    <span class="zc-badge busy tiny"><i class="ti ti-truck" aria-hidden="true"></i> en camino · #{{ p.orderId }}</span>
+                                  }
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="num" data-label="Stock ML · TN">
+                            @if (!multi) {
+                              <span class="stock-dot ml"></span>{{ u.members[0].stockMl ?? '—' }}
+                              <span class="stock-dot tn"></span>{{ u.members[0].stockTn ?? '—' }}
+                            }
+                          </td>
+                          <td data-label="Depósito">
+                            @if (u.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ u.depositoStock }} u.</span> }
+                            @else { <span class="hint">—</span> }
+                          </td>
+                          <td data-label="Alerta">
+                            @if (!multi) {
+                              @if (memberAlertLabel(u.members[0]); as a) { <span class="zc-badge" [class]="a.cls">{{ a.text }}</span> }
+                              @else { <span class="hint">sin regla</span> }
+                            } @else if (u.alerted) {
+                              <span class="zc-badge warn"><i class="ti ti-bell-ringing" aria-hidden="true"></i> avisó</span>
+                            } @else { <span class="hint">—</span> }
+                          </td>
+                          <td data-label="Último pedido">
+                            @if (u.lastOrder; as lo) {
+                              <span class="last">{{ lo.date | date: 'dd/MM/yy' }} · {{ lo.qty }} pack{{ lo.qty === 1 ? '' : 's' }}</span>
+                            } @else { <span class="hint">nunca</span> }
+                          </td>
+                          <td class="num" data-label="Precio pack">
+                            @if (u.price == null) { <span class="hint">sin precio</span> }
+                            @else {
+                              {{ u.price | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}
+                              @if (otherPriceSupplier(u); as other) { <div class="hint" title="El precio de Precios es el del proveedor vigente">precio de {{ other }}</div> }
+                            }
+                          </td>
+                          <td class="num add-cell cell-actions">
+                            @if (inOrder) {
+                              <button type="button" class="add-btn in" (click)="removeUnit(u, $event)" title="Quitar del pedido">
+                                <i class="ti ti-check" aria-hidden="true"></i> En el pedido · {{ inOrder }}
+                              </button>
+                            } @else {
+                              <button type="button" class="add-btn" (click)="addUnit(u, $event)">
+                                <i class="ti ti-plus" aria-hidden="true"></i> Agregar
+                              </button>
+                              @if (u.suggestedQty) { <div class="hint">sugerido: {{ u.suggestedQty }} pack{{ u.suggestedQty === 1 ? '' : 's' }}</div> }
+                            }
+                          </td>
+                        </tr>
+                        @if (multi && isPackOpen(u)) {
+                          @for (m of u.members; track m.sku) {
+                            <tr class="member">
+                              <td class="cell-main"><div class="prod-name">{{ m.label }}</div><div class="prod-sku">{{ m.sku }}</div></td>
+                              <td class="num" data-label="Stock ML · TN"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }}<span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}</td>
+                              <td data-label="Depósito">
+                                @if (m.depositoStock) { <span class="zc-badge busy"><i class="ti ti-building-warehouse" aria-hidden="true"></i> {{ m.depositoStock }} u.</span> }
+                                @else { <span class="hint">—</span> }
+                              </td>
+                              <td data-label="Alerta">
+                                @if (memberAlertLabel(m); as a) { <span class="zc-badge" [class]="a.cls">{{ a.text }}</span> }
+                                @else { <span class="hint">sin regla</span> }
+                              </td>
+                              <td></td><td></td><td></td>
+                            </tr>
+                          }
+                        }
+                      } @empty {
+                        <tr><td colspan="7" class="cell-main">
+                          <p class="empty">
+                            @if (catalogFilter() === 'alert' && !catalogSearch()) { No hay productos con el stock en el umbral o por debajo. Mirá <b>Todos</b> para pedir algo igual. }
+                            @else if (!catalogUnits().length && o.supplierKey) { Ningún producto tiene a {{ supplierName(o.supplierKey) }} como proveedor en Precios. }
+                            @else { Sin coincidencias. }
+                          </p>
+                        </td></tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                <p class="footnote">
+                  <i class="ti ti-info-circle" aria-hidden="true"></i>
+                  Solo aparecen los productos que en Precios se le compran a este proveedor (asignados, con su código o como
+                  vigente), con <b>su</b> código. Todo se pide por pack (o por el bulto cargado en Precios, si el producto no tiene pack). Un pack surtido muestra
+                  <b>todos</b> sus modelos aunque haya avisado uno solo — los diseños que querés van en la columna <b>Detalle</b>.
+                </p>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- ── Panel lateral: estimado + acciones ── -->
+        <aside class="zc-card side">
+          <h2><i class="ti ti-receipt" aria-hidden="true"></i> Estimado</h2>
+          <div class="sum-row muted">{{ t.lineCount }} línea{{ t.lineCount === 1 ? '' : 's' }} · {{ t.packs }} pack{{ t.packs === 1 ? '' : 's' }}</div>
+          <div class="sum-row"><span>Subtotal de lista</span><span class="v">{{ t.subtotal | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
+          @if (discountProfiles().length) {
+            <label class="sum-row profile-row">
+              <span>Config de descuento</span>
+              @if (canEdit()) {
+                <select class="zc-select" [ngModel]="selectedProfile()?.id ?? ''" (ngModelChange)="applyProfile($event)" aria-label="Config de descuento del proveedor">
+                  @for (p of discountProfiles(); track p.id) {
+                    <option [ngValue]="p.id">{{ profileLabel(p) }}</option>
+                  }
+                  @if (!selectedProfile()) { <option value="" disabled>Personalizado</option> }
+                </select>
+              } @else {
+                <span class="v">{{ selectedProfile()?.name ?? 'Personalizado' }}</span>
+              }
+            </label>
+          }
+          <div class="sum-row">
+            <span class="pct">Descuento
+              <input class="zc-input" type="number" min="0" max="100" inputmode="decimal" enterkeyhint="next" [disabled]="!canEdit()" [ngModel]="o.discount1" (ngModelChange)="setDiscount('discount1', $event)" aria-label="Descuento sobre los productos" />%</span>
+            <span class="v ok-text">−{{ t.discount1Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
+          </div>
+          <div class="sum-row">
+            <span class="pct">Sobre el total
+              <input class="zc-input" type="number" min="0" max="100" inputmode="decimal" enterkeyhint="next" [disabled]="!canEdit()" [ngModel]="o.discount2" (ngModelChange)="setDiscount('discount2', $event)" aria-label="Descuento sobre el total" />%</span>
+            <span class="v ok-text">−{{ t.discount2Amount | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span>
+          </div>
+          <div class="sum-row total"><span>Total estimado</span><span class="v">{{ t.total | currency: 'ARS' : 'symbol-narrow' : '1.0-0' }}</span></div>
+          @if (t.missingPrices) {
+            <p class="warn-text small"><i class="ti ti-alert-triangle" aria-hidden="true"></i>
+              {{ t.missingPrices }} línea{{ t.missingPrices === 1 ? '' : 's' }} sin precio no suma{{ t.missingPrices === 1 ? '' : 'n' }}.</p>
+          }
+          <p class="hint">El precio de lista sale de <b>Precios</b>@if (canEdit()) { y se puede pisar en cada línea (solo para este pedido) }. El
+            primer descuento va sobre los productos y el segundo sobre el total.@if (canEdit() && discountProfiles().length) { Elegí una config
+            del proveedor (las de <b>Precios</b>) o tocá los % a mano para un pedido especial. }</p>
+
+          <textarea class="zc-textarea note" rows="2" placeholder="Nota del pedido…" [disabled]="!canEdit()"
+                    [ngModel]="o.note" (ngModelChange)="setNote($event)" aria-label="Nota del pedido"></textarea>
+
+          <div class="side-actions">
+            <button type="button" class="zc-btn" [disabled]="!o.lines.length" (click)="openSheet()">
+              <i class="ti ti-file-text" aria-hidden="true"></i> Vista para la fábrica
+            </button>
+            @if (canEdit()) {
+              <button type="button" class="zc-btn primary" [disabled]="!o.lines.length || busy()" (click)="showPlaceConfirm.set(true)">
+                <i class="ti ti-send" aria-hidden="true"></i> Marcar como pedido
+              </button>
+              <button type="button" class="link-btn danger" (click)="showDeleteConfirm.set(true)">
+                <i class="ti ti-trash" aria-hidden="true"></i> Borrar borrador
+              </button>
+            } @else if (session.isAdmin()) {
+              <button type="button" class="zc-btn" [disabled]="busy()" (click)="duplicate()">
+                <i class="ti ti-copy" aria-hidden="true"></i> Duplicar como borrador
+              </button>
+            }
+          </div>
+        </aside>
       </div>
     }
 

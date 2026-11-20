@@ -10,6 +10,8 @@ import { matchSearchByTokens } from '../../core/services/conflicts.service';
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { FactorySheetDialogComponent } from './factory-sheet-dialog.component';
 import { CanWriteDirective } from '../../shared/directives/can-write.directive';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
+import { PedidosListPhoneComponent } from './pedidos-list-phone/pedidos-list-phone.component';
 
 /**
  * Pedidos al proveedor: la lista (borradores, pendientes y recibidos). Cada fila abre el pedido en
@@ -18,7 +20,7 @@ import { CanWriteDirective } from '../../shared/directives/can-write.directive';
 @Component({
   selector: 'app-pedidos-list',
   standalone: true,
-  imports: [CanWriteDirective, CurrencyPipe, DatePipe, FormsModule, SearchBarComponent, FactorySheetDialogComponent],
+  imports: [CanWriteDirective, CurrencyPipe, DatePipe, FormsModule, SearchBarComponent, FactorySheetDialogComponent, PedidosListPhoneComponent],
   templateUrl: './pedidos-list.component.html',
   styleUrl: './pedidos-list.component.scss',
 })
@@ -27,6 +29,9 @@ export class PedidosListComponent {
   private readonly router = inject(Router);
 
   protected readonly statusLabel = orderStatusLabel;
+
+  /** En el celular la tabla se reemplaza por la lista por estado (`zc-pedidos-list-phone`). */
+  readonly phone = mediaSignal(PHONE_QUERY);
 
   readonly statusFilter = signal<'' | OrderStatus>('');
   /** '' = todos los proveedores. */
@@ -75,13 +80,16 @@ export class PedidosListComponent {
   });
 
   /** Se busca por nombre del pedido y por código/descripción de cualquiera de sus líneas. */
-  readonly visibleOrders = computed(() => {
-    const status = this.statusFilter();
+  readonly searchedOrders = computed(() => {
     const q = this.search();
     return this.supplierOrders().filter((o) =>
-      (!status || o.status === status) &&
       matchSearchByTokens(q, `${o.name} #${o.id} ${o.lines.map((l) => `${l.code} ${l.description} ${l.detail}`).join(' ')}`)
     );
+  });
+
+  readonly visibleOrders = computed(() => {
+    const status = this.statusFilter();
+    return this.searchedOrders().filter((o) => !status || o.status === status);
   });
 
   // ── Acciones ──
