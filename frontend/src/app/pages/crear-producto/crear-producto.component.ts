@@ -14,6 +14,7 @@ import {
 } from '../../core/services/catalog.service';
 import {
   Channel,
+  DraftSectionKey,
   MlAttrPayload,
   MlAttribute,
   OverrideField,
@@ -37,6 +38,10 @@ import { TnSectionComponent } from './components/tn-section/tn-section.component
 import { VariantsSectionComponent } from './components/variants-section/variants-section.component';
 import { StockAlertSectionComponent } from './components/stock-alert-section/stock-alert-section.component';
 import { EditReviewComponent } from './components/edit-review/edit-review.component';
+import { PhoneSectionComponent } from './components/phone-section/phone-section.component';
+import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
+import { PHONE_SECTIONS, phoneSectionStates } from './phone-sections';
 
 /**
  * Página de creación de producto.
@@ -62,10 +67,12 @@ import { EditReviewComponent } from './components/edit-review/edit-review.compon
     VariantsSectionComponent,
     StockAlertSectionComponent,
     EditReviewComponent,
+    PhoneSectionComponent,
+    BottomSheetComponent,
     RouterLink
   ],
   templateUrl: './crear-producto.component.html',
-  styleUrl: './crear-producto.component.scss',
+  styleUrls: ['./crear-producto.component.scss', './crear-producto-phone.component.scss'],
   providers: [ProductDraftStore],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
@@ -128,15 +135,94 @@ export class CrearProductoComponent implements OnInit, OnDestroy {
   /** El menú de "Publicar ▾" se cierra al tocar afuera (en el celu no hay otra forma obvia) o con Esc. */
   @HostListener('document:click', ['$event'])
   protected onDocumentClick(ev: Event): void {
-    if (!this.publishMenuOpen()) return;
-    const split = (this.host.nativeElement as HTMLElement).querySelector('.publish-split');
-    if (split && ev.target instanceof Node && split.contains(ev.target)) return;
+    if (!this.publishMenuOpen() && !this.barMenuOpen()) return;
+    const splits = (this.host.nativeElement as HTMLElement).querySelectorAll('.publish-split');
+    if (ev.target instanceof Node && Array.from(splits).some((s) => s.contains(ev.target as Node))) return;
     this.publishMenuOpen.set(false);
+    this.barMenuOpen.set(false);
   }
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
     if (this.publishMenuOpen()) this.publishMenuOpen.set(false);
+    if (this.barMenuOpen()) this.barMenuOpen.set(false);
+  }
+
+  /* ---------- celular y tablet (prototipo docs/prototype/crear-producto-mobile.html, opción B) ----------
+   * En el celular cada sección es una tarjeta plegable (una abierta a la vez) con un índice arriba; en
+   * celular y tablet una barra fija abajo con lo que falta y Publicar. El escritorio no cambia. */
+
+  /** Celular: secciones plegables + índice + hoja de faltantes. */
+  readonly isPhone = mediaSignal(PHONE_QUERY);
+  /** Celular y tablet: barra fija de publicar (en el escritorio el botón queda al final, como siempre). */
+  readonly hasBar = mediaSignal('(max-width: 1023px)');
+  /** Sección abierta en el celular (`null` = todas cerradas). */
+  readonly openSection = signal<DraftSectionKey | null>('common');
+  /** Menú "Publicar ▾" de la barra fija (aparte del de abajo de la página). */
+  readonly barMenuOpen = signal(false);
+  /** Hoja con la lista de lo que falta para publicar. */
+  readonly missingSheetOpen = signal(false);
+
+  readonly indexSections = computed(() => PHONE_SECTIONS.filter((s) => s.key !== 'alert' || !this.isEdit()));
+  readonly sectionStates = computed(() => {
+    const d = this.store.draft();
+    const key = d.cost.supplierKey;
+    const supplier = key ? (this.store.suppliers().find((s) => s.key === key)?.name ?? key) : null;
+    // En Editar no hay "faltantes para publicar": las secciones muestran solo lo cargado.
+    return phoneSectionStates(d, this.isEdit() ? [] : this.store.publishBlockerItems(), supplier);
+  });
+
+  sectionMissing(key: DraftSectionKey): number {
+    return this.sectionStates()[key].missing;
+  }
+
+  /** ✓ en el índice y en la tarjeta: solo en Crear (en Editar no hay "completa"). */
+  sectionComplete(key: DraftSectionKey): boolean {
+    return !this.isEdit() && key !== 'alert' && this.sectionStates()[key].missing === 0;
+  }
+
+  sectionTitle(key: DraftSectionKey): string {
+    return PHONE_SECTIONS.find((s) => s.key === key)?.title ?? '';
+  }
+
+  readonly editChangesLabel = computed(() => {
+    const n = this.store.editOps().length;
+    return n === 0 ? 'Sin cambios' : n === 1 ? '1 cambio' : `${n} cambios`;
+  });
+
+  toggleSection(key: DraftSectionKey): void {
+    if (this.openSection() === key) {
+      this.openSection.set(null);
+      return;
+    }
+    this.goToSection(key);
+  }
+
+  /** Abre una sección (cierra la que estaba abierta) y la lleva arriba de la pantalla. */
+  goToSection(key: DraftSectionKey): void {
+    this.openSection.set(key);
+    this.scrollToEl(`#psec-${key}`);
+  }
+
+  goToBlocker(key: DraftSectionKey): void {
+    this.missingSheetOpen.set(false);
+    this.goToSection(key);
+  }
+
+  /** Lleva a la vista un elemento de la página, después de que se dibuje lo que se acaba de abrir. */
+  scrollToEl(selector: string): void {
+    setTimeout(() => {
+      let el = (this.host.nativeElement as HTMLElement).querySelector(selector);
+      // Fuera del celular la tarjeta plegable es `display: contents` (sin caja): se scrollea a lo de adentro.
+      if (el && !el.getClientRects().length) el = el.firstElementChild;
+      el?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  /** Publicar desde la barra fija: además lleva a la vista el panel de progreso. */
+  publishFromBar(channels?: Channel[]): void {
+    void this.publish(channels);
+    this.scrollToEl('.publish-progress');
   }
   /**
    * Progreso granular del job en curso (una fila por ítem ML / producto TN ya confirmado o

@@ -31,7 +31,9 @@ import {
   normalizeDraft,
   positiveLimit,
   projectionLabel,
-  variantLabel
+  variantLabel,
+  DraftSectionKey,
+  PublishBlocker,
 } from './product-draft.model';
 
 /** Dónde se muestra el error de imágenes, para que el aviso aparezca donde se hizo el click. */
@@ -910,62 +912,70 @@ export class ProductDraftStore {
    * "Publicar" queda deshabilitado mientras tenga elementos. Cubre lo estructural que ML/TN rechazan
    * sí o sí — no replica toda la validación de cada API.
    */
-  readonly publishBlockers = computed<string[]>(() => {
+  /**
+   * Lo que falta para publicar, con la sección del formulario donde se completa (el celular lo usa
+   * para marcar cada sección y para llevar a ella desde la lista de faltantes).
+   */
+  readonly publishBlockerItems = computed<PublishBlocker[]>(() => {
     const d = this.draft();
-    const out: string[] = [];
+    const out: PublishBlocker[] = [];
+    const add = (section: DraftSectionKey, text: string) => out.push({ section, text });
     const hasVariants = d.variants.length > 0;
 
     const name = this.effective(d.ml.title, d.common.baseName).trim() || this.effective(d.tn.nameEs, d.common.baseName).trim();
-    if (!name) out.push('Falta el nombre del producto');
-    if (!hasVariants && !d.common.sku.trim()) out.push('Falta el SKU');
+    if (!name) add('common', 'Falta el nombre del producto');
+    if (!hasVariants && !d.common.sku.trim()) add('variants', 'Falta el SKU');
 
     const mlName = this.effective(d.ml.title, d.common.baseName).trim();
     if (mlName.length > ML_TITLE_MAX) {
-      out.push(`El nombre de Mercado Libre tiene ${mlName.length} caracteres (máximo ${ML_TITLE_MAX}): acortalo en "Nombre de familia"`);
+      add('ml', `El nombre de Mercado Libre tiene ${mlName.length} caracteres (máximo ${ML_TITLE_MAX}): acortalo en "Nombre de familia"`);
     }
     if (hasVariants && d.ml.mappingMode === 'one_per_variant') {
       const long = d.variants.filter((v) => this.variantTitle('ml', v).trim().length > ML_TITLE_MAX).length;
-      if (long) out.push(`${long} variante(s) con título de Mercado Libre de más de ${ML_TITLE_MAX} caracteres`);
+      if (long) add('variants', `${long} variante(s) con título de Mercado Libre de más de ${ML_TITLE_MAX} caracteres`);
     }
 
-    if (!d.ml.categoryId) out.push('Elegí una categoría de Mercado Libre');
+    if (!d.ml.categoryId) add('ml', 'Elegí una categoría de Mercado Libre');
     // "Completo" = va a viajar algo usable (ver mlAttrPayload): un `valueId` que la categoría no
     // reconoce no cuenta, porque al publicar se descarta.
     const missingAttrs = d.ml.attributes
       .filter((a) => !this.attrUsedAsAxis(a.id) && this.attrIsRequired(a, d.ml.attributes) && !this.mlAttrPayload(a))
       .map((a) => a.name || a.id);
-    if (missingAttrs.length) out.push(`Completá en Mercado Libre: ${missingAttrs.join(', ')}`);
+    if (missingAttrs.length) add('ml', `Completá en Mercado Libre: ${missingAttrs.join(', ')}`);
 
-    if (!d.tn.categories.length) out.push('Elegí al menos una categoría de Tienda Nube');
+    if (!d.tn.categories.length) add('tn', 'Elegí al menos una categoría de Tienda Nube');
 
-    if (d.axes.length && !hasVariants) out.push('Generá las variantes de los ejes que definiste');
+    if (d.axes.length && !hasVariants) add('variants', 'Generá las variantes de los ejes que definiste');
 
     if (!hasVariants) {
-      if (d.ml.basePrice == null || d.ml.basePrice <= 0) out.push('Falta el precio de Mercado Libre');
-      if (d.tn.basePrice == null || d.tn.basePrice <= 0) out.push('Falta el precio de Tienda Nube');
-      if (d.common.baseStock == null) out.push('Falta el stock');
+      if (d.ml.basePrice == null || d.ml.basePrice <= 0) add('variants', 'Falta el precio de Mercado Libre');
+      if (d.tn.basePrice == null || d.tn.basePrice <= 0) add('variants', 'Falta el precio de Tienda Nube');
+      if (d.common.baseStock == null) add('variants', 'Falta el stock');
     } else {
       const n = (pred: (v: (typeof d.variants)[number]) => boolean) => d.variants.filter(pred).length;
       const noSku = n((v) => !v.sku.trim());
-      if (noSku) out.push(`${noSku} variante(s) sin SKU`);
+      if (noSku) add('variants', `${noSku} variante(s) sin SKU`);
       const noMl = n((v) => v.ml.price == null || v.ml.price <= 0);
-      if (noMl) out.push(`${noMl} variante(s) sin precio de Mercado Libre`);
+      if (noMl) add('variants', `${noMl} variante(s) sin precio de Mercado Libre`);
       const noTn = n((v) => v.tn.price == null || v.tn.price <= 0);
-      if (noTn) out.push(`${noTn} variante(s) sin precio de Tienda Nube`);
+      if (noTn) add('variants', `${noTn} variante(s) sin precio de Tienda Nube`);
       const skus = d.variants.map((v) => v.sku.trim()).filter(Boolean);
-      if (new Set(skus).size !== skus.length) out.push('Hay SKUs de variante repetidos');
+      if (new Set(skus).size !== skus.length) add('variants', 'Hay SKUs de variante repetidos');
       // Una variante sin fotos propias se publica con toda la galería: en un banco más grande que
       // el tope de un ítem, ML la rechazaría.
       const maxMl = positiveLimit(this.mlMaxPictures(), ML_MAX_PICTURES_FALLBACK);
       if (this.mlGalleryIsPool() && d.ml.mappingMode === 'one_per_variant' && d.ml.images.length > maxMl) {
         const noPics = n((v) => v.ml.pictureIds.length === 0);
-        if (noPics) out.push(`${noPics} variante(s) sin fotos de Mercado Libre (con más de ${maxMl} en la galería, cada una tiene que elegir las suyas)`);
+        if (noPics) add('variants', `${noPics} variante(s) sin fotos de Mercado Libre (con más de ${maxMl} en la galería, cada una tiene que elegir las suyas)`);
       }
     }
 
-    out.push(...this.alertBlockers());
+    for (const text of this.alertBlockers()) add('alert', text);
     return out;
   });
+
+  /** Lo mismo como texto suelto (la lista del escritorio y `canPublish`). */
+  readonly publishBlockers = computed<string[]>(() => this.publishBlockerItems().map((b) => b.text));
 
   /** Faltantes de la alerta de stock (solo si está activada); los suma `publishBlockers`. */
   readonly alertBlockers = computed<string[]>(() => {

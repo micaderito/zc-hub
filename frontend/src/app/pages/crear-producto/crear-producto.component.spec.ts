@@ -236,7 +236,17 @@ describe('CrearProductoComponent', () => {
     localStorage.removeItem('zc-crear-producto-drafts-migrated-to-backend');
   };
 
+  /** `matchMedia` fijo: por defecto escritorio (el navegador de los tests puede ser más angosto que 760px). */
+  const media = (phone: boolean, tabletDown = phone) =>
+    ((q: string) =>
+      ({
+        matches: q.includes('760') ? phone : tabletDown,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined
+      }) as unknown as MediaQueryList);
+
   beforeEach(async () => {
+    spyOn(window, 'matchMedia').and.callFake(media(false));
     // Aísla los borradores locales entre tests (ngOnInit intenta restaurar de localStorage).
     clearDraftStorage();
     catalog = new CatalogServiceMock();
@@ -2074,6 +2084,20 @@ describe('CrearProductoComponent', () => {
       expect(component.canPublish()).toBeTrue();
     });
 
+    it('cada faltante dice en qué sección se completa (el celular marca la sección y lleva a ella)', () => {
+      const bySection = (text: string) => component.store.publishBlockerItems().find((b) => b.text.includes(text))?.section;
+      expect(bySection('nombre del producto')).toBe('common');
+      expect(bySection('Falta el SKU')).toBe('variants');
+      expect(bySection('categoría de Mercado Libre')).toBe('ml');
+      expect(bySection('categoría de Tienda Nube')).toBe('tn');
+      expect(bySection('precio de Mercado Libre')).toBe('variants');
+      expect(bySection('Falta el stock')).toBe('variants');
+      component.draft().alert.enabled = true;
+      component.draft().alert.threshold = null;
+      component.touch();
+      expect(bySection('Alerta de stock')).toBe('alert');
+    });
+
     it('lista los faltantes de un borrador vacío', () => {
       const b = component.publishBlockers();
       expect(b.some((x) => x.includes('nombre'))).toBeTrue();
@@ -2873,5 +2897,101 @@ describe('CrearProductoComponent', () => {
       expect(component.mlTreeNode()?.id).toBe('MLA1367');
       expect(component.currentMlChildren().length).toBe(1);
     }));
+  });
+
+  describe('celular y tablet (secciones plegables + barra fija)', () => {
+    const el = () => fixture.nativeElement as HTMLElement;
+
+    /** Recrea la pantalla con otro ancho (el `matchMedia` se lee al crear el componente). */
+    function recreate(phone: boolean, tabletDown = phone): void {
+      fixture.destroy();
+      (window.matchMedia as jasmine.Spy).and.callFake(media(phone, tabletDown));
+      fixture = TestBed.createComponent(CrearProductoComponent);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+    }
+
+    it('escritorio: sin índice, sin barra fija y las secciones como siempre', () => {
+      expect(el().querySelector('.sec-index')).toBeNull();
+      expect(el().querySelector('.mbar')).toBeNull();
+      expect(el().querySelectorAll('.zc-psec.is-phone').length).toBe(0);
+      expect(el().querySelectorAll('.psec-head').length).toBe(0);
+      expect(el().querySelector('.actions .publish-split')).not.toBeNull();
+    });
+
+    it('tablet: barra fija con lo que falta, sin índice ni tarjetas plegables', () => {
+      recreate(false, true);
+      expect(el().querySelector('.mbar')).not.toBeNull();
+      expect(el().querySelector('.sec-index')).toBeNull();
+      expect(el().querySelectorAll('.zc-psec.is-phone').length).toBe(0);
+    });
+
+    it('celular: índice + una tarjeta por sección, solo Datos comunes abierta', () => {
+      recreate(true);
+      const chips = Array.from(el().querySelectorAll('.sec-chip')).map((c) => c.textContent?.trim());
+      expect(chips).toEqual(['Comunes', 'ML', 'TN', 'Precio', 'Variantes', 'Alerta']);
+      const secs = Array.from(el().querySelectorAll('.zc-psec.is-phone'));
+      expect(secs.length).toBe(6);
+      expect(secs.filter((x) => x.classList.contains('is-open')).map((x) => x.id)).toEqual(['psec-common']);
+    });
+
+    it('celular: cada sección cerrada muestra lo primero que le falta y cuántos', () => {
+      recreate(true);
+      const tn = el().querySelector('#psec-tn')!;
+      expect(tn.querySelector('.psec-sum')?.textContent).toContain('Elegí al menos una categoría de Tienda Nube');
+      expect(tn.querySelector('.psec-miss')?.textContent?.trim()).toBe('1');
+      expect(component.sectionMissing('variants')).toBe(4); // SKU, precio ML, precio TN, stock
+      expect(el().querySelector('.sec-chip.warn')).not.toBeNull();
+    });
+
+    it('celular: al completar lo que falta, la sección pasa a ✓ con su resumen', () => {
+      recreate(true);
+      component.draft.update((d) => ({ ...d, tn: { ...d.tn, categories: [7] } }));
+      fixture.detectChanges();
+      const tn = el().querySelector('#psec-tn')!;
+      expect(tn.querySelector('.psec-miss')).toBeNull();
+      expect(tn.querySelector('.psec-ok')).not.toBeNull();
+      expect(tn.querySelector('.psec-sum')?.textContent).toContain('1 categoría');
+    });
+
+    it('celular: tocar el encabezado abre esa sección y cierra la anterior; tocarlo de nuevo la cierra', () => {
+      recreate(true);
+      (el().querySelector('#psec-ml .psec-head') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.openSection()).toBe('ml');
+      expect(el().querySelector('#psec-ml')!.classList).toContain('is-open');
+      expect(el().querySelector('#psec-common')!.classList).not.toContain('is-open');
+
+      (el().querySelector('#psec-ml .psec-head') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.openSection()).toBeNull();
+    });
+
+    it('celular: "Faltan N datos" abre la hoja y cada faltante lleva a su sección', () => {
+      recreate(true);
+      const status = el().querySelector('.mbar-status.warn') as HTMLButtonElement;
+      expect(status.textContent).toContain(`Faltan ${component.publishBlockers().length} datos`);
+      status.click();
+      fixture.detectChanges();
+
+      const rows = Array.from(el().querySelectorAll('zc-bottom-sheet .miss-row')) as HTMLButtonElement[];
+      expect(rows.length).toBe(component.publishBlockers().length);
+      const tnRow = rows.find((r) => r.textContent?.includes('Tienda Nube'))!;
+      expect(tnRow.querySelector('small')?.textContent).toBe('Tienda Nube');
+      tnRow.click();
+      fixture.detectChanges();
+
+      expect(el().querySelector('zc-bottom-sheet')).toBeNull();
+      expect(component.openSection()).toBe('tn');
+    });
+
+    it('celular: Publicar de la barra arranca la publicación (deshabilitado mientras falten datos)', () => {
+      recreate(true);
+      const btn = el().querySelector('.mbar-split > .zc-btn') as HTMLButtonElement;
+      expect(btn.disabled).toBeTrue();
+      spyOn(component, 'publish').and.resolveTo();
+      component.publishFromBar(['ml']);
+      expect(component.publish).toHaveBeenCalledWith(['ml']);
+    });
   });
 });

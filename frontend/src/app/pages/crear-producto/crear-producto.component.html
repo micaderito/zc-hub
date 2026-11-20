@@ -86,38 +86,78 @@
   </div>
 
   @if (!isEdit() || store.edit()) {
+  @if (isPhone()) {
+    <!-- Celular: índice fijo para saltar a cada sección (abre esa y cierra las demás). -->
+    <nav class="sec-index" aria-label="Secciones">
+      @for (s of indexSections(); track s.key) {
+        <button
+          type="button"
+          class="sec-chip"
+          [class.on]="openSection() === s.key"
+          [class.warn]="sectionMissing(s.key) > 0"
+          [class.ok]="sectionComplete(s.key)"
+          (click)="goToSection(s.key)"
+        >
+          @if (sectionMissing(s.key) > 0) {
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+          } @else if (sectionComplete(s.key)) {
+            <i class="ti ti-circle-check" aria-hidden="true"></i>
+          }
+          {{ s.short }}
+        </button>
+      }
+    </nav>
+  }
   <!-- Mientras se guarda (y después) el form queda de solo lectura: lo que se manda ya salió. -->
   <fieldset class="form-fieldset" [disabled]="store.editLocked()">
-  <zc-common-data-section />
+  <zc-phone-section id="psec-common" [phone]="isPhone()" [open]="openSection() === 'common'" (toggle)="toggleSection('common')"
+    title="Datos comunes" icon="ti-stack-2" [summary]="sectionStates().common.summary" [missing]="sectionMissing('common')" [complete]="sectionComplete('common')">
+    <zc-common-data-section />
+  </zc-phone-section>
 
-  <zc-ml-section
-    [predictions]="mlPredictions()"
-    [predicting]="mlPredicting()"
-    [predictError]="mlPredictError()"
-    [attrsLoading]="mlAttrsLoading()"
-    [attrsError]="mlAttrsError()"
-    (predict)="predictMlCategory()"
-    (applyPrediction)="applyMlPrediction($event)"
-    (openTree)="openMlTree()"
-    (clearCategory)="clearMlCategory()"
-  />
+  <zc-phone-section id="psec-ml" [phone]="isPhone()" [open]="openSection() === 'ml'" (toggle)="toggleSection('ml')"
+    title="Mercado Libre" accent="ml" [summary]="sectionStates().ml.summary" [missing]="sectionMissing('ml')" [complete]="sectionComplete('ml')">
+    <zc-ml-section
+      [predictions]="mlPredictions()"
+      [predicting]="mlPredicting()"
+      [predictError]="mlPredictError()"
+      [attrsLoading]="mlAttrsLoading()"
+      [attrsError]="mlAttrsError()"
+      (predict)="predictMlCategory()"
+      (applyPrediction)="applyMlPrediction($event)"
+      (openTree)="openMlTree()"
+      (clearCategory)="clearMlCategory()"
+    />
+  </zc-phone-section>
 
-  <zc-tn-section
-    [categories]="tnCategories()"
-    [categoriesLoading]="tnCategoriesLoading()"
-    [categoriesError]="tnCategoriesError()"
-    [seoGenerating]="seoGenerating()"
-    [seoError]="seoError()"
-    (reloadCategories)="loadTnCategories()"
-    (generateSeo)="generateSeo()"
-  />
+  <zc-phone-section id="psec-tn" [phone]="isPhone()" [open]="openSection() === 'tn'" (toggle)="toggleSection('tn')"
+    title="Tienda Nube" accent="tn" [summary]="sectionStates().tn.summary" [missing]="sectionMissing('tn')" [complete]="sectionComplete('tn')">
+    <zc-tn-section
+      [categories]="tnCategories()"
+      [categoriesLoading]="tnCategoriesLoading()"
+      [categoriesError]="tnCategoriesError()"
+      [seoGenerating]="seoGenerating()"
+      [seoError]="seoError()"
+      (reloadCategories)="loadTnCategories()"
+      (generateSeo)="generateSeo()"
+    />
+  </zc-phone-section>
 
-  <zc-price-profit-section />
+  <zc-phone-section id="psec-price" [phone]="isPhone()" [open]="openSection() === 'price'" (toggle)="toggleSection('price')"
+    title="Precios y ganancia" icon="ti-calculator" [summary]="sectionStates().price.summary" [missing]="sectionMissing('price')" [complete]="sectionComplete('price')">
+    <zc-price-profit-section />
+  </zc-phone-section>
 
-  <zc-variants-section />
+  <zc-phone-section id="psec-variants" [phone]="isPhone()" [open]="openSection() === 'variants'" (toggle)="toggleSection('variants')"
+    title="Variantes" icon="ti-layout-grid" [summary]="sectionStates().variants.summary" [missing]="sectionMissing('variants')" [complete]="sectionComplete('variants')">
+    <zc-variants-section />
+  </zc-phone-section>
 
   @if (!isEdit()) {
-    <zc-stock-alert-section />
+    <zc-phone-section id="psec-alert" [phone]="isPhone()" [open]="openSection() === 'alert'" (toggle)="toggleSection('alert')"
+      title="Alerta de stock" icon="ti-bell" [summary]="sectionStates().alert.summary" [missing]="sectionMissing('alert')">
+      <zc-stock-alert-section />
+    </zc-phone-section>
   }
   </fieldset>
   }
@@ -345,7 +385,90 @@
     </div>
   </div>
   }
+
+  @if (hasBar() && (!isEdit() || store.edit())) {
+    <!-- Celular y tablet: lo que falta + Publicar siempre a mano (en Editar: los cambios + Revisar). -->
+    <div class="mbar">
+      @if (isEdit()) {
+        <span class="mbar-status" [class.ok]="store.editOps().length > 0">
+          <i class="ti" [class.ti-pencil]="store.editOps().length > 0" [class.ti-circle-dashed]="!store.editOps().length" aria-hidden="true"></i>
+          {{ editChangesLabel() }}
+        </span>
+        <button type="button" class="zc-btn primary mbar-main" (click)="scrollToEl('zc-edit-review')">
+          <i class="ti ti-list-check"></i> Revisar y guardar
+        </button>
+      } @else {
+        @if (publishPhase() === 'running') {
+          <button type="button" class="mbar-status busy" (click)="scrollToEl('.publish-progress')">
+            <i class="ti ti-loader-2 spin" aria-hidden="true"></i>
+            Publicando… @if (publishTotals().total) { ({{ publishTotals().done }} de {{ publishTotals().total }}) }
+          </button>
+        } @else if (publishBlockers().length) {
+          <button type="button" class="mbar-status warn" (click)="missingSheetOpen.set(true)">
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+            {{ publishBlockers().length === 1 ? 'Falta 1 dato' : 'Faltan ' + publishBlockers().length + ' datos' }}
+            <i class="ti ti-chevron-up" aria-hidden="true"></i>
+          </button>
+        } @else if (hasPendingUploads()) {
+          <span class="mbar-status"><i class="ti ti-loader" aria-hidden="true"></i> Subiendo fotos…</span>
+        } @else {
+          <span class="mbar-status ok"><i class="ti ti-circle-check" aria-hidden="true"></i> Listo para publicar</span>
+        }
+        <div class="publish-split mbar-split">
+          <button
+            type="button"
+            class="zc-btn primary"
+            (click)="publishFromBar()"
+            [disabled]="publishing() || hasPendingUploads() || !canPublish()"
+          >
+            <i class="ti ti-rocket"></i> {{ publishing() ? 'Publicando…' : 'Publicar' }}
+          </button>
+          <button
+            type="button"
+            class="zc-btn primary publish-split-toggle"
+            (click)="barMenuOpen.set(!barMenuOpen())"
+            [disabled]="publishing() || hasPendingUploads() || !canPublish()"
+            aria-label="Elegir canal"
+          >
+            <i class="ti" [class.ti-chevron-up]="!barMenuOpen()" [class.ti-chevron-down]="barMenuOpen()"></i>
+          </button>
+          @if (barMenuOpen()) {
+            <div class="publish-menu">
+              <button type="button" (click)="barMenuOpen.set(false); publishFromBar()">
+                <i class="ti ti-rocket"></i> En los dos canales
+              </button>
+              <button type="button" (click)="barMenuOpen.set(false); publishFromBar(['ml'])">
+                <span class="dot dot-ml"></span> Solo Mercado Libre
+              </button>
+              <button type="button" (click)="barMenuOpen.set(false); publishFromBar(['tn'])">
+                <span class="dot dot-tn"></span> Solo Tienda Nube
+              </button>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
 </div>
+
+@if (missingSheetOpen()) {
+  <zc-bottom-sheet
+    [title]="publishBlockers().length === 1 ? 'Falta 1 dato para publicar' : 'Faltan ' + publishBlockers().length + ' datos para publicar'"
+    subtitle="Tocá uno para ir a completarlo"
+    (closed)="missingSheetOpen.set(false)"
+  >
+    <div class="miss-list">
+      @for (b of store.publishBlockerItems(); track $index) {
+        <button type="button" class="miss-row" (click)="goToBlocker(b.section)">
+          <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+          <span class="miss-text">{{ b.text }}<small>{{ sectionTitle(b.section) }}</small></span>
+          <i class="ti ti-chevron-right miss-chev" aria-hidden="true"></i>
+        </button>
+      }
+    </div>
+    <p class="miss-note"><i class="ti ti-info-circle" aria-hidden="true"></i> Al publicar se crean publicaciones reales y activas en Mercado Libre y Tienda Nube. El borrador se guarda solo.</p>
+  </zc-bottom-sheet>
+}
 
 @if (mlTreeOpen()) {
   <zc-ml-category-dialog
