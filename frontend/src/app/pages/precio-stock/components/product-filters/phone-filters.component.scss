@@ -1,0 +1,62 @@
+// Solo se renderiza en el celular: sin media queries.
+:host { display: block; margin-bottom: 8px; }
+
+.pf-chips {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+.pf-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0.5px solid var(--border);
+  border-radius: 17px;
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  i { font-size: 0.95rem; }
+
+  &.on { background: var(--brand-bg); color: var(--brand); border-color: transparent; font-weight: 500; }
+}
+
+.pf-n {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  &.warn { background: var(--warn-bg); color: var(--warn); }
+}
+
+.pf-chip.on .pf-n { background: var(--surface); color: var(--brand); }
+
+.pf-lbl { font-size: 0.76rem; color: var(--text-2); margin: 16px 0 7px; }
+.pf-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.pf-actions { display: flex; gap: 8px; margin-top: 20px; }
+
+.pf-btn {
+  flex: 1;
+  min-height: 46px;
+  border-radius: 12px;
+  border: 0.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  &.primary { background: var(--brand); color: var(--brand-contrast); border-color: transparent; font-weight: 600; }
+  &:disabled { opacity: 0.5; }
+}
