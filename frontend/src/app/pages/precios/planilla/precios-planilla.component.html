@@ -1,3 +1,6 @@
+@if (phone()) {
+  <zc-planilla-phone />
+} @else {
 <!-- Resumen de valores fijos (viven en Ajustes) -->
 @if (store.config(); as c) {
   <div class="pr-rules">
@@ -180,7 +183,7 @@
                 <ng-container *ngTemplateOutlet="trendTpl; context: { $implicit: group.mlTrend }" />
               </div>
             </td>
-            <td [attr.colspan]="tailSpan()"></td>
+            <td [attr.colspan]="tailSpan"></td>
           </tr>
           @if (isPackExpanded(group.pack.packId)) {
             @for (row of group.rows; track row.sku) {
@@ -476,4 +479,5 @@
 
 @if (historySku(); as sku) {
   <zc-product-history-dialog [sku]="sku" initialTab="price" (closed)="historySku.set(null)" />
+}
 }

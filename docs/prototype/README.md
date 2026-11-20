@@ -8,6 +8,7 @@ Prototipos **estáticos y no funcionales**: sirven como guía visual del product
 | `precios-prototipo.html` | La sección de **Precios** — dos opciones de UI para el mismo motor de cálculo. |
 | `alertas-prototipo.html` | Las **Alertas de stock** — dos opciones de UI para configurar avisos y armar el pedido. |
 | `alertas-mobile.html` | **Alertas en el celular** — dos opciones (lista compacta con medidor / por urgencia con hoja de detalle). Se implementó la **B**. |
+| `precios-mobile.html` | **Actualizar precios en el celular** — tres opciones (planilla en tarjetas / lo pendiente primero / revisar de a uno). Se implementó la **B**. |
 | `despachos-mobile.html` | **Para preparar en el celular** — tres opciones (tarjetas abiertas / lista + hoja / juntar y armar). Se implementó la **B**. |
 | `productos-mobile.html` | **Productos en el celular** — tres opciones (lista + hoja del producto / resumen + stock en la fila / lista que se despliega). |
 
