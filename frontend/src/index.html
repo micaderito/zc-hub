@@ -5,6 +5,18 @@
   <title>Zona Cuaderno Hub</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <script>
+    // iOS hace zoom al enfocar un campo y no vuelve solo. Con maximum-scale=1 no lo hace, y Safari
+    // igual deja hacer zoom con dos dedos (desde iOS 10 ignora maximum-scale para el gesto).
+    // Solo en iOS: en Android maximum-scale sí bloquea el zoom con dos dedos.
+    (function () {
+      var ua = navigator.userAgent;
+      var ios = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      if (!ios) return;
+      var m = document.querySelector('meta[name="viewport"]');
+      if (m) m.setAttribute('content', m.getAttribute('content') + ', maximum-scale=1');
+    })();
+  </script>
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <!-- PWA: instalable en iPhone/iPad (Safari → Agregar a inicio) y Android (Chrome → Instalar app). -->
   <link rel="manifest" href="manifest.webmanifest">

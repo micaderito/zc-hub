@@ -1456,7 +1456,7 @@ página web. Es el mismo build de GitHub Pages (`/zc-hub/`), no hay un deploy ap
   (pointer: coarse, incluye el iPad apaisado), `m.hover` (envolver los `:hover`: en iOS quedan pegados),
   `m.sheet` (modal → hoja que sube desde abajo), `m.stack-table` (tabla → una tarjeta por fila; cada `<td>`
   con `data-label`, `cell-main`, `cell-actions`) y `m.scroll-row` (chips/pestañas en una fila que se
-  desliza). Globales en `styles.scss`: campos a 16px en táctil (si no, iOS hace zoom), `.zc-btn` ≥ 40px.
+  desliza). Globales en `styles.scss`: campos a 16px en táctil con `!important` (si no, iOS hace zoom al enfocar y no vuelve; los estilos de componente lo pisaban), `.zc-btn` ≥ 40px. Además `index.html` suma `maximum-scale=1` al viewport solo en iOS (Safari igual deja el zoom con dos dedos; en Android bloquearía el pellizco, por eso no va). No achicar la letra de un campo en táctil.
   - **Navegación en el celu**: barra fina arriba (logo, página actual, campanita) y **barra de pestañas
     abajo** (Preparar, Productos, Pedidos, Alertas + "Más", una hoja con el resto, el usuario, el tema y
     salir). `PHONE_TAB_PATHS` en `layout.component.ts`; estilos en `layout-phone.component.scss` (hoja
@@ -1468,6 +1468,20 @@ página web. Es el mismo build de GitHub Pages (`/zc-hub/`), no hay un deploy ap
   - Conexiones: OAuth de ML/TN desde la app instalada en iOS puede volver a Safari; la página recarga el
     estado al volver a la app (`visibilitychange`/`focus`), la verdad es la del servidor.
   - El aviso de presupuesto del bundle inicial pasó a 560 kB (el service worker suma ~15 kB).
+  - **Productos en el celular** (2026-11-20, prototipo `docs/prototype/productos-mobile.html`, opción A):
+    en vez de `zc-pair-card` (una pantalla por producto), una fila compacta por par (`zc-pair-row`: foto,
+    nombre, variante, SKU, pack, precios chicos y a la derecha el stock — un número si coinciden, los dos
+    en ámbar si no, rojo en 0) y tocarla abre `zc-pair-sheet`: stock de cada canal, +/− grande para dejar
+    los dos en un número (arranca en el de ML) + "Sincronizar stock", los dos precios + "Actualizar
+    precios", y Historial / Alerta / Proveedor. Cada acción **cierra la hoja y llama al mismo método de la
+    página** (`syncStock`, `updatePrices`, …) que usa la tarjeta, así las confirmaciones de precio de ML/TN
+    y el historial no quedan debajo de la hoja. Filtros: chips de stock con conteo + "Filtros" (hoja con
+    Proveedor / Alerta / Pack, `zc-phone-filters`, mismo `ProductFiltersValue`). Sin título ni explicación
+    arriba; Actualizar es un ícono al lado de las pestañas. Los tildes de "asignar proveedor a varios"
+    salen con "Seleccionar" ("Listo" limpia). Se elige con `mediaSignal(PHONE_QUERY)` en
+    `precio-stock.component`; escritorio y tablet no cambian (en tablet la tarjeta ya entra bien), y
+    Packs queda igual. Specs: `describe('en el celular …')` en `precio-stock.component.spec.ts`
+    (mockea `matchMedia`).
 
 ### Roles de usuario: `admin` y `lectura`
 
