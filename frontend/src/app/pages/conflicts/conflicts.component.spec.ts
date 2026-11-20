@@ -84,6 +84,15 @@ function createAnalysis(overrides: Partial<ConflictAnalysis> = {}): ConflictAnal
 }
 
 describe('ConflictsComponent', () => {
+  /** Escritorio por defecto: el navegador de los tests es más angosto que 760px. */
+  let phone = false;
+  beforeEach(() => {
+    phone = false;
+    spyOn(window, 'matchMedia').and.callFake(
+      () => ({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList,
+    );
+  });
+
   let fixture: ComponentFixture<ConflictsComponent>;
   let component: ConflictsComponent;
   let conflictsSpy: jasmine.SpyObj<ConflictsService>;
@@ -755,6 +764,40 @@ describe('ConflictsComponent', () => {
       component.bulkEditChannel = 'tiendanube';
       const tn = component.analysis!.duplicateSkuTN[0].items[0];
       expect(component.getBulkEditRowTrackId(tn)).toBe(`${tn.productId}${tn.variantId}`);
+    });
+  });
+
+  describe('en el celular', () => {
+    it('muestra zc-conflicts-phone y pide siempre la pestaña resumen sin buscar en el servidor', async () => {
+      phone = true;
+      conflictsSpy.getAnalysisPromise.and.returnValue(Promise.resolve(createAnalysis()));
+      await init();
+
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('zc-conflicts-phone')).not.toBeNull();
+      expect(el.querySelector('zc-tabs')).toBeNull();
+
+      component.activeTab.set('solo-ml');
+      component.searchQuery.set('algo');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const calls = conflictsSpy.getAnalysisPromise.calls.all().map((c) => c.args[0]);
+      expect(calls.every((a) => a?.tab === 'resumen' && !a?.search)).toBeTrue();
+    });
+
+    it('editar desde la hoja abre el mismo formulario que en el escritorio', async () => {
+      phone = true;
+      conflictsSpy.getAnalysisPromise.and.returnValue(Promise.resolve(createAnalysis()));
+      await init();
+
+      const row = fixture.nativeElement.querySelector('.cp-row') as HTMLButtonElement;
+      row.click();
+      fixture.detectChanges();
+      const edit = [...fixture.nativeElement.querySelectorAll('zc-bottom-sheet button')].find((b: Element) => b.textContent?.includes('Editar SKU')) as HTMLButtonElement;
+      edit.click();
+      fixture.detectChanges();
+      expect(component.showEditSkuModal).toBeTrue();
+      expect(component.editSkuTarget?.channel).toBe('mercadolibre');
     });
   });
 });

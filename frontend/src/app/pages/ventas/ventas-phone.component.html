@@ -1,0 +1,148 @@
+<div class="vp-months" role="group" aria-label="Período">
+  @for (m of monthChips(); track m.value) {
+    <button type="button" class="vp-chip" [class.on]="m.value === selectedMonth()" (click)="pickMonth(m.value)">{{ chipLabel(m) }}</button>
+  }
+  <button type="button" class="vp-chip" [class.on]="isCustom()" (click)="rangeOpen.set(true)">
+    <i class="ti ti-calendar" aria-hidden="true"></i> {{ isCustom() ? formatDay(from()) + ' – ' + formatDay(to()) : 'Otro…' }}
+  </button>
+</div>
+
+<div class="vp-meta">
+  <span>{{ lastSyncLabel() }}</span>
+  <button type="button" class="vp-link" [disabled]="syncing()" (click)="sync.emit()">
+    <i class="ti ti-refresh" [class.spinning]="syncing()" aria-hidden="true"></i> {{ syncing() ? 'Actualizando…' : 'Actualizar' }}
+  </button>
+</div>
+
+@if (!rangeValid()) {
+  <p class="vp-empty"><i class="ti ti-alert-triangle" aria-hidden="true"></i> "Desde" no puede ser posterior a "hasta".</p>
+} @else if (neverSynced()) {
+  <div class="vp-empty">
+    <i class="ti ti-map-pin" aria-hidden="true"></i>
+    <p>Todavía no sincronizaste las ventas de Mercado Libre. La primera carga trae el año en curso y puede tardar unos minutos.</p>
+    <button type="button" class="zc-btn primary" [disabled]="syncing()" (click)="sync.emit()">
+      <i class="ti ti-refresh" aria-hidden="true"></i> Sincronizar ventas
+    </button>
+  </div>
+} @else if (loading()) {
+  <p class="vp-empty"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando informe…</p>
+} @else if (report()) {
+  @let r = report()!;
+  <div class="vp-hero">
+    <small>Facturado {{ periodLabel() }}</small>
+    <div class="vp-big">{{ money(r.kpis.facturadoTotal) }}</div>
+    <span class="vp-delta" [class.up]="r.kpis.facturadoDeltaPct >= 0" [class.down]="r.kpis.facturadoDeltaPct < 0">
+      <i class="ti" [class.ti-arrow-up-right]="r.kpis.facturadoDeltaPct >= 0" [class.ti-arrow-down-right]="r.kpis.facturadoDeltaPct < 0" aria-hidden="true"></i>
+      {{ pct(r.kpis.facturadoDeltaPct) }} vs. {{ previousLabel() }}
+    </span>
+    <div class="vp-mini">
+      <div><b>{{ r.kpis.ventas }}</b><span>ventas <em [class.up]="r.kpis.ventasDeltaPct >= 0" [class.down]="r.kpis.ventasDeltaPct < 0">{{ pct(r.kpis.ventasDeltaPct) }}</em></span></div>
+      <div><b>{{ r.kpis.unidades }}</b><span>productos <em [class.up]="r.kpis.unidadesDeltaPct >= 0" [class.down]="r.kpis.unidadesDeltaPct < 0">{{ pct(r.kpis.unidadesDeltaPct) }}</em></span></div>
+      <div><b>{{ money(r.kpis.ticketPromedio) }}</b><span>ticket <em [class.up]="r.kpis.ticketPromedioDeltaPct >= 0" [class.down]="r.kpis.ticketPromedioDeltaPct < 0">{{ pct(r.kpis.ticketPromedioDeltaPct) }}</em></span></div>
+    </div>
+  </div>
+
+  <div class="vp-seg" role="tablist">
+    @for (v of views; track v.key) {
+      <button type="button" role="tab" [attr.aria-selected]="view() === v.key" [class.on]="view() === v.key" (click)="view.set(v.key)">{{ v.label }}</button>
+    }
+  </div>
+
+  @switch (view()) {
+    @case ('provincias') {
+      @if (provinceBars().length === 0) {
+        <p class="vp-empty">No hay ventas facturadas en este período.</p>
+      } @else {
+        <div class="vp-list">
+          @for (b of provinceBars(); track b.row.name; let i = $index) {
+            <button type="button" class="vp-row" (click)="openProvince.set(b.row)">
+              <span class="vp-rank">{{ i + 1 }}</span>
+              <span class="vp-info">
+                <span class="vp-name">{{ b.row.name }}</span>
+                <span class="vp-bar"><span [style.width.%]="b.widthPct"></span></span>
+              </span>
+              <span class="vp-amt"><b>{{ money(b.row.facturado) }}</b><small>{{ b.row.pctOfTotal }}%</small></span>
+              <i class="ti ti-chevron-right vp-chev" aria-hidden="true"></i>
+            </button>
+          }
+        </div>
+      }
+    }
+    @case ('productos') {
+      @if (r.topProducts.length === 0) {
+        <p class="vp-empty">Sin ventas de productos en el período.</p>
+      } @else {
+        <div class="vp-list">
+          @for (t of r.topProducts; track t.sku; let i = $index) {
+            <div class="vp-row">
+              <span class="vp-rank">{{ i + 1 }}</span>
+              <span class="vp-info">
+                <span class="vp-name">{{ t.title || t.sku }}</span>
+                <span class="vp-sub"><code>{{ t.sku }}</code> · {{ t.units }} u.</span>
+              </span>
+              <span class="vp-amt"><b>{{ money(t.amount) }}</b></span>
+            </div>
+          }
+        </div>
+      }
+    }
+    @case ('dias') {
+      @if (dailyBars().length === 0) {
+        <p class="vp-empty">Sin datos para graficar.</p>
+      } @else {
+        <div class="vp-chart">
+          <div class="vp-bars">
+            @for (b of dailyBars(); track b.day) {
+              <button type="button" class="vp-col" [class.on]="selectedDay() === b.day" [style.height.%]="b.heightPct" [attr.aria-label]="formatDay(b.day) + ': ' + money(b.amount)" (click)="toggleDay(b.day)"></button>
+            }
+          </div>
+          <div class="vp-axis"><span>{{ formatDay(dailyBars()[0].day) }}</span><span>{{ formatDay(dailyBars()[dailyBars().length - 1].day) }}</span></div>
+          <p class="vp-pick">
+            @if (selectedBar(); as sb) { {{ formatDay(sb.day) }}: <b>{{ money(sb.amount) }}</b> } @else { Tocá una barra para ver el día. }
+          </p>
+        </div>
+      }
+    }
+  }
+
+  <p class="vp-foot">
+    Solo Mercado Libre, sin envío. {{ r.excluded.canceladas }} canceladas y {{ r.excluded.devueltas }} devueltas quedan afuera
+    ({{ r.excluded.facturadas }} de {{ r.excluded.total }} órdenes).
+  </p>
+
+  <button type="button" class="vp-cta" (click)="exportCsv.emit()"><i class="ti ti-share" aria-hidden="true"></i> Exportar para el contador</button>
+}
+
+@if (openProvince(); as p) {
+  <zc-bottom-sheet [title]="p.name" [subtitle]="'Facturado ' + periodLabel()" (closed)="openProvince.set(null)">
+    <span sheet-lead class="vp-rank">{{ provinceRank(p) }}</span>
+    <div class="vp-stats">
+      <div class="vp-stat"><small>Facturado</small><b>{{ money(p.facturado) }}</b></div>
+      <div class="vp-stat"><small>Del total</small><b>{{ p.pctOfTotal }}%</b></div>
+      <div class="vp-stat"><small>Ventas (paquetes)</small><b>{{ p.ventas }}</b></div>
+      <div class="vp-stat"><small>Productos</small><b>{{ p.unidades }}</b></div>
+    </div>
+    <p class="vp-explain">
+      <i class="ti" [class.ti-arrow-up-right]="p.deltaPct >= 0" [class.ti-arrow-down-right]="p.deltaPct < 0" [class.up]="p.deltaPct >= 0" [class.down]="p.deltaPct < 0" aria-hidden="true"></i>
+      @if (p.deltaPct === 0) { Igual que en {{ previousLabel() }}. }
+      @else { {{ p.deltaPct > 0 ? p.deltaPct + '% más' : -p.deltaPct + '% menos' }} que en {{ previousLabel() }}. }
+    </p>
+  </zc-bottom-sheet>
+}
+
+@if (rangeOpen()) {
+  <zc-bottom-sheet title="Otro período" [subtitle]="'Del ' + formatDay(from()) + ' al ' + formatDay(to())" (closed)="rangeOpen.set(false)">
+    <div class="vp-lbl">Mes</div>
+    <div class="vp-mgrid">
+      @for (m of months(); track m.value) {
+        <button type="button" class="vp-chip" [class.on]="m.value === selectedMonth()" (click)="pickMonth(m.value); rangeOpen.set(false)">{{ monthName(m) }}</button>
+      }
+    </div>
+    <div class="vp-lbl">O un rango</div>
+    <div class="vp-dates">
+      <label>Desde<input type="date" class="zc-input" [value]="from()" (change)="fromChange.emit($any($event.target).value)" /></label>
+      <label>Hasta<input type="date" class="zc-input" [value]="to()" (change)="toChange.emit($any($event.target).value)" /></label>
+    </div>
+    <button type="button" class="zc-btn primary vp-done" (click)="rangeOpen.set(false)">Listo</button>
+  </zc-bottom-sheet>
+}

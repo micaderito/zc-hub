@@ -1,6 +1,9 @@
 import { Component, inject, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { mediaSignal, PHONE_QUERY } from '../../shared/utils/media-signal';
+import { VentasPhoneComponent } from './ventas-phone.component';
+import { formatDay, MonthOption } from './ventas.utils';
 import { injectQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import {
   SalesService,
@@ -9,14 +12,6 @@ import {
   SalesReport,
   SalesSyncState,
 } from '../../core/services/sales.service';
-
-/** Un mes calendario, para el select de presets del toolbar. */
-interface MonthOption {
-  value: string; // 'YYYY-MM'
-  label: string;
-  from: string; // 'YYYY-MM-DD'
-  to: string;
-}
 
 const MONTH_LABELS = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -56,13 +51,16 @@ function buildMonthOptions(count: number, today: Date): MonthOption[] {
 @Component({
   selector: 'app-ventas',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, VentasPhoneComponent],
   templateUrl: './ventas.component.html',
   styleUrl: './ventas.component.scss',
 })
 export class VentasComponent {
   private readonly salesSvc = inject(SalesService);
   private readonly queryClient = inject(QueryClient);
+
+  /** En el celular la página es `zc-ventas-phone` (número grande + pestañas); el escritorio no cambia. */
+  readonly phone = mediaSignal(PHONE_QUERY);
 
   private readonly monthOptions = buildMonthOptions(13, new Date());
   readonly months = this.monthOptions;
@@ -186,7 +184,6 @@ export class VentasComponent {
   }
 
   formatDay(iso: string): string {
-    const d = new Date(iso);
-    return `${d.getDate()}/${d.getMonth() + 1}`;
+    return formatDay(iso);
   }
 }
