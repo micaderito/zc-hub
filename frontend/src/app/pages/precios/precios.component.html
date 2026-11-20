@@ -29,7 +29,22 @@
   </div>
 
   @if (store.currentSupplier(); as sup) {
-    <zc-supplier-panel [supplier]="sup" />
+    @if (phone()) {
+      @let def = defaultProfile(sup);
+      <button type="button" class="pr-supline" (click)="supplierSheet.set(true)">
+        <i class="ti ti-discount" aria-hidden="true"></i>
+        <span>Descuento: <b>{{ def ? def.name + ' ' + discountPcts(def) : 'sin configs' }}</b>@if (sup.profiles.length > 1) { <small> · {{ sup.profiles.length }} configs</small> }</span>
+        <i class="ti ti-chevron-right" aria-hidden="true"></i>
+      </button>
+      <!-- Mientras haya un diálogo abierto (editar una config) la hoja se esconde y vuelve al cerrarlo -->
+      @if (supplierSheet() && !store.dialog()) {
+        <zc-bottom-sheet [title]="sup.name" subtitle="Configuraciones de descuento" (closed)="supplierSheet.set(false)">
+          <zc-supplier-panel [supplier]="sup" />
+        </zc-bottom-sheet>
+      }
+    } @else {
+      <zc-supplier-panel [supplier]="sup" />
+    }
   }
 
   <div class="pr-view-tabs">

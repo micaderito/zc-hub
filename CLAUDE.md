@@ -601,6 +601,20 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   formulario de siempre. "Aplicar a ML y TN" solo toma lo tildado que ya tiene costo.
 - `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
   usar `track a + '|' + b`.
+- **En el celular** (2026-11-20, prototipo `docs/prototype/precios-mobile.html`, opción B): la
+  planilla (`planilla/planilla-phone.component.*`, `zc-planilla-phone`) reemplaza la tabla: tres
+  números arriba que filtran (Por aplicar / En cola ML / Fallaron = fallidos de la última aplicación,
+  lleva a Aplicaciones), tarjetas por pack o producto separadas en Suben / Bajan / Por aplicar / En la
+  cola de ML con hoy → nuevo por canal, y "Al día" y "Sin costo cargado" plegados abajo. Un botón fijo
+  **Aplicar los N** abre una hoja de confirmación (destildar alguno, Solo TN / Solo ML vía `channels`
+  de `POST /pricing/apply`). Tocar una tarjeta abre una hoja con los precios TN/ML (en un pack, el
+  mismo para todos los modelos; igual al calculado o vacío = sin ajuste, como en la compu), sus
+  modelos, editar costo e historial. Tildar, asignar descuento/proveedor y quitar en masa siguen
+  siendo de la compu. Aplicaciones: tarjetas + hoja con lo que falló y Reintentar. Las configs del
+  proveedor pasan a una línea "Descuento: …" que abre `zc-supplier-panel` en una hoja. Mapeo y los
+  diálogos quedan como antes. Se elige con `mediaSignal(PHONE_QUERY)`; tablet y escritorio no cambian.
+  En los specs, `precios.component.spec.ts` mockea `matchMedia` (escritorio por defecto) y
+  `fakeViewport` recrea la página.
 - **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de
   `angular.json` y el build de producción fallaba): `precios.component` es solo la página contenedora
   (encabezado, pestañas, qué diálogo está abierto) y provee `PreciosStore` (`precios.store.ts`: las
@@ -818,6 +832,17 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   aparte de la lista (ver arriba); si falla (429), el paquete sale igual sin nota.
   TN: `owner_note` (la de la vendedora) y `note` (la del comprador, rotulada "Comprador:"), que ya
   vienen en la orden, así que llegan con la lista.
+- **En el celular** (2026-11-19, prototipo `docs/prototype/despachos-mobile.html`, opción B): en vez de
+  las tarjetas, `zc-despachos-phone` (`pages/despachos/despachos-phone.component.*`) — tres números
+  arriba que filtran (Atrasados = solo esa sección dentro de Hoy / Para hoy / Próximos días, que cambia
+  la pestaña), barra "X de Y preparados", chips de canal y "Ocultar preparados", y una fila por paquete
+  (foto del primer producto con "+N", un producto → su nombre, varios → comprador y cuántos; ícono si
+  hay nota) con el tilde redondo a la derecha, que tilda sin abrir nada. Tocar la fila abre una hoja
+  (`zc-bottom-sheet`) con cuándo despachar, cuándo compró, envío, notas, los productos en grande, "Ver
+  en ML" y "Marcar preparado" (tilda y cierra). Todo el estado sigue en `DespachosComponent` (el hijo
+  solo pinta y emite); el formato compartido está en `despachos.format.ts`. Se elige con
+  `mediaSignal(PHONE_QUERY)`: el escritorio no cambia; en la tablet sigue la vista de escritorio (solo
+  los 4 números van en una fila). Los specs mockean `matchMedia` (Karma es más angosto que 760px).
 - `zc-photo-lightbox` (`shared/components/photo-lightbox/`) es reusable: foto grande, flechas/teclado, Esc.
   Ojo: las flechas se centran con `top: calc(50% - 18px)`, NO con `transform` — el `button:active`
   global (`transform: scale(.98)`) pisaba el `translateY(-50%)`, el botón saltaba al apretarlo y el
@@ -1287,6 +1312,17 @@ de TN — no es 1:1.
   fila tiene variación.
 - Navegar no le pega a ML/TN; "Actualizar" (`?refresh=1`) fuerza el crawl completo, igual que
   Conflictos.
+- **En el celular** (2026-11-20, prototipo `docs/prototype/publicaciones-mobile.html`, opción B): arriba
+  tres números que filtran (Sin par / Stock distinto / SKU repetido; los demás estados en chips) y la
+  lista en secciones — Para revisar, Solo en un canal, Vinculados (plegada salvo que se filtre o busque).
+  Las secciones agrupan la página actual: el backend ya ordena lo que necesita atención primero. Tocar un
+  producto lo abre a **pantalla completa** (sigue siendo `?p=`; el encabezado y las pestañas de la página
+  se esconden) con pestañas Variantes · Publicaciones: cada variante es una tarjeta con un renglón por
+  canal, las que tienen problema primero, Vincular en la punta que falta y "Editar publicación" fijo
+  abajo. El Historial es una lista compacta y cada intento abre una hoja (`zc-bottom-sheet`) con sus
+  publicaciones y Reintentar/Cancelar/Borrar. Mismo componente, elegido con `mediaSignal(PHONE_QUERY)`;
+  los estilos del celu van en `*-phone.component.scss` aparte (tope de 16 kB). La tablet usa la vista
+  de la web.
 
 **Editar publicación** (`/publicaciones/:key/editar`, solo admin; Fase 2 del diseño). Es el mismo
 `CrearProductoComponent` con `data.mode = 'edit'`: `ProductDraftStore.mode` decide adónde se
@@ -1454,7 +1490,7 @@ página web. Es el mismo build de GitHub Pages (`/zc-hub/`), no hay un deploy ap
   (pointer: coarse, incluye el iPad apaisado), `m.hover` (envolver los `:hover`: en iOS quedan pegados),
   `m.sheet` (modal → hoja que sube desde abajo), `m.stack-table` (tabla → una tarjeta por fila; cada `<td>`
   con `data-label`, `cell-main`, `cell-actions`) y `m.scroll-row` (chips/pestañas en una fila que se
-  desliza). Globales en `styles.scss`: campos a 16px en táctil (si no, iOS hace zoom), `.zc-btn` ≥ 40px.
+  desliza). Globales en `styles.scss`: campos a 16px en táctil con `!important` (si no, iOS hace zoom al enfocar y no vuelve; los estilos de componente lo pisaban), `.zc-btn` ≥ 40px. Además `index.html` suma `maximum-scale=1` al viewport solo en iOS (Safari igual deja el zoom con dos dedos; en Android bloquearía el pellizco, por eso no va). No achicar la letra de un campo en táctil.
   - **Navegación en el celu**: barra fina arriba (logo, página actual, campanita) y **barra de pestañas
     abajo** (Preparar, Productos, Pedidos, Alertas + "Más", una hoja con el resto, el usuario, el tema y
     salir). `PHONE_TAB_PATHS` en `layout.component.ts`; estilos en `layout-phone.component.scss` (hoja
@@ -1474,6 +1510,20 @@ página web. Es el mismo build de GitHub Pages (`/zc-hub/`), no hay un deploy ap
     secciones por problema, "N pares coinciden" al final, y una hoja con Editar SKU / Vincular que abre
     los mismos formularios del escritorio. En el celu pide siempre la pestaña `resumen` (trae todo sin
     paginar) y busca en el navegador. Ojo: esta página se pisa con Publicaciones → Productos ("Vincular").
+  - **Productos en el celular** (2026-11-20, prototipo `docs/prototype/productos-mobile.html`, opción A):
+    en vez de `zc-pair-card` (una pantalla por producto), una fila compacta por par (`zc-pair-row`: foto,
+    nombre, variante, SKU, pack, precios chicos y a la derecha el stock — un número si coinciden, los dos
+    en ámbar si no, rojo en 0) y tocarla abre `zc-pair-sheet`: stock de cada canal, +/− grande para dejar
+    los dos en un número (arranca en el de ML) + "Sincronizar stock", los dos precios + "Actualizar
+    precios", y Historial / Alerta / Proveedor. Cada acción **cierra la hoja y llama al mismo método de la
+    página** (`syncStock`, `updatePrices`, …) que usa la tarjeta, así las confirmaciones de precio de ML/TN
+    y el historial no quedan debajo de la hoja. Filtros: chips de stock con conteo + "Filtros" (hoja con
+    Proveedor / Alerta / Pack, `zc-phone-filters`, mismo `ProductFiltersValue`). Sin título ni explicación
+    arriba; Actualizar es un ícono al lado de las pestañas. Los tildes de "asignar proveedor a varios"
+    salen con "Seleccionar" ("Listo" limpia). Se elige con `mediaSignal(PHONE_QUERY)` en
+    `precio-stock.component`; escritorio y tablet no cambian (en tablet la tarjeta ya entra bien), y
+    Packs queda igual. Specs: `describe('en el celular …')` en `precio-stock.component.spec.ts`
+    (mockea `matchMedia`).
 
 ### Roles de usuario: `admin` y `lectura`
 
@@ -1649,6 +1699,7 @@ recientes sí / pago rechazado no / "Entendido" los oculta, un preparado no camb
 filtros, un canal caído no tumba al otro, caché de 60 s y memo de envíos despachados),
 `backend/test/routesDispatch.test.js`, `getShipmentSla` en `mercadolibre.test.js` y `listOrders` en
 `tiendanube.test.js`; en el front `despachos.component.spec.ts` (secciones de Hoy / Próximos días,
-filtro por canal, cancelados, tilde optimista, lightbox, aviso de canal caído).
+filtro por canal, cancelados, tilde optimista, lightbox, aviso de canal caído, y la vista de celular)
+y `despachos-phone.component.spec.ts` (filas, "+N", tilde sin abrir, hoja, Atrasados, Ya despachados).
 
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).

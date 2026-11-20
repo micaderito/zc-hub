@@ -9,6 +9,12 @@ import {
   DispatchService,
 } from '../../core/services/dispatch.service';
 import { ProductThumbComponent } from '../../shared/components/product-thumb/product-thumb.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
+import { DespachosPhoneComponent } from './despachos-phone.component';
+import * as fmt from './despachos.format';
+import { countdown, dayLabel, timeAr } from './despachos.format';
+
+export { countdown, dayLabel } from './despachos.format';
 
 export type DispatchTab = 'today' | 'upcoming' | 'all';
 export type ChannelFilter = 'all' | 'ml' | 'tn';
@@ -24,37 +30,6 @@ export interface DispatchSection {
   packages: DispatchPackage[];
 }
 
-const AR_TZ = 'America/Argentina/Buenos_Aires';
-
-/** Logística fuera de lo habitual. Llevar al correo/punto es lo de siempre: no se muestra. */
-const LOGISTIC_LABELS: Record<string, string> = {
-  cross_docking: 'Colecta',
-  self_service: 'Flex',
-  pickup: 'Retiro en el local',
-};
-
-function timeAr(iso: string): string {
-  return new Intl.DateTimeFormat('es-AR', { timeZone: AR_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
-}
-
-/** "viernes 10/10" a partir de un `YYYY-MM-DD`. */
-export function dayLabel(dayKey: string): string {
-  const d = new Date(`${dayKey}T12:00:00-03:00`);
-  const weekday = new Intl.DateTimeFormat('es-AR', { timeZone: AR_TZ, weekday: 'long' }).format(d);
-  const dm = new Intl.DateTimeFormat('es-AR', { timeZone: AR_TZ, day: '2-digit', month: '2-digit' }).format(d);
-  return `${weekday} ${dm}`;
-}
-
-/** "faltan 2 h 40 min" / "faltan 25 min" / null si ya pasó. */
-export function countdown(deadlineIso: string, now: number): string | null {
-  const ms = new Date(deadlineIso).getTime() - now;
-  if (ms <= 0) return null;
-  const totalMin = Math.floor(ms / 60_000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `faltan ${h} h ${m} min` : `faltan ${m} min`;
-}
-
 /**
  * Para despachar: paquetes de ML y TN que todavía no salieron. Hoy = atrasados + lo que vence hoy
  * + TN sin enviar (TN no tiene horario límite); Próximos días = lo de ML que vence más adelante,
@@ -64,13 +39,16 @@ export function countdown(deadlineIso: string, now: number): string | null {
 @Component({
   selector: 'app-despachos',
   standalone: true,
-  imports: [ProductThumbComponent],
+  imports: [ProductThumbComponent, DespachosPhoneComponent],
   templateUrl: './despachos.component.html',
   styleUrl: './despachos.component.scss',
 })
 export class DespachosComponent {
   private readonly svc = inject(DispatchService);
   private readonly queryClient = inject(QueryClient);
+
+  /** En el celular la lista es otra (`zc-despachos-phone`): filas compactas + hoja de detalle. */
+  readonly phone = mediaSignal(PHONE_QUERY);
 
   readonly tab = signal<DispatchTab>('today');
   readonly channel = signal<ChannelFilter>('all');
@@ -316,42 +294,22 @@ export class DespachosComponent {
 
   // ── Formato ──
 
-  saleLabel(p: DispatchPackage): string {
-    if (p.channel === 'tn') return `Orden #${p.orderNumber ?? p.saleId}`;
-    return `Venta #${p.saleId}`;
-  }
+  saleLabel(p: DispatchPackage): string { return fmt.saleLabel(p); }
+  saleUrl(p: DispatchPackage): string | null { return fmt.saleUrl(p); }
+  shippingLabel(p: DispatchPackage): string | null { return fmt.shippingLabel(p); }
+  dateTime(iso: string | null | undefined): string { return fmt.dateTime(iso); }
+  units(p: DispatchPackage): number { return fmt.units(p); }
 
-  saleUrl(p: DispatchPackage): string | null {
-    if (p.channel !== 'ml' || !p.orderIds?.length) return null;
-    return `https://www.mercadolibre.com.ar/ventas/${p.orderIds[0]}/detalle`;
-  }
-
-  shippingLabel(p: DispatchPackage): string | null {
-    if (p.channel === 'tn' && p.logisticType !== 'pickup') return p.shippingMethod || 'Envío';
-    return LOGISTIC_LABELS[p.logisticType ?? ''] ?? null;
-  }
+  /** Lo que hoy es "hoy" según el backend (`YYYY-MM-DD`). */
+  readonly today = computed(() => this.data()?.today ?? '');
 
   deadlineLabel(p: DispatchPackage): string | null {
-    if (!p.deadline || p.bucket !== 'overdue') return null;
-    const today = this.data()?.today ?? '';
-    const yesterday = today ? new Date(new Date(`${today}T12:00:00-03:00`).getTime() - 86_400_000).toISOString().slice(0, 10) : '';
-    const day = p.deadlineDay === today ? 'hoy' : p.deadlineDay === yesterday ? 'ayer' : dayLabel(p.deadlineDay ?? '');
-    return `${p.deadlineHasTime ? `Venció ${day} ${timeAr(p.deadline)}` : `Venció ${day}`} · sin despachar`;
+    const l = fmt.overdueLabel(p, this.today());
+    return l && `${l} · sin despachar`;
   }
 
-  /** Cuándo se hizo la compra: "hoy 14:32", "ayer 09:10" o "miércoles 05/11 18:40" (hora argentina). */
   purchasedLabel(p: DispatchPackage): string | null {
-    if (!p.createdAt || Number.isNaN(new Date(p.createdAt).getTime())) return null;
-    const today = this.data()?.today ?? '';
-    const yesterday = today ? new Date(new Date(`${today}T12:00:00-03:00`).getTime() - 86_400_000).toISOString().slice(0, 10) : '';
-    const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: AR_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(p.createdAt));
-    const day = dayKey === today ? 'hoy' : dayKey === yesterday ? 'ayer' : dayLabel(dayKey);
-    return `${day} ${timeAr(p.createdAt)}`;
-  }
-
-  dateTime(iso: string | null | undefined): string {
-    if (!iso) return '';
-    return new Intl.DateTimeFormat('es-AR', { timeZone: AR_TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
+    return fmt.purchasedLabel(p, this.today());
   }
 
   timeAgo(iso: string | null): string {
@@ -363,9 +321,5 @@ export class DespachosComponent {
   todayLabel(): string {
     const today = this.data()?.today;
     return today ? dayLabel(today) : '';
-  }
-
-  units(p: DispatchPackage): number {
-    return p.items.reduce((s, i) => s + i.qty, 0);
   }
 }
