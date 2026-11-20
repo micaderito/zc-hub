@@ -818,6 +818,17 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   aparte de la lista (ver arriba); si falla (429), el paquete sale igual sin nota.
   TN: `owner_note` (la de la vendedora) y `note` (la del comprador, rotulada "Comprador:"), que ya
   vienen en la orden, así que llegan con la lista.
+- **En el celular** (2026-11-19, prototipo `docs/prototype/despachos-mobile.html`, opción B): en vez de
+  las tarjetas, `zc-despachos-phone` (`pages/despachos/despachos-phone.component.*`) — tres números
+  arriba que filtran (Atrasados = solo esa sección dentro de Hoy / Para hoy / Próximos días, que cambia
+  la pestaña), barra "X de Y preparados", chips de canal y "Ocultar preparados", y una fila por paquete
+  (foto del primer producto con "+N", un producto → su nombre, varios → comprador y cuántos; ícono si
+  hay nota) con el tilde redondo a la derecha, que tilda sin abrir nada. Tocar la fila abre una hoja
+  (`zc-bottom-sheet`) con cuándo despachar, cuándo compró, envío, notas, los productos en grande, "Ver
+  en ML" y "Marcar preparado" (tilda y cierra). Todo el estado sigue en `DespachosComponent` (el hijo
+  solo pinta y emite); el formato compartido está en `despachos.format.ts`. Se elige con
+  `mediaSignal(PHONE_QUERY)`: el escritorio no cambia; en la tablet sigue la vista de escritorio (solo
+  los 4 números van en una fila). Los specs mockean `matchMedia` (Karma es más angosto que 760px).
 - `zc-photo-lightbox` (`shared/components/photo-lightbox/`) es reusable: foto grande, flechas/teclado, Esc.
   Ojo: las flechas se centran con `top: calc(50% - 18px)`, NO con `transform` — el `button:active`
   global (`transform: scale(.98)`) pisaba el `translateY(-50%)`, el botón saltaba al apretarlo y el
@@ -1646,6 +1657,7 @@ recientes sí / pago rechazado no / "Entendido" los oculta, un preparado no camb
 filtros, un canal caído no tumba al otro, caché de 60 s y memo de envíos despachados),
 `backend/test/routesDispatch.test.js`, `getShipmentSla` en `mercadolibre.test.js` y `listOrders` en
 `tiendanube.test.js`; en el front `despachos.component.spec.ts` (secciones de Hoy / Próximos días,
-filtro por canal, cancelados, tilde optimista, lightbox, aviso de canal caído).
+filtro por canal, cancelados, tilde optimista, lightbox, aviso de canal caído, y la vista de celular)
+y `despachos-phone.component.spec.ts` (filas, "+N", tilde sin abrir, hoja, Atrasados, Ya despachados).
 
 Correr con `npm test` en `backend/` (necesita Node ≥ 24: con Node 20/22 el mockeo de módulos de `node:test` rompe los imports de `pg` y `node-fetch`).
