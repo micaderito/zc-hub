@@ -1,0 +1,257 @@
+<div class="pp-tiles">
+  <button type="button" class="pp-tile warn" [class.on]="filter() === 'pending'" [attr.aria-pressed]="filter() === 'pending'" (click)="toggleFilter('pending')">
+    <b>{{ counts().pending }}</b><span>Por aplicar</span>
+  </button>
+  <button type="button" class="pp-tile busy" [class.on]="filter() === 'queued'" [attr.aria-pressed]="filter() === 'queued'" (click)="toggleFilter('queued')">
+    <b>{{ counts().queued }}</b><span>En cola ML</span>
+  </button>
+  <button type="button" class="pp-tile err" (click)="store.setView('aplicaciones')">
+    <b>{{ lastRunFailed() }}</b><span>Fallaron</span>
+  </button>
+</div>
+
+<div class="pp-search">
+  <i class="ti ti-search" aria-hidden="true"></i>
+  <input type="search" placeholder="Buscar SKU o producto…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Buscar SKU o producto" />
+</div>
+
+@if (store.notice()) {
+  <div class="pp-notice"><i class="ti ti-circle-check" aria-hidden="true"></i> {{ store.notice() }}</div>
+}
+@if (applyFailures().length) {
+  <button type="button" class="pp-fail" (click)="store.setView('aplicaciones')">
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+    <span>{{ applyFailures().length }} {{ applyFailures().length === 1 ? 'cambio no se aplicó' : 'cambios no se aplicaron' }}</span>
+    <span class="pp-link">Ver</span>
+  </button>
+}
+@if (errorMsg()) {
+  <div class="pr-error">{{ errorMsg() }}</div>
+}
+
+@if (store.previewQuery.isLoading()) {
+  <p class="pr-msg">Cargando…</p>
+} @else if (!store.rows().length && !store.uncosted().length) {
+  <div class="pr-empty">
+    <i class="ti ti-tag" aria-hidden="true"></i>
+    <p>Todavía no hay costos cargados{{ store.currentSupplier() ? ' de ' + store.currentSupplier()!.name : '' }}.</p>
+    <p class="hint">Importá la lista del proveedor (arriba) o cargá un costo a mano.</p>
+  </div>
+} @else {
+  @for (s of sections(); track s.key) {
+    <div class="pp-sec {{ s.key }}">
+      <span><i class="ti {{ s.icon }}" aria-hidden="true"></i> {{ s.title }}</span>
+      <span>{{ s.units.length }}</span>
+    </div>
+    @for (u of s.units; track u.key) {
+      <button type="button" class="pp-card {{ s.key }}" (click)="openUnit(u)">
+        <span class="pp-info">
+          <span class="pp-title">{{ title(u) }}</span>
+          <span class="pp-sub">
+            @if (u.pack) { <span class="zc-badge plain"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ u.rows.length }} modelo{{ u.rows.length === 1 ? '' : 's' }}</span> }
+            @else { <span class="pp-muted">{{ u.rows[0].sku }}</span> }
+            @if (otherVigente(u); as v) { <span class="zc-badge warn">vigente: {{ v }}</span> }
+            @if (unpublished(u)) { <span class="zc-badge warn">{{ unpublished(u) }} no publicado{{ unpublished(u) === 1 ? '' : 's' }}</span> }
+          </span>
+          <span class="pp-prices">
+            @for (c of [{ k: 'tn', l: u.tn }, { k: 'ml', l: u.ml }]; track c.k) {
+              <span class="pp-ch"><span class="stock-dot {{ c.k }}"></span>{{ c.k === 'tn' ? 'TN' : 'ML' }}</span>
+              @if (c.l.pending) {
+                <span class="pp-v">@if (c.l.from) { <s>{{ c.l.from }}</s> → } <b>{{ c.l.to }}</b></span>
+                <span class="pp-d" [class.up]="c.l.trend?.dir === 'up'" [class.down]="c.l.trend?.dir === 'down'">{{ trendText(c.l.trend) }}</span>
+              } @else if (c.l.queued) {
+                <span class="pp-v"><b>{{ c.l.to }}</b></span>
+                <span class="pp-d busy"><i class="ti ti-clock" aria-hidden="true"></i> en cola</span>
+              } @else {
+                <span class="pp-v"><b>{{ c.l.to }}</b></span>
+                <span class="pp-d"></span>
+              }
+            }
+          </span>
+        </span>
+        <i class="ti ti-chevron-right pp-chev" aria-hidden="true"></i>
+      </button>
+    }
+  } @empty {
+    @if (filter()) {
+      <p class="pp-empty">Nada en esta sección.</p>
+    } @else if (!okUnits().length && !uncostedLines().length) {
+      <p class="pp-empty">No hay productos que coincidan con la búsqueda.</p>
+    } @else {
+      <p class="pp-empty"><i class="ti ti-circle-check" aria-hidden="true"></i> Nada pendiente: lo publicado coincide con lo calculado.</p>
+    }
+  }
+
+  @if (okUnits().length) {
+    <div class="pp-sec ok"><span><i class="ti ti-circle-check" aria-hidden="true"></i> Al día</span><span>{{ okUnits().length }}</span></div>
+    <div class="pp-list">
+      @if (showOk()) {
+        @for (u of okUnits(); track u.key) {
+          <button type="button" class="pp-row" (click)="openUnit(u)">
+            <span class="pp-row-name">{{ title(u) }}<small>{{ subtitle(u) }}</small></span>
+            <span class="pp-row-prices"><span class="stock-dot tn"></span>{{ u.tn.to }}<br /><span class="stock-dot ml"></span>{{ u.ml.to }}</span>
+          </button>
+        }
+      } @else {
+        <button type="button" class="pp-row" (click)="showOk.set(true)">
+          <span class="pp-row-name">Ver {{ okUnits().length === 1 ? 'el producto' : 'los ' + okUnits().length + ' productos' }} al día</span>
+          <i class="ti ti-chevron-down pp-chev" aria-hidden="true"></i>
+        </button>
+      }
+    </div>
+  }
+
+  @if (uncostedLines().length) {
+    <div class="pp-sec warn"><span><i class="ti ti-alert-circle" aria-hidden="true"></i> Sin costo cargado</span><span>{{ uncosted().length }}</span></div>
+    <div class="pp-list">
+      @if (showUncosted()) {
+        @for (l of uncostedLines(); track l.item.sku) {
+          <div class="pp-row static">
+            <span class="pp-row-name">{{ l.label }}<small>{{ l.count > 1 ? l.count + ' modelos sin costo' : l.item.sku }}</small></span>
+            <button type="button" class="btn btn-s" (click)="loadCost(l.item)"><i class="ti ti-plus" aria-hidden="true"></i> Costo</button>
+          </div>
+        }
+      } @else {
+        <button type="button" class="pp-row" (click)="showUncosted.set(true)">
+          <span class="pp-row-name">{{ uncosted().length }} producto{{ uncosted().length === 1 ? '' : 's' }} sin precio todavía</span>
+          <i class="ti ti-chevron-down pp-chev" aria-hidden="true"></i>
+        </button>
+      }
+    </div>
+  }
+}
+
+@if (pendingUnits().length) {
+  <div class="pp-cta-wrap">
+    <button type="button" class="pp-cta" (click)="openConfirm()" [disabled]="applying()">
+      <i class="ti ti-rocket" aria-hidden="true"></i> Aplicar {{ counts().pending === 1 ? 'el pendiente' : 'los ' + counts().pending }} a ML y TN
+    </button>
+  </div>
+}
+
+<!-- Hoja de precio de un pack o un producto -->
+@if (open(); as u) {
+  <zc-bottom-sheet [title]="title(u)" [subtitle]="openParentPack() ? 'del pack ' + openParentPack()!.name + ' · ' + u.rows[0].sku : subtitle(u)" (closed)="closeUnit()">
+    <span sheet-lead class="pp-ico {{ u.section }}"><i class="ti {{ u.pack ? 'ti-stack-2' : 'ti-tag' }}" aria-hidden="true"></i></span>
+
+    @for (c of [{ k: 'tn', name: 'Tienda Nube', l: u.tn }, { k: 'ml', name: 'Mercado Libre', l: u.ml }]; track c.k) {
+      <div class="pp-chbox">
+        <div class="pp-chbox-h">
+          <span class="stock-dot {{ c.k }}"></span> {{ c.name }}
+          @if (c.l.pending && c.l.trend) {
+            <span class="pp-d" [class.up]="c.l.trend.dir === 'up'" [class.down]="c.l.trend.dir === 'down'">{{ trendText(c.l.trend) }}</span>
+          } @else if (c.l.queued) {
+            <span class="pp-d busy"><i class="ti ti-clock" aria-hidden="true"></i> en cola</span>
+          } @else if (!c.l.pending && c.l.from) {
+            <span class="pp-d ok"><i class="ti ti-check" aria-hidden="true"></i> publicado</span>
+          }
+        </div>
+        <div class="pp-pin">
+          <span>$</span>
+          @if (c.k === 'tn') {
+            <input type="number" inputmode="decimal" [ngModel]="tnDraft()" (ngModelChange)="tnDraft.set($event)" [placeholder]="u.tn.to" aria-label="Precio de Tienda Nube" />
+          } @else {
+            <input type="number" inputmode="decimal" [ngModel]="mlDraft()" (ngModelChange)="mlDraft.set($event)" [placeholder]="u.ml.to" aria-label="Precio de Mercado Libre" />
+          }
+        </div>
+        <div class="pp-pin-sub">
+          @if (c.l.from) { <span>hoy {{ c.l.from }}</span> }
+          @if (u.rows.length === 1) {
+            @let r = u.rows[0];
+            @if (c.k === 'tn' && r.tn.override != null) { <span>calculado ${{ r.tn.list.toLocaleString('es-AR') }}</span> }
+            @if (c.k === 'ml' && r.mlOverride != null) { <span>calculado ${{ r.ml.toLocaleString('es-AR') }}</span> }
+            @if (c.k === 'ml') { <span>te queda ${{ r.mlNet.toLocaleString('es-AR') }}</span> }
+            @if (c.k === 'ml' && r.freeShipping) { <span><i class="ti ti-truck" aria-hidden="true"></i> envío gratis</span> }
+          }
+        </div>
+      </div>
+    }
+    @if (u.pack) {
+      <p class="pp-hint">El precio es para los {{ u.rows.length }} modelos. Vacío = cada uno vuelve a su calculado.</p>
+    } @else {
+      <p class="pp-hint">Vacío = vuelve al calculado.</p>
+    }
+
+    <div class="pp-btns">
+      @if (dirty()) {
+        <button type="button" class="pp-btn primary" [disabled]="saving()" (click)="savePrices(u)">
+          <i class="ti ti-device-floppy" aria-hidden="true"></i> {{ saving() ? 'Guardando…' : 'Guardar precio' }}
+        </button>
+      } @else if (u.section === 'up' || u.section === 'down' || u.section === 'other') {
+        <button type="button" class="pp-btn primary" [disabled]="applying()" (click)="applyUnit(u)">
+          <i class="ti ti-rocket" aria-hidden="true"></i> {{ applying() ? 'Aplicando…' : 'Aplicar a ML y TN' }}
+        </button>
+      }
+    </div>
+
+    @if (u.pack) {
+      @let ms = shownModels(u);
+      <div class="pp-lbl">Modelos</div>
+      <div class="pp-models">
+        @for (r of ms.rows; track r.sku) {
+          <button type="button" class="pp-model" (click)="openUnit('sku:' + r.sku)">
+            <span class="pp-row-name">{{ r.name || r.label || r.sku }}<small>{{ r.sku }}@if (!r.mappedMl && !r.mappedTn) { · no publicado }</small></span>
+            <span class="pp-row-prices"><span class="stock-dot tn"></span>${{ r.tn.effective.toLocaleString('es-AR') }} <span class="stock-dot ml"></span>${{ r.mlEffective.toLocaleString('es-AR') }}</span>
+            <i class="ti ti-chevron-right pp-chev" aria-hidden="true"></i>
+          </button>
+        }
+        @if (ms.hidden) {
+          <button type="button" class="pp-model" (click)="showAllModels.set(true)">
+            <span class="pp-row-name">{{ ms.hidden }} más</span>
+            <i class="ti ti-chevron-down pp-chev" aria-hidden="true"></i>
+          </button>
+        }
+      </div>
+    }
+
+    <div class="pp-links">
+      @if (openParentPack(); as pk) {
+        <button type="button" (click)="openUnit('pack:' + pk.packId)"><i class="ti ti-stack-2" aria-hidden="true"></i> Volver al pack<i class="ti ti-chevron-right pp-chev" aria-hidden="true"></i></button>
+      }
+      <button type="button" (click)="editCost(u)">
+        <i class="ti ti-pencil" aria-hidden="true"></i>
+        {{ u.rows.length > 1 ? 'Cambiar el costo de los ' + u.rows.length + ' modelos' : 'Editar costo' }} · ${{ u.rows[0].unitCost.toLocaleString('es-AR', { maximumFractionDigits: 0 }) }} c/u
+        <i class="ti ti-chevron-right pp-chev" aria-hidden="true"></i>
+      </button>
+      @if (u.rows.length === 1) {
+        <button type="button" (click)="historySku.set(u.rows[0].sku)"><i class="ti ti-history" aria-hidden="true"></i> Historial de precios<i class="ti ti-chevron-right pp-chev" aria-hidden="true"></i></button>
+      }
+    </div>
+  </zc-bottom-sheet>
+}
+
+<!-- Confirmar "Aplicar los N" -->
+@if (confirming()) {
+  <zc-bottom-sheet [title]="'Aplicar ' + confirmSkus().length + ' precio' + (confirmSkus().length === 1 ? '' : 's')" [subtitle]="(store.currentSupplier()?.name ?? 'Todos los proveedores') + ' · lo que está pendiente'" (closed)="confirming.set(false)">
+    <span sheet-lead class="pp-ico"><i class="ti ti-rocket" aria-hidden="true"></i></span>
+    <div class="pp-stats">
+      <div class="pp-stat"><small><span class="stock-dot tn"></span>Tienda Nube</small><b>{{ channels() === 'ml' ? '—' : confirmCounts().tn + ' cambio' + (confirmCounts().tn === 1 ? '' : 's') }}</b></div>
+      <div class="pp-stat"><small><span class="stock-dot ml"></span>Mercado Libre</small><b>{{ channels() === 'tn' ? '—' : confirmCounts().ml + ' cambio' + (confirmCounts().ml === 1 ? '' : 's') }}</b></div>
+    </div>
+    <div class="pp-lbl">Qué se manda</div>
+    <div class="pp-models">
+      @for (u of pendingUnits(); track u.key) {
+        <button type="button" class="pp-model" role="checkbox" [attr.aria-checked]="!excluded().has(u.key)" (click)="toggleExcluded(u)">
+          <span class="pp-ck" [class.on]="!excluded().has(u.key)"><i class="ti ti-check" aria-hidden="true"></i></span>
+          <span class="pp-row-name">{{ title(u) }}<small>{{ u.pack ? u.rows.length + ' modelos · ' : '' }}{{ trendText(u.tn.trend || u.ml.trend) || 'precio nuevo' }}</small></span>
+        </button>
+      }
+    </div>
+    <div class="pp-chips" role="radiogroup" aria-label="Canales">
+      @for (o of [{ k: 'both', l: 'ML y TN' }, { k: 'tn', l: 'Solo TN' }, { k: 'ml', l: 'Solo ML' }]; track o.k) {
+        <button type="button" class="pp-chip" role="radio" [class.on]="channels() === o.k" [attr.aria-checked]="channels() === o.k" (click)="channels.set($any(o.k))">{{ o.l }}</button>
+      }
+    </div>
+    <p class="pp-explain"><i class="ti ti-info-circle" aria-hidden="true"></i> TN se aplica al toque; ML pasa por la cola y tarda unos minutos. Lo que falle queda en Aplicaciones para reintentar.</p>
+    <div class="pp-btns">
+      <button type="button" class="pp-btn" (click)="confirming.set(false)">Cancelar</button>
+      <button type="button" class="pp-btn primary" [disabled]="!confirmSkus().length || applying()" (click)="apply(confirmSkus(), channels())">
+        <i class="ti ti-rocket" aria-hidden="true"></i> {{ applying() ? 'Aplicando…' : 'Aplicar' }}
+      </button>
+    </div>
+  </zc-bottom-sheet>
+}
+
+@if (historySku(); as sku) {
+  <zc-product-history-dialog [sku]="sku" initialTab="price" (closed)="historySku.set(null)" />
+}

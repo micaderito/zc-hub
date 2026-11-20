@@ -482,3 +482,12 @@ export function normalizeDraft(raw: unknown): ProductDraft {
     }
   };
 }
+
+/** Secciones del formulario de Crear producto (en el celular, cada una es una tarjeta plegable). */
+export type DraftSectionKey = 'common' | 'ml' | 'tn' | 'price' | 'variants' | 'alert';
+
+/** Un faltante para publicar y la sección donde se completa. */
+export interface PublishBlocker {
+  section: DraftSectionKey;
+  text: string;
+}

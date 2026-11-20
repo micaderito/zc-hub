@@ -1,0 +1,148 @@
+<div class="dp-tiles">
+  <button type="button" class="dp-tile" [class.err]="counts().overdue > 0" [class.on]="view() === 'overdue'" [attr.aria-pressed]="view() === 'overdue'" (click)="pick('overdue')">
+    <b>{{ counts().overdue }}</b><span>Atrasados</span>
+  </button>
+  <button type="button" class="dp-tile" [class.on]="view() === 'today'" [attr.aria-pressed]="view() === 'today'" (click)="pick('today')">
+    <b>{{ counts().today }}</b><span>Para hoy</span>
+  </button>
+  <button type="button" class="dp-tile" [class.on]="view() === 'upcoming'" [attr.aria-pressed]="view() === 'upcoming'" (click)="pick('upcoming')">
+    <b>{{ counts().upcoming }}</b><span>Próximos días</span>
+  </button>
+</div>
+
+@if (view() !== 'upcoming' && progress().total) {
+  <div class="dp-progress">
+    <div class="dp-progress-t">
+      <b>{{ progress().done }} de {{ progress().total }} preparados</b>
+      @if (counts().toPrepare) { <span>{{ counts().toPrepare }} {{ counts().toPrepare === 1 ? 'producto' : 'productos' }} por armar</span> }
+    </div>
+    <div class="dp-bar" role="progressbar" [attr.aria-valuenow]="progress().pct" aria-valuemin="0" aria-valuemax="100"><span [style.width.%]="progress().pct"></span></div>
+  </div>
+}
+
+<div class="dp-filters">
+  <button type="button" class="dp-chip" [class.on]="channel() === 'all'" (click)="channelChange.emit('all')">Todos</button>
+  <button type="button" class="dp-chip" [class.on]="channel() === 'ml'" (click)="channelChange.emit('ml')"><span class="dot-ml" aria-hidden="true"></span> ML</button>
+  <button type="button" class="dp-chip" [class.on]="channel() === 'tn'" (click)="channelChange.emit('tn')"><i class="ti ti-shopping-bag tn-ico" aria-hidden="true"></i> TN</button>
+  <button type="button" class="dp-chip" [class.on]="hidePrepared()" [attr.aria-pressed]="hidePrepared()" (click)="hidePreparedChange.emit(!hidePrepared())">
+    <i class="ti ti-eye-off" aria-hidden="true"></i> Ocultar preparados
+  </button>
+</div>
+
+@for (p of cancelled(); track key(p)) {
+  <div class="dp-cancel">
+    <div class="dp-cancel-i">
+      <b><i class="ti ti-ban" aria-hidden="true"></i> Cancelado, no despachar</b>
+      <span>{{ saleLabel(p) }} · {{ itemsText(p) }}</span>
+      @if (p.preparedAt) { <small>Lo tenías preparado: desarmalo</small> }
+    </div>
+    <button type="button" (click)="dismissCancelled.emit(p)">Entendido</button>
+  </div>
+}
+
+@if (empty()) {
+  <div class="dp-empty">
+    <i class="ti ti-circle-check" aria-hidden="true"></i>
+    <p>{{ view() === 'upcoming' ? 'No hay envíos programados para los próximos días.' : 'No hay nada pendiente de despachar.' }}</p>
+  </div>
+}
+
+@for (s of visibleSections(); track s.key) {
+  @if (s.collapsible) {
+    <button type="button" class="dp-sec ok toggle" (click)="showDispatchedChange.emit(!showDispatched())" [attr.aria-expanded]="!isCollapsed(s)">
+      <span><i class="ti {{ s.icon }}" aria-hidden="true"></i> Ya despachados hoy</span>
+      <small>{{ s.packages.length }} <i class="ti" [class.ti-chevron-down]="isCollapsed(s)" [class.ti-chevron-up]="!isCollapsed(s)" aria-hidden="true"></i></small>
+    </button>
+  } @else {
+    <div class="dp-sec" [class.err]="s.tone === 'err'">
+      <span class="cap"><i class="ti {{ s.icon }}" aria-hidden="true"></i> {{ s.title }}</span>
+      <small>{{ sectionAside(s) }}</small>
+    </div>
+  }
+
+  @if (!isCollapsed(s)) {
+    <div class="dp-list">
+      @for (p of s.packages; track key(p)) {
+        <div class="dp-row" [class.prep]="p.preparedAt && p.bucket !== 'dispatched'" [class.overdue]="p.bucket === 'overdue'">
+          <button type="button" class="dp-row-main" (click)="open(p)" [attr.aria-label]="'Ver ' + saleLabel(p)">
+            <span class="dp-thumb">
+              <zc-product-thumb [src]="firstPhoto(p)" [photos]="p.items[0].pictures" [title]="p.items[0].title" />
+              @if (extraItems(p) > 0) { <span class="dp-more">+{{ extraItems(p) }}</span> }
+            </span>
+            <span class="dp-info">
+              <span class="dp-title">{{ rowTitle(p) }}@if (singleQty(p) > 1) { <b class="dp-qty"> ×{{ singleQty(p) }}</b> }</span>
+              <span class="dp-sub">
+                <span class="ch" [class.ml]="p.channel === 'ml'" [class.tn]="p.channel === 'tn'">{{ p.channel === 'ml' ? 'ML' : 'TN' }}</span>
+                @if (rowWho(p)) { <span class="dp-who">{{ rowWho(p) }}</span> }
+                @if (p.notes?.length) { <i class="ti ti-note dp-note-ico" aria-label="Tiene nota"></i> }
+                @if (overdue(p); as o) { <span class="zc-badge err">{{ o }}</span> }
+                @if (p.bucket === 'dispatched') { <span class="zc-badge ok">{{ p.state.label }}</span> }
+                @else if (shippingLabel(p)) { <span class="dp-ship">{{ shippingLabel(p) }}</span> }
+              </span>
+            </span>
+          </button>
+          @if (p.bucket !== 'dispatched') {
+            <button type="button" class="dp-tick" [class.on]="p.preparedAt" (click)="togglePrepared.emit(p)"
+                    [attr.aria-pressed]="!!p.preparedAt" [attr.aria-label]="(p.preparedAt ? 'Destildar preparado: ' : 'Marcar preparado: ') + saleLabel(p)">
+              <span><i class="ti ti-check" aria-hidden="true"></i></span>
+            </button>
+          }
+        </div>
+      }
+    </div>
+  }
+}
+
+@if (openPackage(); as p) {
+  <zc-bottom-sheet [title]="p.buyer || saleLabel(p)" [subtitle]="(p.city ? p.city + ' · ' : '') + saleLabel(p)" (closed)="close()">
+    <span sheet-lead class="ch big" [class.ml]="p.channel === 'ml'" [class.tn]="p.channel === 'tn'">{{ p.channel === 'ml' ? 'ML' : 'TN' }}</span>
+
+    <div class="dp-facts">
+      <div class="dp-fact" [class.err]="p.bucket === 'overdue'"><small>Despachar</small><b>{{ when(p) }}</b></div>
+      <div class="dp-fact"><small>Compró</small><b>{{ purchased(p) ?? '—' }}</b></div>
+      @if (shippingLabel(p); as sl) {
+        <div class="dp-fact wide"><small>Envío</small><b>{{ sl }}</b></div>
+      }
+    </div>
+
+    @if (p.notes?.length) {
+      <ul class="dp-notes" aria-label="Notas de la venta">
+        @for (n of p.notes; track $index) {
+          <li>
+            <i class="ti" [class.ti-note]="n.author === 'seller'" [class.ti-message-circle]="n.author === 'buyer'" aria-hidden="true"></i>
+            <span><b>{{ n.author === 'buyer' ? 'Comprador:' : 'Nota:' }}</b> {{ n.text }}</span>
+          </li>
+        }
+      </ul>
+    }
+
+    <div class="dp-lbl">Qué va en la caja · {{ units(p) }} {{ units(p) === 1 ? 'producto' : 'productos' }}</div>
+    <ul class="dp-items">
+      @for (it of p.items; track $index) {
+        <li>
+          <zc-product-thumb class="dp-item-thumb" [src]="it.thumb || it.pictures[0]" [photos]="it.pictures" [title]="it.title"
+                            [subtitle]="(it.variation ? it.variation + ' · ' : '') + (it.sku ? 'SKU ' + it.sku : '') + ' · ×' + it.qty" />
+          <div class="dp-item-body">
+            <div class="dp-item-title">{{ it.title }}</div>
+            <div class="dp-item-sub">
+              @if (it.variation) { <b>{{ it.variation }}</b> }
+              @if (it.sku) { <span>SKU {{ it.sku }}</span> }
+            </div>
+          </div>
+          <div class="dp-item-qty" [class.many]="it.qty > 1">×{{ it.qty }}</div>
+        </li>
+      }
+    </ul>
+
+    <div class="dp-btns">
+      @if (saleUrl(p); as url) {
+        <a class="dp-btn ghost" [href]="url" target="_blank" rel="noopener"><i class="ti ti-external-link" aria-hidden="true"></i> Ver en ML</a>
+      }
+      @if (p.bucket !== 'dispatched') {
+        <button type="button" class="dp-btn" [class.ok]="!p.preparedAt" (click)="prepareFromSheet(p)">
+          @if (p.preparedAt) { <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Deshacer preparado } @else { <i class="ti ti-check" aria-hidden="true"></i> Marcar preparado }
+        </button>
+      }
+    </div>
+  </zc-bottom-sheet>
+}

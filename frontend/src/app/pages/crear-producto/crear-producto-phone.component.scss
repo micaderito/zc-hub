@@ -1,0 +1,227 @@
+@use 'mobile' as m;
+
+/* Celular y tablet de Crear producto / Editar publicación (prototipo
+   docs/prototype/crear-producto-mobile.html, opción B). Hoja aparte por el tope de 16 kB.
+   Nada de esto existe en el escritorio: el índice y la hoja solo se dibujan en el celu
+   (`isPhone`) y la barra solo hasta 1023px (`hasBar`). */
+
+/* ===== Índice de secciones (celular) ===== */
+.sec-index {
+  position: sticky;
+  top: var(--zc-topbar-h);
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -0.9rem 10px;
+  padding: 8px 0.9rem;
+  background: var(--bg);
+  border-bottom: 0.5px solid var(--border);
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.sec-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 17px;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+
+  i {
+    font-size: 14px;
+  }
+  &.ok i {
+    color: var(--ok);
+  }
+  &.warn i {
+    color: var(--warn);
+  }
+  &.on {
+    background: var(--brand-bg);
+    color: var(--brand);
+    border-color: transparent;
+    font-weight: 600;
+  }
+}
+
+/* ===== Barra fija de publicar (celular y tablet) ===== */
+.mbar {
+  position: sticky;
+  bottom: var(--zc-tabbar-h);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px -0.9rem 0;
+  padding: 9px 0.9rem;
+  background: var(--surface);
+  border-top: 0.5px solid var(--border);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.mbar-status {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-2);
+  text-align: left;
+
+  i {
+    font-size: 1.05rem;
+    flex-shrink: 0;
+  }
+  &.warn {
+    color: var(--warn);
+    cursor: pointer;
+  }
+  &.ok {
+    color: var(--ok);
+  }
+  &.busy {
+    color: var(--brand);
+    cursor: pointer;
+  }
+  .spin {
+    animation: mbar-spin 0.9s linear infinite;
+  }
+}
+
+@keyframes mbar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mbar-main,
+.mbar-split > .zc-btn {
+  min-height: 44px;
+}
+
+/* La barra está abajo de todo: el menú de canal abre hacia arriba. */
+.mbar .publish-menu {
+  top: auto;
+  bottom: calc(100% + 0.35rem);
+}
+
+/* Abajo de la página el botón se repite: con la barra fija alcanza con uno. */
+@include m.tablet-down {
+  .actions .publish-split {
+    display: none;
+  }
+  .actions {
+    justify-content: flex-start;
+  }
+}
+
+/* En el celu la lista de faltantes está en la hoja (y en cada sección): abajo sobra. */
+@include m.phone {
+  .publish-blockers {
+    display: none;
+  }
+  /* La barra de arriba ya dice "Crear producto" y el índice reemplaza a la leyenda larga. */
+  .page-head .subtitle {
+    display: none;
+  }
+  .page-head {
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+  .mbar {
+    margin: 12px calc(-0.9rem - env(safe-area-inset-right)) 0 calc(-0.9rem - env(safe-area-inset-left));
+  }
+}
+
+/* Tablet: sin barra de pestañas, la barra va hasta el borde de abajo. */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .mbar {
+    padding-bottom: max(9px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ===== Hoja de faltantes ===== */
+.miss-list {
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.miss-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 0;
+  border-top: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+
+  &:first-child {
+    border-top: 0;
+  }
+  > .ti-alert-triangle {
+    color: var(--warn);
+    font-size: 1.05rem;
+  }
+}
+
+.miss-text {
+  flex: 1;
+  min-width: 0;
+
+  small {
+    display: block;
+    margin-top: 1px;
+    font-size: 0.7rem;
+    color: var(--text-3);
+  }
+}
+
+.miss-chev {
+  color: var(--text-3);
+}
+
+.miss-note {
+  display: flex;
+  gap: 7px;
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-2);
+
+  i {
+    color: var(--text-3);
+    font-size: 0.95rem;
+    margin-top: 1px;
+  }
+}

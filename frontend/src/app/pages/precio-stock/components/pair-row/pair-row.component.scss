@@ -1,0 +1,107 @@
+// Solo se renderiza en el celular (PrecioStockComponent decide): sin media queries.
+:host {
+  display: block;
+  border-top: 0.5px solid var(--border);
+  &:first-child { border-top: none; }
+}
+
+.pr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  min-height: 64px;
+  --thumb-size: 42px;
+  --thumb-radius: 10px;
+
+  &.diff { box-shadow: inset 3px 0 0 var(--warn); }
+  &.out { box-shadow: inset 3px 0 0 var(--err); }
+  &.busy { box-shadow: inset 3px 0 0 var(--brand); }
+  &.sel { background: var(--brand-bg); }
+}
+
+.pr-check { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--brand); }
+
+.pr-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pr-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+
+.pr-title {
+  font-size: 0.88rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.74rem;
+  color: var(--text-2);
+}
+
+.pr-sku { color: var(--text-3); font-family: var(--font-mono, monospace); font-size: 0.7rem; }
+.pr-pack { font-size: 0.66rem; i { font-size: 0.75rem; } }
+
+.pr-prices {
+  font-size: 0.72rem;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-err { font-size: 0.72rem; color: var(--err); }
+
+.pr-stock {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+
+  small { font-size: 0.66rem; color: var(--text-3); }
+}
+
+.pr-pair {
+  display: flex;
+  gap: 8px;
+  font-size: 0.8rem;
+  b { font-size: 1.05rem; font-weight: 600; }
+  b.warn { color: var(--warn); }
+}
+
+.pr-one {
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1;
+  &.err { color: var(--err); }
+}
+
+.stock-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  margin-right: 3px;
+  &.ml { background: var(--ml); }
+  &.tn { background: var(--tn); }
+}

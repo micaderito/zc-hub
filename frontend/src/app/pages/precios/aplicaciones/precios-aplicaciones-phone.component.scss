@@ -1,0 +1,40 @@
+// Vista de celular de Aplicaciones (solo se renderiza con `phone()`): tarjetas + hoja de detalle.
+.apm-list { background: var(--surface); border: 0.5px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 10px; }
+.apm-row {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 58px;
+  border: none; border-top: 0.5px solid var(--border); background: none; font: inherit; color: var(--text);
+  text-align: left; cursor: pointer;
+  &:first-child { border-top: none; }
+}
+.apm-ico {
+  width: 38px; height: 38px; flex-shrink: 0; border-radius: 11px; display: inline-flex; align-items: center;
+  justify-content: center; font-size: 1.15rem; background: var(--ok-bg); color: var(--ok);
+  &.err { background: var(--err-bg); color: var(--err); }
+  &.busy { background: var(--brand-bg); color: var(--brand); }
+}
+.apm-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.apm-title { font-size: 0.88rem; font-weight: 500; }
+.apm-sub { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 0.74rem; color: var(--text-2); }
+.apm-err { color: var(--err); font-weight: 600; }
+.apm-chev { color: var(--text-3); flex-shrink: 0; }
+.apm-chips { display: flex; gap: 6px; margin: 12px 0 4px; }
+.apm-chip {
+  font: inherit; font-size: 0.8rem; border: 0.5px solid var(--border); background: var(--surface); color: var(--text-2);
+  padding: 6px 12px; border-radius: 16px; cursor: pointer;
+  &.on { background: var(--brand-bg); color: var(--brand); border-color: transparent; font-weight: 500; }
+}
+.apm-item { padding: 10px 0; border-top: 0.5px solid var(--border); font-size: 0.8rem; &:first-of-type { border-top: none; } }
+.apm-item-h {
+  display: flex; gap: 7px; align-items: center;
+  b { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.apm-price { font-variant-numeric: tabular-nums; }
+.apm-item-s { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; font-size: 0.74rem; .link { margin-left: auto; } }
+.apm-reason { margin: 4px 0 0; color: var(--err); font-size: 0.76rem; }
+.apm-cta {
+  width: 100%; height: 46px; margin-top: 14px; border: none; border-radius: 12px; background: var(--brand);
+  color: var(--brand-contrast); font: inherit; font-size: 0.88rem; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  &:disabled { opacity: 0.5; }
+}
+.apm-hint { text-align: center; font-size: 0.72rem; color: var(--text-3); margin: 6px 0 0; }

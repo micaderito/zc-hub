@@ -13,6 +13,8 @@ import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/c
 import { FactorySheetDialogComponent } from './factory-sheet-dialog.component';
 import { SessionService } from '../../core/services/session.service';
 import { CanWriteDirective } from '../../shared/directives/can-write.directive';
+import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 
 /** Cuánto esperar sin cambios antes de autoguardar un borrador. */
 const AUTOSAVE_MS = 700;
@@ -25,9 +27,9 @@ const AUTOSAVE_MS = 700;
 @Component({
   selector: 'app-pedido-editor',
   standalone: true,
-  imports: [CanWriteDirective, CurrencyPipe, DatePipe, FormsModule, RouterLink, SearchBarComponent, ConfirmDialogComponent, FactorySheetDialogComponent],
+  imports: [CanWriteDirective, CurrencyPipe, DatePipe, FormsModule, RouterLink, SearchBarComponent, ConfirmDialogComponent, FactorySheetDialogComponent, BottomSheetComponent],
   templateUrl: './pedido-editor.component.html',
-  styleUrls: ['./pedido-editor.component.scss', './pedido-editor.mobile.scss'],
+  styleUrls: ['./pedido-editor.component.scss', './pedido-editor.mobile.scss', './pedido-editor.phone.scss'],
 })
 export class PedidoEditorComponent implements OnDestroy {
   readonly session = inject(SessionService);
@@ -36,6 +38,12 @@ export class PedidoEditorComponent implements OnDestroy {
   private readonly router = inject(Router);
 
   protected readonly statusLabel = orderStatusLabel;
+
+  /**
+   * En el celular el pedido es una lista finita de líneas: tocar una abre su hoja de edición, el
+   * catálogo y el estimado también van en hojas, y abajo queda fija la acción principal.
+   */
+  readonly phone = mediaSignal(PHONE_QUERY);
 
   readonly order = signal<SupplierOrder | null>(null);
   readonly loadError = signal<string | null>(null);
@@ -65,6 +73,7 @@ export class PedidoEditorComponent implements OnDestroy {
     this.order.set(null);
     this.loadError.set(null);
     this.receiving.set(false);
+    this.closePhoneSheets();
     try {
       this.order.set(await this.orders.get(id));
     } catch (e: unknown) {
@@ -262,7 +271,7 @@ export class PedidoEditorComponent implements OnDestroy {
   readonly catalogUnits = computed<CatalogUnit[]>(() => this.catalogQuery.data()?.units ?? []);
   readonly catalogByKey = computed(() => new Map(this.catalogUnits().map((u) => [u.key, u])));
   readonly catalogFilter = signal<'alert' | 'all'>('alert');
-  /** Celular: el catálogo se abre como hoja desde abajo (en pantallas grandes está siempre a la vista). */
+  /** Celular: el catálogo es una hoja que sube desde abajo (en pantallas grandes está siempre a la vista). */
   readonly catalogSheetOpen = signal(false);
   readonly catalogSearch = signal('');
   /** Packs desplegados (se ven sus modelos). Los que avisaron arrancan abiertos. */
@@ -498,5 +507,93 @@ export class PedidoEditorComponent implements OnDestroy {
     if (line.receivedQty == null) return '';
     if (line.receivedQty === 0) return 'miss';
     return line.receivedQty < line.qty ? 'part' : '';
+  }
+
+  // ══════════════════════ Celular: hojas ══════════════════════
+
+  /** Línea abierta en la hoja de edición (índice en `order().lines`). */
+  readonly lineSheet = signal<number | null>(null);
+  readonly summarySheetOpen = signal(false);
+  readonly menuSheetOpen = signal(false);
+
+  readonly sheetLine = computed(() => {
+    const i = this.lineSheet();
+    return i == null ? null : this.order()?.lines[i] ?? null;
+  });
+
+  private closePhoneSheets(): void {
+    this.lineSheet.set(null);
+    this.summarySheetOpen.set(false);
+    this.menuSheetOpen.set(false);
+    this.catalogSheetOpen.set(false);
+  }
+
+  openLine(index: number): void {
+    this.lineSheet.set(index);
+  }
+
+  stepLineQty(index: number, delta: number): void {
+    const line = this.order()?.lines[index];
+    if (line) this.setLineQty(index, Math.max(1, line.qty + delta));
+  }
+
+  /** Quitar desde la hoja: la cierra (si no, quedaría mostrando la línea de abajo). */
+  removeSheetLine(): void {
+    const i = this.lineSheet();
+    if (i == null) return;
+    this.lineSheet.set(null);
+    this.removeLine(i);
+  }
+
+  /** Ítem libre en el celu: se agrega y se abre su hoja para cargarlo. */
+  addFreeItemAndEdit(): void {
+    this.addFreeItem();
+    const n = this.order()?.lines.length ?? 0;
+    if (n) this.lineSheet.set(n - 1);
+  }
+
+  lineTitle(line: OrderLine): string {
+    return line.description.trim() || line.code.trim() || (line.kind === 'free' ? 'Ítem libre' : 'Sin descripción');
+  }
+
+  /** Recepción en el celu: +/− sobre lo anotado (vacío cuenta como 0). */
+  stepReceived(line: OrderLine, delta: number): void {
+    if (line.id == null) return;
+    const cur = this.received()[line.id] ?? 0;
+    this.setReceived(line, cur + delta);
+  }
+
+  receivedOf(line: OrderLine): number | null {
+    return line.id == null ? null : this.received()[line.id] ?? null;
+  }
+
+  /** Líneas que ya llegaron completas según lo anotado. */
+  readonly completeLines = computed(() => (this.order()?.lines.length ?? 0) - this.shortLines().length);
+
+  async openSheetFromMenu(): Promise<void> {
+    this.menuSheetOpen.set(false);
+    await this.openSheet();
+  }
+
+  async duplicateFromMenu(): Promise<void> {
+    this.menuSheetOpen.set(false);
+    await this.duplicate();
+  }
+
+  /** "Repetir y marcar como pedido" (en el celu vive acá, no en la lista): abre la vista para la fábrica. */
+  async repeatAndPlace(): Promise<void> {
+    const o = this.order();
+    if (!o) return;
+    this.menuSheetOpen.set(false);
+    await this.run(async () => {
+      const created = await this.orders.duplicate(o.id, { status: 'pendiente' });
+      this.showSheet.set(true);
+      this.router.navigate(['/pedidos', created.id]);
+    });
+  }
+
+  askDeleteFromMenu(): void {
+    this.menuSheetOpen.set(false);
+    this.showDeleteConfirm.set(true);
   }
 }

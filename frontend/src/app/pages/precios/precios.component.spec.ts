@@ -132,7 +132,15 @@ describe('PreciosComponent', () => {
   let fixture: ComponentFixture<PreciosComponent>;
   let pricing: PricingMock;
 
+  /** Ancho simulado: escritorio por defecto (el navegador de los tests puede ser más angosto que 760px). */
+  let viewport = 1280;
+
   beforeEach(async () => {
+    viewport = 1280;
+    spyOn(window, 'matchMedia').and.callFake((q: string) => {
+      const max = Number(/max-width:\s*(\d+)px/.exec(q)?.[1] ?? Infinity);
+      return { matches: viewport <= max, addEventListener: () => {}, removeEventListener: () => {} } as unknown as MediaQueryList;
+    });
     pricing = new PricingMock();
     await TestBed.configureTestingModule({
       imports: [PreciosComponent],
@@ -197,11 +205,11 @@ describe('PreciosComponent', () => {
     const cells = fixture.nativeElement.querySelectorAll('tr.group-row:first-of-type > td') as NodeListOf<HTMLTableCellElement>;
     return Array.from(cells).map((c) => c.colSpan);
   }
+  /** Cambia el ancho y vuelve a crear la página (las señales de `matchMedia` se leen al crearla). */
   function fakeViewport(width: number) {
-    spyOn(window, 'matchMedia').and.callFake((q: string) => {
-      const max = Number(/max-width:\s*(\d+)px/.exec(q)?.[1] ?? Infinity);
-      return { matches: width <= max, addEventListener: () => {}, removeEventListener: () => {} } as unknown as MediaQueryList;
-    });
+    viewport = width;
+    fixture.destroy();
+    fixture = TestBed.createComponent(PreciosComponent);
   }
 
   it('en escritorio el encabezado del pack ocupa las 9 columnas de siempre', async () => {
@@ -210,11 +218,37 @@ describe('PreciosComponent', () => {
     expect(spanOfPackHeader()).toEqual([1, 4, 1, 1, 2]);
   });
 
-  it('en tablet y celular el encabezado del pack se ajusta a las columnas que quedan', async () => {
-    fakeViewport(390);
+  it('en tablet el encabezado del pack se ajusta a las columnas que quedan', async () => {
+    fakeViewport(900);
     await render();
-    expect(spanOfPackHeader()).toEqual([1, 2, 1, 1, 1]);
-    expect(planilla().fullSpan()).toBe(6);
+    expect(spanOfPackHeader()).toEqual([1, 2, 1, 1, 2]);
+    expect(planilla().fullSpan()).toBe(7);
+  });
+
+  it('en el celular cambia la tabla por la lista de pendientes y las configs van a una línea', async () => {
+    fakeViewport(390);
+    store().setSupplierTab('punto_cero');
+    await render();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('table')).toBeNull();
+    expect(el.querySelector('zc-planilla-phone')).not.toBeNull();
+    expect(el.querySelector('zc-supplier-panel')).toBeNull();
+    expect(el.querySelector('.pr-supline')?.textContent).toContain('General −25% −5%');
+  });
+
+  it('en el celular Aplicaciones son tarjetas y el detalle va en una hoja con Reintentar', async () => {
+    fakeViewport(390);
+    store().setView('aplicaciones');
+    await render();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('table')).toBeNull();
+    (el.querySelector('.apm-row') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    expect(el.querySelector('zc-bottom-sheet')?.textContent).toContain('HTTP 429');
+    (el.querySelector('.apm-cta') as HTMLButtonElement).click();
+    expect(pricing.retryApplyRun).toHaveBeenCalledWith(4, undefined);
   });
 
   it('una búsqueda abre los packs y también busca por nombre de publicación', async () => {

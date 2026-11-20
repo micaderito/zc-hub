@@ -61,7 +61,7 @@ describe('CrearProductoComponent en modo edición', () => {
   let catalog: Record<string, jasmine.Spy>;
   let jobResponse: { job: { status: string }; units: { channel: string; unitKey: string; status: string; detail: string | null }[] };
 
-  async function setup(prepare?: (m: EditsMock) => void) {
+  async function setup(prepare?: (m: EditsMock) => void, phone = false) {
     jobResponse = {
       job: { status: 'done' },
       units: [
@@ -69,6 +69,8 @@ describe('CrearProductoComponent en modo edición', () => {
         { channel: 'tn', unitKey: 'tn:5:stock:v1', status: 'ok', detail: 'Listo' },
       ],
     };
+    // Escritorio: el navegador de los tests puede ser más angosto que 760px (celular).
+    spyOn(window, 'matchMedia').and.returnValue({ matches: phone, addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as MediaQueryList);
     edits = new EditsMock();
     prepare?.(edits);
     catalog = {
@@ -118,6 +120,19 @@ describe('CrearProductoComponent en modo edición', () => {
     expect(fixture.nativeElement.querySelector('zc-stock-alert-section')).toBeNull();
     expect(text()).toContain('stock distinto en ML y en TN');
     expect(catalog['listDrafts']).not.toHaveBeenCalled();
+  });
+
+  it('en el celular: secciones plegables sin Alerta ni ✓, y la barra lleva a "Cambios a aplicar"', async () => {
+    await setup(undefined, true);
+    const el = fixture.nativeElement as HTMLElement;
+    const chips = Array.from(el.querySelectorAll('.sec-chip')).map((c) => c.textContent?.trim());
+    expect(chips).toEqual(['Comunes', 'ML', 'TN', 'Precio', 'Variantes']);
+    expect(el.querySelector('.psec-ok')).toBeNull();
+    expect(el.querySelector('.mbar')?.textContent).toContain('Revisar y guardar');
+    expect(el.querySelector('.mbar .publish-split')).toBeNull();
+    component.store.editOps.set([{ key: 'a' } as EditOp, { key: 'b' } as EditOp]);
+    fixture.detectChanges();
+    expect(el.querySelector('.mbar-status')?.textContent).toContain('2 cambios');
   });
 
   it('muestra con candado lo que ML no deja cambiar y no deja cambiar cómo está armado cada canal', async () => {

@@ -5,9 +5,11 @@
       <p>Quién puede entrar al hub. <strong>Admin</strong> hace todo; <strong>Solo lectura</strong> ve todo pero no puede modificar nada (salvo tildar paquetes en Para preparar).</p>
     </div>
     <div class="us-head-actions">
+      @if (!phone()) {
       <button type="button" class="btn pri" (click)="openCreate()">
         <i class="ti ti-user-plus"></i> Nuevo usuario
       </button>
+      }
     </div>
   </header>
 
@@ -23,6 +25,29 @@
       <p>Todavía no hay usuarios cargados.</p>
       <button type="button" class="btn pri" (click)="openCreate()"><i class="ti ti-user-plus"></i> Crear el primero</button>
     </div>
+  } @else if (phone()) {
+    <!-- Celular: lista compacta; tocar un usuario abre la hoja con sus acciones. -->
+    <div class="us-list">
+      @for (item of items(); track item.id) {
+        <button type="button" class="us-row" [class.off]="!item.activo" (click)="openSheet.set(item)">
+          <span class="us-av">{{ initials(item) }}</span>
+          <span class="us-info">
+            <span class="us-name">{{ item.displayName || item.username }}@if (item.displayName) { <small>· {{ item.username }}</small> }</span>
+            <span class="us-sub">
+              @if (item.role === 'admin') {
+                <span class="badge admin"><i class="ti ti-shield"></i> Admin</span>
+              } @else {
+                <span class="badge off"><i class="ti ti-eye"></i> Solo lectura</span>
+              }
+              @if (!item.activo) { <span class="badge err">Desactivado</span> }
+              @else { <span>{{ item.lastLoginAt ? (item.lastLoginAt | date: 'short') : 'Nunca entró' }}</span> }
+            </span>
+          </span>
+          <i class="ti ti-chevron-right us-chev" aria-hidden="true"></i>
+        </button>
+      }
+    </div>
+    <button type="button" class="us-fab" (click)="openCreate()"><i class="ti ti-user-plus" aria-hidden="true"></i> Nuevo</button>
   } @else {
     <div class="us-table-wrap">
       <table class="us-table">
@@ -81,6 +106,27 @@
     </div>
   }
 </div>
+
+<!-- ══════════════ Hoja del celular: un usuario ══════════════ -->
+@if (openSheet(); as item) {
+  <zc-bottom-sheet [title]="item.displayName || item.username" [subtitle]="item.displayName ? item.username : null" (closed)="openSheet.set(null)">
+    <span sheet-lead class="us-av" [class.off]="!item.activo">{{ initials(item) }}</span>
+    <div class="us-stats">
+      <div><small>Rol</small><b>{{ item.role === 'admin' ? 'Admin' : 'Solo lectura' }}</b></div>
+      <div><small>Estado</small><b [class.err]="!item.activo">{{ item.activo ? 'Activo' : 'Desactivado' }}</b></div>
+      <div class="wide"><small>Último ingreso</small><b>{{ item.lastLoginAt ? (item.lastLoginAt | date: 'short') : 'Nunca' }}</b></div>
+    </div>
+    <div class="us-actions">
+      <button type="button" class="us-act" (click)="openSheet.set(null); openEdit(item)"><i class="ti ti-pencil"></i> Editar</button>
+      <button type="button" class="us-act" (click)="cerrarSesiones(item)" [disabled]="closingSessionsId() === item.id">
+        <i class="ti ti-lock-square"></i> {{ closingSessionsId() === item.id ? 'Cerrando sesiones…' : 'Cerrar sesiones en todos lados' }}
+      </button>
+      <button type="button" class="us-act danger" (click)="openSheet.set(null); confirmDelete(item)" [disabled]="item.id === currentUserId()">
+        <i class="ti ti-trash"></i> {{ item.id === currentUserId() ? 'No podés borrarte a vos misma' : 'Borrar' }}
+      </button>
+    </div>
+  </zc-bottom-sheet>
+}
 
 <!-- ══════════════ Modal: alta/edición ══════════════ -->
 @if (showForm()) {

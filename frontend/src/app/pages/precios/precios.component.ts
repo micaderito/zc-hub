@@ -1,4 +1,6 @@
-import { ChangeDetectionStrategy, Component, ViewEncapsulation, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ViewEncapsulation, inject, signal } from '@angular/core';
+import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 import { TabDef, TabsComponent } from '../../shared/components/tabs/tabs.component';
 import { MapeoProveedorComponent } from './mapeo/mapeo-proveedor.component';
 import { PreciosPlanillaComponent } from './planilla/precios-planilla.component';
@@ -12,6 +14,7 @@ import { SupplierFormDialogComponent } from './dialogs/supplier-form-dialog.comp
 import { ProfileFormDialogComponent } from './dialogs/profile-form-dialog.component';
 import { MappingProduct } from '../../core/services/pricing.service';
 import { PreciosStore } from './precios.store';
+import { defaultProfile, discountPcts } from './precios.utils';
 
 /**
  * Sección de Precios — "Planilla viva". Del costo del proveedor al precio publicado. Esta es la
@@ -32,13 +35,19 @@ import { PreciosStore } from './precios.store';
   imports: [
     TabsComponent, MapeoProveedorComponent, PreciosPlanillaComponent, PreciosAplicacionesComponent, SupplierPanelComponent,
     PricingSettingsDialogComponent, ImportListDialogComponent, CostFormDialogComponent,
-    PriceListsDialogComponent, SupplierFormDialogComponent, ProfileFormDialogComponent,
+    PriceListsDialogComponent, SupplierFormDialogComponent, ProfileFormDialogComponent, BottomSheetComponent,
   ],
   templateUrl: './precios.component.html',
   styleUrl: './precios.component.scss',
 })
 export class PreciosComponent {
   protected readonly store = inject(PreciosStore);
+
+  /** En el celular las configs de descuento del proveedor van en una hoja (una línea arriba). */
+  readonly phone = mediaSignal(PHONE_QUERY);
+  readonly supplierSheet = signal(false);
+  readonly defaultProfile = defaultProfile;
+  readonly discountPcts = discountPcts;
 
   readonly viewTabs: TabDef[] = [
     { key: 'precios', label: 'Planilla' },

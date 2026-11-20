@@ -43,6 +43,14 @@ class CatalogMock {
   reconcilePublishJobs = jasmine.createSpy('reconcilePublishJobs').and.resolveTo({ closed: 0 });
 }
 
+
+/** Karma corre más angosto que 760px: sin mock, todos los specs verían la versión de celular. */
+function mockMedia(phone: boolean): void {
+  const fake = (q: string) => ({ matches: phone && q.includes('760'), media: q, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList;
+  if (jasmine.isSpy(window.matchMedia)) (window.matchMedia as jasmine.Spy).and.callFake(fake);
+  else spyOn(window, 'matchMedia').and.callFake(fake);
+}
+
 describe('PublicacionesComponent', () => {
   let fixture: ComponentFixture<PublicacionesComponent>;
   let component: PublicacionesComponent;
@@ -57,6 +65,7 @@ describe('PublicacionesComponent', () => {
         { provide: CatalogService, useValue: catalog },
       ],
     }).compileComponents();
+    mockMedia(false);
     fixture = TestBed.createComponent(PublicacionesComponent);
     component = fixture.componentInstance;
   });
@@ -158,5 +167,51 @@ describe('PublicacionesComponent', () => {
     const callsAfterLoad = catalog.listPublishJobs.calls.count();
     await settle(50);
     expect(catalog.listPublishJobs.calls.count()).toBe(callsAfterLoad);
+  });
+
+  describe('en el celular', () => {
+    beforeEach(() => {
+      mockMedia(true);
+      fixture = TestBed.createComponent(PublicacionesComponent);
+      component = fixture.componentInstance;
+    });
+
+    async function render() {
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+    }
+
+    it('lista compacta; tocar un intento abre la hoja con sus publicaciones y acciones', async () => {
+      await render();
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('.pub-row')).toBeNull();
+      const job = el.querySelector('.ph-job') as HTMLButtonElement;
+      expect(job.textContent).toContain('Agenda 2027');
+      expect(job.textContent).toContain('3/4');
+      expect(job.querySelector('.ph-job-ico.err')).not.toBeNull();
+
+      job.click();
+      await render();
+      const sheet = el.querySelector('zc-bottom-sheet')!;
+      expect(sheet).not.toBeNull();
+      expect(catalog.getPublishJob).toHaveBeenCalledWith('j1');
+      expect(sheet.querySelectorAll('.ph-unit').length).toBe(2);
+      expect(sheet.textContent).toContain('TN 500');
+      expect(sheet.textContent).toContain('Reintentar');
+
+      (sheet.querySelector('.bs-x') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(el.querySelector('zc-bottom-sheet')).toBeNull();
+    });
+
+    it('el chip de canal se apaga al tocarlo de nuevo', async () => {
+      await render();
+      const ml = Array.from(fixture.nativeElement.querySelectorAll('.ph-chips .pub-chip') as NodeListOf<HTMLElement>).find((b) => (b as HTMLElement).textContent!.includes('ML')) as HTMLButtonElement;
+      ml.click();
+      expect(component.channelFilter()).toBe('ml');
+      ml.click();
+      expect(component.channelFilter()).toBe('');
+    });
   });
 });

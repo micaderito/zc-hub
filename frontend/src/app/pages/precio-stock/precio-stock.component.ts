@@ -21,6 +21,10 @@ import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/c
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
 import { ProductFiltersComponent, ProductFiltersValue, StockFilter, PresenceFilter } from './components/product-filters/product-filters.component';
 import { PairCardComponent, PairPrices } from './components/pair-card/pair-card.component';
+import { PairRowComponent } from './components/pair-row/pair-row.component';
+import { PairSheetComponent } from './components/pair-sheet/pair-sheet.component';
+import { PhoneFiltersComponent } from './components/product-filters/phone-filters.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 import { ProductHistoryDialogComponent } from './components/product-history-dialog/product-history-dialog.component';
 import { PacksTabComponent } from './components/packs-tab/packs-tab.component';
 import { PacksService } from '../../core/services/packs.service';
@@ -45,7 +49,7 @@ const parsePage = (v: string | null): number => Math.max(1, Math.floor(Number(v)
 @Component({
   selector: 'app-precio-stock',
   standalone: true,
-  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, TabsComponent, ProductFiltersComponent, PairCardComponent, ProductHistoryDialogComponent, PacksTabComponent, ProductSupplierDialogComponent],
+  imports: [RouterLink, CurrencyPipe, SearchBarComponent, PaginationComponent, ConfirmDialogComponent, TabsComponent, ProductFiltersComponent, PairCardComponent, ProductHistoryDialogComponent, PacksTabComponent, ProductSupplierDialogComponent, PairRowComponent, PairSheetComponent, PhoneFiltersComponent],
   templateUrl: './precio-stock.component.html',
   styleUrl: './precio-stock.component.scss'
 })
@@ -58,6 +62,29 @@ export class PrecioStockComponent {
   private readonly router = inject(Router);
   /** Pestaña, búsqueda, filtros y página viven en la URL: refrescar o compartir el link los conserva. */
   private readonly initialParams = this.route.snapshot.queryParamMap;
+
+  /**
+   * En el celular la tarjeta se reemplaza por una fila compacta (`zc-pair-row`) y una hoja por
+   * producto (`zc-pair-sheet`); ver docs/prototype/productos-mobile.html (opción A). El escritorio no cambia.
+   */
+  readonly phone = mediaSignal(PHONE_QUERY);
+  /** Par cuya hoja está abierta en el celular (por id: así toma el par fresco tras un refetch). */
+  readonly phoneOpenId = signal<string | null>(null);
+  readonly phoneOpenPair = computed(() => {
+    const id = this.phoneOpenId();
+    return id ? (this.currentPagePairs().find((p) => getPairId(p) === id) ?? null) : null;
+  });
+  /** En el celu los tildes de selección (asignar proveedor a varios) aparecen solo con "Seleccionar". */
+  readonly phoneSelecting = signal(false);
+
+  openPhonePair(pair: { ml: MlRow; tn: TnRow }): void {
+    this.phoneOpenId.set(getPairId(pair));
+  }
+
+  togglePhoneSelecting(): void {
+    if (this.phoneSelecting()) this.clearSelection();
+    this.phoneSelecting.update((v) => !v);
+  }
 
   readonly activeSubTab = signal<SubTab>(this.initialParams.get('tab') === 'packs' ? 'packs' : 'stock');
   readonly subTabs: TabDef[] = [

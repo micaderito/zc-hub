@@ -1,8 +1,10 @@
+@if (!phone()) {
 <p class="ap-intro">
   Cada vez que tocás <b>Aplicar a ML y TN</b> queda acá. ML se aplica por la cola: si ML está saturado
   la cola reintenta sola (hasta 5 veces); lo que igual falla, o lo que falló en TN, se reintenta desde acá
   con el mismo precio de esa vez.
 </p>
+}
 
 @if (notice()) {
   <div class="ap-notice"><i class="ti ti-circle-check"></i> {{ notice() }}</div>
@@ -17,6 +19,74 @@
   <p class="pr-msg err">No se pudo cargar el historial de aplicaciones.</p>
 } @else if (runs().length === 0) {
   <div class="pr-empty">Todavía no se aplicó ningún precio desde acá.</div>
+} @else if (phone()) {
+  <div class="apm-list">
+    @for (run of runs(); track run.id) {
+      @let failed = failedCount(run);
+      <button type="button" class="apm-row" (click)="toggle(run)">
+        <span class="apm-ico" [class.err]="failed > 0" [class.busy]="!failed && (count(run.counts.ml, 'queued') + count(run.counts.ml, 'retrying')) > 0">
+          <i class="ti" [class.ti-alert-triangle]="failed > 0" [class.ti-clock]="!failed && (count(run.counts.ml, 'queued') + count(run.counts.ml, 'retrying')) > 0" [class.ti-check]="!failed && !(count(run.counts.ml, 'queued') + count(run.counts.ml, 'retrying'))" aria-hidden="true"></i>
+        </span>
+        <span class="apm-info">
+          <span class="apm-title">{{ run.createdAt | date: 'dd/MM HH:mm' }} · {{ run.total }} producto{{ run.total === 1 ? '' : 's' }}</span>
+          <span class="apm-sub">
+            @for (ch of ['ml', 'tn']; track ch) {
+              @let c = ch === 'ml' ? run.counts.ml : run.counts.tn;
+              @if (channelTotal(c) > 0) {
+                <span class="badge" [class.ml]="ch === 'ml'" [class.tn]="ch === 'tn'">{{ ch === 'ml' ? 'ML' : 'TN' }}</span>
+                <span>{{ count(c, 'ok') }} ok@if (count(c, 'queued') + count(c, 'retrying')) { · {{ count(c, 'queued') + count(c, 'retrying') }} en cola }@if (count(c, 'failed')) { · <b class="apm-err">{{ count(c, 'failed') }} fallaron</b> }</span>
+              }
+            }
+          </span>
+        </span>
+        <i class="ti ti-chevron-right apm-chev" aria-hidden="true"></i>
+      </button>
+    }
+  </div>
+  <zc-pagination [currentPage]="page()" [totalPages]="totalPages()" [total]="total()" (prev)="prevPage()" (next)="nextPage()" />
+
+  @if (openRun(); as run) {
+    <zc-bottom-sheet
+      [title]="failedCount(run) ? failedCount(run) + (failedCount(run) === 1 ? ' no se aplicó' : ' no se aplicaron') : run.total + ' producto' + (run.total === 1 ? '' : 's')"
+      [subtitle]="(run.createdAt | date: 'dd/MM/yy HH:mm') + (run.createdBy ? ' · ' + run.createdBy : '')"
+      (closed)="expanded.set(null)"
+    >
+      <div class="apm-chips">
+        <button type="button" class="apm-chip" [class.on]="onlyProblems()" (click)="onlyProblems.set(true)">Con problemas</button>
+        <button type="button" class="apm-chip" [class.on]="!onlyProblems()" (click)="onlyProblems.set(false)">Todo</button>
+      </div>
+      @if (itemsQuery.isLoading()) {
+        <p class="pr-msg">Cargando…</p>
+      } @else if (items().length === 0) {
+        <p class="pr-msg">{{ allItemsCount() > 0 ? 'Sin problemas: todo se aplicó o sigue en la cola.' : 'Sin filas.' }}</p>
+      } @else {
+        @for (it of items(); track it.id) {
+          <div class="apm-item">
+            <div class="apm-item-h">
+              <span class="badge" [class.ml]="it.channel === 'ml'" [class.tn]="it.channel === 'tn'">{{ it.channel === 'ml' ? 'ML' : 'TN' }}</span>
+              <b>{{ it.productLabel || it.sku }}</b>
+              <span class="apm-price">{{ it.price != null ? (it.price | currency: 'ARS':'symbol':'1.0-0') : '—' }}</span>
+            </div>
+            <div class="apm-item-s">
+              <span [class]="'st ' + it.status">{{ statusLabel[it.status] }}</span>
+              @if (it.status === 'retrying' && it.mlAttempts) { <span class="muted">intento {{ it.mlAttempts }} de 5</span> }
+              <span class="muted">{{ it.sku }}</span>
+              @if (it.status === 'failed') {
+                <button type="button" class="link" [disabled]="retrying() === run.id" (click)="retry(run, [it.id])">Reintentar</button>
+              }
+            </div>
+            @if (it.reason) { <p class="apm-reason">{{ it.reason }}</p> }
+          </div>
+        }
+      }
+      @if (failedCount(run) > 0) {
+        <button type="button" class="apm-cta" [disabled]="retrying() === run.id" (click)="retry(run)">
+          <i class="ti ti-refresh" aria-hidden="true"></i> {{ retrying() === run.id ? 'Reintentando…' : 'Reintentar ' + (failedCount(run) === 1 ? 'el fallido' : 'los ' + failedCount(run)) }}
+        </button>
+        <p class="apm-hint">Se reintenta con el mismo precio de esa vez.</p>
+      }
+    </zc-bottom-sheet>
+  }
 } @else {
   <ul class="ap-list">
     @for (run of runs(); track run.id) {

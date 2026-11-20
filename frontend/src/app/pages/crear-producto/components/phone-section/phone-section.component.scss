@@ -1,0 +1,132 @@
+/* Fuera del celular no existe: la sección proyectada se ve como en el escritorio. */
+.zc-psec:not(.is-phone) {
+  display: contents;
+}
+
+.zc-psec.is-phone {
+  display: block;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  /* Al saltar a una sección, que no quede tapada por la barra de arriba y el índice. */
+  scroll-margin-top: calc(var(--zc-topbar-h, 0px) + 56px);
+
+  &.acc-ml {
+    border-top: 3px solid var(--ml);
+  }
+  &.acc-tn {
+    border-top: 3px solid var(--tn);
+  }
+
+  .psec-head {
+    all: unset;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 12px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+
+    &:focus-visible {
+      outline: 2px solid var(--brand);
+      outline-offset: -2px;
+    }
+  }
+
+  .psec-title {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 7px;
+    align-items: center;
+
+    > i {
+      font-size: 16px;
+      color: var(--brand);
+    }
+    b {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+  }
+
+  .psec-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    &.ml {
+      background: var(--ml);
+    }
+    &.tn {
+      background: var(--tn);
+    }
+  }
+
+  .psec-sum {
+    grid-column: 1 / -1;
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &.warn {
+      color: var(--warn);
+    }
+  }
+
+  .psec-miss {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--warn-bg);
+    color: var(--warn);
+    i {
+      font-size: 13px;
+    }
+  }
+
+  .psec-ok {
+    font-size: 17px;
+    color: var(--ok);
+  }
+
+  .psec-chev {
+    font-size: 17px;
+    color: var(--text-3);
+  }
+
+  &:not(.is-open) > .psec-body {
+    display: none;
+  }
+
+  &.is-open > .psec-head {
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  /* La sección proyectada pierde su tarjeta y su encabezado: los pone esta. */
+  > .psec-body > * > .zc-card.block {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    padding: 12px;
+
+    > .block-head {
+      display: none;
+    }
+  }
+}
