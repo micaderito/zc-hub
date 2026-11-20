@@ -131,4 +131,13 @@ describe('PlanillaPhoneComponent', () => {
     await comp.savePrices(comp.open()!);
     expect(pricing.saveOverrides).toHaveBeenCalledOnceWith('tn', [{ sku: 'B', value: null }]);
   });
+
+  // iOS hace zoom al tocar un campo de menos de 16px (y no vuelve solo).
+  it('ningún campo queda con menos de 16px (buscador y precios de la hoja)', () => {
+    comp.openUnit('pack:1');
+    fixture.detectChanges();
+    const inputs = Array.from(document.querySelectorAll('zc-planilla-phone input')) as HTMLInputElement[];
+    expect(inputs.length).toBe(3);
+    for (const i of inputs) expect(parseFloat(getComputedStyle(i).fontSize)).toBeGreaterThanOrEqual(16);
+  });
 });
