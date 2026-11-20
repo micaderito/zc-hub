@@ -1303,6 +1303,17 @@ de TN — no es 1:1.
   fila tiene variación.
 - Navegar no le pega a ML/TN; "Actualizar" (`?refresh=1`) fuerza el crawl completo, igual que
   Conflictos.
+- **En el celular** (2026-11-20, prototipo `docs/prototype/publicaciones-mobile.html`, opción B): arriba
+  tres números que filtran (Sin par / Stock distinto / SKU repetido; los demás estados en chips) y la
+  lista en secciones — Para revisar, Solo en un canal, Vinculados (plegada salvo que se filtre o busque).
+  Las secciones agrupan la página actual: el backend ya ordena lo que necesita atención primero. Tocar un
+  producto lo abre a **pantalla completa** (sigue siendo `?p=`; el encabezado y las pestañas de la página
+  se esconden) con pestañas Variantes · Publicaciones: cada variante es una tarjeta con un renglón por
+  canal, las que tienen problema primero, Vincular en la punta que falta y "Editar publicación" fijo
+  abajo. El Historial es una lista compacta y cada intento abre una hoja (`zc-bottom-sheet`) con sus
+  publicaciones y Reintentar/Cancelar/Borrar. Mismo componente, elegido con `mediaSignal(PHONE_QUERY)`;
+  los estilos del celu van en `*-phone.component.scss` aparte (tope de 16 kB). La tablet usa la vista
+  de la web.
 
 **Editar publicación** (`/publicaciones/:key/editar`, solo admin; Fase 2 del diseño). Es el mismo
 `CrearProductoComponent` con `data.mode = 'edit'`: `ProductDraftStore.mode` decide adónde se

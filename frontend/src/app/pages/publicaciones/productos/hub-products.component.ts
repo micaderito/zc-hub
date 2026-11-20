@@ -1,4 +1,5 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { injectQuery, QueryClient } from '@tanstack/angular-query-experimental';
 import {
@@ -14,6 +15,7 @@ import { PaginationComponent } from '../../../shared/components/pagination/pagin
 import { ProductThumbComponent } from '../../../shared/components/product-thumb/product-thumb.component';
 import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
 import { LinkVariantDialogComponent } from './link-variant-dialog.component';
+import { PHONE_QUERY, mediaSignal } from '../../../shared/utils/media-signal';
 
 const PER_PAGE = 30;
 
@@ -39,9 +41,9 @@ export const HUB_STATUS_META: Record<HubStatus, { label: string; cls: 'ok' | 'wa
 @Component({
   selector: 'zc-hub-products',
   standalone: true,
-  imports: [RouterLink, SearchBarComponent, PaginationComponent, ProductThumbComponent, CanWriteDirective, LinkVariantDialogComponent],
+  imports: [NgTemplateOutlet, RouterLink, SearchBarComponent, PaginationComponent, ProductThumbComponent, CanWriteDirective, LinkVariantDialogComponent],
   templateUrl: './hub-products.component.html',
-  styleUrl: './hub-products.component.scss',
+  styleUrls: ['./hub-products.component.scss', './hub-products-phone.component.scss'],
 })
 export class HubProductsComponent {
   private readonly hub = inject(HubProductsService);
@@ -50,6 +52,24 @@ export class HubProductsComponent {
   private readonly queryClient = inject(QueryClient);
 
   readonly statusMeta = HUB_STATUS_META;
+  /** En el celular (≤ 760px) la página es otra: números que filtran, secciones y detalle a pantalla completa. */
+  readonly phone = mediaSignal(PHONE_QUERY);
+  /** Celular: los números de arriba (lo que hay que arreglar). Tocar uno filtra; tocarlo de nuevo saca el filtro. */
+  readonly phoneTiles: { key: HubStatus; label: string; cls: 'err' | 'warn' }[] = [
+    { key: 'orphan', label: 'Sin par', cls: 'err' },
+    { key: 'desync', label: 'Stock distinto', cls: 'warn' },
+    { key: 'duplicate', label: 'SKU repetido', cls: 'err' },
+  ];
+  /** Celular: el resto de los filtros, en una hilera de chips debajo de los números. */
+  readonly phoneChips: { key: HubStatus; label: string }[] = [
+    { key: 'only_ml', label: 'Solo ML' },
+    { key: 'only_tn', label: 'Solo TN' },
+    { key: 'linked', label: 'Vinculados' },
+  ];
+  /** Celular: pestaña del detalle. */
+  readonly phoneTab = signal<'variants' | 'pubs'>('variants');
+  /** Celular: la sección "Vinculados" arranca plegada (está bien y es la más larga). */
+  readonly showLinked = signal(false);
   readonly filters: { key: FilterKey; label: string }[] = [
     { key: '', label: 'Todos' },
     { key: 'orphan', label: 'Sin par' },
@@ -114,8 +134,55 @@ export class HubProductsComponent {
     this.page.set(1);
   }
 
+  /** Celular: tocar un número o chip filtra por ese estado; tocar el que ya está activo vuelve a Todos. */
+  toggleStatus(k: HubStatus): void {
+    this.setStatus(this.status() === k ? '' : k);
+  }
+
+  /**
+   * Celular: la página en secciones. La lista ya viene ordenada por estado desde el backend (lo que
+   * necesita atención primero), así que agrupar la página actual alcanza.
+   */
+  readonly phoneSections = computed(() => {
+    const defs: { key: 'attention' | 'single' | 'linked'; title: string; icon: string; statuses: HubStatus[] }[] = [
+      { key: 'attention', title: 'Para revisar', icon: 'ti-alert-triangle', statuses: ['orphan', 'duplicate', 'desync'] },
+      { key: 'single', title: 'Solo en un canal', icon: 'ti-circle-half-2', statuses: ['only_ml', 'only_tn'] },
+      { key: 'linked', title: 'Vinculados', icon: 'ti-link', statuses: ['linked'] },
+    ];
+    return defs
+      .map((d) => ({ ...d, rows: this.rows().filter((r) => d.statuses.includes(r.status)) }))
+      .filter((d) => d.rows.length > 0);
+  });
+
+  /** Celular: "Vinculados" se ve abierta si se la pidió, si se está buscando o filtrando, o si es lo único que hay. */
+  linkedOpen(): boolean {
+    return this.showLinked() || !!this.appliedSearch() || !!this.status() || this.phoneSections().length === 1;
+  }
+
+  /** Celular: qué le pasa a una variante (para el borde y el chip de su tarjeta). */
+  variantIssue(r: HubVariantRow): { label: string; cls: 'err' | 'warn' } | null {
+    if (!r.sku) return { label: 'Sin SKU', cls: 'err' };
+    if (r.duplicate) return { label: 'SKU repetido', cls: 'err' };
+    if (!r.ml || !r.tn) return { label: 'Sin par', cls: 'err' };
+    if (this.stockDiffers(r)) return { label: 'Stock distinto', cls: 'warn' };
+    return null;
+  }
+
+  /** Celular: las variantes con problema primero (sin cambiar el orden entre las demás). */
+  phoneVariants(d: HubProductDetail): HubVariantRow[] {
+    const rank = (r: HubVariantRow) => { const i = this.variantIssue(r); return i ? (i.cls === 'err' ? 0 : 1) : 2; };
+    return d.rows.map((r, i) => ({ r, i })).sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i).map((x) => x.r);
+  }
+
+  issueCount(d: HubProductDetail): number {
+    return d.rows.filter((r) => this.variantIssue(r)).length;
+  }
+
   open(key: string): void {
+    this.phoneTab.set('variants');
     this.selectedKey.set(key);
+    // En el celular el detalle reemplaza a la lista: arranca desde arriba, no a la altura de la fila tocada.
+    if (this.phone() && typeof window !== 'undefined') window.scrollTo?.({ top: 0 });
     this.notice.set(null);
     void this.router.navigate([], { relativeTo: this.route, queryParams: { p: key }, queryParamsHandling: 'merge', replaceUrl: true });
   }
