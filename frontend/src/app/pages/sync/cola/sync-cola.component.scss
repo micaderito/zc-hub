@@ -66,3 +66,10 @@
     .cell-error { max-width: none; }
   }
 }
+
+// iPad vertical: sin Variación ni Intentos (están en la hoja de detalle del celu y en el
+// error), así la columna del error tiene lugar y Reintentar no queda cortado.
+@include m.tablet-down {
+  .zc-table .col-tab-hide { display: none; }
+  .zc-table .cell-error { min-width: 160px; }
+}

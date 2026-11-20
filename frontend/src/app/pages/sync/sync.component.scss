@@ -281,3 +281,33 @@
     .hint { font-size: 0.75rem; color: var(--text-3); margin-top: 0.25rem; }
   }
 }
+
+// ── Celular: sin título grande (está en la barra de arriba) ni pestañas; Estado va en una hoja ──
+.sync-page .page-header.ph-head {
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.sync-page .ph-estado {
+  margin-left: auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sync-page .ph-estado-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  .card { margin: 0; }
+  .card-row { flex-direction: column; align-items: stretch; }
+}

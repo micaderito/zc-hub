@@ -1,0 +1,414 @@
+// Solo se renderiza en el celular (SyncComponent decide): sin media queries.
+// Mismo lenguaje que Alertas (disparadas-phone) y Depósito: números arriba, listas compactas, hojas.
+:host { display: block; padding-bottom: 72px; }
+
+@keyframes sp-spin { to { transform: rotate(360deg); } }
+.spin { animation: sp-spin 0.7s linear infinite; }
+
+code {
+  font-size: 0.7rem;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+// ── Números de arriba ──
+.sp-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+.sp-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  font: inherit;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 10px;
+  color: var(--text-2);
+  cursor: pointer;
+
+  b { display: block; font-size: 1.4rem; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  span { font-size: 0.72rem; }
+
+  &.warn b { color: var(--warn); }
+  &.err b { color: var(--err); }
+  &.busy b { color: var(--brand); }
+  &.zero b { color: var(--text-3); }
+  &.on.warn { box-shadow: inset 0 0 0 1.5px var(--warn); }
+  &.on.err { box-shadow: inset 0 0 0 1.5px var(--err); }
+  &.on.busy { box-shadow: inset 0 0 0 1.5px var(--brand); }
+}
+
+.sp-notice, .sp-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-radius: 11px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.sp-notice {
+  background: var(--brand-bg);
+  color: var(--text);
+  button { margin-left: auto; border: none; background: none; color: var(--text-2); font-size: 1rem; padding: 2px; cursor: pointer; }
+}
+
+.sp-ok { background: var(--ok-bg); color: var(--ok); i { font-size: 1.05rem; } }
+
+// ── Encabezados de sección ──
+.sp-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 2px 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+
+  i { font-size: 1.05rem; color: var(--text-2); }
+  i.warn { color: var(--warn); }
+  i.err { color: var(--err); }
+  i.busy { color: var(--brand); }
+}
+
+.sp-h-act {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sp-muted { font-size: 0.8rem; color: var(--text-2); margin: 8px 2px; &.err { color: var(--err); } }
+
+// ── Devoluciones ──
+.sp-ret {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.sp-ret-top { display: flex; gap: 10px; align-items: flex-start; }
+
+.sp-qty {
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  small { display: block; margin-top: 3px; font-size: 0.66rem; font-weight: 400; color: var(--text-3); }
+}
+
+.sp-reason {
+  display: flex;
+  gap: 6px;
+  margin: 9px 0 0;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 0.78rem;
+  line-height: 1.4;
+
+  i { font-size: 0.9rem; margin-top: 1px; }
+  &.warn { background: var(--warn-bg); color: var(--warn); }
+}
+
+.sp-btns { display: flex; gap: 8px; margin-top: 12px; }
+
+.sp-btn {
+  flex: 1;
+  min-height: 46px;
+  border-radius: 12px;
+  border: 0.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+
+  i { font-size: 1.1rem; }
+  // --surface como texto: blanco en claro, oscuro en oscuro (ahí --ok es un verde claro).
+  &.ok { background: var(--ok); border-color: transparent; color: var(--surface); font-weight: 600; }
+  &.pri { background: var(--brand); border-color: transparent; color: var(--brand-contrast); font-weight: 600; }
+  &.danger { color: var(--err); }
+  &:disabled { opacity: 0.55; cursor: default; }
+}
+
+.sp-more {
+  width: 100%;
+  min-height: 40px;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  font-size: 0.84rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+// ── Cola ML ──
+.sp-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-left: 4px solid var(--err);
+  border-radius: 14px;
+}
+
+.sp-task-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sp-mini {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 0.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+// ── Listas (historial y cola completa) ──
+zc-search-bar { display: block; margin-bottom: 8px; }
+
+.sp-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -2px 4px;
+  padding: 0 2px;
+  &::-webkit-scrollbar { display: none; }
+}
+
+.sp-chip {
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 17px;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  &.on { background: var(--brand-bg); color: var(--brand); border-color: transparent; font-weight: 500; }
+}
+
+.sp-day {
+  margin: 14px 4px 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.sp-list {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.sp-fetching { opacity: 0.6; }
+
+.sp-row {
+  width: 100%;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 11px;
+  min-height: 62px;
+  padding: 10px 12px;
+  border: none;
+  border-top: 0.5px solid var(--border);
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+
+  &:first-child { border-top: none; }
+  &:active { background: var(--surface-2); }
+  &.reverted .sp-title, &.reverted .sp-delta b { color: var(--text-3); text-decoration: line-through; }
+}
+
+.sp-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.sp-title {
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  &.wrap { white-space: normal; }
+}
+
+.sp-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.74rem;
+  color: var(--text-2);
+  i { font-size: 0.85rem; }
+}
+
+.sp-ell { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-chev { color: var(--text-3); font-size: 1rem; flex-shrink: 0; }
+
+.sp-ch {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  &.ml { background: var(--ml-bg); color: var(--ml-text); }
+  &.tn { background: var(--tn-bg); color: var(--tn-text); }
+}
+
+.sp-delta {
+  flex-shrink: 0;
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  b { display: block; font-size: 1.1rem; font-weight: 600; line-height: 1; color: var(--text-2); }
+  small { font-size: 0.66rem; color: var(--text-3); white-space: nowrap; }
+  &.down b { color: var(--err); }
+  &.up b { color: var(--ok); }
+}
+
+// ── Hojas ──
+.sp-diff {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 16px;
+  font-variant-numeric: tabular-nums;
+
+  span { font-size: 1.9rem; font-weight: 600; }
+  .before { color: var(--text-3); }
+  i { font-size: 1.3rem; color: var(--text-3); }
+  small { font-size: 0.75rem; font-weight: 600; padding: 3px 8px; border-radius: 8px; background: var(--err-bg); color: var(--err); }
+  small.up { background: var(--ok-bg); color: var(--ok); }
+}
+
+.sp-cap { margin: 6px 0 0; text-align: center; font-size: 0.74rem; color: var(--text-3); &.left { text-align: left; color: var(--text-2); margin: 12px 0 10px; } }
+
+.sp-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 14px 0 0;
+  font-size: 0.82rem;
+  dt { color: var(--text-2); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
+}
+
+.sp-link {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-top: 0.5px solid var(--border);
+  background: none;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  i { font-size: 1.1rem; color: var(--text-2); }
+  .sp-chev { margin-left: auto; }
+}
+
+.sp-errbox {
+  margin-top: 14px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--err-bg);
+  color: var(--err);
+  font-family: ui-monospace, monospace;
+  font-size: 0.76rem;
+  word-break: break-word;
+}
+
+.sp-input { width: 100%; box-sizing: border-box; }
+
+// ── Botón flotante ──
+.sp-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--zc-tabbar-h) + 16px);
+  z-index: 15;
+  height: 46px;
+  padding: 0 16px;
+  border-radius: 23px;
+  border: 0.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  i { font-size: 1.15rem; }
+}
+
+.sp-row > .zc-badge { min-width: 74px; justify-content: center; flex-shrink: 0; }

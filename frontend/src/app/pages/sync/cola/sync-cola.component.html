@@ -38,9 +38,9 @@
           <th>Estado</th>
           <th>Tipo</th>
           <th>Ítem ML</th>
-          <th>Variación</th>
+          <th class="col-tab-hide">Variación</th>
           <th>Cambio</th>
-          <th>Intentos</th>
+          <th class="col-tab-hide">Intentos</th>
           <th>Error</th>
           <th>Actualizado</th>
           <th></th>
@@ -52,9 +52,9 @@
             <td class="cell-main" data-label="Estado"><span [class]="taskStatusChipClass(task)">{{ taskStatusLabel(task) }}</span></td>
             <td data-label="Tipo">{{ taskKindLabel(task.kind) }}</td>
             <td data-label="Ítem ML"><code>{{ task.itemId || '—' }}</code></td>
-            <td data-label="Variación"><code>{{ task.variationId || '—' }}</code></td>
+            <td class="col-tab-hide" data-label="Variación"><code>{{ task.variationId || '—' }}</code></td>
             <td data-label="Cambio">{{ taskChangeLabel(task) }}</td>
-            <td data-label="Intentos">{{ task.attempts }}</td>
+            <td class="col-tab-hide" data-label="Intentos">{{ task.attempts }}</td>
             <td class="cell-error cell-wide" data-label="Error">{{ task.lastError || '—' }}</td>
             <td data-label="Actualizado">{{ formatDate(task.updatedAt) }}</td>
             <td class="cell-actions">
