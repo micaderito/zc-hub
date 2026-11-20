@@ -1,0 +1,254 @@
+<div class="sp-tiles">
+  <button type="button" class="sp-tile warn" [class.on]="focus() === 'returns'" [class.zero]="!store.returnsTotal()" [attr.aria-pressed]="focus() === 'returns'" (click)="toggleFocus('returns')">
+    <b>{{ store.returnsTotal() }}</b><span>Devoluciones</span>
+  </button>
+  <button type="button" class="sp-tile err" [class.on]="focus() === 'errors'" [class.zero]="!errorCount()" [attr.aria-pressed]="focus() === 'errors'" (click)="toggleFocus('errors')">
+    <b>{{ errorCount() }}</b><span>Con error</span>
+  </button>
+  <button type="button" class="sp-tile busy" [class.on]="focus() === 'queue'" [class.zero]="!queueCount()" [attr.aria-pressed]="focus() === 'queue'" (click)="toggleFocus('queue')">
+    <b>{{ queueCount() }}</b><span>En cola</span>
+  </button>
+</div>
+
+@if (notice(); as n) {
+  <p class="sp-notice" role="status">{{ n }} <button type="button" (click)="notice.set(null)" aria-label="Cerrar aviso"><i class="ti ti-x" aria-hidden="true"></i></button></p>
+}
+
+@if (!focus() && nothingPending()) {
+  <p class="sp-ok"><i class="ti ti-circle-check" aria-hidden="true"></i> Todo al día: no hay devoluciones ni tareas trabadas.</p>
+}
+
+<!-- ══════════ Devoluciones ══════════ -->
+@if (!focus() || focus() === 'returns') {
+  @if (focus() === 'returns' || returnsRows().length) {
+    <div class="sp-h">
+      <i class="ti ti-arrow-back-up warn" aria-hidden="true"></i> Devoluciones para confirmar
+      <button type="button" class="sp-h-act" (click)="refresh()" [disabled]="fetchReturnsMutation.isPending()" aria-label="Revisar reclamos en ML">
+        <i class="ti ti-refresh" [class.spin]="fetchReturnsMutation.isPending()" aria-hidden="true"></i>
+      </button>
+    </div>
+  }
+  @if (focus() === 'returns' && returnsLoading()) {
+    <p class="sp-muted">Cargando devoluciones…</p>
+  } @else if (focus() === 'returns' && !returnsRows().length) {
+    <p class="sp-muted">No hay devoluciones pendientes.</p>
+  }
+  @for (row of (focus() === 'returns' ? returnsRows() : returnsPreview()); track row.id) {
+    <div class="sp-ret">
+      <div class="sp-ret-top">
+        <div class="sp-info">
+          <div class="sp-title wrap">{{ row.productLabel || row.sku || '—' }}</div>
+          <div class="sp-sub">
+            @if (row.sku) { <code>{{ row.sku }}</code> }
+            <span>Venta {{ row.orderId }}</span>
+          </div>
+          <div class="sp-sub">
+            @if (row.buyerNickname) { <span><i class="ti ti-user" aria-hidden="true"></i> {{ row.buyerNickname }}</span> }
+            <span>{{ formatDate(row.claimDate || row.createdAt) }}</span>
+          </div>
+        </div>
+        <div class="sp-qty">{{ row.quantity }}<small>{{ row.quantity === 1 ? 'unidad' : 'unidades' }}</small></div>
+      </div>
+      @if (row.reason) {
+        <div class="sp-reason" [class.warn]="isNoStockReason(row.reason)">
+          <i class="ti {{ isNoStockReason(row.reason) ? 'ti-alert-triangle' : 'ti-message-circle' }}" aria-hidden="true"></i>{{ row.reason }}
+        </div>
+      }
+      <div class="sp-btns" *zcCanWrite>
+        <button type="button" class="sp-btn" (click)="dismissReturn(row)" [disabled]="approvingId() === row.id || dismissingId() === row.id">
+          {{ dismissingId() === row.id ? 'Descartando…' : 'Descartar' }}
+        </button>
+        <button type="button" class="sp-btn ok" (click)="approveReturn(row)" [disabled]="approvingId() === row.id || dismissingId() === row.id">
+          <i class="ti ti-check" aria-hidden="true"></i> {{ approvingId() === row.id ? 'Restaurando…' : 'Restaurar stock' }}
+        </button>
+      </div>
+    </div>
+  }
+  @if (!focus() && store.returnsTotal() > returnsPreview().length) {
+    <button type="button" class="sp-more" (click)="toggleFocus('returns')">Ver las {{ store.returnsTotal() }} devoluciones <i class="ti ti-chevron-right" aria-hidden="true"></i></button>
+  }
+  @if (focus() === 'returns') {
+    <zc-pagination [currentPage]="store.returnsCurrentPage()" [totalPages]="store.returnsTotalPages()" [total]="store.returnsTotal()"
+      (prev)="store.goToReturnsPage(store.returnsCurrentPage() - 1)" (next)="store.goToReturnsPage(store.returnsCurrentPage() + 1)" />
+  }
+}
+
+<!-- ══════════ Cola ML ══════════ -->
+@if ((!focus() || focus() === 'errors') && (focus() === 'errors' || problemTasks().length)) {
+  <div class="sp-h"><i class="ti ti-alert-octagon err" aria-hidden="true"></i> Cola ML con problemas</div>
+  @for (task of problemTasks(); track task.id) {
+    <div class="sp-task">
+      <button type="button" class="sp-task-info" (click)="showTask(task)">
+        <span class="sp-title">{{ taskKindLabel(task.kind) }} {{ taskChangeLabel(task) }} <span class="zc-badge err">{{ taskStatusLabel(task) }}</span></span>
+        <span class="sp-sub"><code>{{ task.itemId || '—' }}</code><span class="sp-ell">{{ task.lastError || time(task.updatedAt) }}</span></span>
+      </button>
+      @if (session.isAdmin()) {
+        <button type="button" class="sp-mini" (click)="retryTask(task)" [disabled]="retryingTaskId() === task.id">
+          {{ retryingTaskId() === task.id ? '…' : 'Reintentar' }}
+        </button>
+      }
+    </div>
+  } @empty {
+    <p class="sp-muted">No hay tareas con error.</p>
+  }
+}
+
+@if (focus() === 'queue') {
+  <div class="sp-h"><i class="ti ti-list-check busy" aria-hidden="true"></i> Cola ML</div>
+  @if (tasks().length) {
+    <div class="sp-list">
+      @for (task of tasks(); track task.id) {
+        <button type="button" class="sp-row" (click)="showTask(task)">
+          <span class="zc-badge {{ taskBadge(task) }}">{{ taskStatusLabel(task) }}</span>
+          <span class="sp-info">
+            <span class="sp-title">{{ taskKindLabel(task.kind) }} {{ taskChangeLabel(task) }}</span>
+            <span class="sp-sub"><code>{{ task.itemId || '—' }}</code><span>{{ time(task.updatedAt) }}</span></span>
+          </span>
+          <i class="ti ti-chevron-right sp-chev" aria-hidden="true"></i>
+        </button>
+      }
+    </div>
+    <zc-pagination [currentPage]="store.tasksCurrentPage()" [totalPages]="store.tasksTotalPages()" [total]="store.tasksTotal()"
+      (prev)="store.goToTasksPage(store.tasksCurrentPage() - 1)" (next)="store.goToTasksPage(store.tasksCurrentPage() + 1)" />
+  } @else {
+    <p class="sp-muted">No hay actualizaciones en cola.</p>
+  }
+}
+
+<!-- ══════════ Historial ══════════ -->
+@if (!focus()) {
+  <div class="sp-h"><i class="ti ti-history" aria-hidden="true"></i> Movimientos</div>
+  <zc-search-bar [value]="store.auditSearchQuery()" (valueChange)="store.auditSearchQuery.set($event)"
+    placeholder="Nro de venta o SKU" ariaLabel="Buscar en historial de stock" />
+  <div class="sp-chips" role="group" aria-label="Filtrar historial por origen">
+    @for (opt of sourceOptions; track opt.key) {
+      <button type="button" class="sp-chip" [class.on]="store.auditSource() === opt.key" [attr.aria-pressed]="store.auditSource() === opt.key" (click)="store.setAuditSource(opt.key)">{{ opt.label }}</button>
+    }
+  </div>
+
+  @if (store.auditLoading()) {
+    <p class="sp-muted">Cargando historial…</p>
+  } @else if (store.auditError()) {
+    <p class="sp-muted err">{{ store.auditError() }}</p>
+  } @else if (!store.auditRows().length) {
+    <p class="sp-muted">{{ store.auditSearchQuery().trim() ? 'Sin resultados para la búsqueda.' : 'Aún no hay movimientos.' }}</p>
+  } @else {
+    <div [class.sp-fetching]="store.auditFetching()">
+      @for (g of auditGroups(); track g.label) {
+        <div class="sp-day">{{ g.label }}</div>
+        <div class="sp-list">
+          @for (row of g.rows; track row.id) {
+            <button type="button" class="sp-row" [class.reverted]="row.revertedAt" (click)="showAudit(row)">
+              <span class="sp-ch {{ row.updatedChannel === 'mercadolibre' ? 'ml' : 'tn' }}">
+                {{ row.updatedChannel === 'mercadolibre' ? 'ML' : 'TN' }}
+              </span>
+              <span class="sp-info">
+                <span class="sp-title">{{ row.productDisplay || row.sku }}</span>
+                <span class="sp-sub">
+                  <span class="zc-badge {{ rowBadge(row) }}">
+                    @if (row.actor === 'plataforma') { <i class="ti ti-cloud-down" aria-hidden="true"></i> }
+                    {{ row.revertedAt ? 'Revertido' : rowLabel(row) }}
+                  </span>
+                  <span>{{ row.sku }} · {{ time(row.createdAt) }}</span>
+                </span>
+              </span>
+              <span class="sp-delta" [class.down]="delta(row) < 0" [class.up]="delta(row) > 0">
+                <b>{{ delta(row) > 0 ? '+' : delta(row) < 0 ? '−' : '' }}{{ delta(row) < 0 ? -delta(row) : delta(row) }}</b>
+                <small>{{ row.stockBefore }} → {{ row.stockAfter }}</small>
+              </span>
+            </button>
+          }
+        </div>
+      }
+    </div>
+    <zc-pagination [currentPage]="store.auditCurrentPage()" [totalPages]="store.auditTotalPages()" [total]="store.auditTotal()"
+      (prev)="store.goToAuditPage(store.auditCurrentPage() - 1)" (next)="store.goToAuditPage(store.auditCurrentPage() + 1)" />
+  }
+}
+
+<!-- Botón flotante: reintentar una venta (pantalla principal) o agregar una devolución (Devoluciones). -->
+@if (!focus()) {
+  <button type="button" class="sp-fab" *zcCanWrite (click)="openOrderSheet('reprocess')"><i class="ti ti-refresh-alert" aria-hidden="true"></i> Reintentar una venta</button>
+} @else if (focus() === 'returns') {
+  <button type="button" class="sp-fab" *zcCanWrite (click)="openOrderSheet('return')"><i class="ti ti-plus" aria-hidden="true"></i> Agregar por venta</button>
+}
+
+<!-- ══════════ Hoja: un movimiento ══════════ -->
+@if (openAudit(); as row) {
+  <zc-bottom-sheet [title]="row.productDisplay || row.sku" [subtitle]="row.sku + ' · ' + rowLabel(row) + ' · ' + formatDate(row.createdAt)" (closed)="openAudit.set(null)">
+    <span sheet-lead class="sp-ch {{ row.updatedChannel === 'mercadolibre' ? 'ml' : 'tn' }}">{{ row.updatedChannel === 'mercadolibre' ? 'ML' : 'TN' }}</span>
+    <div class="sp-diff">
+      <span class="before">{{ row.stockBefore }}</span><i class="ti ti-arrow-right" aria-hidden="true"></i><span>{{ row.stockAfter }}</span>
+      <small [class.up]="delta(row) > 0">{{ delta(row) > 0 ? '+' : '' }}{{ delta(row) }} u.</small>
+    </div>
+    <p class="sp-cap">en {{ channelLabel(row.updatedChannel) }} · {{ row.actor === 'plataforma' ? 'lo movió la plataforma, no el hub' : 'lo escribió el hub' }}</p>
+    @if (row.packId || row.orderId || row.saleItemId) {
+      <dl class="sp-kv">
+        @if (row.packId) { <dt>Venta</dt><dd><code>{{ row.packId }}</code></dd> }
+        @if (row.orderId) { <dt>Orden</dt><dd><code>{{ row.orderId }}</code></dd> }
+        @if (row.saleItemId) { <dt>Ítem</dt><dd><code>{{ row.saleItemId }}</code></dd> }
+      </dl>
+    }
+    @if (row.revertedAt) {
+      <p class="sp-cap">Revertido el {{ formatDate(row.revertedAt) }}.</p>
+    }
+    <button type="button" class="sp-link" (click)="openSkuHistory(row.sku)">
+      <i class="ti ti-timeline" aria-hidden="true"></i> Ver todo el historial de este SKU <i class="ti ti-chevron-right sp-chev" aria-hidden="true"></i>
+    </button>
+    @if (sheetError(); as err) { <p class="sp-muted err">{{ err }}</p> }
+    @if (canRevert(row)) {
+      <div class="sp-btns">
+        <button type="button" class="sp-btn danger" (click)="revert(row)" [disabled]="reverting()">
+          <i class="ti ti-arrow-back-up" aria-hidden="true"></i> {{ reverting() ? 'Revirtiendo…' : 'Revertir · ' + revertTitle(row) }}
+        </button>
+      </div>
+    }
+  </zc-bottom-sheet>
+}
+
+<!-- ══════════ Hoja: una tarea de la Cola ML ══════════ -->
+@if (openTask(); as task) {
+  <zc-bottom-sheet [title]="taskKindLabel(task.kind) + ' ' + taskChangeLabel(task)" [subtitle]="(task.itemId || '—') + (task.variationId ? ' · variación ' + task.variationId : '')" (closed)="openTask.set(null)">
+    <span sheet-lead class="zc-badge {{ taskBadge(task) }}">{{ taskStatusLabel(task) }}</span>
+    @if (task.lastError) { <div class="sp-errbox">{{ task.lastError }}</div> }
+    <dl class="sp-kv">
+      <dt>Intentos</dt><dd>{{ task.attempts }}</dd>
+      <dt>Creada</dt><dd>{{ formatDate(task.createdAt) }}</dd>
+      <dt>Actualizada</dt><dd>{{ formatDate(task.updatedAt) }}</dd>
+    </dl>
+    @if (sheetError(); as err) { <p class="sp-muted err">{{ err }}</p> }
+    @if (canRetryTask(task) && session.isAdmin()) {
+      <div class="sp-btns">
+        <button type="button" class="sp-btn pri" (click)="retryTask(task)" [disabled]="retryingTaskId() === task.id">
+          <i class="ti ti-refresh" aria-hidden="true"></i> {{ retryingTaskId() === task.id ? 'Reintentando…' : 'Reintentar' }}
+        </button>
+      </div>
+    }
+  </zc-bottom-sheet>
+}
+
+<!-- ══════════ Hoja: nro de venta ══════════ -->
+@if (orderSheet(); as mode) {
+  <zc-bottom-sheet [title]="mode === 'return' ? 'Agregar devolución' : 'Reintentar una venta'" (closed)="orderSheet.set(null)">
+    <p class="sp-cap left">
+      {{ mode === 'return'
+        ? 'Trae los ítems de esa venta de ML como devoluciones pendientes de confirmar.'
+        : 'Volvé a procesar una venta si el webhook no descontó el stock automáticamente.' }}
+    </p>
+    <input type="text" class="zc-input sp-input" inputmode="numeric" placeholder="Nro de venta" aria-label="Nro de venta"
+      [ngModel]="orderId()" (ngModelChange)="orderId.set($event); confirmReprocess.set(false)" (keyup.enter)="submitOrder()" />
+    @if (confirmReprocess()) {
+      <p class="sp-reason warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i>La venta {{ orderId() }} ya fue descontada antes. ¿Descontarla de nuevo?</p>
+    }
+    @if (sheetError(); as err) { <p class="sp-muted err">{{ err }}</p> }
+    <div class="sp-btns">
+      <button type="button" class="sp-btn pri" (click)="submitOrder()" [disabled]="!orderId().trim() || orderBusy()">
+        {{ orderBusy() ? 'Un momento…' : mode === 'return' ? 'Agregar' : confirmReprocess() ? 'Descontar de nuevo' : 'Reintentar venta' }}
+      </button>
+    </div>
+  </zc-bottom-sheet>
+}
+
+@if (historySku(); as sku) {
+  <zc-product-history-dialog [sku]="sku" (closed)="historySku.set(null)" />
+}

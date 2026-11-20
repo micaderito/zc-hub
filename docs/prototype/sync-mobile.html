@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Historial y cola — celular</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd; --brand-contrast:#fff;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --ml:#e6b800; --tn:#2c6ecb; --shadow-pop:0 8px 28px rgba(20,22,40,.12); --page:#dfe2e8;
+}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f; --brand-contrast:#fff;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+  --ml:#f2cc33; --tn:#6aa0ef; --shadow-pop:0 8px 28px rgba(0,0,0,.5); --page:#05060a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:-apple-system, 'Inter', system-ui, sans-serif; }
+.top { max-width:1200px; margin:0 auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.top h1 { margin:0; font-size:18px; font-weight:500; }
+.top p { margin:4px 0 0; font-size:12.5px; color:var(--text-2); max-width:680px; line-height:1.45; }
+.theme-btn { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; padding:7px 12px; cursor:pointer; }
+.grid { max-width:1200px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:36px; align-items:center; }
+.opt { display:flex; flex-direction:column; gap:10px; }
+.opt h2 { margin:0; font-size:15px; font-weight:600; }
+.opt .why { font-size:12.5px; color:var(--text-2); margin:0; line-height:1.5; max-width:764px; }
+.pair { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+
+/* Teléfono */
+.phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:34px; border:8px solid #111; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.status { height:36px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:12px; font-weight:600; }
+.appbar { height:48px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:.5px solid var(--border); background:var(--surface); }
+.appbar b { font-size:15px; font-weight:600; flex:1; }
+.appbar i { font-size:20px; color:var(--text-2); }
+.scroll { flex:1; overflow-y:auto; padding:12px 14px 24px; }
+.tabbar { height:62px; flex-shrink:0; border-top:.5px solid var(--border); background:var(--surface); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--text-3); }
+.tabbar div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.tabbar i { font-size:21px; }
+.tabbar .on { color:var(--brand); }
+
+.search { position:relative; margin-bottom:10px; }
+.search i { position:absolute; left:11px; top:11px; color:var(--text-3); font-size:16px; }
+.search input { width:100%; font:inherit; font-size:16px; padding:9px 12px 9px 34px; border:.5px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); }
+.filters { display:flex; gap:6px; overflow-x:auto; margin-bottom:12px; scrollbar-width:none; }
+.chip { flex-shrink:0; font:inherit; font-size:12.5px; border:.5px solid var(--border); background:var(--surface); color:var(--text-2); padding:6px 11px; border-radius:16px; display:inline-flex; align-items:center; gap:5px; }
+.chip.on { background:var(--brand-bg); color:var(--brand); border-color:transparent; font-weight:500; }
+.chip i { font-size:14px; }
+
+.thumb { width:42px; height:42px; border-radius:10px; flex-shrink:0; }
+.thumb.p1 { background:linear-gradient(135deg,#f6c1d0,#e98fae); }
+.thumb.p2 { background:linear-gradient(135deg,#bfe3d5,#7cc4a8); }
+.thumb.p3 { background:linear-gradient(135deg,#c9c6f6,#8c86e8); }
+.thumb.p4 { background:linear-gradient(135deg,#fde4b4,#f1b35b); }
+.thumb.p5 { background:linear-gradient(135deg,#cfe1f7,#86aee3); }
+.thumb.sm { width:32px; height:32px; border-radius:8px; }
+
+.badge { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.badge.warn { background:var(--warn-bg); color:var(--warn); }
+.badge.err { background:var(--err-bg); color:var(--err); }
+.badge.ok { background:var(--ok-bg); color:var(--ok); }
+.badge.busy { background:var(--brand-bg); color:var(--brand); }
+.badge.plain { background:var(--surface-2); color:var(--text-2); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:3px; vertical-align:1px; }
+.dot.ml { background:var(--ml); } .dot.tn { background:var(--tn); }
+.num { font-variant-numeric:tabular-nums; }
+
+.group-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); font-weight:600; margin:14px 4px 6px; display:flex; justify-content:space-between; align-items:center; }
+.group-h.err { color:var(--err); } .group-h.warn { color:var(--warn); }
+.list { background:var(--surface); border:.5px solid var(--border); border-radius:14px; overflow:hidden; }
+.row { display:flex; align-items:center; gap:11px; padding:10px 12px; border-top:.5px solid var(--border); min-height:62px; }
+.row:first-child { border-top:none; }
+.row-info { flex:1; min-width:0; }
+.row-title { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row-sub { font-size:11.5px; color:var(--text-2); margin-top:3px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.row > i.chev { color:var(--text-3); font-size:16px; }
+.muted { color:var(--text-3); }
+
+/* ── Opción A ── */
+.tabs-a { display:flex; gap:4px; border-bottom:.5px solid var(--border); margin:-12px -14px 12px; padding:0 10px; background:var(--surface); overflow-x:auto; scrollbar-width:none; }
+.tabs-a button { flex-shrink:0; font:inherit; font-size:13px; border:none; background:none; color:var(--text-2); padding:11px 8px 10px; border-bottom:2px solid transparent; display:flex; align-items:center; gap:5px; }
+.tabs-a button.on { color:var(--brand); border-bottom-color:var(--brand); font-weight:600; }
+.cnt { font-size:10.5px; font-weight:600; background:var(--surface-2); color:var(--text-2); padding:1px 6px; border-radius:9px; }
+.cnt.warn { background:var(--warn-bg); color:var(--warn); }
+
+.gauge { width:58px; flex-shrink:0; text-align:right; }
+.gauge b { font-size:20px; font-weight:600; line-height:1; display:block; font-variant-numeric:tabular-nums; }
+.gauge small { font-size:10.5px; color:var(--text-3); }
+.gauge.err b { color:var(--err); } .gauge.warn b { color:var(--warn); }
+.bar { height:4px; border-radius:2px; background:var(--surface-2); margin-top:5px; overflow:hidden; }
+.bar span { display:block; height:100%; border-radius:2px; }
+.bar.err span { background:var(--err); } .bar.warn span { background:var(--warn); }
+
+.pack { border-top:.5px solid var(--border); }
+.pack:first-child { border-top:none; }
+.pack .row { border-top:none; }
+.pack .members { background:var(--surface-2); padding:4px 12px 8px 64px; }
+.member { display:flex; align-items:center; gap:8px; padding:7px 0; font-size:12.5px; border-top:.5px solid var(--border); }
+.member:first-child { border-top:none; }
+.member .n { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.member .s { font-variant-numeric:tabular-nums; color:var(--text-2); font-size:12px; }
+.member.dim .n { color:var(--text-3); }
+.member b.err { color:var(--err); } .member b.warn { color:var(--warn); }
+
+.sticky-cta { position:absolute; left:14px; right:14px; bottom:76px; height:48px; border:none; border-radius:13px; background:var(--brand); color:var(--brand-contrast); font:inherit; font-size:14.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:7px; box-shadow:var(--shadow-pop); }
+.sticky-cta i { font-size:19px; }
+
+/* Hoja */
+.scrim { position:absolute; inset:0; background:rgba(10,12,20,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; padding:8px 16px 22px; max-height:86%; overflow-y:auto; }
+.grab { width:38px; height:5px; border-radius:3px; background:var(--border-strong); margin:0 auto 12px; }
+.sheet-head { display:flex; gap:11px; align-items:center; }
+.sheet-head .t { flex:1; min-width:0; }
+.sheet-head .t b { font-size:15.5px; font-weight:600; display:block; line-height:1.25; }
+.sheet-head .t span { font-size:12px; color:var(--text-2); }
+.x { border:none; background:var(--surface-2); color:var(--text-2); width:32px; height:32px; border-radius:16px; font-size:16px; flex-shrink:0; }
+.lbl { font-size:12px; color:var(--text-2); margin:16px 0 6px; }
+.big-step { display:flex; align-items:center; justify-content:center; gap:16px; }
+.big-step button { width:52px; height:52px; border-radius:16px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:22px; }
+.big-step span { min-width:70px; text-align:center; font-size:34px; font-weight:600; font-variant-numeric:tabular-nums; }
+.presets { display:flex; gap:6px; justify-content:center; margin-top:10px; }
+.presets .chip { padding:6px 14px; }
+.explain { font-size:12px; color:var(--text-2); background:var(--surface-2); border-radius:10px; padding:9px 11px; margin-top:14px; line-height:1.45; display:flex; gap:7px; }
+.explain i { color:var(--text-3); font-size:15px; margin-top:1px; }
+.btns { display:flex; gap:8px; margin-top:16px; }
+.btn { flex:1; height:46px; border-radius:12px; font:inherit; font-size:14px; font-weight:500; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px; }
+.btn.primary { background:var(--brand); color:var(--brand-contrast); border-color:transparent; font-weight:600; }
+.btn.danger { color:var(--err); }
+.btn.ghost { border:none; }
+.btn i { font-size:18px; }
+
+/* ── Opción B ── */
+.seg { display:flex; background:var(--surface-2); border-radius:10px; padding:3px; margin-bottom:12px; }
+.seg button { flex:1; font:inherit; font-size:12.5px; border:none; background:none; color:var(--text-2); padding:7px 2px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:4px; }
+.seg button.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:6px; }
+.tile { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:9px 10px; }
+.tile b { font-size:22px; font-weight:600; display:block; line-height:1.1; font-variant-numeric:tabular-nums; }
+.tile span { font-size:11px; color:var(--text-2); }
+.tile.err b { color:var(--err); } .tile.warn b { color:var(--warn); } .tile.busy b { color:var(--brand); }
+.tile.on { border-color:var(--err); box-shadow:0 0 0 1px var(--err) inset; }
+
+.card { background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:11px 12px; margin-bottom:8px; display:flex; gap:11px; align-items:center; border-left:4px solid var(--warn); }
+.card.err { border-left-color:var(--err); }
+.card.busy { border-left-color:var(--brand); }
+.card .ch { display:flex; gap:12px; font-size:12px; color:var(--text-2); margin-top:4px; font-variant-numeric:tabular-nums; }
+.card .ch b { color:var(--text); font-weight:600; }
+.card .ch b.err { color:var(--err); }
+.card .row-sub { margin-top:5px; }
+
+.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px; }
+.stat { background:var(--surface-2); border-radius:11px; padding:9px 11px; }
+.stat small { font-size:11px; color:var(--text-2); display:block; }
+.stat b { font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; }
+.stat b.err { color:var(--err); }
+.mlist { border:.5px solid var(--border); border-radius:12px; overflow:hidden; }
+.mrow { display:flex; align-items:center; gap:9px; padding:8px 11px; border-top:.5px solid var(--border); font-size:13px; }
+.mrow:first-child { border-top:none; }
+.mrow .n { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mrow .s { font-size:12px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+.mrow.dim .n { color:var(--text-3); }
+.links { display:flex; flex-direction:column; margin-top:10px; }
+.links button { font:inherit; font-size:13.5px; border:none; background:none; color:var(--text); padding:11px 2px; display:flex; align-items:center; gap:10px; border-top:.5px solid var(--border); text-align:left; }
+.links button i { font-size:18px; color:var(--text-2); }
+.links button .chev { margin-left:auto; color:var(--text-3); font-size:15px; }
+
+/* Notas al pie */
+.notes { max-width:764px; margin:0 auto 40px; padding:0 16px; font-size:12.5px; color:var(--text-2); line-height:1.55; }
+.notes h3 { font-size:14px; color:var(--text); margin:18px 0 6px; font-weight:600; }
+.notes ul { margin:0; padding-left:18px; }
+.notes code { font-size:11.5px; background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.cap { font-size:11.5px; color:var(--text-3); text-align:center; margin-top:6px; }
+
+/* ── Propio de este prototipo ── */
+.delta { width:56px; flex-shrink:0; text-align:right; font-variant-numeric:tabular-nums; }
+.delta b { font-size:18px; font-weight:600; line-height:1; display:block; }
+.delta small { font-size:10.5px; color:var(--text-3); white-space:nowrap; }
+.delta.down b { color:var(--err); } .delta.up b { color:var(--ok); } .delta.flat b { color:var(--text-2); }
+.chdot { width:30px; height:30px; border-radius:9px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; }
+.chdot.ml { background:color-mix(in srgb, var(--ml) 22%, transparent); color:#8a6d00; }
+.chdot.tn { background:color-mix(in srgb, var(--tn) 18%, transparent); color:var(--tn); }
+:root[data-theme='dark'] .chdot.ml { color:var(--ml); }
+.row.reverted .row-title, .row.reverted .delta b { color:var(--text-3); text-decoration:line-through; }
+.day { font-size:11px; color:var(--text-3); font-weight:600; margin:14px 4px 6px; text-transform:uppercase; letter-spacing:.04em; }
+.icon-btn { border:.5px solid var(--border); background:var(--surface); color:var(--text-2); width:38px; height:38px; border-radius:10px; font-size:18px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; }
+.searchrow { display:flex; gap:8px; margin-bottom:10px; }
+.searchrow .search { flex:1; margin:0; }
+.ret { background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:12px; margin-bottom:10px; }
+.ret .top2 { display:flex; gap:10px; align-items:flex-start; }
+.ret .qty { margin-left:auto; font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--text); text-align:right; line-height:1; }
+.ret .qty small { display:block; font-size:10.5px; color:var(--text-3); font-weight:400; margin-top:2px; }
+.ret .reason { font-size:12.5px; background:var(--surface-2); border-radius:9px; padding:7px 9px; margin-top:9px; display:flex; gap:6px; color:var(--text-2); }
+.ret .reason i { font-size:14px; margin-top:1px; }
+.ret .reason.warn { background:var(--warn-bg); color:var(--warn); }
+.ret .btns { margin-top:10px; }
+.btn.ok { background:var(--ok); color:#fff; border-color:transparent; font-weight:600; }
+.kv { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:13px; margin-top:12px; }
+.kv dt { color:var(--text-2); } .kv dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; }
+.kv code, .row-sub code { font-size:11.5px; background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.big-diff { display:flex; align-items:center; justify-content:center; gap:14px; margin-top:16px; font-variant-numeric:tabular-nums; }
+.big-diff span { font-size:30px; font-weight:600; }
+.big-diff .b { color:var(--text-3); }
+.big-diff i { font-size:22px; color:var(--text-3); }
+.big-diff small { font-size:12px; color:var(--err); font-weight:600; background:var(--err-bg); padding:3px 8px; border-radius:8px; }
+.errbox { font-size:12px; color:var(--err); background:var(--err-bg); border-radius:10px; padding:9px 11px; margin-top:12px; font-family:ui-monospace, monospace; word-break:break-word; }
+.fab { position:absolute; right:16px; bottom:78px; height:46px; padding:0 16px; border:none; border-radius:23px; background:var(--surface); color:var(--text); border:.5px solid var(--border-strong); box-shadow:var(--shadow-pop); font:inherit; font-size:13.5px; font-weight:500; display:flex; align-items:center; gap:6px; }
+.fab i { font-size:18px; }
+.inbox-h { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin:16px 2px 8px; }
+.inbox-h .cnt { margin-left:auto; }
+.okline { display:flex; gap:8px; align-items:center; font-size:12.5px; color:var(--ok); background:var(--ok-bg); border-radius:11px; padding:10px 12px; }
+.task { display:flex; gap:10px; align-items:center; background:var(--surface); border:.5px solid var(--border); border-left:4px solid var(--err); border-radius:14px; padding:10px 12px; margin-bottom:8px; }
+.task.busy { border-left-color:var(--brand); }
+.task .mini { height:34px; padding:0 12px; border-radius:10px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); font:inherit; font-size:12.5px; font-weight:500; flex-shrink:0; }
+.stack { position:relative; height:250px; margin-top:6px; }
+.stack .ret { position:absolute; left:0; right:0; }
+.stack .ret.b2 { top:16px; transform:scale(.94); opacity:.55; }
+.stack .ret.b1 { top:8px; transform:scale(.97); opacity:.8; }
+.stack .ret.b0 { top:0; box-shadow:var(--shadow-pop); }
+.pager { text-align:center; font-size:12px; color:var(--text-2); margin-top:6px; }
+.sku-row .spark { display:flex; gap:3px; align-items:flex-end; height:22px; }
+.sku-row .spark span { width:5px; border-radius:2px; background:var(--err); }
+.sku-row .spark span.up { background:var(--ok); }
+.tl { position:relative; margin-top:14px; padding-left:18px; }
+.tl:before { content:''; position:absolute; left:5px; top:6px; bottom:6px; width:2px; background:var(--surface-2); }
+.tl-item { position:relative; padding:0 0 12px; }
+.tl-item:before { content:''; position:absolute; left:-17px; top:5px; width:10px; height:10px; border-radius:5px; background:var(--surface); border:2px solid var(--err); }
+.tl-item.up:before { border-color:var(--ok); } .tl-item.man:before { border-color:var(--brand); }
+.tl-item .h { display:flex; gap:6px; align-items:center; font-size:13px; font-weight:500; }
+.tl-item .h .r { margin-left:auto; font-variant-numeric:tabular-nums; font-size:12.5px; }
+.tl-item .s { font-size:11.5px; color:var(--text-2); margin-top:2px; display:flex; gap:8px; flex-wrap:wrap; }
+.usr { display:flex; align-items:center; gap:11px; padding:10px 12px; border-top:.5px solid var(--border); min-height:60px; }
+.usr:first-child { border-top:none; }
+.av { width:36px; height:36px; border-radius:18px; background:var(--brand-bg); color:var(--brand); display:inline-flex; align-items:center; justify-content:center; font-weight:600; font-size:13px; flex-shrink:0; }
+.av.off { background:var(--surface-2); color:var(--text-3); }
+.fab.pri { background:var(--brand); color:var(--brand-contrast); border-color:transparent; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Historial y cola en el celular — tres opciones (+ Usuarios)</h1>
+    <p>Hoy en el celu, antes del primer movimiento hay: encabezado, buscador con su botón, 5 chips de origen y el formulario "Reintentar sincronización de una venta" — casi una pantalla entera. Cada movimiento ocupa 4 renglones con Pack, Product ID e Ítem (ids que en el celu no se leen) y el botón Revertir grande al lado de cada uno. La Cola ML es la tabla apilada con 8 rótulos por tarea. Devoluciones está más o menos bien. Lo que más se usa en el celu: <b>aprobar o descartar devoluciones</b> y <b>mirar qué pasó con un SKU</b>.</p>
+  </div>
+  <button class="theme-btn" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+</div>
+
+<div class="grid">
+
+<!-- ═══════════════════════ OPCIÓN A ═══════════════════════ -->
+<section class="opt">
+  <h2>A · Las mismas pestañas, listas compactas y hojas</h2>
+  <p class="why">No cambia cómo está organizada la página: siguen las 4 pestañas (Estado pasa al ícono de engranaje arriba). <b>Historial</b>: buscador + chips de origen y filas de un renglón y medio — canal (ML/TN), producto, origen y hora a la izquierda; <b>el delta en grande</b> a la derecha (rojo baja, verde sube). Tocar una fila abre una hoja con el antes → después, los ids de la venta, <b>Revertir</b> y <b>Ver todo el historial de este SKU</b> (el mismo modal de Precio y stock). "Reintentar una venta" pasa a un botón flotante. <b>Devoluciones</b>: tarjetas con la cantidad grande, el motivo resaltado (en ámbar si es "sin stock", que casi siempre se descarta) y los dos botones a lo ancho. <b>Cola ML</b>: lista con el estado; tocar abre el error completo y Reintentar.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-history"></i><b>Historial y cola</b><i class="ti ti-settings"></i></div>
+        <div class="scroll" style="padding-bottom:84px">
+          <div class="tabs-a">
+            <button class="on">Historial</button>
+            <button>Devoluciones <span class="cnt warn">3</span></button>
+            <button>Cola ML <span class="cnt warn">3</span></button>
+          </div>
+          <div class="searchrow">
+            <div class="search"><i class="ti ti-search"></i><input placeholder="Nro de venta o SKU" /></div>
+            <button class="icon-btn"><i class="ti ti-refresh"></i></button>
+          </div>
+          <div class="filters">
+            <span class="chip on">Todos</span><span class="chip">Ventas</span><span class="chip">Manuales</span><span class="chip">Devoluciones</span><span class="chip">Externos</span>
+          </div>
+          <div class="day">Hoy</div>
+          <div class="list">
+            <div class="row"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa · Rayado</div><div class="row-sub"><span class="badge busy">Venta TN</span><span>39000 · 21:18</span></div></div><div class="delta down"><b>−1</b><small>10 → 9</small></div></div>
+            <div class="row"><span class="chdot tn">TN</span><div class="row-info"><div class="row-title">Agenda 2027 Be Positive · Lila</div><div class="row-sub"><span class="badge busy">Venta ML</span><span>BP700L · 20:31</span></div></div><div class="delta down"><b>−1</b><small>11 → 10</small></div></div>
+            <div class="row"><span class="chdot tn">TN</span><div class="row-info"><div class="row-title">Repuesto 48 hojas rayadas</div><div class="row-sub"><span class="badge plain">Manual</span><span>REP48 · 19:44</span></div></div><div class="delta up"><b>+5</b><small>12 → 17</small></div></div>
+            <div class="row"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Carpeta N°3 Escolar · Azul</div><div class="row-sub"><span class="badge ok">Devolución</span><span>V100 · 18:57</span></div></div><div class="delta up"><b>+1</b><small>13 → 14</small></div></div>
+            <div class="row"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Cuaderno inteligente A5 Corazones</div><div class="row-sub"><span class="badge warn"><i class="ti ti-cloud-down"></i> Externo</span><span>39137 · 18:10</span></div></div><div class="delta down"><b>−1</b><small>14 → 13</small></div></div>
+          </div>
+          <div class="day">Ayer</div>
+          <div class="list">
+            <div class="row reverted"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Agenda 2027 Be Positive · Lila</div><div class="row-sub"><span class="badge plain">Revertido</span><span>BP700L · 16:36</span></div></div><div class="delta down"><b>−1</b><small>16 → 15</small></div></div>
+          </div>
+        </div>
+        <button class="fab"><i class="ti ti-refresh-alert"></i> Reintentar una venta</button>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Historial</div>
+    </div>
+
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-history"></i><b>Historial y cola</b><i class="ti ti-settings"></i></div>
+        <div class="scroll" style="opacity:.5">
+          <div class="tabs-a"><button class="on">Historial</button><button>Devoluciones <span class="cnt warn">3</span></button><button>Cola ML</button></div>
+          <div class="list"><div class="row"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa</div></div></div></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><span class="chdot ml">ML</span><div class="t"><b>Cuaderno A4 Mármol rosa · Rayado</b><span>39000 · Venta TN · hoy 21:18</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="big-diff"><span class="b">10</span><i class="ti ti-arrow-right"></i><span>9</span><small>−1 u.</small></div>
+          <p class="cap" style="margin-top:4px">en Mercado Libre · lo escribió el hub</p>
+          <dl class="kv">
+            <dt>Venta</dt><dd><code>2000008800000</code></dd>
+            <dt>Orden</dt><dd><code>2000011838697000</code></dd>
+            <dt>Ítem</dt><dd><code>MLA14000</code></dd>
+          </dl>
+          <div class="links">
+            <button><i class="ti ti-timeline"></i> Ver todo el historial de este SKU <i class="ti ti-chevron-right chev"></i></button>
+          </div>
+          <div class="btns"><button class="btn danger"><i class="ti ti-arrow-back-up"></i> Revertir (sumar 1 en ML)</button></div>
+        </div>
+      </div>
+      <div class="cap">Tocar un movimiento</div>
+    </div>
+
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-history"></i><b>Historial y cola</b><i class="ti ti-settings"></i></div>
+        <div class="scroll">
+          <div class="tabs-a"><button>Historial</button><button class="on">Devoluciones <span class="cnt warn">3</span></button><button>Cola ML <span class="cnt warn">3</span></button></div>
+          <div class="searchrow" style="justify-content:space-between;align-items:center"><span class="cap" style="margin:0;text-align:left">3 pendientes de confirmar</span><button class="icon-btn"><i class="ti ti-refresh"></i></button></div>
+          <div class="ret">
+            <div class="top2"><div class="row-info"><div class="row-title" style="white-space:normal">Cuaderno A4 Mármol rosa · Rayado</div><div class="row-sub"><code>39000</code><span>Venta 2000011838697695</span></div><div class="row-sub"><i class="ti ti-user"></i>JUANP123 · hoy 16:18</div></div><div class="qty">1<small>unidad</small></div></div>
+            <div class="reason"><i class="ti ti-message-circle"></i>Llegó dañado</div>
+            <div class="btns"><button class="btn">Descartar</button><button class="btn ok"><i class="ti ti-check"></i> Restaurar stock</button></div>
+          </div>
+          <div class="ret">
+            <div class="top2"><div class="row-info"><div class="row-title" style="white-space:normal">Repuesto 48 hojas rayadas</div><div class="row-sub"><code>REP48</code><span>Venta 2000011839999999</span></div><div class="row-sub">17/11 19:18</div></div><div class="qty">1<small>unidad</small></div></div>
+            <div class="reason warn"><i class="ti ti-alert-triangle"></i>Cancelada por el vendedor: sin stock</div>
+            <div class="btns"><button class="btn">Descartar</button><button class="btn ok"><i class="ti ti-check"></i> Restaurar stock</button></div>
+          </div>
+        </div>
+        <button class="fab"><i class="ti ti-plus"></i> Agregar por venta</button>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Devoluciones</div>
+    </div>
+
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-history"></i><b>Historial y cola</b><i class="ti ti-settings"></i></div>
+        <div class="scroll">
+          <div class="tabs-a"><button>Historial</button><button>Devoluciones <span class="cnt warn">3</span></button><button class="on">Cola ML <span class="cnt warn">3</span></button></div>
+          <div class="list">
+            <div class="row"><span class="badge err">Falló</span><div class="row-info"><div class="row-title">Stock ML −1 u.</div><div class="row-sub"><code>MLA1400</code><span>5 intentos · 20:58</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="row"><span class="badge err">Trabada</span><div class="row-info"><div class="row-title">Precio ML $12.900</div><div class="row-sub"><code>MLA1401</code><span>21:09</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="row"><span class="badge warn">Pendiente</span><div class="row-info"><div class="row-title">Stock ML → 7 u.</div><div class="row-sub"><code>MLA1402</code><span>21:17</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><span class="badge err">Falló</span><div class="t"><b>Stock ML −1 u.</b><span>MLA1400 · variación 901</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="errbox">429 Too Many Requests: local_rate_limited</div>
+          <dl class="kv"><dt>Intentos</dt><dd>5 de 5</dd><dt>Creada</dt><dd>hoy 19:48</dd><dt>Último intento</dt><dd>hoy 20:58</dd></dl>
+          <div class="btns"><button class="btn primary"><i class="ti ti-refresh"></i> Reintentar</button></div>
+        </div>
+      </div>
+      <div class="cap">Cola ML + hoja de una tarea</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ OPCIÓN B ═══════════════════════ -->
+<section class="opt">
+  <h2>B · "Para resolver" arriba, historial abajo</h2>
+  <p class="why">Mismo concepto que Alertas: lo primero que se ve es <b>lo que espera algo de vos</b>. Arriba, tres números que se tocan (Devoluciones · Con error · En cola). Si hay devoluciones, aparecen ahí mismo con sus botones; si la Cola ML tiene algo fallado o trabado, va abajo con <b>Reintentar</b> en la fila. Si no hay nada, una línea verde "Todo al día" y listo. Debajo, el <b>historial</b> con la misma fila compacta de A (y la misma hoja al tocarla). Desaparecen las pestañas en el celu: tocar "En cola" muestra la cola completa en una hoja. El acceso directo "Devoluciones" del menú lleva a esta misma pantalla. Ideal si entrás para <b>ver si hay algo que atender</b>.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-history"></i><b>Historial y cola</b><i class="ti ti-settings"></i></div>
+        <div class="scroll">
+          <div class="tiles">
+            <div class="tile warn"><b>3</b><span>Devoluciones</span></div>
+            <div class="tile err"><b>2</b><span>Con error</span></div>
+            <div class="tile busy"><b>1</b><span>En cola</span></div>
+          </div>
+          <div class="inbox-h"><i class="ti ti-arrow-back-up" style="color:var(--warn)"></i> Devoluciones para confirmar <span class="cnt warn">3</span></div>
+          <div class="ret">
+            <div class="top2"><div class="row-info"><div class="row-title" style="white-space:normal">Cuaderno A4 Mármol rosa · Rayado</div><div class="row-sub"><code>39000</code><span>JUANP123 · hoy 16:18</span></div></div><div class="qty">1<small>unidad</small></div></div>
+            <div class="reason"><i class="ti ti-message-circle"></i>Llegó dañado</div>
+            <div class="btns"><button class="btn">Descartar</button><button class="btn ok"><i class="ti ti-check"></i> Restaurar</button></div>
+          </div>
+          <button class="btn ghost" style="width:100%;flex:none;color:var(--brand)">Ver las 3 devoluciones <i class="ti ti-chevron-down"></i></button>
+          <div class="inbox-h"><i class="ti ti-alert-octagon" style="color:var(--err)"></i> Cola ML con problemas <span class="cnt warn">2</span></div>
+          <div class="task"><div class="row-info"><div class="row-title">Stock ML −1 u. <span class="badge err">Falló</span></div><div class="row-sub"><code>MLA1400</code><span>429 Too Many Requests…</span></div></div><button class="mini">Reintentar</button></div>
+          <div class="task"><div class="row-info"><div class="row-title">Precio ML $12.900 <span class="badge err">Trabada</span></div><div class="row-sub"><code>MLA1401</code><span>21:09</span></div></div><button class="mini">Reintentar</button></div>
+          <div class="inbox-h"><i class="ti ti-history" style="color:var(--text-2)"></i> Movimientos <span style="margin-left:auto;font-weight:400;font-size:12px;color:var(--brand)"><i class="ti ti-search"></i> Buscar</span></div>
+          <div class="list">
+            <div class="row"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa · Rayado</div><div class="row-sub"><span class="badge busy">Venta TN</span><span>39000 · 21:18</span></div></div><div class="delta down"><b>−1</b><small>10 → 9</small></div></div>
+            <div class="row"><span class="chdot tn">TN</span><div class="row-info"><div class="row-title">Repuesto 48 hojas rayadas</div><div class="row-sub"><span class="badge plain">Manual</span><span>REP48 · 19:44</span></div></div><div class="delta up"><b>+5</b><small>12 → 17</small></div></div>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Con cosas pendientes</div>
+    </div>
+
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-history"></i><b>Historial y cola</b><i class="ti ti-settings"></i></div>
+        <div class="scroll" style="padding-bottom:84px">
+          <div class="tiles">
+            <div class="tile"><b>0</b><span>Devoluciones</span></div>
+            <div class="tile"><b>0</b><span>Con error</span></div>
+            <div class="tile"><b>0</b><span>En cola</span></div>
+          </div>
+          <div class="okline" style="margin-top:10px"><i class="ti ti-circle-check"></i> Todo al día: no hay devoluciones ni tareas trabadas.</div>
+          <div class="inbox-h"><i class="ti ti-history" style="color:var(--text-2)"></i> Movimientos</div>
+          <div class="searchrow"><div class="search"><i class="ti ti-search"></i><input placeholder="Nro de venta o SKU" /></div></div>
+          <div class="filters"><span class="chip on">Todos</span><span class="chip">Ventas</span><span class="chip">Manuales</span><span class="chip">Devoluciones</span><span class="chip">Externos</span></div>
+          <div class="day">Hoy</div>
+          <div class="list">
+            <div class="row"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa · Rayado</div><div class="row-sub"><span class="badge busy">Venta TN</span><span>39000 · 21:18</span></div></div><div class="delta down"><b>−1</b><small>10 → 9</small></div></div>
+            <div class="row"><span class="chdot tn">TN</span><div class="row-info"><div class="row-title">Agenda 2027 Be Positive · Lila</div><div class="row-sub"><span class="badge busy">Venta ML</span><span>BP700L · 20:31</span></div></div><div class="delta down"><b>−1</b><small>11 → 10</small></div></div>
+            <div class="row"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Carpeta N°3 Escolar · Azul</div><div class="row-sub"><span class="badge ok">Devolución</span><span>V100 · 18:57</span></div></div><div class="delta up"><b>+1</b><small>13 → 14</small></div></div>
+            <div class="row"><span class="chdot ml">ML</span><div class="row-info"><div class="row-title">Cuaderno inteligente A5 Corazones</div><div class="row-sub"><span class="badge warn"><i class="ti ti-cloud-down"></i> Externo</span><span>39137 · 18:10</span></div></div><div class="delta down"><b>−1</b><small>14 → 13</small></div></div>
+          </div>
+        </div>
+        <button class="fab"><i class="ti ti-refresh-alert"></i> Reintentar una venta</button>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Sin nada pendiente</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ OPCIÓN C ═══════════════════════ -->
+<section class="opt">
+  <h2>C · Historial por producto + devoluciones de a una</h2>
+  <p class="why">Pensada para las dos tareas puntuales. <b>Historial</b> agrupado por SKU: una fila por producto con lo que se movió en el día (barritas rojas/verdes) y el stock en que quedó cada canal; tocarla abre <b>la línea de tiempo de ese SKU</b> con los dos canales, en una hoja. Para ver el movimiento suelto (y revertirlo) se toca en la línea de tiempo. <b>Devoluciones</b> se resuelven <b>de a una</b>, como un mazo: la tarjeta de arriba con todo el detalle y dos botones grandes; al resolverla pasa la siguiente ("1 de 3"). La Cola ML queda como en A. Ideal si en el celu <b>buscás un producto puntual</b>; para ver "las últimas ventas en orden" es menos directa.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-history"></i><b>Historial y cola</b><i class="ti ti-settings"></i></div>
+        <div class="scroll">
+          <div class="tabs-a"><button class="on">Por producto</button><button>Devoluciones <span class="cnt warn">3</span></button><button>Cola ML <span class="cnt warn">3</span></button></div>
+          <div class="searchrow"><div class="search"><i class="ti ti-search"></i><input placeholder="SKU o producto" /></div></div>
+          <div class="day">Hoy</div>
+          <div class="list">
+            <div class="row sku-row"><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa · Rayado</div><div class="row-sub"><code>39000</code><span><span class="dot ml"></span>9 <span class="dot tn"></span>9</span><span>3 movimientos</span></div></div><div class="spark"><span style="height:12px"></span><span style="height:12px"></span><span style="height:22px"></span></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="row sku-row"><div class="row-info"><div class="row-title">Agenda 2027 Be Positive · Lila</div><div class="row-sub"><code>BP700L</code><span><span class="dot ml"></span>10 <span class="dot tn"></span>10</span><span>2 movimientos</span></div></div><div class="spark"><span style="height:12px"></span><span style="height:12px"></span></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="row sku-row"><div class="row-info"><div class="row-title">Repuesto 48 hojas rayadas</div><div class="row-sub"><code>REP48</code><span><span class="dot ml"></span>17 <span class="dot tn"></span>17</span><span>manual</span></div></div><div class="spark"><span class="up" style="height:22px"></span></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="row sku-row"><div class="row-info"><div class="row-title">Carpeta N°3 Escolar · Azul</div><div class="row-sub"><code>V100</code><span><span class="dot ml"></span>14 <span class="dot tn"></span>14</span><span>devolución</span></div></div><div class="spark"><span class="up" style="height:12px"></span></div><i class="ti ti-chevron-right chev"></i></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="t"><b>Cuaderno A4 Mármol rosa · Rayado</b><span>39000 · quedó <span class="dot ml"></span>9 <span class="dot tn"></span>9</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="tl">
+            <div class="tl-item"><div class="h">Venta TN <span class="badge plain">ML −1</span><span class="badge plain">TN −1</span><span class="r">→ 9 · 9</span></div><div class="s">hoy 21:18 · venta 2000008800000</div></div>
+            <div class="tl-item"><div class="h">Venta ML <span class="badge plain">ML −1</span><span class="badge plain">TN −1</span><span class="r">→ 10 · 10</span></div><div class="s">hoy 14:02 · venta 2000008800004</div></div>
+            <div class="tl-item man"><div class="h">Manual <span class="badge plain">ML +8</span><span class="badge plain">TN +8</span><span class="r">→ 11 · 11</span></div><div class="s">ayer 10:40 · mica</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap">Por producto + línea de tiempo del SKU</div>
+    </div>
+
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-history"></i><b>Historial y cola</b><i class="ti ti-settings"></i></div>
+        <div class="scroll">
+          <div class="tabs-a"><button>Por producto</button><button class="on">Devoluciones <span class="cnt warn">3</span></button><button>Cola ML <span class="cnt warn">3</span></button></div>
+          <div class="pager">1 de 3 para confirmar</div>
+          <div class="stack">
+            <div class="ret b2"><div class="row-title">Repuesto 48 hojas</div></div>
+            <div class="ret b1"><div class="row-title">Agenda 2027 Be Positive</div></div>
+            <div class="ret b0">
+              <div class="top2"><div class="row-info"><div class="row-title" style="white-space:normal;font-size:15px">Cuaderno A4 Mármol rosa · Rayado</div><div class="row-sub"><code>39000</code><span>Venta 2000011838697695</span></div><div class="row-sub"><i class="ti ti-user"></i>JUANP123 · hoy 16:18</div></div><div class="qty">1<small>unidad</small></div></div>
+              <div class="reason"><i class="ti ti-message-circle"></i>Llegó dañado</div>
+              <div class="explain" style="margin-top:10px"><i class="ti ti-info-circle"></i>Restaurar suma 1 en ML y en TN. Descartar la saca de la lista sin tocar stock.</div>
+            </div>
+          </div>
+          <div class="btns" style="margin-top:4px"><button class="btn" style="height:52px">Descartar</button><button class="btn ok" style="height:52px"><i class="ti ti-check"></i> Restaurar stock</button></div>
+          <button class="btn ghost" style="width:100%;margin-top:6px;color:var(--text-2)">Saltear por ahora <i class="ti ti-arrow-right"></i></button>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Devoluciones de a una</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ USUARIOS ═══════════════════════ -->
+<section class="opt">
+  <h2>Usuarios · ¿tocarlo?</h2>
+  <p class="why">Con la pasada genérica ya <b>funciona</b>: cada usuario es una tarjeta con 4 rótulos y tres íconos sueltos abajo. Se puede dejar así (recomendado: se usa poco y nunca desde el celu). La alternativa es la misma lista compacta de las otras pantallas: avatar, nombre, rol y último ingreso en una fila; tocarla abre una hoja con Editar / Cerrar sesiones / Borrar, y "Nuevo usuario" pasa a botón flotante.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-users"></i><b>Usuarios</b><i class="ti ti-bell"></i></div>
+        <div class="scroll" style="padding-bottom:84px">
+          <p class="cap" style="text-align:left;margin:0 2px 10px"><b>Admin</b> hace todo; <b>Solo lectura</b> ve todo pero no modifica nada.</p>
+          <div class="list">
+            <div class="usr"><span class="av">MI</span><div class="row-info"><div class="row-title">Mica <span class="muted" style="font-weight:400">· mica</span></div><div class="row-sub"><span class="badge busy"><i class="ti ti-shield"></i> Admin</span><span>hace 5 min</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="usr"><span class="av">DM</span><div class="row-info"><div class="row-title">Depósito Marañón <span class="muted" style="font-weight:400">· deposito</span></div><div class="row-sub"><span class="badge plain"><i class="ti ti-eye"></i> Solo lectura</span><span>ayer 11:58</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="usr"><span class="av off">CO</span><div class="row-info"><div class="row-title" style="color:var(--text-3)">contador</div><div class="row-sub"><span class="badge plain"><i class="ti ti-eye"></i> Solo lectura</span><span class="badge err">Desactivado</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+          </div>
+        </div>
+        <button class="fab pri"><i class="ti ti-user-plus"></i> Nuevo</button>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Alternativa: lista compacta</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="notes">
+  <h3>Tablet</h3>
+  <ul>
+    <li>En iPad (768–1023 px) Historial y Devoluciones ya se ven bien con el diseño de escritorio. Lo único roto es la <b>tabla de la Cola ML</b>: a 768 px se corta el botón Reintentar y el error queda en una columna de 3 letras. Propuesta: en tablet esconder Variación e Intentos y dejar que el error ocupe el ancho (sin rediseño aparte).</li>
+  </ul>
+  <h3>En cualquiera de las tres</h3>
+  <ul>
+    <li>El escritorio no cambia: en el celu se muestran componentes aparte, elegidos con <code>mediaSignal(PHONE_QUERY)</code>, igual que Alertas.</li>
+    <li>"Ver todo el historial de este SKU" abre el mismo modal de historial por producto de Precio y stock (stock y precio, los dos canales).</li>
+    <li>Estado (el interruptor de la sync y los webhooks) pasa al engranaje de arriba en una hoja.</li>
+    <li>Un usuario de solo lectura ve todo igual pero sin botones de Revertir / Restaurar / Descartar / Reintentar.</li>
+  </ul>
+</div>
+
+</body>
+</html>
