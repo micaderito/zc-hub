@@ -1445,7 +1445,7 @@ página web. Es el mismo build de GitHub Pages (`/zc-hub/`), no hay un deploy ap
   (pointer: coarse, incluye el iPad apaisado), `m.hover` (envolver los `:hover`: en iOS quedan pegados),
   `m.sheet` (modal → hoja que sube desde abajo), `m.stack-table` (tabla → una tarjeta por fila; cada `<td>`
   con `data-label`, `cell-main`, `cell-actions`) y `m.scroll-row` (chips/pestañas en una fila que se
-  desliza). Globales en `styles.scss`: campos a 16px en táctil (si no, iOS hace zoom), `.zc-btn` ≥ 40px.
+  desliza). Globales en `styles.scss`: campos a 16px en táctil con `!important` (si no, iOS hace zoom al enfocar y no vuelve; los estilos de componente lo pisaban), `.zc-btn` ≥ 40px. Además `index.html` suma `maximum-scale=1` al viewport solo en iOS (Safari igual deja el zoom con dos dedos; en Android bloquearía el pellizco, por eso no va). No achicar la letra de un campo en táctil.
   - **Navegación en el celu**: barra fina arriba (logo, página actual, campanita) y **barra de pestañas
     abajo** (Preparar, Productos, Pedidos, Alertas + "Más", una hoja con el resto, el usuario, el tema y
     salir). `PHONE_TAB_PATHS` en `layout.component.ts`; estilos en `layout-phone.component.scss` (hoja
