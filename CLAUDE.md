@@ -601,6 +601,20 @@ mismo proveedor, ni Bic sin descuento, ni de ver qué descuento llevaba cada pro
   formulario de siempre. "Aplicar a ML y TN" solo toma lo tildado que ya tiene costo.
 - `@for (…; track …)` con `??` rompe el compilador de Angular (`tmp_N is not defined` en runtime):
   usar `track a + '|' + b`.
+- **En el celular** (2026-11-20, prototipo `docs/prototype/precios-mobile.html`, opción B): la
+  planilla (`planilla/planilla-phone.component.*`, `zc-planilla-phone`) reemplaza la tabla: tres
+  números arriba que filtran (Por aplicar / En cola ML / Fallaron = fallidos de la última aplicación,
+  lleva a Aplicaciones), tarjetas por pack o producto separadas en Suben / Bajan / Por aplicar / En la
+  cola de ML con hoy → nuevo por canal, y "Al día" y "Sin costo cargado" plegados abajo. Un botón fijo
+  **Aplicar los N** abre una hoja de confirmación (destildar alguno, Solo TN / Solo ML vía `channels`
+  de `POST /pricing/apply`). Tocar una tarjeta abre una hoja con los precios TN/ML (en un pack, el
+  mismo para todos los modelos; igual al calculado o vacío = sin ajuste, como en la compu), sus
+  modelos, editar costo e historial. Tildar, asignar descuento/proveedor y quitar en masa siguen
+  siendo de la compu. Aplicaciones: tarjetas + hoja con lo que falló y Reintentar. Las configs del
+  proveedor pasan a una línea "Descuento: …" que abre `zc-supplier-panel` en una hoja. Mapeo y los
+  diálogos quedan como antes. Se elige con `mediaSignal(PHONE_QUERY)`; tablet y escritorio no cambian.
+  En los specs, `precios.component.spec.ts` mockea `matchMedia` (escritorio por defecto) y
+  `fakeViewport` recrea la página.
 - **Estructura de la página** (2026-10-15, el `.scss` único pasó el tope de 16 kB por hoja de
   `angular.json` y el build de producción fallaba): `precios.component` es solo la página contenedora
   (encabezado, pestañas, qué diálogo está abierto) y provee `PreciosStore` (`precios.store.ts`: las
