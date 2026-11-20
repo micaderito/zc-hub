@@ -300,3 +300,7 @@
 
   &.is-fetching { opacity: 0.5; pointer-events: none; }
 }
+
+// iOS hace zoom en un campo de menos de 16px: el buscador del celu va a 16px aunque no haya puntero
+// táctil (la regla global de styles.scss solo cubre `pointer: coarse`).
+.precio-stock.is-phone ::ng-deep zc-search-bar input.search-input { font-size: 16px; }
