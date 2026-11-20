@@ -920,6 +920,15 @@ días, no el mes calendario — ver el comentario en `computePreviousPeriod`) + 
 productos + evolución diaria, todo del rango pedido. `GET /api/sales/export` arma el mismo cálculo
 en CSV (separador `;`, coma decimal) para mandarle al contador.
 
+**En el celular** (2026-11-20, prototipo `docs/prototype/ventas-conexiones-mobile.html`, opción B):
+`zc-ventas-phone` (`pages/ventas/ventas-phone.component.*`) reemplaza encabezado, toolbar y tablas —
+los meses en chips (los 6 últimos; "Otro…" abre una hoja con todos y el rango a mano), lo facturado
+en grande contra el mes anterior, y **Provincias / Productos / Por día** de a uno (tocar una provincia
+abre su detalle en una hoja). Abajo, fijo, "Exportar para el contador" (en el iPhone abre Compartir).
+El estado sigue en `VentasComponent`; se elige con `mediaSignal(PHONE_QUERY)`. De paso: el gráfico
+diario mostraba "30/9" para el 1/10 (el backend manda el día como medianoche UTC y `new Date()` lo
+corría a la hora argentina); `formatDay` (`ventas.utils.ts`) usa la fecha tal cual, también en el escritorio.
+
 ### Crear producto: modelo User Products de ML, publicación en background e historial
 
 Incidente 2026-09-06: publicar un producto con variantes en ML fallaba siempre con *"The body does
@@ -1493,6 +1502,14 @@ página web. Es el mismo build de GitHub Pages (`/zc-hub/`), no hay un deploy ap
   - Conexiones: OAuth de ML/TN desde la app instalada en iOS puede volver a Safari; la página recarga el
     estado al volver a la app (`visibilitychange`/`focus`), la verdad es la del servidor.
   - El aviso de presupuesto del bundle inicial pasó a 560 kB (el service worker suma ~15 kB).
+  - **Conexiones y Vincular SKUs en el celu** (2026-11-20, mismo prototipo que Ventas, opción B en las
+    dos). Conexiones (`pages/dashboard/`, estilos en `dashboard-phone.scss`): lista tipo Ajustes, un
+    canal por fila; vencido/desconectado trae Reconectar/Conectar en la misma fila, conectado abre una
+    hoja con Desconectar (pide confirmar). "Sincronizar precios" es otra fila con su hoja. Vincular SKUs
+    (`/conflictos`, `pages/conflicts/phone/`): tres números que filtran (Sin par / Sin SKU / Duplicados),
+    secciones por problema, "N pares coinciden" al final, y una hoja con Editar SKU / Vincular que abre
+    los mismos formularios del escritorio. En el celu pide siempre la pestaña `resumen` (trae todo sin
+    paginar) y busca en el navegador. Ojo: esta página se pisa con Publicaciones → Productos ("Vincular").
   - **Productos en el celular** (2026-11-20, prototipo `docs/prototype/productos-mobile.html`, opción A):
     en vez de `zc-pair-card` (una pantalla por producto), una fila compacta por par (`zc-pair-row`: foto,
     nombre, variante, SKU, pack, precios chicos y a la derecha el stock — un número si coinciden, los dos
