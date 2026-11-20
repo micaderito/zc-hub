@@ -770,6 +770,18 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
     (`product_packs.sku`) solo se usa si el pack no tiene otro proveedor vigente. El precio sigue
     siendo el de Precios (= del vigente): si el vigente es otro, la fila dice "precio de X".
   - Lista: filtro por proveedor (los chips de estado cuentan sobre él) y el proveedor en cada fila.
+- **En el celular** (2026-11-20, prototipo `docs/prototype/pedidos-mobile.html`: lista opción 2 + editor
+  opción A). Se elige con `mediaSignal(PHONE_QUERY)`; el escritorio y la tablet siguen con la tabla.
+  **Lista** (`pedidos-list-phone/`): tres números arriba que filtran (Borradores / En camino / Recibidos),
+  secciones con "En camino" primero (con "hace N días" y "recepción a medias"), los recibidos cortados con
+  "Ver más", chip de proveedor (un `<select>` nativo encima) y **Nuevo pedido** flotante. Repetir/Duplicar
+  pasan adentro del pedido. **Editor** (mismo `PedidoEditorComponent`, rama `@if (phone())` del template,
+  estilos en `pedido-editor.phone.scss`): lista finita de líneas; tocar una abre una hoja (`zc-bottom-sheet`)
+  con +/− de packs, detalle, código y título con sus chips, precio con "volver a $X" y Quitar (solo lectura
+  si no se edita). Catálogo, estimado (config, %, nota) y el menú ⋯ (fábrica, duplicar, repetir y marcar
+  como pedido, borrar) son hojas. Barra fija abajo: total (abre el estimado) + la acción del estado
+  (Marcar como pedido / Registrar recepción / Vista para la fábrica). Recibir: "Llegó [− n +] de N ✓" por
+  línea y la barra cuenta las completas. Specs: mockear `matchMedia` (`create(..., phone)`).
 - `createSupplierOrder` calcula `ordered_at` en JS: reusar un `$n` como valor de columna y en un
   `CASE` hace que Postgres deduzca dos tipos (mismo bug que tuvo `finishPublishJob`).
 
