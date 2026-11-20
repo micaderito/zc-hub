@@ -1457,6 +1457,20 @@ página web. Es el mismo build de GitHub Pages (`/zc-hub/`), no hay un deploy ap
   - Conexiones: OAuth de ML/TN desde la app instalada en iOS puede volver a Safari; la página recarga el
     estado al volver a la app (`visibilitychange`/`focus`), la verdad es la del servidor.
   - El aviso de presupuesto del bundle inicial pasó a 560 kB (el service worker suma ~15 kB).
+  - **Productos en el celular** (2026-11-20, prototipo `docs/prototype/productos-mobile.html`, opción A):
+    en vez de `zc-pair-card` (una pantalla por producto), una fila compacta por par (`zc-pair-row`: foto,
+    nombre, variante, SKU, pack, precios chicos y a la derecha el stock — un número si coinciden, los dos
+    en ámbar si no, rojo en 0) y tocarla abre `zc-pair-sheet`: stock de cada canal, +/− grande para dejar
+    los dos en un número (arranca en el de ML) + "Sincronizar stock", los dos precios + "Actualizar
+    precios", y Historial / Alerta / Proveedor. Cada acción **cierra la hoja y llama al mismo método de la
+    página** (`syncStock`, `updatePrices`, …) que usa la tarjeta, así las confirmaciones de precio de ML/TN
+    y el historial no quedan debajo de la hoja. Filtros: chips de stock con conteo + "Filtros" (hoja con
+    Proveedor / Alerta / Pack, `zc-phone-filters`, mismo `ProductFiltersValue`). Sin título ni explicación
+    arriba; Actualizar es un ícono al lado de las pestañas. Los tildes de "asignar proveedor a varios"
+    salen con "Seleccionar" ("Listo" limpia). Se elige con `mediaSignal(PHONE_QUERY)` en
+    `precio-stock.component`; escritorio y tablet no cambian (en tablet la tarjeta ya entra bien), y
+    Packs queda igual. Specs: `describe('en el celular …')` en `precio-stock.component.spec.ts`
+    (mockea `matchMedia`).
 
 ### Roles de usuario: `admin` y `lectura`
 

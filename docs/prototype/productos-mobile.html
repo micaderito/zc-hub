@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Productos — celular</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd; --brand-contrast:#fff;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --ml:#e6b800; --tn:#2c6ecb; --shadow-pop:0 8px 28px rgba(20,22,40,.12); --page:#dfe2e8;
+}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f; --brand-contrast:#fff;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+  --ml:#f2cc33; --tn:#6aa0ef; --shadow-pop:0 8px 28px rgba(0,0,0,.5); --page:#05060a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:-apple-system, 'Inter', system-ui, sans-serif; }
+.top { max-width:1200px; margin:0 auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.top h1 { margin:0; font-size:18px; font-weight:500; }
+.top p { margin:4px 0 0; font-size:12.5px; color:var(--text-2); max-width:680px; line-height:1.45; }
+.theme-btn { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; padding:7px 12px; cursor:pointer; }
+.grid { max-width:1200px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:36px; align-items:center; }
+.opt { display:flex; flex-direction:column; gap:10px; }
+.opt h2 { margin:0; font-size:15px; font-weight:600; }
+.opt .why { font-size:12.5px; color:var(--text-2); margin:0; line-height:1.5; max-width:764px; }
+.pair { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+
+/* Teléfono */
+.phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:34px; border:8px solid #111; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.status { height:36px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:12px; font-weight:600; }
+.appbar { height:48px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:.5px solid var(--border); background:var(--surface); }
+.appbar b { font-size:15px; font-weight:600; flex:1; }
+.appbar i { font-size:20px; color:var(--text-2); }
+.scroll { flex:1; overflow-y:auto; padding:12px 14px 24px; }
+.tabbar { height:62px; flex-shrink:0; border-top:.5px solid var(--border); background:var(--surface); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--text-3); }
+.tabbar div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.tabbar i { font-size:21px; }
+.tabbar .on { color:var(--brand); }
+
+.search { position:relative; margin-bottom:10px; }
+.search i { position:absolute; left:11px; top:11px; color:var(--text-3); font-size:16px; }
+.search input { width:100%; font:inherit; font-size:16px; padding:9px 12px 9px 34px; border:.5px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); }
+.filters { display:flex; gap:6px; overflow-x:auto; margin-bottom:12px; scrollbar-width:none; }
+.chip { flex-shrink:0; font:inherit; font-size:12.5px; border:.5px solid var(--border); background:var(--surface); color:var(--text-2); padding:6px 11px; border-radius:16px; display:inline-flex; align-items:center; gap:5px; }
+.chip.on { background:var(--brand-bg); color:var(--brand); border-color:transparent; font-weight:500; }
+.chip i { font-size:14px; }
+
+.thumb { width:42px; height:42px; border-radius:10px; flex-shrink:0; }
+.thumb.p1 { background:linear-gradient(135deg,#f6c1d0,#e98fae); }
+.thumb.p2 { background:linear-gradient(135deg,#bfe3d5,#7cc4a8); }
+.thumb.p3 { background:linear-gradient(135deg,#c9c6f6,#8c86e8); }
+.thumb.p4 { background:linear-gradient(135deg,#fde4b4,#f1b35b); }
+.thumb.p5 { background:linear-gradient(135deg,#cfe1f7,#86aee3); }
+.thumb.sm { width:32px; height:32px; border-radius:8px; }
+
+.badge { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.badge.warn { background:var(--warn-bg); color:var(--warn); }
+.badge.err { background:var(--err-bg); color:var(--err); }
+.badge.ok { background:var(--ok-bg); color:var(--ok); }
+.badge.busy { background:var(--brand-bg); color:var(--brand); }
+.badge.plain { background:var(--surface-2); color:var(--text-2); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:3px; vertical-align:1px; }
+.dot.ml { background:var(--ml); } .dot.tn { background:var(--tn); }
+.num { font-variant-numeric:tabular-nums; }
+
+.group-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); font-weight:600; margin:14px 4px 6px; display:flex; justify-content:space-between; align-items:center; }
+.group-h.err { color:var(--err); } .group-h.warn { color:var(--warn); }
+.list { background:var(--surface); border:.5px solid var(--border); border-radius:14px; overflow:hidden; }
+.row { display:flex; align-items:center; gap:11px; padding:10px 12px; border-top:.5px solid var(--border); min-height:62px; }
+.row:first-child { border-top:none; }
+.row-info { flex:1; min-width:0; }
+.row-title { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row-sub { font-size:11.5px; color:var(--text-2); margin-top:3px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.row > i.chev { color:var(--text-3); font-size:16px; }
+.muted { color:var(--text-3); }
+
+/* ── Opción A ── */
+.tabs-a { display:flex; gap:4px; border-bottom:.5px solid var(--border); margin:-12px -14px 12px; padding:0 10px; background:var(--surface); overflow-x:auto; scrollbar-width:none; }
+.tabs-a button { flex-shrink:0; font:inherit; font-size:13px; border:none; background:none; color:var(--text-2); padding:11px 8px 10px; border-bottom:2px solid transparent; display:flex; align-items:center; gap:5px; }
+.tabs-a button.on { color:var(--brand); border-bottom-color:var(--brand); font-weight:600; }
+.cnt { font-size:10.5px; font-weight:600; background:var(--surface-2); color:var(--text-2); padding:1px 6px; border-radius:9px; }
+.cnt.warn { background:var(--warn-bg); color:var(--warn); }
+
+.gauge { width:58px; flex-shrink:0; text-align:right; }
+.gauge b { font-size:20px; font-weight:600; line-height:1; display:block; font-variant-numeric:tabular-nums; }
+.gauge small { font-size:10.5px; color:var(--text-3); }
+.gauge.err b { color:var(--err); } .gauge.warn b { color:var(--warn); }
+.bar { height:4px; border-radius:2px; background:var(--surface-2); margin-top:5px; overflow:hidden; }
+.bar span { display:block; height:100%; border-radius:2px; }
+.bar.err span { background:var(--err); } .bar.warn span { background:var(--warn); }
+
+.pack { border-top:.5px solid var(--border); }
+.pack:first-child { border-top:none; }
+.pack .row { border-top:none; }
+.pack .members { background:var(--surface-2); padding:4px 12px 8px 64px; }
+.member { display:flex; align-items:center; gap:8px; padding:7px 0; font-size:12.5px; border-top:.5px solid var(--border); }
+.member:first-child { border-top:none; }
+.member .n { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.member .s { font-variant-numeric:tabular-nums; color:var(--text-2); font-size:12px; }
+.member.dim .n { color:var(--text-3); }
+.member b.err { color:var(--err); } .member b.warn { color:var(--warn); }
+
+.sticky-cta { position:absolute; left:14px; right:14px; bottom:76px; height:48px; border:none; border-radius:13px; background:var(--brand); color:var(--brand-contrast); font:inherit; font-size:14.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:7px; box-shadow:var(--shadow-pop); }
+.sticky-cta i { font-size:19px; }
+
+/* Hoja */
+.scrim { position:absolute; inset:0; background:rgba(10,12,20,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; padding:8px 16px 22px; max-height:86%; overflow-y:auto; }
+.grab { width:38px; height:5px; border-radius:3px; background:var(--border-strong); margin:0 auto 12px; }
+.sheet-head { display:flex; gap:11px; align-items:center; }
+.sheet-head .t { flex:1; min-width:0; }
+.sheet-head .t b { font-size:15.5px; font-weight:600; display:block; line-height:1.25; }
+.sheet-head .t span { font-size:12px; color:var(--text-2); }
+.x { border:none; background:var(--surface-2); color:var(--text-2); width:32px; height:32px; border-radius:16px; font-size:16px; flex-shrink:0; }
+.lbl { font-size:12px; color:var(--text-2); margin:16px 0 6px; }
+.big-step { display:flex; align-items:center; justify-content:center; gap:16px; }
+.big-step button { width:52px; height:52px; border-radius:16px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:22px; }
+.big-step span { min-width:70px; text-align:center; font-size:34px; font-weight:600; font-variant-numeric:tabular-nums; }
+.presets { display:flex; gap:6px; justify-content:center; margin-top:10px; }
+.presets .chip { padding:6px 14px; }
+.explain { font-size:12px; color:var(--text-2); background:var(--surface-2); border-radius:10px; padding:9px 11px; margin-top:14px; line-height:1.45; display:flex; gap:7px; }
+.explain i { color:var(--text-3); font-size:15px; margin-top:1px; }
+.btns { display:flex; gap:8px; margin-top:16px; }
+.btn { flex:1; height:46px; border-radius:12px; font:inherit; font-size:14px; font-weight:500; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px; }
+.btn.primary { background:var(--brand); color:var(--brand-contrast); border-color:transparent; font-weight:600; }
+.btn.danger { color:var(--err); }
+.btn.ghost { border:none; }
+.btn i { font-size:18px; }
+
+/* ── Opción B ── */
+.seg { display:flex; background:var(--surface-2); border-radius:10px; padding:3px; margin-bottom:12px; }
+.seg button { flex:1; font:inherit; font-size:12.5px; border:none; background:none; color:var(--text-2); padding:7px 2px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:4px; }
+.seg button.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:6px; }
+.tile { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:9px 10px; }
+.tile b { font-size:22px; font-weight:600; display:block; line-height:1.1; font-variant-numeric:tabular-nums; }
+.tile span { font-size:11px; color:var(--text-2); }
+.tile.err b { color:var(--err); } .tile.warn b { color:var(--warn); } .tile.busy b { color:var(--brand); }
+.tile.on { border-color:var(--err); box-shadow:0 0 0 1px var(--err) inset; }
+
+.card { background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:11px 12px; margin-bottom:8px; display:flex; gap:11px; align-items:center; border-left:4px solid var(--warn); }
+.card.err { border-left-color:var(--err); }
+.card.busy { border-left-color:var(--brand); }
+.card .ch { display:flex; gap:12px; font-size:12px; color:var(--text-2); margin-top:4px; font-variant-numeric:tabular-nums; }
+.card .ch b { color:var(--text); font-weight:600; }
+.card .ch b.err { color:var(--err); }
+.card .row-sub { margin-top:5px; }
+
+.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px; }
+.stat { background:var(--surface-2); border-radius:11px; padding:9px 11px; }
+.stat small { font-size:11px; color:var(--text-2); display:block; }
+.stat b { font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; }
+.stat b.err { color:var(--err); }
+.mlist { border:.5px solid var(--border); border-radius:12px; overflow:hidden; }
+.mrow { display:flex; align-items:center; gap:9px; padding:8px 11px; border-top:.5px solid var(--border); font-size:13px; }
+.mrow:first-child { border-top:none; }
+.mrow .n { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mrow .s { font-size:12px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+.mrow.dim .n { color:var(--text-3); }
+.links { display:flex; flex-direction:column; margin-top:10px; }
+.links button { font:inherit; font-size:13.5px; border:none; background:none; color:var(--text); padding:11px 2px; display:flex; align-items:center; gap:10px; border-top:.5px solid var(--border); text-align:left; }
+.links button i { font-size:18px; color:var(--text-2); }
+.links button .chev { margin-left:auto; color:var(--text-3); font-size:15px; }
+
+/* Notas al pie */
+.notes { max-width:764px; margin:0 auto 40px; padding:0 16px; font-size:12.5px; color:var(--text-2); line-height:1.55; }
+.notes h3 { font-size:14px; color:var(--text); margin:18px 0 6px; font-weight:600; }
+.notes ul { margin:0; padding-left:18px; }
+.notes code { font-size:11.5px; background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.cap { font-size:11.5px; color:var(--text-3); text-align:center; margin-top:6px; }
+
+/* ── Productos ── */
+.price-line { font-size:11.5px; color:var(--text-3); margin-top:3px; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pstock { flex-shrink:0; display:flex; flex-direction:column; align-items:flex-end; gap:3px; font-variant-numeric:tabular-nums; }
+.pstock .pair-n { font-size:13px; color:var(--text-2); display:flex; gap:8px; }
+.pstock .pair-n b { font-size:17px; font-weight:600; color:var(--text); }
+.pstock .pair-n b.warn { color:var(--warn); } .pstock .pair-n b.err { color:var(--err); }
+.pstock .one { font-size:22px; font-weight:600; line-height:1; }
+.pstock .one.err { color:var(--err); }
+.pstock small { font-size:10.5px; color:var(--text-3); }
+.row.warn { box-shadow:inset 3px 0 0 var(--warn); }
+.row.err { box-shadow:inset 3px 0 0 var(--err); }
+.toolbar { display:flex; justify-content:space-between; align-items:center; margin:2px 2px 8px; font-size:12px; color:var(--text-2); }
+.toolbar button { font:inherit; font-size:12.5px; border:none; background:none; color:var(--brand); display:flex; align-items:center; gap:4px; padding:4px 0; }
+.chip .n { font-size:10.5px; font-weight:600; background:var(--surface-2); color:var(--text-2); padding:0 5px; border-radius:8px; }
+.chip.on .n { background:var(--surface); color:var(--brand); }
+.chip .n.warn { background:var(--warn-bg); color:var(--warn); }
+.pager { display:flex; justify-content:center; align-items:center; gap:14px; font-size:12px; color:var(--text-2); margin-top:12px; }
+.pager button { font:inherit; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; width:34px; height:34px; }
+
+.ch-stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.ch-stat { background:var(--surface-2); border-radius:11px; padding:9px 11px; }
+.ch-stat small { font-size:11px; color:var(--text-2); display:flex; align-items:center; gap:4px; }
+.ch-stat b { font-size:22px; font-weight:600; font-variant-numeric:tabular-nums; }
+.ch-stat b.warn { color:var(--warn); }
+.ch-stat .pr { font-size:12px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+.field { display:flex; align-items:center; gap:8px; border:.5px solid var(--border-strong); border-radius:11px; padding:0 11px; height:46px; background:var(--surface); }
+.field span { font-size:12px; color:var(--text-2); display:flex; align-items:center; gap:4px; width:46px; }
+.field input { flex:1; min-width:0; border:none; background:none; font:inherit; font-size:16px; color:var(--text); font-variant-numeric:tabular-nums; text-align:right; outline:none; }
+.fields { display:flex; flex-direction:column; gap:7px; }
+.mini-step { display:flex; align-items:center; gap:6px; }
+.mini-step button { width:34px; height:34px; border-radius:10px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:16px; }
+.mini-step span { min-width:28px; text-align:center; font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
+.pending { font-size:11px; color:var(--brand); display:flex; align-items:center; gap:4px; }
+
+/* C: acordeón */
+.acc { background:var(--surface); border:.5px solid var(--border); border-radius:14px; margin-bottom:8px; overflow:hidden; }
+.acc .row { border-top:none; }
+.acc.open { border-color:var(--border-strong); }
+.acc-body { border-top:.5px solid var(--border); padding:10px 12px 12px; background:var(--surface-2); }
+.grid2 { display:grid; grid-template-columns:52px 1fr 1fr; gap:6px 8px; align-items:center; font-size:12px; }
+.grid2 .h { font-size:11px; color:var(--text-2); display:flex; align-items:center; gap:4px; font-weight:500; }
+.grid2 .lb { color:var(--text-2); font-size:11.5px; }
+.grid2 input { width:100%; font:inherit; font-size:16px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); border-radius:9px; height:38px; padding:0 8px; text-align:right; font-variant-numeric:tabular-nums; }
+.grid2 .st { font-size:17px; font-weight:600; text-align:right; padding-right:8px; font-variant-numeric:tabular-nums; }
+.grid2 .st.warn { color:var(--warn); }
+.acc-actions { display:flex; gap:6px; margin-top:10px; }
+.acc-actions .btn { height:40px; font-size:13px; }
+.icon-row { display:flex; gap:4px; margin-top:8px; }
+.icon-row button { flex:1; font:inherit; font-size:11.5px; border:none; background:none; color:var(--text-2); display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 0; }
+.icon-row button i { font-size:18px; }
+.icon-row button.on i { color:var(--brand); }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Productos en el celular — tres opciones</h1>
+    <p>Hoy en el celu cada producto es una tarjeta que ocupa <b>una pantalla entera</b>: el nombre aparece dos veces (ML y TN), los precios y el stock van en cajas por canal, y abajo "Sincronizar" y "Actualizar precios". Antes del primer producto, el título, la explicación, las pestañas y los filtros se comen <b>más de media pantalla</b>. Para buscar un producto y ver cuánto hay hay que scrollear mucho, y los dos casos que más importan —<b>stock distinto</b> y <b>sin stock</b>— no se distinguen a la pasada.</p>
+    <p>En el celu la usuaria hace tres cosas: <b>buscar un producto</b> y ver cuánto hay en ML y TN, <b>corregir el stock</b> (o el precio) y <b>ver el historial</b>. Las tres opciones sacan la explicación de arriba, dejan buscador + filtros en dos líneas y muestran un producto por fila.</p>
+  </div>
+  <button class="theme-btn" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+</div>
+
+<div class="grid">
+
+<!-- ═══════════════════════ OPCIÓN A ═══════════════════════ -->
+<section class="opt">
+  <h2>A · Lista compacta + hoja del producto</h2>
+  <p class="why">Como Depósito: una fila por producto con foto, nombre, variante y SKU; a la derecha <b>el stock de ML y de TN</b> (ámbar si no coinciden, rojo en 0) y los precios en una línea chica. Los filtros de stock son chips con su conteo; Proveedor / Alerta / Pack van en un botón <b>Filtros</b> que abre una hoja. <b>Tocar una fila abre la hoja del producto</b>: el stock de cada canal, un +/− grande para dejar los dos en el mismo número, los dos precios y los atajos a Historial, Alerta y Proveedor. Ideal si en el celu <b>buscás uno puntual y lo corregís</b>.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Productos</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+        <div class="scroll">
+          <div class="seg"><button class="on">Precio y stock</button><button>Packs</button></div>
+          <div class="search"><i class="ti ti-search"></i><input placeholder="Buscar por título, SKU o variante…" /></div>
+          <div class="filters">
+            <button class="chip on">Todos <span class="n">38</span></button>
+            <button class="chip">Distinto <span class="n warn">2</span></button>
+            <button class="chip">Sin stock <span class="n">3</span></button>
+            <button class="chip">Con stock <span class="n">35</span></button>
+            <button class="chip"><i class="ti ti-adjustments-horizontal"></i> Filtros</button>
+          </div>
+          <div class="toolbar"><span><b>412</b> u. en stock · 38 productos</span><button><i class="ti ti-checkbox"></i> Seleccionar</button></div>
+          <div class="list">
+            <div class="row warn"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa</div><div class="row-sub">Cuadriculado · <span class="muted">39001</span> <span class="badge busy"><i class="ti ti-box"></i>Mármol</span></div><div class="price-line"><span class="dot ml"></span>$10.150 · <span class="dot tn"></span>$9.090</div></div><div class="pstock"><span class="pair-n"><span><span class="dot ml"></span><b>4</b></span><span><span class="dot tn"></span><b class="warn">3</b></span></span><span class="badge warn"><i class="ti ti-alert-triangle"></i>distinto</span></div></div>
+            <div class="row"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa</div><div class="row-sub">Rayado · <span class="muted">39000</span> <span class="badge busy"><i class="ti ti-box"></i>Mármol</span></div><div class="price-line"><span class="dot ml"></span>$8.900 · <span class="dot tn"></span>$7.990</div></div><div class="pstock"><span class="one">4</span><small>en los dos</small></div></div>
+            <div class="row err"><div class="thumb p3"></div><div class="row-info"><div class="row-title">Agenda 2027 Semanal Be Positive</div><div class="row-sub">Lila · <span class="muted">BP700L</span></div><div class="price-line"><span class="dot ml"></span>$11.400 · <span class="dot tn"></span>$10.190</div></div><div class="pstock"><span class="one err">0</span><small>sin stock</small></div></div>
+            <div class="row"><div class="thumb p2"></div><div class="row-info"><div class="row-title">Agenda 2027 Semanal Be Positive</div><div class="row-sub">Verde · <span class="muted">BP700V</span></div><div class="price-line"><span class="dot ml"></span>$12.650 · <span class="dot tn"></span>$11.290</div></div><div class="pstock"><span class="one">12</span><small>en los dos</small></div></div>
+            <div class="row"><div class="thumb p4"></div><div class="row-info"><div class="row-title">Cuaderno inteligente A5 Corazones</div><div class="row-sub"><span class="muted">39137</span></div><div class="price-line"><span class="dot ml"></span>$13.900 · <span class="dot tn"></span>$12.390</div></div><div class="pstock"><span class="one">2</span><small>en los dos</small></div></div>
+            <div class="row"><div class="thumb p5"></div><div class="row-info"><div class="row-title">Repuesto 48 hojas rayadas</div><div class="row-sub"><span class="muted">REP48</span></div><div class="price-line"><span class="dot ml"></span>$15.150 · <span class="dot tn"></span>$13.490</div></div><div class="pstock"><span class="pair-n"><span><span class="dot ml"></span><b>30</b></span><span><span class="dot tn"></span><b class="warn">28</b></span></span><span class="badge warn"><i class="ti ti-alert-triangle"></i>distinto</span></div></div>
+          </div>
+          <div class="pager"><button><i class="ti ti-chevron-left"></i></button>1 de 2<button><i class="ti ti-chevron-right"></i></button></div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div class="on"><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">La lista</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Productos</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="thumb p1"></div><div class="t"><b>Cuaderno A4 Mármol rosa</b><span>Cuadriculado · SKU 39001</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="ch-stats">
+            <div class="ch-stat"><small><span class="dot ml"></span>Mercado Libre</small><b>4</b> <span class="pr">u.</span></div>
+            <div class="ch-stat"><small><span class="dot tn"></span>Tienda Nube</small><b class="warn">3</b> <span class="pr">u.</span></div>
+          </div>
+          <div class="lbl">Dejar los dos en</div>
+          <div class="big-step"><button>−</button><span>4</span><button>+</button></div>
+          <div class="btns"><button class="btn primary"><i class="ti ti-refresh"></i> Sincronizar stock</button></div>
+          <div class="lbl">Precio</div>
+          <div class="fields">
+            <label class="field"><span><span class="dot ml"></span>ML</span><input value="$ 10.150,00" /></label>
+            <label class="field"><span><span class="dot tn"></span>TN</span><input value="$ 9.090,00" /></label>
+          </div>
+          <div class="btns"><button class="btn"><i class="ti ti-currency-dollar"></i> Actualizar precios</button></div>
+          <div class="links">
+            <button><i class="ti ti-history"></i> Historial de stock y precio<i class="ti ti-chevron-right chev"></i></button>
+            <button><i class="ti ti-bell"></i> Alerta de stock · avisa con ≤ 3<i class="ti ti-chevron-right chev"></i></button>
+            <button><i class="ti ti-building-store"></i> Proveedor · Punto Cero<i class="ti ti-chevron-right chev"></i></button>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div class="on"><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Tocar un producto</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ OPCIÓN B ═══════════════════════ -->
+<section class="opt">
+  <h2>B · Resumen arriba + stock a mano en la fila</h2>
+  <p class="why">Como Alertas: tres números arriba que filtran (<b>Distinto · Sin stock · Con stock</b>) y, en "Todos", primero lo que tiene stock distinto. Cada producto es una tarjeta con <b>el +/− de stock ahí mismo</b>: tocar − o + cambia el número de los dos canales y se guarda solo a los 2 segundos ("guardando…"), sin abrir nada. Si los canales no coinciden, la tarjeta muestra los dos números y un botón <b>Igualar</b>. El precio y lo demás (historial, alerta, proveedor) van en la hoja que abre el nombre. Ideal si en el celu <b>repasás y ajustás el stock de muchos seguidos</b> (por ejemplo, contando lo que hay).</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Productos</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+        <div class="scroll">
+          <div class="seg"><button class="on">Precio y stock</button><button>Packs</button></div>
+          <div class="search"><i class="ti ti-search"></i><input placeholder="Buscar por título, SKU o variante…" /></div>
+          <div class="tiles">
+            <div class="tile warn"><b>2</b><span>Stock distinto</span></div>
+            <div class="tile err"><b>3</b><span>Sin stock</span></div>
+            <div class="tile"><b>35</b><span>Con stock</span></div>
+          </div>
+          <div class="group-h warn"><span><i class="ti ti-alert-triangle"></i> Stock distinto</span><span>2</span></div>
+          <div class="card"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa</div><div class="row-sub">Cuadriculado · <span class="muted">39001</span></div><div class="ch"><span><span class="dot ml"></span><b>4</b></span><span><span class="dot tn"></span><b class="err">3</b></span></div></div><button class="btn" style="flex:0 0 auto;height:36px;padding:0 12px;font-size:12.5px">Igualar</button></div>
+          <div class="card"><div class="thumb p5"></div><div class="row-info"><div class="row-title">Repuesto 48 hojas rayadas</div><div class="row-sub"><span class="muted">REP48</span></div><div class="ch"><span><span class="dot ml"></span><b>30</b></span><span><span class="dot tn"></span><b class="err">28</b></span></div></div><button class="btn" style="flex:0 0 auto;height:36px;padding:0 12px;font-size:12.5px">Igualar</button></div>
+          <div class="group-h"><span>El resto</span><span>36</span></div>
+          <div class="card" style="border-left-color:var(--border)"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa</div><div class="row-sub">Rayado · <span class="muted">39000</span></div><div class="pending"><i class="ti ti-loader-2"></i> guardando 5…</div></div><div class="mini-step"><button>−</button><span>5</span><button>+</button></div></div>
+          <div class="card err"><div class="thumb p3"></div><div class="row-info"><div class="row-title">Agenda 2027 Be Positive</div><div class="row-sub">Lila · <span class="muted">BP700L</span></div></div><div class="mini-step"><button>−</button><span style="color:var(--err)">0</span><button>+</button></div></div>
+          <div class="card" style="border-left-color:var(--border)"><div class="thumb p2"></div><div class="row-info"><div class="row-title">Agenda 2027 Be Positive</div><div class="row-sub">Verde · <span class="muted">BP700V</span></div></div><div class="mini-step"><button>−</button><span>12</span><button>+</button></div></div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div class="on"><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">La lista (el stock se toca en la fila)</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Productos</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="thumb p1"></div><div class="t"><b>Cuaderno A4 Mármol rosa</b><span>Rayado · SKU 39000 · pack Mármol</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="lbl">Precio</div>
+          <div class="fields">
+            <label class="field"><span><span class="dot ml"></span>ML</span><input value="$ 8.900,00" /></label>
+            <label class="field"><span><span class="dot tn"></span>TN</span><input value="$ 7.990,00" /></label>
+          </div>
+          <div class="btns"><button class="btn primary"><i class="ti ti-currency-dollar"></i> Actualizar precios</button></div>
+          <div class="links">
+            <button><i class="ti ti-history"></i> Historial de stock y precio<i class="ti ti-chevron-right chev"></i></button>
+            <button><i class="ti ti-bell"></i> Alerta de stock · avisa con ≤ 3<i class="ti ti-chevron-right chev"></i></button>
+            <button><i class="ti ti-building-store"></i> Proveedor · Punto Cero<i class="ti ti-chevron-right chev"></i></button>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div class="on"><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Tocar el nombre: precio y el resto</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ OPCIÓN C ═══════════════════════ -->
+<section class="opt">
+  <h2>C · Lista que se despliega en el lugar (sin hojas)</h2>
+  <p class="why">La tarjeta de hoy, achicada: una fila por producto (igual que A) y <b>tocarla la abre ahí mismo</b> con una grilla ML | TN — precio y stock lado a lado, un campo de stock para los dos y los botones de siempre. Abajo, íconos para Historial, Alerta y Proveedor. Se abre uno por vez. Es el cambio más chico respecto de la web: la misma tarjeta, con menos aire. Ideal si querés <b>que el celu se parezca a la compu</b>.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-box"></i><b>Productos</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+        <div class="scroll">
+          <div class="seg"><button class="on">Precio y stock</button><button>Packs</button></div>
+          <div class="search"><i class="ti ti-search"></i><input placeholder="Buscar por título, SKU o variante…" /></div>
+          <div class="filters">
+            <button class="chip on">Todos <span class="n">38</span></button>
+            <button class="chip">Distinto <span class="n warn">2</span></button>
+            <button class="chip">Sin stock <span class="n">3</span></button>
+            <button class="chip"><i class="ti ti-adjustments-horizontal"></i> Filtros</button>
+          </div>
+          <div class="acc open">
+            <div class="row warn"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa</div><div class="row-sub">Cuadriculado · <span class="muted">39001</span> <span class="badge warn">stock distinto</span></div></div><i class="ti ti-chevron-up chev muted"></i></div>
+            <div class="acc-body">
+              <div class="grid2">
+                <span></span><span class="h"><span class="dot ml"></span>Mercado Libre</span><span class="h"><span class="dot tn"></span>Tienda Nube</span>
+                <span class="lb">Precio</span><input value="10.150" /><input value="9.090" />
+                <span class="lb">Stock</span><span class="st">4</span><span class="st warn">3</span>
+              </div>
+              <div class="acc-actions">
+                <input style="width:70px;font:inherit;font-size:16px;border:.5px solid var(--border-strong);border-radius:10px;background:var(--surface);color:var(--text);text-align:center" value="4" />
+                <button class="btn"><i class="ti ti-refresh"></i> Sincronizar</button>
+                <button class="btn primary"><i class="ti ti-currency-dollar"></i> Precios</button>
+              </div>
+              <div class="icon-row">
+                <button><i class="ti ti-history"></i>Historial</button>
+                <button class="on"><i class="ti ti-bell"></i>Alerta ≤ 3</button>
+                <button><i class="ti ti-building-store"></i>Punto Cero</button>
+              </div>
+            </div>
+          </div>
+          <div class="acc"><div class="row"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa</div><div class="row-sub">Rayado · <span class="muted">39000</span></div></div><div class="pstock"><span class="one">4</span><small>en los dos</small></div></div></div>
+          <div class="acc"><div class="row err"><div class="thumb p3"></div><div class="row-info"><div class="row-title">Agenda 2027 Be Positive</div><div class="row-sub">Lila · <span class="muted">BP700L</span></div></div><div class="pstock"><span class="one err">0</span><small>sin stock</small></div></div></div>
+          <div class="acc"><div class="row"><div class="thumb p2"></div><div class="row-info"><div class="row-title">Agenda 2027 Be Positive</div><div class="row-sub">Verde · <span class="muted">BP700V</span></div></div><div class="pstock"><span class="one">12</span><small>en los dos</small></div></div></div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div class="on"><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-truck-delivery"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <p class="cap">Un producto abierto</p>
+    </div>
+  </div>
+</section>
+</div>
+
+<div class="notes">
+  <h3>En las tres</h3>
+  <ul>
+    <li><b>Escritorio y tablet:</b> no cambian. En tablet (768 y 1024) la tarjeta de hoy entra bien a lo ancho —ML y TN lado a lado—, así que no hace falta nada propio. El celu se elige con <code>mediaSignal(PHONE_QUERY)</code>, igual que Alertas.</li>
+    <li>Se saca el párrafo de explicación y el título grande en el celu (la barra de arriba ya dice "Productos"); "Actualizar" pasa a un ícono.</li>
+    <li>Proveedor / Alerta / Pack (los filtros de hoy) van a una hoja <b>Filtros</b> con un punto cuando hay alguno puesto.</li>
+    <li><b>Asignar proveedor a varios:</b> "Seleccionar" pone tildes en las filas y aparece la barra de abajo "N seleccionados · Proveedores…" que ya existe.</li>
+    <li>Las confirmaciones de precio ("se aplica a todas las variaciones" de ML, "solo esta variante o todas" de TN), el historial y el diálogo de proveedor son los mismos de hoy (ya se ven como hoja en el celu).</li>
+    <li>La pestaña <b>Packs</b> queda como está: en el celu ya se ve como lista.</li>
+    <li>Ningún dato nuevo del backend: todo sale de <code>GET /api/conflicts</code> y lo que ya carga la página.</li>
+  </ul>
+</div>
+</body>
+</html>
