@@ -41,7 +41,8 @@ export function dayLabel(iso: string, now = new Date()): string {
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   if (dayKey(d) === dayKey(yesterday)) return 'Ayer';
-  return d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const weekday = d.toLocaleDateString('es-AR', { weekday: 'short' }).replace('.', '');
+  return `${weekday} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 /** Agrupa filas ya ordenadas (la más nueva primero) por día, sin reordenar. */
