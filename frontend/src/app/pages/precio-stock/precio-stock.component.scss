@@ -225,7 +225,11 @@
 
   @include m.phone {
     .selection-bar .selection-inline { display: none; }
+  }
+}
 
+.precio-stock {
+  @include m.phone {
     .bulk-bar-phone {
       position: fixed;
       left: 0;
@@ -251,3 +255,52 @@
 .precio-stock .list-area:has(.bulk-bar-phone) {
   @include m.phone { padding-bottom: 4.5rem; }
 }
+
+// ── Celular: fila + hoja (opción A de docs/prototype/productos-mobile.html) ──
+.phone-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+
+  zc-tabs { flex: 1; min-width: 0; }
+}
+
+.phone-refresh {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phone-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0 2px 8px;
+  font-size: 0.78rem;
+  color: var(--text-2);
+
+  .btn-link { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; }
+}
+
+.pairs-phone {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: opacity 0.15s ease;
+
+  &.is-fetching { opacity: 0.5; pointer-events: none; }
+}
+
+// iOS hace zoom en un campo de menos de 16px: el buscador del celu va a 16px aunque no haya puntero
+// táctil (la regla global de styles.scss solo cubre `pointer: coarse`).
+.precio-stock.is-phone ::ng-deep zc-search-bar input.search-input { font-size: 16px; }

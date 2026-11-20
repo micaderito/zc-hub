@@ -229,14 +229,16 @@ button,
    Solo con dedo: el escritorio no cambia. Lo específico de cada página va en su componente con los
    mixins de styles/_mobile.scss. */
 @media (pointer: coarse) {
-  // iOS hace zoom al enfocar un campo con letra < 16px.
+  // iOS hace zoom al enfocar un campo con letra < 16px. `!important` porque los estilos de cada
+  // componente (ej. `.input-stock` de Productos) tienen más especificidad y lo pisaban.
+  // El viewport de index.html suma maximum-scale=1 en iOS como segunda red.
   input:not([type='checkbox']):not([type='radio']):not([type='range']),
   select,
   textarea,
   .zc-input,
   .zc-select,
   .zc-textarea {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 
   // Área táctil mínima.

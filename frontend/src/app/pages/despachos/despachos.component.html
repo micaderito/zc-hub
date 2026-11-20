@@ -2,54 +2,71 @@
   @if (busy() || query.isLoading()) {
     <div class="ds-progress" role="progressbar" aria-label="Actualizando pedidos"><span></span></div>
   }
-  <header class="ds-head">
-    <div>
-      <h1>Para preparar</h1>
+  @if (phone()) {
+    <header class="ds-phone-head">
       <p>
         <span class="cap">{{ todayLabel() }}</span>
         @if (busy()) {
-          <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Actualizando con ML y TN…</span>
-        } @else if (generatedAt()) { · actualizado {{ timeAgo(generatedAt()) }} }
-        @if (notesLoading() && !busy()) {
-          <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Cargando notas de ML…</span>
-        }
+          <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Actualizando…</span>
+        } @else if (notesLoading()) {
+          <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Notas de ML…</span>
+        } @else if (generatedAt()) { · {{ timeAgo(generatedAt()) }} }
       </p>
-    </div>
-    <button type="button" class="btn" [class.busy]="busy()" (click)="refresh()" [disabled]="busy() || query.isLoading()">
-      <i class="ti ti-refresh" [class.spin]="busy()" aria-hidden="true"></i> {{ busy() ? 'Actualizando…' : 'Actualizar' }}
-    </button>
-  </header>
-
-  <div class="ds-kpis">
-    <div class="kpi" [class.err]="counts().overdue > 0">
-      <span>Atrasados</span><b>{{ counts().overdue }}</b>
-    </div>
-    <div class="kpi"><span>Para hoy</span><b>{{ counts().today }}</b></div>
-    <div class="kpi"><span>Próximos días</span><b>{{ counts().upcoming }}</b></div>
-    <div class="kpi"><span>Productos a armar hoy</span><b>{{ counts().toPrepare }}</b></div>
-  </div>
-
-  <div class="ds-toolbar">
-    <div class="tabs" role="tablist">
-      <button type="button" role="tab" [class.on]="tab() === 'today'" [attr.aria-selected]="tab() === 'today'" (click)="tab.set('today')">
-        Hoy <span class="count">{{ counts().today }}</span>
+      <button type="button" class="ds-icon-btn" [class.busy]="busy()" (click)="refresh()" [disabled]="busy() || query.isLoading()" aria-label="Actualizar">
+        <i class="ti ti-refresh" [class.spin]="busy()" aria-hidden="true"></i>
       </button>
-      <button type="button" role="tab" [class.on]="tab() === 'upcoming'" [attr.aria-selected]="tab() === 'upcoming'" (click)="tab.set('upcoming')">
-        Próximos días <span class="count">{{ counts().upcoming }}</span>
+    </header>
+  } @else {
+    <header class="ds-head">
+      <div>
+        <h1>Para preparar</h1>
+        <p>
+          <span class="cap">{{ todayLabel() }}</span>
+          @if (busy()) {
+            <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Actualizando con ML y TN…</span>
+          } @else if (generatedAt()) { · actualizado {{ timeAgo(generatedAt()) }} }
+          @if (notesLoading() && !busy()) {
+            <span class="ds-updating"><i class="ti ti-loader-2 spin" aria-hidden="true"></i> Cargando notas de ML…</span>
+          }
+        </p>
+      </div>
+      <button type="button" class="btn" [class.busy]="busy()" (click)="refresh()" [disabled]="busy() || query.isLoading()">
+        <i class="ti ti-refresh" [class.spin]="busy()" aria-hidden="true"></i> {{ busy() ? 'Actualizando…' : 'Actualizar' }}
       </button>
-      <button type="button" role="tab" [class.on]="tab() === 'all'" [attr.aria-selected]="tab() === 'all'" (click)="tab.set('all')">Todo</button>
+    </header>
+
+    <div class="ds-kpis">
+      <div class="kpi" [class.err]="counts().overdue > 0">
+        <span>Atrasados</span><b>{{ counts().overdue }}</b>
+      </div>
+      <div class="kpi"><span>Para hoy</span><b>{{ counts().today }}</b></div>
+      <div class="kpi"><span>Próximos días</span><b>{{ counts().upcoming }}</b></div>
+      <div class="kpi"><span>Productos a armar hoy</span><b>{{ counts().toPrepare }}</b></div>
     </div>
-    <div class="filters">
-      <button type="button" class="fchip" [class.on]="channel() === 'all'" (click)="channel.set('all')">Todos</button>
-      <button type="button" class="fchip" [class.on]="channel() === 'ml'" (click)="channel.set('ml')"><span class="dot ml" aria-hidden="true"></span> ML</button>
-      <button type="button" class="fchip" [class.on]="channel() === 'tn'" (click)="channel.set('tn')"><i class="ti ti-shopping-bag tn-ico" aria-hidden="true"></i> TN</button>
-      <label class="fchip check">
-        <input type="checkbox" [checked]="hidePrepared()" (change)="hidePrepared.set(!hidePrepared())" />
-        Ocultar preparados
-        @if (counts().prepared) { <span class="count">{{ counts().prepared }}</span> }
-      </label>
+
+    <div class="ds-toolbar">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" [class.on]="tab() === 'today'" [attr.aria-selected]="tab() === 'today'" (click)="tab.set('today')">
+          Hoy <span class="count">{{ counts().today }}</span>
+        </button>
+        <button type="button" role="tab" [class.on]="tab() === 'upcoming'" [attr.aria-selected]="tab() === 'upcoming'" (click)="tab.set('upcoming')">
+          Próximos días <span class="count">{{ counts().upcoming }}</span>
+        </button>
+        <button type="button" role="tab" [class.on]="tab() === 'all'" [attr.aria-selected]="tab() === 'all'" (click)="tab.set('all')">Todo</button>
+      </div>
+      <div class="filters">
+        <button type="button" class="fchip" [class.on]="channel() === 'all'" (click)="channel.set('all')">Todos</button>
+        <button type="button" class="fchip" [class.on]="channel() === 'ml'" (click)="channel.set('ml')"><span class="dot ml" aria-hidden="true"></span> ML</button>
+        <button type="button" class="fchip" [class.on]="channel() === 'tn'" (click)="channel.set('tn')"><i class="ti ti-shopping-bag tn-ico" aria-hidden="true"></i> TN</button>
+        <label class="fchip check">
+          <input type="checkbox" [checked]="hidePrepared()" (change)="hidePrepared.set(!hidePrepared())" />
+          Ocultar preparados
+          @if (counts().prepared) { <span class="count">{{ counts().prepared }}</span> }
+        </label>
+      </div>
     </div>
-  </div>
+
+  }
 
   @if (errors().ml) {
     <div class="ds-alert"><i class="ti ti-alert-circle" aria-hidden="true"></i> No se pudo leer Mercado Libre: {{ errors().ml }}</div>
@@ -76,6 +93,23 @@
     </div>
   } @else if (query.isError()) {
     <div class="ds-alert">No se pudo cargar la lista. <button type="button" class="link" (click)="refresh()">Reintentar</button></div>
+  } @else if (phone()) {
+    <zc-despachos-phone
+      [sections]="sections()"
+      [cancelled]="showCancelled() ? cancelled() : []"
+      [counts]="counts()"
+      [tab]="tab()"
+      [channel]="channel()"
+      [hidePrepared]="hidePrepared()"
+      [showDispatched]="showDispatched()"
+      [today]="today()"
+      (tabChange)="tab.set($event)"
+      (channelChange)="channel.set($event)"
+      (hidePreparedChange)="hidePrepared.set($event)"
+      (showDispatchedChange)="showDispatched.set($event)"
+      (togglePrepared)="togglePrepared($event)"
+      (dismissCancelled)="dismissCancelled($event)"
+    />
   } @else {
     @if (showCancelled()) {
       <section class="ds-cancelled" aria-label="Cancelados">
@@ -197,11 +231,6 @@
                 </li>
               }
             </ul>
-            @if (p.bucket !== 'dispatched') {
-              <button type="button" class="pk-done" [class.undo]="p.preparedAt" (click)="togglePrepared(p)">
-                @if (p.preparedAt) { <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Preparado ✓ (deshacer) } @else { <i class="ti ti-check" aria-hidden="true"></i> Marcar preparado }
-              </button>
-            }
           </article>
         }
         }

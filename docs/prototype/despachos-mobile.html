@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Para preparar — celular</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd; --brand-contrast:#fff;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --ml:#e6b800; --tn:#2c6ecb; --shadow-pop:0 8px 28px rgba(20,22,40,.12); --page:#dfe2e8;
+}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f; --brand-contrast:#fff;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+  --ml:#f2cc33; --tn:#6aa0ef; --shadow-pop:0 8px 28px rgba(0,0,0,.5); --page:#05060a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:-apple-system, 'Inter', system-ui, sans-serif; }
+.top { max-width:1200px; margin:0 auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.top h1 { margin:0; font-size:18px; font-weight:500; }
+.top p { margin:4px 0 0; font-size:12.5px; color:var(--text-2); max-width:680px; line-height:1.45; }
+.theme-btn { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; padding:7px 12px; cursor:pointer; }
+.grid { max-width:1200px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:36px; align-items:center; }
+.opt { display:flex; flex-direction:column; gap:10px; }
+.opt h2 { margin:0; font-size:15px; font-weight:600; }
+.opt .why { font-size:12.5px; color:var(--text-2); margin:0; line-height:1.5; max-width:764px; }
+.pair { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+
+/* Teléfono */
+.phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:34px; border:8px solid #111; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.status { height:36px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:12px; font-weight:600; }
+.appbar { height:48px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:.5px solid var(--border); background:var(--surface); }
+.appbar b { font-size:15px; font-weight:600; flex:1; }
+.appbar i { font-size:20px; color:var(--text-2); }
+.scroll { flex:1; overflow-y:auto; padding:12px 14px 24px; }
+.tabbar { height:62px; flex-shrink:0; border-top:.5px solid var(--border); background:var(--surface); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--text-3); }
+.notes { max-width:764px; margin:0 auto 40px; padding:0 16px; font-size:12.5px; color:var(--text-2); line-height:1.55; }
+.notes h3 { font-size:14px; color:var(--text); margin:18px 0 6px; font-weight:600; }
+.notes ul { margin:0; padding-left:18px; }
+.notes code { font-size:11.5px; background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.tabbar div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.tabbar i { font-size:21px; }
+.tabbar .on { color:var(--brand); }
+.row-sub { font-size:11.5px; color:var(--text-2); margin-top:3px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.thumb { width:44px; height:44px; border-radius:10px; flex-shrink:0; position:relative; }
+.thumb.lg { width:60px; height:60px; border-radius:12px; }
+.p1 { background:linear-gradient(135deg,#f6c1d0,#e98fae); } .p2 { background:linear-gradient(135deg,#bfe3d5,#7cc4a8); }
+.p3 { background:linear-gradient(135deg,#c9c6f6,#8c86e8); } .p4 { background:linear-gradient(135deg,#fde4b4,#f1b35b); }
+.p5 { background:linear-gradient(135deg,#cfe1f7,#86aee3); } .p6 { background:linear-gradient(135deg,#9a9a9a,#444); }
+.more { position:absolute; right:-4px; bottom:-4px; font-size:10px; font-weight:700; background:var(--text); color:var(--surface); border-radius:8px; padding:1px 5px; border:2px solid var(--surface); }
+.ch { font-size:10.5px; font-weight:600; padding:1px 6px; border-radius:6px; }
+.ch.ml { background:#fff6cc; color:#7a5d00; } .ch.tn { background:#e3edfb; color:#1f4f96; }
+:root[data-theme='dark'] .ch.ml { background:#3a3210; color:#f2cc33; } :root[data-theme='dark'] .ch.tn { background:#15243d; color:#8ab6f5; }
+.badge { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.badge.err { background:var(--err-bg); color:var(--err); } .badge.ok { background:var(--ok-bg); color:var(--ok); } .badge.warn { background:var(--warn-bg); color:var(--warn); }
+.badge.plain { background:var(--surface-2); color:var(--text-2); }
+.chip { flex-shrink:0; font:inherit; font-size:12.5px; border:.5px solid var(--border); background:var(--surface); color:var(--text-2); padding:6px 11px; border-radius:16px; display:inline-flex; align-items:center; gap:5px; }
+.chip.on { background:var(--brand-bg); color:var(--brand); border-color:transparent; font-weight:500; }
+.filters { display:flex; gap:6px; overflow-x:auto; margin-bottom:10px; scrollbar-width:none; }
+.dot { display:inline-block; width:7px; height:7px; border-radius:2px; } .dot.ml { background:var(--ml); }
+
+/* Común: resumen y avance */
+.tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:8px; }
+.tile { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:8px 10px; text-align:left; font:inherit; color:var(--text-2); }
+.tile b { font-size:22px; font-weight:600; display:block; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text); }
+.tile span { font-size:11px; }
+.tile.err b { color:var(--err); } .tile.on { box-shadow:inset 0 0 0 1.5px var(--brand); }
+.tile.on.err { box-shadow:inset 0 0 0 1.5px var(--err); }
+.progress { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:9px 11px; margin-bottom:10px; }
+.progress .t { display:flex; justify-content:space-between; font-size:12.5px; } .progress .t b { font-weight:600; }
+.progress .t span { color:var(--text-2); }
+.pbar { height:6px; border-radius:3px; background:var(--surface-2); margin-top:7px; overflow:hidden; } .pbar span { display:block; height:100%; background:var(--ok); border-radius:3px; }
+.cancel { background:var(--err-bg); border:.5px solid var(--err); border-radius:12px; padding:9px 11px; margin-bottom:10px; display:flex; gap:9px; align-items:center; }
+.cancel .i { flex:1; min-width:0; font-size:12.5px; } .cancel .i b { color:var(--err); display:block; font-size:12px; margin-bottom:2px; }
+.cancel .i small { color:var(--err); font-size:11.5px; display:block; margin-top:2px; }
+.cancel button { font:inherit; font-size:12.5px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); border-radius:10px; padding:0 11px; height:36px; }
+.sec { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); font-weight:600; margin:14px 4px 6px; display:flex; justify-content:space-between; align-items:center; gap:6px; }
+.sec.err { color:var(--err); } .sec.ok { color:var(--ok); } .sec small { text-transform:none; letter-spacing:0; font-weight:500; color:var(--text-2); }
+.sec.sticky { position:sticky; top:-12px; background:var(--bg); margin:0 -14px; padding:10px 18px 6px; z-index:1; }
+.note { font-size:12px; background:var(--warn-bg); color:var(--text); border-radius:8px; padding:6px 9px; display:flex; gap:6px; margin-top:8px; }
+.note i { color:var(--warn); font-size:14px; }
+.collapsed { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:11px 12px; display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ok); font-weight:500; }
+.collapsed span { flex:1; } .collapsed i.chev { color:var(--text-3); }
+
+/* Check redondo */
+.tick { width:44px; height:44px; flex-shrink:0; border:none; background:none; display:flex; align-items:center; justify-content:center; padding:0; }
+.tick span { width:28px; height:28px; border-radius:50%; border:2px solid var(--border-strong); display:flex; align-items:center; justify-content:center; color:transparent; font-size:17px; }
+.tick.on span { background:var(--ok); border-color:var(--ok); color:#fff; }
+
+/* ── A ── */
+.pk { background:var(--surface); border:.5px solid var(--border); border-radius:14px; margin-bottom:8px; overflow:hidden; }
+.pk.overdue { border-color:var(--err); }
+.pk-h { display:flex; align-items:center; gap:6px; padding:6px 4px 6px 12px; border-bottom:.5px solid var(--border); }
+.pk-h .w { flex:1; min-width:0; } .pk-h .w b { font-size:13.5px; font-weight:600; display:block; }
+.pk-h .w small { font-size:11.5px; color:var(--text-2); }
+.items { padding:2px 12px 8px; }
+.item { display:flex; align-items:center; gap:10px; padding:7px 0; border-top:.5px solid var(--border); }
+.item:first-child { border-top:none; }
+.item .n { flex:1; min-width:0; font-size:13px; line-height:1.3; } .item .n small { display:block; font-size:11.5px; color:var(--text-2); margin-top:2px; }
+.item .n small b { color:var(--text); font-weight:500; }
+.qty { font-size:17px; font-weight:600; color:var(--text-2); min-width:32px; text-align:right; font-variant-numeric:tabular-nums; }
+.qty.many { color:var(--text); font-size:20px; }
+.pk .note { margin:8px 12px 0; }
+.pk-done { display:flex; align-items:center; gap:8px; padding:4px 4px 4px 12px; background:var(--ok-bg); border:.5px solid var(--ok); border-radius:12px; margin-bottom:8px; font-size:13px; }
+.pk-done .w { flex:1; min-width:0; } .pk-done .w small { display:block; font-size:11.5px; color:var(--text-2); }
+
+/* ── B ── */
+.list { background:var(--surface); border:.5px solid var(--border); border-radius:14px; overflow:hidden; }
+.row { display:flex; align-items:center; gap:11px; padding:8px 4px 8px 12px; border-top:.5px solid var(--border); min-height:64px; }
+.row:first-child { border-top:none; }
+.row.prep { background:var(--ok-bg); }
+.row.overdue { box-shadow:inset 3px 0 0 var(--err); }
+.row-info { flex:1; min-width:0; }
+.row-title { font-size:13.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row.prep .row-title { color:var(--text-2); }
+.scrim { position:absolute; inset:0; background:rgba(10,12,20,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; padding:8px 16px 22px; max-height:88%; overflow-y:auto; }
+.grab { width:38px; height:5px; border-radius:3px; background:var(--border-strong); margin:0 auto 12px; }
+.sheet-head { display:flex; gap:10px; align-items:center; }
+.sheet-head .t { flex:1; min-width:0; } .sheet-head .t b { font-size:15.5px; font-weight:600; display:block; }
+.sheet-head .t span { font-size:12px; color:var(--text-2); }
+.x { border:none; background:var(--surface-2); color:var(--text-2); width:32px; height:32px; border-radius:16px; font-size:16px; flex-shrink:0; }
+.facts { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.fact { background:var(--surface-2); border-radius:10px; padding:8px 10px; } .fact small { display:block; font-size:11px; color:var(--text-2); } .fact b { font-size:13px; font-weight:600; }
+.lbl { font-size:12px; color:var(--text-2); margin:14px 0 4px; }
+.btn { flex:1; height:48px; border-radius:12px; font:inherit; font-size:14.5px; font-weight:600; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px; }
+.btn.ok { background:var(--ok); color:#fff; border-color:transparent; }
+.btns { display:flex; gap:8px; margin-top:14px; }
+.btn.ghost { flex:0 0 auto; padding:0 14px; font-weight:500; }
+
+/* ── C ── */
+.seg { display:flex; background:var(--surface-2); border-radius:10px; padding:3px; margin-bottom:10px; }
+.seg button { flex:1; font:inherit; font-size:13px; border:none; background:none; color:var(--text-2); padding:8px 2px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:5px; }
+.seg button.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.pick { display:flex; align-items:center; gap:11px; padding:8px 4px 8px 12px; border-top:.5px solid var(--border); }
+.pick:first-child { border-top:none; }
+.pick .n { flex:1; min-width:0; font-size:13px; } .pick .n small { display:block; font-size:11.5px; color:var(--text-2); margin-top:2px; }
+.pick .big { font-size:22px; font-weight:700; min-width:34px; text-align:right; font-variant-numeric:tabular-nums; }
+.pick.done { opacity:.5; } .pick.done .n { text-decoration:line-through; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div>
+    <h1>Para preparar · celular</h1>
+    <p>Tres maneras de armar los paquetes desde el teléfono. Datos de ejemplo. En las tres: arriba los <b>cancelados</b> (no despachar), los números se tocan para filtrar y una barra de avance <b>"2 de 5 preparados"</b>. El escritorio no cambia.</p>
+  </div>
+  <button class="theme-btn" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+</div>
+
+<div class="grid">
+
+<!-- ═════════ A ═════════ -->
+<section class="opt">
+  <h2>A · Tarjetas abiertas, el tilde arriba y lo preparado se achica</h2>
+  <p class="why">Lo más parecido a hoy, pero más corto: cada paquete muestra <b>sus productos con foto</b> sin tocar nada (no hace falta abrir para saber qué meter en la caja). El tilde pasa a un <b>círculo grande arriba a la derecha</b> (adiós al botón verde del pie, que ocupaba una fila por paquete). Al tildarlo, el paquete <b>se achica a una línea verde</b> en el mismo lugar —no se pierde de vista, pero deja de ocupar media pantalla— y se toca para deshacer. Las pestañas Hoy / Próximos / Todo se reemplazan por los números de arriba. Ideal si <b>armás con el celu en la mano, paquete por paquete, de arriba hacia abajo</b>.</p>
+  <div class="pair">
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="appbar"><i class="ti ti-package"></i><b>Para preparar</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+      <div class="scroll">
+        <div class="tiles">
+          <button class="tile err"><b>1</b><span>Atrasados</span></button>
+          <button class="tile on"><b>5</b><span>Para hoy</span></button>
+          <button class="tile"><b>1</b><span>Próximos días</span></button>
+        </div>
+        <div class="progress"><div class="t"><b>2 de 5 preparados</b><span>9 productos por armar</span></div><div class="pbar"><span style="width:40%"></span></div></div>
+        <div class="filters"><span class="chip on">Todos</span><span class="chip"><span class="dot ml"></span> ML</span><span class="chip"><i class="ti ti-shopping-bag"></i> TN</span><span class="chip"><i class="ti ti-eye-off"></i> Ocultar preparados</span></div>
+        <div class="cancel"><div class="i"><b><i class="ti ti-ban"></i> Cancelado, no despachar</b>Venta #…9850 · Cuaderno A5 Celeste ×1<small>Lo tenías preparado: desarmalo</small></div><button>Entendido</button></div>
+
+        <div class="sec err"><span><i class="ti ti-alert-triangle"></i> Atrasado</span><small>venció 13:00</small></div>
+        <div class="pk overdue">
+          <div class="pk-h"><div class="w"><b><span class="ch ml">ML</span> Lucía G. · Rosario</b><small>Venta #…9871 · compra hoy 08:12</small></div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="items"><div class="item"><div class="thumb p1"></div><div class="n">Cuaderno inteligente A5 Mármol rosa<small><b>Rayado</b> · SKU 39000</small></div><div class="qty">×1</div></div></div>
+        </div>
+
+        <div class="sec"><span><i class="ti ti-clock"></i> Antes de las 23:00</span><small>faltan 1 h 40 min</small></div>
+        <div class="pk-done"><i class="ti ti-circle-check" style="color:var(--ok);font-size:20px"></i><div class="w"><b>Sofía R. · Córdoba</b><small>1 producto · preparado</small></div><button class="tick on"><span><i class="ti ti-check"></i></span></button></div>
+        <div class="pk">
+          <div class="pk-h"><div class="w"><b><span class="ch ml">ML</span> Martín P. · CABA</b><small>Venta #…9872 · 4 productos</small></div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="note"><i class="ti ti-note"></i><span><b>Nota:</b> mandar con papel de regalo</span></div>
+          <div class="items">
+            <div class="item"><div class="thumb p2"></div><div class="n">Agenda 2027 semanal Be Positive<small><b>Verde agua</b> · SKU BP700V</small></div><div class="qty many">×2</div></div>
+            <div class="item"><div class="thumb p3"></div><div class="n">Repuesto hojas A5 × 50<small><b>Cuadriculado</b> · SKU R100</small></div><div class="qty">×1</div></div>
+            <div class="item"><div class="thumb p4"></div><div class="n">Separadores A5 × 6<small>SKU SEP6</small></div><div class="qty">×1</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="tabbar"><div class="on"><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+    </div>
+
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="appbar"><i class="ti ti-package"></i><b>Para preparar</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+      <div class="scroll">
+        <div class="sec"><span><i class="ti ti-shopping-bag"></i> Tienda Nube · sin enviar</span><small>sin horario</small></div>
+        <div class="pk">
+          <div class="pk-h"><div class="w"><b><span class="ch tn">TN</span> Carla M. · La Plata</b><small>Orden #1543 · Correo Argentino a domicilio</small></div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="note"><i class="ti ti-message-circle"></i><span><b>Comprador:</b> si no estoy dejar en portería</span></div>
+          <div class="items">
+            <div class="item"><div class="thumb p6"></div><div class="n">Cuaderno inteligente A4 Negro<small><b>Punteado</b> · SKU 39050</small></div><div class="qty">×1</div></div>
+            <div class="item"><div class="thumb p5"></div><div class="n">Lapicera borrable ×3<small><b>Pastel</b> · SKU LB3</small></div><div class="qty">×1</div></div>
+          </div>
+        </div>
+        <div class="pk-done"><i class="ti ti-circle-check" style="color:var(--ok);font-size:20px"></i><div class="w"><b>Ana T. · Mendoza</b><small>3 productos · preparado · tocá para deshacer</small></div><button class="tick on"><span><i class="ti ti-check"></i></span></button></div>
+        <div class="sec ok"><span><i class="ti ti-circle-check"></i> Ya despachados hoy</span></div>
+        <div class="collapsed"><i class="ti ti-truck-delivery"></i><span>1 paquete en el punto</span><i class="ti ti-chevron-down chev"></i></div>
+        <p style="font-size:11.5px;color:var(--text-3);text-align:center;margin-top:16px">Actualizado hace 2 min · el botón ⟳ de arriba actualiza</p>
+      </div>
+      <div class="tabbar"><div class="on"><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ B ═════════ -->
+<section class="opt">
+  <h2>B · Lista compacta + hoja con el detalle (como Alertas y Depósito)</h2>
+  <p class="why">Una fila por paquete: <b>la foto del primer producto (con "+2" si hay más)</b>, el comprador, cuántos productos, y si tiene nota un ícono. El círculo de la derecha tilda <b>sin abrir nada</b>. Tocar la fila abre una hoja con todo: los productos con foto grande, las notas, cuándo compró, cómo se envía, el link a la venta y un botón grande <b>Marcar preparado</b>. Lo preparado queda en su lugar, pintado de verde. En una pantalla entran ~8 paquetes en vez de 2. Ideal si <b>primero mirás cuánto hay</b> y después vas abriendo de a uno.</p>
+  <div class="pair">
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="appbar"><i class="ti ti-package"></i><b>Para preparar</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+      <div class="scroll">
+        <div class="tiles">
+          <button class="tile err"><b>1</b><span>Atrasados</span></button>
+          <button class="tile on"><b>5</b><span>Para hoy</span></button>
+          <button class="tile"><b>1</b><span>Próximos días</span></button>
+        </div>
+        <div class="progress"><div class="t"><b>2 de 5 preparados</b><span>9 productos por armar</span></div><div class="pbar"><span style="width:40%"></span></div></div>
+        <div class="filters"><span class="chip on">Todos</span><span class="chip"><span class="dot ml"></span> ML</span><span class="chip"><i class="ti ti-shopping-bag"></i> TN</span><span class="chip"><i class="ti ti-eye-off"></i> Ocultar preparados</span></div>
+        <div class="cancel"><div class="i"><b><i class="ti ti-ban"></i> Cancelado, no despachar</b>Venta #…9850 · Cuaderno A5 Celeste ×1<small>Lo tenías preparado: desarmalo</small></div><button>Entendido</button></div>
+        <div class="sec err"><span><i class="ti ti-alert-triangle"></i> Atrasado</span><small>1</small></div>
+        <div class="list">
+          <div class="row overdue"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno inteligente A5 Mármol rosa</div><div class="row-sub"><span class="ch ml">ML</span> Lucía G. · Rosario <span class="badge err">venció 13:00</span></div></div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+        </div>
+        <div class="sec"><span><i class="ti ti-clock"></i> Antes de las 23:00</span><small>faltan 1 h 40 min</small></div>
+        <div class="list">
+          <div class="row"><div class="thumb p2"><span class="more">+2</span></div><div class="row-info"><div class="row-title">Martín P. · 4 productos</div><div class="row-sub"><span class="ch ml">ML</span> CABA · <i class="ti ti-note" style="color:var(--warn)"></i> nota</div></div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="row prep"><div class="thumb p3"></div><div class="row-info"><div class="row-title">Cuaderno inteligente Carta Lila</div><div class="row-sub"><span class="ch ml">ML</span> Sofía R. · Córdoba</div></div><button class="tick on"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="row prep"><div class="thumb p5"></div><div class="row-info"><div class="row-title">Lapicera borrable ×3 · <b>3 u.</b></div><div class="row-sub"><span class="ch ml">ML</span> Ana T. · Mendoza</div></div><button class="tick on"><span><i class="ti ti-check"></i></span></button></div>
+        </div>
+        <div class="sec"><span><i class="ti ti-shopping-bag"></i> Tienda Nube · sin enviar</span><small>1</small></div>
+        <div class="list">
+          <div class="row"><div class="thumb p6"><span class="more">+1</span></div><div class="row-info"><div class="row-title">Carla M. · 2 productos</div><div class="row-sub"><span class="ch tn">TN</span> La Plata · <i class="ti ti-message-circle" style="color:var(--warn)"></i> nota</div></div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+        </div>
+        <div class="sec ok"><span><i class="ti ti-circle-check"></i> Ya despachados hoy</span><small>1 <i class="ti ti-chevron-down"></i></small></div>
+      </div>
+      <div class="tabbar"><div class="on"><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+    </div>
+
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="appbar"><i class="ti ti-package"></i><b>Para preparar</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+      <div class="scroll" style="filter:blur(.5px)"></div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="sheet-head"><span class="ch ml" style="font-size:12px;padding:3px 8px">ML</span><div class="t"><b>Martín P. · CABA</b><span>Venta #2000009872 · 4 productos</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+        <div class="facts"><div class="fact"><small>Despachar</small><b>antes de las 23:00</b></div><div class="fact"><small>Compró</small><b>hoy 09:40</b></div></div>
+        <div class="note" style="margin-top:12px"><i class="ti ti-note"></i><span><b>Nota:</b> mandar con papel de regalo</span></div>
+        <div class="lbl">Qué va en la caja</div>
+        <div class="item"><div class="thumb lg p2"></div><div class="n">Agenda 2027 semanal Be Positive<small><b>Verde agua</b> · SKU BP700V</small></div><div class="qty many">×2</div></div>
+        <div class="item"><div class="thumb lg p3"></div><div class="n">Repuesto hojas A5 × 50<small><b>Cuadriculado</b> · SKU R100</small></div><div class="qty">×1</div></div>
+        <div class="item"><div class="thumb lg p4"></div><div class="n">Separadores A5 × 6<small>SKU SEP6</small></div><div class="qty">×1</div></div>
+        <div class="btns"><button class="btn ghost"><i class="ti ti-external-link"></i> Ver en ML</button><button class="btn ok"><i class="ti ti-check"></i> Marcar preparado</button></div>
+      </div>
+      <div class="tabbar" style="display:none"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ C ═════════ -->
+<section class="opt">
+  <h2>C · Primero juntar, después armar</h2>
+  <p class="why">Dos pasos, como se arma de verdad: <b>Juntar</b> suma lo de todos los paquetes de hoy por producto —"Agenda Be Positive verde agua ×3, va en 2 paquetes"— para sacar todo del estante de una vez; tildar acá es solo una ayuda del teléfono (se guarda en este celu y se borra al día siguiente, no es un dato del hub). <b>Armar</b> es la lista de paquetes de la opción B, con su hoja y el tilde Preparado de siempre. Es la que más cambia la forma de trabajar: conviene si <b>hay días de muchos paquetes con productos repetidos</b>.</p>
+  <div class="pair">
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="appbar"><i class="ti ti-package"></i><b>Para preparar</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+      <div class="scroll">
+        <div class="cancel"><div class="i"><b><i class="ti ti-ban"></i> Cancelado, no despachar</b>Venta #…9850 · Cuaderno A5 Celeste ×1</div><button>Entendido</button></div>
+        <div class="seg"><button class="on"><i class="ti ti-basket"></i> Juntar <span class="badge plain">11</span></button><button><i class="ti ti-package"></i> Armar <span class="badge plain">5</span></button></div>
+        <div class="progress"><div class="t"><b>2 de 7 productos juntados</b><span>para 5 paquetes de hoy</span></div><div class="pbar"><span style="width:28%"></span></div></div>
+        <div class="list">
+          <div class="pick"><div class="thumb p5"></div><div class="n">Lapicera borrable ×3 · Pastel<small>SKU LB3 · en 2 paquetes</small></div><div class="big">4</div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="pick"><div class="thumb p2"></div><div class="n">Agenda 2027 Be Positive · Verde agua<small>SKU BP700V · en 1 paquete</small></div><div class="big">2</div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="pick"><div class="thumb p1"></div><div class="n">Cuaderno A5 Mármol rosa · Rayado<small>SKU 39000 · <span style="color:var(--err)">atrasado</span></small></div><div class="big">1</div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="pick"><div class="thumb p6"></div><div class="n">Cuaderno A4 Negro · Punteado<small>SKU 39050 · TN</small></div><div class="big">1</div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="pick"><div class="thumb p4"></div><div class="n">Separadores A5 × 6<small>SKU SEP6</small></div><div class="big">1</div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="pick done"><div class="thumb p3"></div><div class="n">Repuesto hojas A5 · Cuadriculado<small>SKU R100</small></div><div class="big">1</div><button class="tick on"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="pick done"><div class="thumb p3"></div><div class="n">Cuaderno Carta Lila · Liso<small>SKU 39012</small></div><div class="big">1</div><button class="tick on"><span><i class="ti ti-check"></i></span></button></div>
+        </div>
+      </div>
+      <div class="tabbar"><div class="on"><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+    </div>
+
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="appbar"><i class="ti ti-package"></i><b>Para preparar</b><i class="ti ti-refresh"></i><i class="ti ti-bell"></i></div>
+      <div class="scroll">
+        <div class="seg"><button><i class="ti ti-basket"></i> Juntar <span class="badge plain">11</span></button><button class="on"><i class="ti ti-package"></i> Armar <span class="badge plain">5</span></button></div>
+        <div class="tiles">
+          <button class="tile err"><b>1</b><span>Atrasados</span></button>
+          <button class="tile on"><b>5</b><span>Para hoy</span></button>
+          <button class="tile"><b>1</b><span>Próximos días</span></button>
+        </div>
+        <div class="progress"><div class="t"><b>2 de 5 preparados</b><span></span></div><div class="pbar"><span style="width:40%"></span></div></div>
+        <div class="sec err"><span><i class="ti ti-alert-triangle"></i> Atrasado</span><small>1</small></div>
+        <div class="list">
+          <div class="row overdue"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno inteligente A5 Mármol rosa</div><div class="row-sub"><span class="ch ml">ML</span> Lucía G. · Rosario <span class="badge err">venció 13:00</span></div></div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+        </div>
+        <div class="sec"><span><i class="ti ti-clock"></i> Antes de las 23:00</span><small>faltan 1 h 40 min</small></div>
+        <div class="list">
+          <div class="row"><div class="thumb p2"><span class="more">+2</span></div><div class="row-info"><div class="row-title">Martín P. · 4 productos</div><div class="row-sub"><span class="ch ml">ML</span> CABA · <i class="ti ti-note" style="color:var(--warn)"></i> nota</div></div><button class="tick"><span><i class="ti ti-check"></i></span></button></div>
+          <div class="row prep"><div class="thumb p3"></div><div class="row-info"><div class="row-title">Cuaderno inteligente Carta Lila</div><div class="row-sub"><span class="ch ml">ML</span> Sofía R. · Córdoba</div></div><button class="tick on"><span><i class="ti ti-check"></i></span></button></div>
+        </div>
+        <p style="font-size:11.5px;color:var(--text-3);text-align:center;margin-top:12px">Tocar un paquete abre la misma hoja de la opción B</p>
+      </div>
+      <div class="tabbar"><div class="on"><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div><i class="ti ti-dots"></i>Más</div></div>
+    </div>
+  </div>
+</section>
+</div>
+
+<div class="notes">
+  <h3>En las tres</h3>
+  <ul>
+    <li><b>Escritorio:</b> no cambia nada; la vista de celular es un componente aparte que se elige con <code>mediaSignal(PHONE_QUERY)</code>, igual que Alertas.</li>
+    <li><b>Tablet (iPad):</b> no necesita diseño propio — a 768 y 1024 px la vista de escritorio ya entra bien (tarjetas anchas, fotos grandes). Solo se arregla que los 4 números de arriba quedan 3 + 1 en el iPad vertical.</li>
+    <li>"Actualizar" pasa a un ícono ⟳ en la barra de la página, con la misma barrita de progreso de hoy; "actualizado hace X min" va abajo de todo.</li>
+    <li>El tilde Preparado es el mismo de hoy (se guarda en el hub y lo ven todas), con el mismo cambio instantáneo.</li>
+    <li>Ningún dato nuevo del backend: todo sale de <code>GET /api/dispatch</code> y las notas de siempre.</li>
+  </ul>
+</div>
+</body>
+</html>
