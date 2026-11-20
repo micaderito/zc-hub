@@ -3,7 +3,7 @@ import { PendingMlTask, SyncService } from '../../../core/services/sync.service'
 import { SessionService } from '../../../core/services/session.service';
 import { PaginationComponent } from '../../../shared/components/pagination/pagination.component';
 import { SyncStore } from '../sync.store';
-import { errorMessage, formatDate } from '../sync.utils';
+import { canRetryTask, errorMessage, formatDate, taskChangeLabel, taskKindLabel, taskStatusLabel } from '../sync.utils';
 
 /** Pestaña Cola ML: las escrituras a ML encoladas (`ml_pending_tasks`) hasta que terminan, con reintento a mano. */
 @Component({
@@ -39,10 +39,10 @@ export class SyncColaComponent {
     this.store.invalidateTasks();
   }
 
-  /** Se puede reintentar a mano: falló, o quedó trabada con el lock vencido. */
-  canRetryTask(task: PendingMlTask): boolean {
-    return task.status === 'failed' || task.stuck === true;
-  }
+  readonly canRetryTask = canRetryTask;
+  readonly taskKindLabel = taskKindLabel;
+  readonly taskStatusLabel = taskStatusLabel;
+  readonly taskChangeLabel = taskChangeLabel;
 
   retryTask(task: PendingMlTask): void {
     if (!this.canRetryTask(task)) return;
@@ -60,28 +60,6 @@ export class SyncColaComponent {
     });
   }
 
-  taskKindLabel(kind: PendingMlTask['kind']): string {
-    switch (kind) {
-      case 'stock_ml': return 'Stock ML';
-      case 'stock_ml_set': return 'Stock ML';
-      case 'sku_ml': return 'SKU ML';
-      case 'sku_tn': return 'SKU TN';
-      case 'price_ml': return 'Precio ML';
-      case 'stock_probe': return 'Releer stock';
-      default: return kind;
-    }
-  }
-
-  taskStatusLabel(task: PendingMlTask): string {
-    if (task.stuck) return 'Trabada';
-    switch (task.status) {
-      case 'pending': return 'Pendiente';
-      case 'processing': return 'En proceso';
-      case 'failed': return 'Falló';
-      default: return task.status;
-    }
-  }
-
   taskStatusChipClass(task: PendingMlTask): string {
     if (task.stuck) return 'task-chip failed';
     switch (task.status) {
@@ -90,23 +68,5 @@ export class SyncColaComponent {
       case 'failed': return 'task-chip failed';
       default: return 'task-chip';
     }
-  }
-
-  taskChangeLabel(task: PendingMlTask): string {
-    if (task.kind === 'stock_ml') {
-      if (task.targetQty == null) return '—';
-      const sign = task.targetQty > 0 ? '+' : '';
-      return `${sign}${task.targetQty} u.`;
-    }
-    // stock_ml_set fija el stock a un valor absoluto (no es un delta como stock_ml).
-    if (task.kind === 'stock_ml_set') {
-      return task.targetQty != null ? `→ ${task.targetQty} u.` : '—';
-    }
-    if (task.kind === 'price_ml') {
-      return task.targetPrice != null ? `$${task.targetPrice.toLocaleString('es-AR')}` : '—';
-    }
-    // stock_probe no cambia nada: solo lee para completar el historial.
-    if (task.kind === 'stock_probe') return 'Solo lectura';
-    return task.targetSku ? `SKU → ${task.targetSku}` : '—';
   }
 }

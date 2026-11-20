@@ -150,3 +150,13 @@ export function syncTestProviders(spy: jasmine.SpyObj<SyncService>) {
     { provide: SyncService, useValue: spy }
   ];
 }
+
+/**
+ * Elige celular o escritorio para `mediaSignal(PHONE_QUERY)`. El navegador de Karma es más angosto
+ * que 760px: sin esto, SyncComponent mostraría la vista del celular en todos los specs.
+ */
+export function mockPhone(matches: boolean): void {
+  spyOn(window, 'matchMedia').and.returnValue({
+    matches, addEventListener: () => undefined, removeEventListener: () => undefined,
+  } as unknown as MediaQueryList);
+}

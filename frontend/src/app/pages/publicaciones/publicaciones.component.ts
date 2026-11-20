@@ -5,6 +5,8 @@ import { CatalogService, PublishJobRow, PublishUnit } from '../../core/services/
 import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 import { CanWriteDirective } from '../../shared/directives/can-write.directive';
+import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 
 const PER_PAGE = 20;
 
@@ -26,12 +28,14 @@ type StatusKey = '' | 'done' | 'error' | 'cancelled' | 'running';
 @Component({
   selector: 'app-publicaciones',
   standalone: true,
-  imports: [CanWriteDirective, DatePipe, SearchBarComponent, PaginationComponent],
+  imports: [CanWriteDirective, DatePipe, SearchBarComponent, PaginationComponent, BottomSheetComponent],
   templateUrl: './publicaciones.component.html',
-  styleUrl: './publicaciones.component.scss',
+  styleUrls: ['./publicaciones.component.scss', './publicaciones-phone.component.scss'],
 })
 export class PublicacionesComponent {
   private readonly catalog = inject(CatalogService);
+  /** En el celular: lista compacta y el detalle de un intento en una hoja (en vez de la fila que se expande). */
+  readonly phone = mediaSignal(PHONE_QUERY);
 
   readonly search = signal('');
   readonly appliedSearch = signal('');
@@ -122,6 +126,14 @@ export class PublicacionesComponent {
     } finally {
       this.refreshing.set(false);
     }
+  }
+
+  /** Celular: el intento abierto en la hoja (es el mismo `expandedId` que usa la fila expandida). */
+  readonly sheetJob = computed(() => (this.phone() ? this.rows().find((j) => j.id === this.expandedId()) ?? null : null));
+
+  /** Celular: ícono del estado del intento (verde / rojo / en curso). */
+  statusIcon(s: PublishJobRow['status']): string {
+    return { done: 'ti-check', error: 'ti-x', cancelled: 'ti-ban', pending: 'ti-clock', processing: 'ti-loader-2' }[s] ?? 'ti-clock';
   }
 
   toggle(id: string): void {

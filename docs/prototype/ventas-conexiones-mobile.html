@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ventas y Conexiones — celular</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+<style>
+:root[data-theme='light'] {
+  --bg:#f5f6f8; --surface:#fff; --surface-2:#eef0f3; --border:rgba(20,22,40,.12); --border-strong:rgba(20,22,40,.22);
+  --text:#1a1c2e; --text-2:#5d6373; --text-3:#9aa0ad; --brand:#5b54e6; --brand-bg:#ecebfd; --brand-contrast:#fff;
+  --ok:#1d9e75; --ok-bg:#e1f5ee; --warn:#ba7517; --warn-bg:#faeeda; --err:#d04444; --err-bg:#fcebeb;
+  --ml:#e6b800; --tn:#2c6ecb; --shadow-pop:0 8px 28px rgba(20,22,40,.12); --page:#dfe2e8;
+}
+:root[data-theme='dark'] {
+  --bg:#0e1017; --surface:#171a22; --surface-2:#1f232d; --border:rgba(255,255,255,.11); --border-strong:rgba(255,255,255,.2);
+  --text:#e8eaf0; --text-2:#a2a8b5; --text-3:#6a7180; --brand:#8b85ff; --brand-bg:#26233f; --brand-contrast:#fff;
+  --ok:#5dcaa5; --ok-bg:#0f3a30; --warn:#efa83a; --warn-bg:#3a2a0e; --err:#e07a7a; --err-bg:#3a1414;
+  --ml:#f2cc33; --tn:#6aa0ef; --shadow-pop:0 8px 28px rgba(0,0,0,.5); --page:#05060a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--text); font-family:-apple-system, 'Inter', system-ui, sans-serif; }
+.top { max-width:1200px; margin:0 auto; padding:22px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.top h1 { margin:0; font-size:18px; font-weight:500; }
+.top p { margin:4px 0 0; font-size:12.5px; color:var(--text-2); max-width:680px; line-height:1.45; }
+.theme-btn { font:inherit; font-size:12px; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:9px; padding:7px 12px; cursor:pointer; }
+.grid { max-width:1200px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:36px; align-items:center; }
+.opt { display:flex; flex-direction:column; gap:10px; }
+.opt h2 { margin:0; font-size:15px; font-weight:600; }
+.opt .why { font-size:12.5px; color:var(--text-2); margin:0; line-height:1.5; max-width:764px; }
+.pair { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+
+/* Teléfono */
+.phone { width:375px; max-width:100%; height:760px; background:var(--bg); border-radius:34px; border:8px solid #111; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.status { height:36px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:12px; font-weight:600; }
+.appbar { height:48px; flex-shrink:0; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:.5px solid var(--border); background:var(--surface); }
+.appbar b { font-size:15px; font-weight:600; flex:1; }
+.appbar i { font-size:20px; color:var(--text-2); }
+.scroll { flex:1; overflow-y:auto; padding:12px 14px 24px; }
+.tabbar { height:62px; flex-shrink:0; border-top:.5px solid var(--border); background:var(--surface); display:flex; justify-content:space-around; align-items:center; font-size:10px; color:var(--text-3); }
+.tabbar div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.tabbar i { font-size:21px; }
+.tabbar .on { color:var(--brand); }
+
+.search { position:relative; margin-bottom:10px; }
+.search i { position:absolute; left:11px; top:11px; color:var(--text-3); font-size:16px; }
+.search input { width:100%; font:inherit; font-size:16px; padding:9px 12px 9px 34px; border:.5px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); }
+.filters { display:flex; gap:6px; overflow-x:auto; margin-bottom:12px; scrollbar-width:none; }
+.chip { flex-shrink:0; font:inherit; font-size:12.5px; border:.5px solid var(--border); background:var(--surface); color:var(--text-2); padding:6px 11px; border-radius:16px; display:inline-flex; align-items:center; gap:5px; }
+.chip.on { background:var(--brand-bg); color:var(--brand); border-color:transparent; font-weight:500; }
+.chip i { font-size:14px; }
+
+.thumb { width:42px; height:42px; border-radius:10px; flex-shrink:0; }
+.thumb.p1 { background:linear-gradient(135deg,#f6c1d0,#e98fae); }
+.thumb.p2 { background:linear-gradient(135deg,#bfe3d5,#7cc4a8); }
+.thumb.p3 { background:linear-gradient(135deg,#c9c6f6,#8c86e8); }
+.thumb.p4 { background:linear-gradient(135deg,#fde4b4,#f1b35b); }
+.thumb.p5 { background:linear-gradient(135deg,#cfe1f7,#86aee3); }
+.thumb.sm { width:32px; height:32px; border-radius:8px; }
+
+.badge { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.badge.warn { background:var(--warn-bg); color:var(--warn); }
+.badge.err { background:var(--err-bg); color:var(--err); }
+.badge.ok { background:var(--ok-bg); color:var(--ok); }
+.badge.busy { background:var(--brand-bg); color:var(--brand); }
+.badge.plain { background:var(--surface-2); color:var(--text-2); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:3px; vertical-align:1px; }
+.dot.ml { background:var(--ml); } .dot.tn { background:var(--tn); }
+.num { font-variant-numeric:tabular-nums; }
+
+.group-h { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); font-weight:600; margin:14px 4px 6px; display:flex; justify-content:space-between; align-items:center; }
+.group-h.err { color:var(--err); } .group-h.warn { color:var(--warn); }
+.list { background:var(--surface); border:.5px solid var(--border); border-radius:14px; overflow:hidden; }
+.row { display:flex; align-items:center; gap:11px; padding:10px 12px; border-top:.5px solid var(--border); min-height:62px; }
+.row:first-child { border-top:none; }
+.row-info { flex:1; min-width:0; }
+.row-title { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row-sub { font-size:11.5px; color:var(--text-2); margin-top:3px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.row > i.chev { color:var(--text-3); font-size:16px; }
+.muted { color:var(--text-3); }
+
+/* ── Opción A ── */
+.tabs-a { display:flex; gap:4px; border-bottom:.5px solid var(--border); margin:-12px -14px 12px; padding:0 10px; background:var(--surface); overflow-x:auto; scrollbar-width:none; }
+.tabs-a button { flex-shrink:0; font:inherit; font-size:13px; border:none; background:none; color:var(--text-2); padding:11px 8px 10px; border-bottom:2px solid transparent; display:flex; align-items:center; gap:5px; }
+.tabs-a button.on { color:var(--brand); border-bottom-color:var(--brand); font-weight:600; }
+.cnt { font-size:10.5px; font-weight:600; background:var(--surface-2); color:var(--text-2); padding:1px 6px; border-radius:9px; }
+.cnt.warn { background:var(--warn-bg); color:var(--warn); }
+
+.gauge { width:58px; flex-shrink:0; text-align:right; }
+.gauge b { font-size:20px; font-weight:600; line-height:1; display:block; font-variant-numeric:tabular-nums; }
+.gauge small { font-size:10.5px; color:var(--text-3); }
+.gauge.err b { color:var(--err); } .gauge.warn b { color:var(--warn); }
+.bar { height:4px; border-radius:2px; background:var(--surface-2); margin-top:5px; overflow:hidden; }
+.bar span { display:block; height:100%; border-radius:2px; }
+.bar.err span { background:var(--err); } .bar.warn span { background:var(--warn); }
+
+.pack { border-top:.5px solid var(--border); }
+.pack:first-child { border-top:none; }
+.pack .row { border-top:none; }
+.pack .members { background:var(--surface-2); padding:4px 12px 8px 64px; }
+.member { display:flex; align-items:center; gap:8px; padding:7px 0; font-size:12.5px; border-top:.5px solid var(--border); }
+.member:first-child { border-top:none; }
+.member .n { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.member .s { font-variant-numeric:tabular-nums; color:var(--text-2); font-size:12px; }
+.member.dim .n { color:var(--text-3); }
+.member b.err { color:var(--err); } .member b.warn { color:var(--warn); }
+
+.sticky-cta { position:absolute; left:14px; right:14px; bottom:76px; height:48px; border:none; border-radius:13px; background:var(--brand); color:var(--brand-contrast); font:inherit; font-size:14.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:7px; box-shadow:var(--shadow-pop); }
+.sticky-cta i { font-size:19px; }
+
+/* Hoja */
+.scrim { position:absolute; inset:0; background:rgba(10,12,20,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; padding:8px 16px 22px; max-height:86%; overflow-y:auto; }
+.grab { width:38px; height:5px; border-radius:3px; background:var(--border-strong); margin:0 auto 12px; }
+.sheet-head { display:flex; gap:11px; align-items:center; }
+.sheet-head .t { flex:1; min-width:0; }
+.sheet-head .t b { font-size:15.5px; font-weight:600; display:block; line-height:1.25; }
+.sheet-head .t span { font-size:12px; color:var(--text-2); }
+.x { border:none; background:var(--surface-2); color:var(--text-2); width:32px; height:32px; border-radius:16px; font-size:16px; flex-shrink:0; }
+.lbl { font-size:12px; color:var(--text-2); margin:16px 0 6px; }
+.big-step { display:flex; align-items:center; justify-content:center; gap:16px; }
+.big-step button { width:52px; height:52px; border-radius:16px; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:22px; }
+.big-step span { min-width:70px; text-align:center; font-size:34px; font-weight:600; font-variant-numeric:tabular-nums; }
+.presets { display:flex; gap:6px; justify-content:center; margin-top:10px; }
+.presets .chip { padding:6px 14px; }
+.explain { font-size:12px; color:var(--text-2); background:var(--surface-2); border-radius:10px; padding:9px 11px; margin-top:14px; line-height:1.45; display:flex; gap:7px; }
+.explain i { color:var(--text-3); font-size:15px; margin-top:1px; }
+.btns { display:flex; gap:8px; margin-top:16px; }
+.btn { flex:1; height:46px; border-radius:12px; font:inherit; font-size:14px; font-weight:500; border:.5px solid var(--border-strong); background:var(--surface); color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px; }
+.btn.primary { background:var(--brand); color:var(--brand-contrast); border-color:transparent; font-weight:600; }
+.btn.danger { color:var(--err); }
+.btn.ghost { border:none; }
+.btn i { font-size:18px; }
+
+/* ── Opción B ── */
+.seg { display:flex; background:var(--surface-2); border-radius:10px; padding:3px; margin-bottom:12px; }
+.seg button { flex:1; font:inherit; font-size:12.5px; border:none; background:none; color:var(--text-2); padding:7px 2px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:4px; }
+.seg button.on { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:6px; }
+.tile { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:9px 10px; }
+.tile b { font-size:22px; font-weight:600; display:block; line-height:1.1; font-variant-numeric:tabular-nums; }
+.tile span { font-size:11px; color:var(--text-2); }
+.tile.err b { color:var(--err); } .tile.warn b { color:var(--warn); } .tile.busy b { color:var(--brand); }
+.tile.on { border-color:var(--err); box-shadow:0 0 0 1px var(--err) inset; }
+
+.card { background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:11px 12px; margin-bottom:8px; display:flex; gap:11px; align-items:center; border-left:4px solid var(--warn); }
+.card.err { border-left-color:var(--err); }
+.card.busy { border-left-color:var(--brand); }
+.card .ch { display:flex; gap:12px; font-size:12px; color:var(--text-2); margin-top:4px; font-variant-numeric:tabular-nums; }
+.card .ch b { color:var(--text); font-weight:600; }
+.card .ch b.err { color:var(--err); }
+.card .row-sub { margin-top:5px; }
+
+.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px; }
+.stat { background:var(--surface-2); border-radius:11px; padding:9px 11px; }
+.stat small { font-size:11px; color:var(--text-2); display:block; }
+.stat b { font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; }
+.stat b.err { color:var(--err); }
+.mlist { border:.5px solid var(--border); border-radius:12px; overflow:hidden; }
+.mrow { display:flex; align-items:center; gap:9px; padding:8px 11px; border-top:.5px solid var(--border); font-size:13px; }
+.mrow:first-child { border-top:none; }
+.mrow .n { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mrow .s { font-size:12px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+.mrow.dim .n { color:var(--text-3); }
+.links { display:flex; flex-direction:column; margin-top:10px; }
+.links button { font:inherit; font-size:13.5px; border:none; background:none; color:var(--text); padding:11px 2px; display:flex; align-items:center; gap:10px; border-top:.5px solid var(--border); text-align:left; }
+.links button i { font-size:18px; color:var(--text-2); }
+.links button .chev { margin-left:auto; color:var(--text-3); font-size:15px; }
+
+/* Notas al pie */
+.notes { max-width:764px; margin:0 auto 40px; padding:0 16px; font-size:12.5px; color:var(--text-2); line-height:1.55; }
+.notes h3 { font-size:14px; color:var(--text); margin:18px 0 6px; font-weight:600; }
+.notes ul { margin:0; padding-left:18px; }
+.notes code { font-size:11.5px; background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.cap { font-size:11.5px; color:var(--text-3); text-align:center; margin-top:6px; }
+
+/* ── Propio de este prototipo ── */
+.screen-h { max-width:1200px; width:100%; margin:12px auto 0; padding:0 16px; font-size:20px; font-weight:600; border-top:.5px solid var(--border-strong); padding-top:22px; }
+.screen-h small { display:block; font-size:12.5px; font-weight:400; color:var(--text-2); margin-top:4px; line-height:1.5; max-width:760px; }
+.pbar { display:flex; gap:8px; align-items:center; margin-bottom:4px; }
+.pick { flex:1; font:inherit; font-size:15px; font-weight:600; border:.5px solid var(--border); background:var(--surface); color:var(--text); border-radius:11px; padding:9px 12px; display:flex; align-items:center; gap:7px; }
+.pick i { color:var(--text-2); font-size:17px; } .pick .chev { margin-left:auto; font-size:15px; }
+.ibtn { width:42px; height:42px; flex-shrink:0; border-radius:11px; border:.5px solid var(--border); background:var(--surface); color:var(--text); font-size:19px; display:inline-flex; align-items:center; justify-content:center; }
+.meta { font-size:11px; color:var(--text-3); margin:0 2px 12px; }
+.kpis { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.kpi { background:var(--surface); border:.5px solid var(--border); border-radius:12px; padding:9px 11px; }
+.kpi small { font-size:11px; color:var(--text-2); display:block; }
+.kpi b { font-size:18px; font-weight:600; display:block; margin:2px 0; font-variant-numeric:tabular-nums; }
+.delta { font-size:11px; font-weight:600; display:inline-flex; align-items:center; gap:2px; }
+.delta.up { color:var(--ok); } .delta.down { color:var(--err); }
+.prow { display:flex; align-items:center; gap:10px; padding:10px 12px; border-top:.5px solid var(--border); }
+.prow:first-child { border-top:none; }
+.prow .info { flex:1; min-width:0; }
+.prow .n { font-size:14px; font-weight:500; }
+.prow .s { font-size:11.5px; color:var(--text-2); margin-top:2px; }
+.prow .amt { text-align:right; font-variant-numeric:tabular-nums; }
+.prow .amt b { font-size:14px; font-weight:600; display:block; }
+.sbar { height:5px; border-radius:3px; background:var(--surface-2); margin-top:6px; overflow:hidden; }
+.sbar span { display:block; height:100%; background:var(--brand); border-radius:3px; }
+.prow.total { background:var(--surface-2); }
+.prow.total .n { font-weight:600; }
+.rank { width:22px; height:22px; border-radius:7px; background:var(--surface-2); color:var(--text-2); font-size:11.5px; font-weight:600; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+.chart { background:var(--surface); border:.5px solid var(--border); border-radius:14px; padding:12px; }
+.bars { display:flex; align-items:flex-end; gap:2px; height:90px; }
+.bars span { flex:1; background:var(--brand); border-radius:2px 2px 0 0; opacity:.85; }
+.bars span.on { opacity:1; background:var(--text); }
+.axis { display:flex; justify-content:space-between; font-size:10.5px; color:var(--text-3); margin-top:5px; }
+.pickday { font-size:12px; color:var(--text-2); margin-top:6px; }
+.foot { font-size:11px; color:var(--text-3); margin:12px 2px 0; line-height:1.45; }
+.hero { background:var(--surface); border:.5px solid var(--border); border-radius:16px; padding:14px; margin-bottom:12px; }
+.hero small { font-size:12px; color:var(--text-2); }
+.hero .big { font-size:30px; font-weight:600; font-variant-numeric:tabular-nums; margin:2px 0 4px; letter-spacing:-.01em; }
+.hero .mini { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:12px; padding-top:11px; border-top:.5px solid var(--border); }
+.hero .mini b { font-size:15px; font-weight:600; display:block; font-variant-numeric:tabular-nums; }
+.hero .mini span { font-size:10.5px; color:var(--text-2); display:block; }
+.mgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+.mgrid .chip { justify-content:center; padding:9px 4px; border-radius:10px; }
+.daterow { display:flex; gap:8px; }
+.daterow input { flex:1; min-width:0; font:inherit; font-size:15px; padding:9px 10px; border:.5px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); }
+.ch-row { display:flex; align-items:center; gap:11px; padding:12px; border-top:.5px solid var(--border); }
+.ch-row:first-child { border-top:none; }
+.ch-logo { width:38px; height:38px; border-radius:10px; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; }
+.ch-logo.ml { background:var(--ml); color:#2d2a00; } .ch-logo.tn { background:var(--tn); color:#fff; }
+.sbtn { font:inherit; font-size:12.5px; font-weight:600; border:none; border-radius:9px; padding:7px 11px; background:var(--brand); color:var(--brand-contrast); }
+.cnote { font-size:11.5px; color:var(--text-2); display:flex; gap:6px; margin:8px 4px 0; line-height:1.45; }
+.chip .n2 { font-size:10.5px; font-weight:600; background:var(--surface-2); color:var(--text-2); padding:0 6px; border-radius:8px; }
+.chip.on .n2 { background:var(--surface); }
+.chip .n2.warn { background:var(--warn-bg); color:var(--warn); }
+.sku { font-family:ui-monospace,Menlo,monospace; font-size:11px; background:var(--surface-2); color:var(--text-2); padding:1px 5px; border-radius:4px; }
+.side { display:flex; gap:9px; align-items:center; padding:9px 11px; border-top:.5px solid var(--border); font-size:13px; }
+.side:first-child { border-top:none; }
+.side .n { flex:1; min-width:0; }
+.side .n div { font-size:11.5px; color:var(--text-2); margin-top:2px; }
+.oldbox { opacity:.9; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Ventas, Conexiones y Vincular SKUs en el celular</h1>
+    <p>Tres pantallas chicas, cada una con sus opciones. La <b>tablet</b> (768–1024px) ya se ve bien con el diseño de escritorio: no lleva nada propio. El escritorio no cambia en ninguna opción.</p>
+  </div>
+  <button class="theme-btn" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'"><i class="ti ti-moon"></i> Claro / oscuro</button>
+</div>
+
+<!-- ════════════════════════════ VENTAS ════════════════════════════ -->
+<h2 class="screen-h">1 · Ventas por provincia
+  <small>Hoy en el celu, el título, la explicación, Actualizar, el mes, las dos fechas y Exportar CSV ocupan media pantalla antes del primer número. La tabla de provincias entra apretada, el pie ("96 órdenes procesadas…") se desarma en columnas y el gráfico arranca en "30/9" para octubre (bug de zona horaria, también en el escritorio: se arregla en cualquier opción).</small>
+</h2>
+<div class="grid">
+
+<section class="opt">
+  <h2>A · Lo mismo, más compacto</h2>
+  <p class="why">Misma página, mismo orden. Arriba queda una sola fila: <b>el mes</b> (al tocarlo, una hoja con los meses, el rango personalizado y "Exportar CSV"), y <b>Actualizar</b> como ícono. Los 4 números en 2×2, las provincias como lista con su barrita (sin tabla), después el gráfico y el top de productos. Ideal si la usás igual que en la compu, solo que en chico.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-chart-bar"></i><b>Ventas por provincia</b><i class="ti ti-bell"></i></div>
+        <div class="scroll">
+          <div class="pbar">
+            <button class="pick"><i class="ti ti-calendar"></i>octubre 2026<i class="ti ti-chevron-down chev"></i></button>
+            <button class="ibtn" title="Actualizar"><i class="ti ti-refresh"></i></button>
+          </div>
+          <div class="meta">Actualizado hace 3 h · solo Mercado Libre, sin canceladas ni devoluciones</div>
+          <div class="kpis">
+            <div class="kpi"><small>Facturado</small><b>$4.823.150</b><span class="delta up"><i class="ti ti-arrow-up-right"></i>+12%</span></div>
+            <div class="kpi"><small>Ventas (paquetes)</small><b>78</b><span class="delta down"><i class="ti ti-arrow-down-right"></i>−4%</span></div>
+            <div class="kpi"><small>Productos</small><b>236</b><span class="delta up"><i class="ti ti-arrow-up-right"></i>+8%</span></div>
+            <div class="kpi"><small>Ticket promedio</small><b>$61.835</b><span class="delta up"><i class="ti ti-arrow-up-right"></i>+17%</span></div>
+          </div>
+          <div class="group-h">Por provincia <span>vs. sept.</span></div>
+          <div class="list">
+            <div class="prow"><div class="info"><div class="n">Buenos Aires</div><div class="s">31 ventas · 94 productos · 40%</div><div class="sbar"><span style="width:40%"></span></div></div><div class="amt"><b>$1.934.000</b><span class="delta up">+15%</span></div></div>
+            <div class="prow"><div class="info"><div class="n">Capital Federal</div><div class="s">18 ventas · 52 productos · 23%</div><div class="sbar"><span style="width:23%"></span></div></div><div class="amt"><b>$1.102.300</b><span class="delta down">−6%</span></div></div>
+            <div class="prow"><div class="info"><div class="n">Córdoba</div><div class="s">9 ventas · 30 productos · 12%</div><div class="sbar"><span style="width:12%"></span></div></div><div class="amt"><b>$588.400</b><span class="delta up">+22%</span></div></div>
+            <div class="prow"><div class="info"><div class="n">Santa Fe</div><div class="s">7 ventas · 21 productos · 8%</div><div class="sbar"><span style="width:8%"></span></div></div><div class="amt"><b>$402.000</b><span class="delta up">+3%</span></div></div>
+            <div class="prow total"><div class="info"><div class="n">Total</div><div class="s">78 ventas · 236 productos</div></div><div class="amt"><b>$4.823.150</b><span class="delta up">+12%</span></div></div>
+          </div>
+          <div class="group-h">Evolución diaria</div>
+          <div class="chart"><div class="bars" id="barsA"></div><div class="axis"><span>1/10</span><span>31/10</span></div></div>
+          <div class="foot">96 órdenes en el período · 78 facturadas · 12 canceladas · 6 devueltas (fuera del total).</div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">La página (el top de productos va abajo del gráfico)</div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-chart-bar"></i><b>Ventas por provincia</b><i class="ti ti-bell"></i></div>
+        <div class="scroll oldbox"><div class="pbar"><button class="pick"><i class="ti ti-calendar"></i>octubre 2026<i class="ti ti-chevron-down chev"></i></button><button class="ibtn"><i class="ti ti-refresh"></i></button></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="t"><b>Período</b><span>Del 1/10 al 31/10/2026</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="lbl">Mes</div>
+          <div class="mgrid">
+            <button class="chip">noviembre</button><button class="chip on">octubre</button><button class="chip">septiembre</button>
+            <button class="chip">agosto</button><button class="chip">julio</button><button class="chip">junio</button>
+          </div>
+          <div class="lbl">O un rango</div>
+          <div class="daterow"><input value="01/10/2026" /><input value="31/10/2026" /></div>
+          <div class="btns"><button class="btn primary"><i class="ti ti-download"></i>Exportar CSV del período</button></div>
+          <div class="explain"><i class="ti ti-info-circle"></i>El CSV es el informe para el contador: total por provincia, sin envío.</div>
+        </div>
+      </div>
+      <div class="cap">Tocar el mes</div>
+    </div>
+  </div>
+</section>
+
+<section class="opt">
+  <h2>B · Número grande + pestañas</h2>
+  <p class="why">Arriba, los meses como chips que se deslizan (el último cerrado elegido; "Otro…" abre las fechas). Después <b>una tarjeta con lo facturado en grande</b> y los otros tres números chicos abajo. Debajo, un selector <b>Provincias · Productos · Por día</b> muestra una cosa a la vez, sin scroll largo. Tocar una provincia abre una hoja con su detalle. Abajo, fijo: <b>Exportar para el contador</b> (en el iPhone abre "Compartir" con el CSV, para mandarlo por WhatsApp o mail). Ideal si en el celu la entrás <b>a mirar el número del mes y mandarle el informe al contador</b>.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-chart-bar"></i><b>Ventas por provincia</b><i class="ti ti-refresh"></i></div>
+        <div class="scroll" style="padding-bottom:84px">
+          <div class="filters"><button class="chip">nov.</button><button class="chip on">octubre</button><button class="chip">sept.</button><button class="chip">agosto</button><button class="chip">julio</button><button class="chip"><i class="ti ti-calendar"></i>Otro…</button></div>
+          <div class="hero">
+            <small>Facturado en octubre</small>
+            <div class="big">$4.823.150</div>
+            <span class="delta up"><i class="ti ti-arrow-up-right"></i>+12% vs. septiembre</span>
+            <div class="mini">
+              <div><b>78</b><span>ventas <span class="delta down">−4%</span></span></div>
+              <div><b>236</b><span>productos <span class="delta up">+8%</span></span></div>
+              <div><b>$61.835</b><span>ticket <span class="delta up">+17%</span></span></div>
+            </div>
+          </div>
+          <div class="seg"><button class="on">Provincias</button><button>Productos</button><button>Por día</button></div>
+          <div class="list">
+            <div class="prow"><span class="rank">1</span><div class="info"><div class="n">Buenos Aires</div><div class="sbar"><span style="width:100%"></span></div></div><div class="amt"><b>$1.934.000</b><span class="s">40%</span></div><i class="ti ti-chevron-right chev muted"></i></div>
+            <div class="prow"><span class="rank">2</span><div class="info"><div class="n">Capital Federal</div><div class="sbar"><span style="width:57%"></span></div></div><div class="amt"><b>$1.102.300</b><span class="s">23%</span></div><i class="ti ti-chevron-right chev muted"></i></div>
+            <div class="prow"><span class="rank">3</span><div class="info"><div class="n">Córdoba</div><div class="sbar"><span style="width:30%"></span></div></div><div class="amt"><b>$588.400</b><span class="s">12%</span></div><i class="ti ti-chevron-right chev muted"></i></div>
+            <div class="prow"><span class="rank">4</span><div class="info"><div class="n">Santa Fe</div><div class="sbar"><span style="width:21%"></span></div></div><div class="amt"><b>$402.000</b><span class="s">8%</span></div><i class="ti ti-chevron-right chev muted"></i></div>
+            <div class="prow"><span class="rank">5</span><div class="info"><div class="n">Mendoza</div><div class="sbar"><span style="width:16%"></span></div></div><div class="amt"><b>$310.450</b><span class="s">6%</span></div><i class="ti ti-chevron-right chev muted"></i></div>
+          </div>
+          <div class="foot">Solo Mercado Libre. 12 canceladas y 6 devueltas quedan afuera. Actualizado hace 3 h.</div>
+        </div>
+        <button class="sticky-cta"><i class="ti ti-share"></i>Exportar para el contador</button>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Provincias (la barra es contra la que más vendió)</div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-chart-bar"></i><b>Ventas por provincia</b><i class="ti ti-refresh"></i></div>
+        <div class="scroll">
+          <div class="filters"><button class="chip">nov.</button><button class="chip on">octubre</button><button class="chip">sept.</button><button class="chip">agosto</button></div>
+          <div class="seg"><button>Provincias</button><button>Productos</button><button class="on">Por día</button></div>
+          <div class="chart"><div class="bars" id="barsB" style="height:120px"></div><div class="axis"><span>1/10</span><span>31/10</span></div><div class="pickday">Tocá una barra: <b style="color:var(--text)">14/10 · $241.300</b></div></div>
+          <div class="group-h" style="margin-top:16px">Productos</div>
+          <div class="list">
+            <div class="prow"><span class="rank">1</span><div class="info"><div class="n">Cuaderno Mármol rosa rayado A5</div><div class="s"><span class="sku">39000-CORAZONES</span> · 22 u.</div></div><div class="amt"><b>$418.000</b></div></div>
+            <div class="prow"><span class="rank">2</span><div class="info"><div class="n">Agenda Be Positive 2027</div><div class="s"><span class="sku">BP700V</span> · 14 u.</div></div><div class="amt"><b>$392.000</b></div></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><span class="rank">2</span><div class="t"><b>Capital Federal</b><span>octubre 2026</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="stat-grid">
+            <div class="stat"><small>Facturado</small><b>$1.102.300</b></div>
+            <div class="stat"><small>Del total</small><b>23%</b></div>
+            <div class="stat"><small>Ventas (paquetes)</small><b>18</b></div>
+            <div class="stat"><small>Productos</small><b>52</b></div>
+          </div>
+          <div class="explain"><i class="ti ti-arrow-down-right" style="color:var(--err)"></i>6% menos que en septiembre.</div>
+        </div>
+      </div>
+      <div class="cap">"Por día" y la hoja de una provincia</div>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- ════════════════════════════ CONEXIONES ════════════════════════════ -->
+<h2 class="screen-h">2 · Conexiones
+  <small>Ya se ve bien con la pasada general: dos tarjetas con Conectar a todo el ancho. Lo que sobra es "Cómo funciona" (habla de ngrok, cosa de cuando se armó la app) y que en el celu lo único que se viene a hacer es <b>reconectar cuando una sesión vence</b>.</small>
+</h2>
+<div class="grid">
+<section class="opt">
+  <h2>A · Dejarla como está</h2>
+  <p class="why">Solo se pliega "Cómo funciona" (se abre al tocarlo) para que el estado de los canales sea lo único que se ve. Cambio mínimo.</p>
+  <div class="pair"><div>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+      <div class="appbar"><i class="ti ti-plug"></i><b>Conexiones</b><i class="ti ti-bell"></i></div>
+      <div class="scroll">
+        <div class="group-h">Canales</div>
+        <div class="list" style="border-top:3px solid var(--ml);padding:14px 12px;margin-bottom:10px"><div style="display:flex;align-items:center;gap:8px"><span class="dot ml" style="border-radius:50%"></span><b style="font-size:14px">Mercado Libre</b><span class="badge ok" style="margin-left:auto">Conectado</span></div><div class="btns" style="margin-top:12px"><button class="btn">Desconectar</button></div></div>
+        <div class="list" style="border-top:3px solid var(--tn);padding:14px 12px"><div style="display:flex;align-items:center;gap:8px"><span class="dot tn" style="border-radius:50%"></span><b style="font-size:14px">Tienda Nube</b><span class="badge warn" style="margin-left:auto">Sesión vencida</span></div><div class="btns" style="margin-top:12px"><button class="btn primary"><i class="ti ti-refresh"></i>Reconectar</button></div></div>
+        <div class="cnote"><i class="ti ti-info-circle"></i>Si se abre otra ventana para conectar, cuando termines volvé a la app.</div>
+        <div class="list" style="margin-top:16px"><div class="ch-row"><i class="ti ti-help-circle" style="font-size:19px;color:var(--text-2)"></i><div style="flex:1;font-size:14px">Cómo funciona</div><i class="ti ti-chevron-down muted"></i></div></div>
+      </div>
+      <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+    </div>
+  </div></div>
+</section>
+<section class="opt">
+  <h2>B · Lista tipo "Ajustes"</h2>
+  <p class="why">Una lista como la de Ajustes del iPhone: cada canal es una fila con su logo y su estado. <b>Si está vencida o desconectada, el botón está ahí mismo en la fila</b>; si está conectada, la fila abre una hoja con desde cuándo y "Desconectar" (que pide confirmar: hoy es un toque y se corta la sincronización). "Sincronizar todos los precios" queda como otra fila, abajo. Ideal si en el celu <b>solo entrás a reconectar</b>.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-plug"></i><b>Conexiones</b><i class="ti ti-bell"></i></div>
+        <div class="scroll">
+          <div class="group-h">Canales</div>
+          <div class="list">
+            <div class="ch-row"><span class="ch-logo ml">ML</span><div style="flex:1"><div style="font-size:14px;font-weight:500">Mercado Libre</div><div class="row-sub"><span class="badge ok"><i class="ti ti-check"></i>Conectado</span></div></div><i class="ti ti-chevron-right muted"></i></div>
+            <div class="ch-row"><span class="ch-logo tn">TN</span><div style="flex:1"><div style="font-size:14px;font-weight:500">Tienda Nube</div><div class="row-sub"><span class="badge warn"><i class="ti ti-alert-triangle"></i>Sesión vencida</span></div></div><button class="sbtn"><i class="ti ti-refresh"></i> Reconectar</button></div>
+          </div>
+          <div class="cnote"><i class="ti ti-info-circle"></i>Al reconectar se abre ML/TN; cuando termines, volvé a la app.</div>
+          <div class="group-h">Acciones</div>
+          <div class="list">
+            <div class="ch-row"><i class="ti ti-refresh" style="font-size:19px;color:var(--brand)"></i><div style="flex:1;font-size:14px">Sincronizar todos los precios<div class="row-sub muted" style="font-size:11.5px">Manda el precio de cada canal a ML y TN</div></div><i class="ti ti-chevron-right muted"></i></div>
+            <div class="ch-row"><i class="ti ti-help-circle" style="font-size:19px;color:var(--text-2)"></i><div style="flex:1;font-size:14px">Cómo funciona</div><i class="ti ti-chevron-down muted"></i></div>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Lista de canales</div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-plug"></i><b>Conexiones</b><i class="ti ti-bell"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><span class="ch-logo ml">ML</span><div class="t"><b>Mercado Libre</b><span>Conectado</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="explain"><i class="ti ti-info-circle"></i>Las ventas de ML descuentan stock en Tienda Nube. Si desconectás, eso se corta hasta que vuelvas a conectar.</div>
+          <div class="btns"><button class="btn danger"><i class="ti ti-plug-off"></i>Desconectar</button></div>
+        </div>
+      </div>
+      <div class="cap">Tocar un canal conectado</div>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- ════════════════════════════ CONFLICTOS ════════════════════════════ -->
+<h2 class="screen-h">3 · Vincular SKUs (/conflictos)
+  <small>Sigue en el menú (Configuración → Vincular SKUs) y funciona, pero <b>se pisa con Publicaciones → Productos</b>, que ya marca las variantes "sin par" y tiene su propio "Vincular". En el celu hoy cada par es una tarjeta alta con 3 botones (SKU ML · SKU TN · Ambos SKU) y arriba hay dos tarjetas de canal + 4 números + 6 pestañas antes del primer producto.</small>
+</h2>
+<div class="grid">
+<section class="opt">
+  <h2>A · Pestañas en chips + lista compacta</h2>
+  <p class="why">Se van las tarjetas de canal y el Resumen. Arriba, las pestañas como chips que se deslizan <b>empezando por lo que hay que resolver</b> (Solo en ML, Solo en TN, Sin SKU, Duplicados, y Coinciden al final), con el buscador. Cada producto es una fila de una línea (foto, nombre, SKU, canal); tocarla abre una hoja con <b>Editar SKU</b> y <b>Vincular</b>.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrows-exchange-2"></i><b>Vincular SKUs</b><i class="ti ti-refresh"></i></div>
+        <div class="scroll">
+          <div class="filters"><button class="chip on">Solo en ML <span class="n2 warn">3</span></button><button class="chip">Solo en TN <span class="n2 warn">2</span></button><button class="chip">Sin SKU <span class="n2 warn">4</span></button><button class="chip">Duplicados <span class="n2 warn">1</span></button><button class="chip">Coinciden <span class="n2">88</span></button></div>
+          <div class="search"><i class="ti ti-search"></i><input placeholder="Buscar por título o SKU…" /></div>
+          <div class="list">
+            <div class="row"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa (Puntos)</div><div class="row-sub"><span class="dot ml"></span>ML <span class="sku">39002</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="row"><div class="thumb p3"></div><div class="row-info"><div class="row-title">Agenda 2027 Be Positive (Negra)</div><div class="row-sub"><span class="dot ml"></span>ML <span class="sku">BP700N</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="row"><div class="thumb p4"></div><div class="row-info"><div class="row-title">Repuesto rayado 96 hojas</div><div class="row-sub"><span class="dot ml"></span>ML <span class="sku">REP96</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+          </div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Una pestaña</div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrows-exchange-2"></i><b>Vincular SKUs</b><i class="ti ti-refresh"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><div class="thumb p1"></div><div class="t"><b>Cuaderno A4 Mármol rosa (Puntos)</b><span>Solo en Mercado Libre · SKU 39002</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="explain"><i class="ti ti-info-circle"></i>No hay ninguna variante de Tienda Nube con este SKU. Vinculala con una, o corregí el SKU si está mal escrito.</div>
+          <div class="btns"><button class="btn"><i class="ti ti-pencil"></i>Editar SKU</button><button class="btn primary"><i class="ti ti-link"></i>Vincular</button></div>
+        </div>
+      </div>
+      <div class="cap">Tocar un producto</div>
+    </div>
+  </div>
+</section>
+<section class="opt">
+  <h2>B · Como Alertas: números que filtran + secciones</h2>
+  <p class="why">Arriba, tres números que se tocan para filtrar: <b>Sin par · Sin SKU · Duplicados</b>. Abajo, la lista separada en secciones por problema (en "Sin par", ML y TN juntos con su puntito de canal). Lo que coincide no se lista: queda una fila al final, "88 pares coinciden", que abre la lista. La misma hoja de A al tocar un producto; en un par que coincide, la hoja muestra ML y TN y deja editar el SKU de cada uno o de los dos.</p>
+  <div class="pair">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrows-exchange-2"></i><b>Vincular SKUs</b><i class="ti ti-refresh"></i></div>
+        <div class="scroll">
+          <div class="tiles">
+            <div class="tile warn"><b>5</b><span>Sin par</span></div>
+            <div class="tile warn"><b>4</b><span>Sin SKU</span></div>
+            <div class="tile err"><b>1</b><span>Duplicados</span></div>
+          </div>
+          <div class="search" style="margin-top:10px"><i class="ti ti-search"></i><input placeholder="Buscar por título o SKU…" /></div>
+          <div class="group-h warn">Sin par en el otro canal <span>5</span></div>
+          <div class="list">
+            <div class="row"><div class="thumb p1"></div><div class="row-info"><div class="row-title">Cuaderno A4 Mármol rosa (Puntos)</div><div class="row-sub"><span class="dot ml"></span>solo ML <span class="sku">39002</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+            <div class="row"><div class="thumb p5"></div><div class="row-info"><div class="row-title">Cuaderno Inteligente A5 Corazones</div><div class="row-sub"><span class="dot tn"></span>solo TN <span class="sku">CI-A5-COR</span></div></div><i class="ti ti-chevron-right chev"></i></div>
+          </div>
+          <div class="group-h err">SKU duplicado <span>1</span></div>
+          <div class="list">
+            <div class="row"><div class="thumb p2"></div><div class="row-info"><div class="row-title">SKU 39000 en 2 publicaciones</div><div class="row-sub"><span class="dot ml"></span>ML · Mármol rosa rayado / cuadriculado</div></div><i class="ti ti-chevron-right chev"></i></div>
+          </div>
+          <div class="list" style="margin-top:14px"><div class="row"><i class="ti ti-circle-check" style="font-size:22px;color:var(--ok)"></i><div class="row-info"><div class="row-title">88 pares coinciden</div><div class="row-sub">Mismo SKU en ML y TN</div></div><i class="ti ti-chevron-right chev"></i></div></div>
+        </div>
+        <div class="tabbar"><div><i class="ti ti-package"></i>Preparar</div><div><i class="ti ti-box"></i>Productos</div><div><i class="ti ti-clipboard-list"></i>Pedidos</div><div><i class="ti ti-bell"></i>Alertas</div><div class="on"><i class="ti ti-dots"></i>Más</div></div>
+      </div>
+      <div class="cap">Lo que hay que resolver, por problema</div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span><i class="ti ti-wifi"></i> <i class="ti ti-battery-3"></i></span></div>
+        <div class="appbar"><i class="ti ti-arrows-exchange-2"></i><b>Vincular SKUs</b><i class="ti ti-refresh"></i></div>
+        <div class="scroll"></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sheet-head"><i class="ti ti-circle-check" style="font-size:24px;color:var(--ok)"></i><div class="t"><b>Cuaderno A4 Mármol rosa (Rayado)</b><span>Coinciden · SKU 39000</span></div><button class="x"><i class="ti ti-x"></i></button></div>
+          <div class="lbl">En cada canal</div>
+          <div class="mlist">
+            <div class="side"><div class="thumb sm p1"></div><div class="n"><span class="dot ml"></span>Mercado Libre<div>Cuaderno A4 Mármol rosa (Rayado)</div></div><span class="sku">39000</span></div>
+            <div class="side"><div class="thumb sm p1"></div><div class="n"><span class="dot tn"></span>Tienda Nube<div>Cuaderno A4 Mármol rosa (Rayado)</div></div><span class="sku">39000</span></div>
+          </div>
+          <div class="btns"><button class="btn primary"><i class="ti ti-pencil"></i>Editar SKU</button></div>
+          <div class="cap" style="text-align:left;margin-top:8px">Abre el formulario con los dos SKU (ML y TN) para cambiar uno o los dos.</div>
+        </div>
+      </div>
+      <div class="cap">Un par que coincide</div>
+    </div>
+  </div>
+</section>
+</div>
+
+<div class="notes">
+  <h3>En todas las opciones</h3>
+  <ul>
+    <li>El escritorio no cambia: en el celu se elige el componente con <code>mediaSignal(PHONE_QUERY)</code>, igual que Alertas.</li>
+    <li>Los formularios que ya existen (Editar SKU, Vincular, Editar en lote) se reusan tal cual; en el celu ya salen como hoja.</li>
+    <li>Usuario de solo lectura: ve todo, sin botones de editar / conectar.</li>
+  </ul>
+</div>
+
+<script>
+for (const id of ['barsA','barsB']) {
+  const el = document.getElementById(id); if (!el) continue;
+  const vals = [40,62,35,80,55,47,90,30,66,72,58,44,85,99,52,38,61,77,49,57,70,33,64,88,41,59,75,46,68,92,53];
+  vals.forEach((v,i) => { const s = document.createElement('span'); s.style.height = v + '%'; if (id==='barsB' && i===13) s.className='on'; el.appendChild(s); });
+}
+</script>
+</body>
+</html>

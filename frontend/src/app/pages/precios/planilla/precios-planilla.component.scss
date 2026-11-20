@@ -172,24 +172,7 @@
   .group-toggle { position: sticky; left: 48px; width: fit-content; max-width: 75vw; }
 }
 
-/* Celular: para leer producto, precios TN/ML, pendiente y aplicar (el costo se edita con el lápiz) */
-@include m.phone {
-  .col-net { display: none; }
-  .chain-touch { display: none; }
-  .pr-table tbody tr:not(.group-row) > td:nth-child(2), .pr-table thead th:nth-child(2) { min-width: 120px; max-width: 42vw; }
-  .pr-search { flex: 1 1 100%; input { width: 100%; } }
-  .pr-actionbar {
-    bottom: var(--zc-tabbar-h); gap: 6px; padding: 8px 12px; margin-inline: -16px;
-    .spacer { display: none; }
-    .btn:not(.pri) {
-      font-size: 0; gap: 0; padding: 0; width: 40px; height: 40px; justify-content: center; flex-shrink: 0;
-      i { font-size: 18px; margin: 0; }
-    }
-    .btn.pri { flex: 1; min-width: 0; justify-content: center; span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
-  }
-  .pr-sel { flex-shrink: 0; min-width: 24px; text-align: center; }
-  .pr-sel-txt { display: none; }
-}
+/* Celular: la tabla no se muestra (va zc-planilla-phone). */
 
 /* Productos del proveedor sin costo cargado: misma tabla que la planilla */
 .pr-uncosted-head {

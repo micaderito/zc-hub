@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, ViewEncapsulation, computed, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { SyncService, SyncConfig } from '../../core/services/sync.service';
@@ -10,6 +11,9 @@ import { errorMessage } from './sync.utils';
 import { SyncHistorialComponent } from './historial/sync-historial.component';
 import { SyncDevolucionesComponent } from './devoluciones/sync-devoluciones.component';
 import { SyncColaComponent } from './cola/sync-cola.component';
+import { SyncFocus, SyncPhoneComponent } from './phone/sync-phone.component';
+import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
+import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 
 const TAB_KEYS = ['historial', 'devoluciones', 'cola', 'estado'];
 
@@ -18,6 +22,8 @@ const TAB_KEYS = ['historial', 'devoluciones', 'cola', 'estado'];
  * pestaña Estado (toggle de la sync + webhooks). Historial, Devoluciones y Cola ML son su propio
  * componente OnPush, montado solo mientras se ve; lo que comparten vive en SyncStore (provisto
  * acá, uno por visita).
+ *
+ * En el celular (`phone()`) no hay pestañas: ver SyncPhoneComponent.
  *
  * Sin encapsulación a propósito: sync.component.scss define la base que usan todas las pestañas
  * (botones, alertas, inputs, estado vacío) una sola vez y bajo `:where(.sync-page)` —
@@ -29,7 +35,7 @@ const TAB_KEYS = ['historial', 'devoluciones', 'cola', 'estado'];
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   providers: [SyncStore],
-  imports: [CanWriteDirective, TabsComponent, SyncHistorialComponent, SyncDevolucionesComponent, SyncColaComponent],
+  imports: [NgTemplateOutlet, CanWriteDirective, TabsComponent, BottomSheetComponent, SyncHistorialComponent, SyncDevolucionesComponent, SyncColaComponent, SyncPhoneComponent],
   templateUrl: './sync.component.html',
   styleUrl: './sync.component.scss'
 })
@@ -41,6 +47,18 @@ export class SyncComponent implements OnInit {
   private readonly router = inject(Router);
 
   readonly activeTab = signal<string>('historial');
+
+  /**
+   * En el celular no hay pestañas: se muestra `zc-sync-phone` (lo que espera algo arriba, el
+   * historial abajo) y Estado va en una hoja que abre el engranaje. El escritorio no cambia.
+   */
+  readonly phone = mediaSignal(PHONE_QUERY);
+  readonly estadoOpen = signal(false);
+  /** El acceso directo "Devoluciones" del menú (`?tab=devoluciones`) abre el celu filtrado en eso. */
+  readonly phoneFocus = computed<SyncFocus | null>(() => {
+    const tab = this.activeTab();
+    return tab === 'devoluciones' ? 'returns' : tab === 'cola' ? 'queue' : null;
+  });
 
   readonly config = signal<SyncConfig | null>(null);
   readonly loading = signal(true);

@@ -6,7 +6,7 @@ import { PendingReturnRow, SyncService } from '../../../core/services/sync.servi
 import { PaginationComponent } from '../../../shared/components/pagination/pagination.component';
 import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
 import { SyncStore } from '../sync.store';
-import { errorMessage, formatDate } from '../sync.utils';
+import { errorMessage, formatDate, returnsFetchMessage } from '../sync.utils';
 
 /**
  * Pestaña Devoluciones: lo pendiente de confirmar (restaurar stock o descartar) y agregar una
@@ -69,13 +69,7 @@ export class SyncDevolucionesComponent implements OnInit {
     this.store.returnsCurrentPage.set(1);
     this.fetchReturnsMutation.mutate(undefined, {
       onSuccess: (r) => {
-        this.fetchResult.set(r.mlBusy
-          ? 'Mercado Libre está saturado en este momento. Probá de nuevo en un minuto.'
-          : r.created > 0 || r.skipped > 0
-            ? `Se revisaron ${r.claimsChecked} reclamos. Se agregaron ${r.created} ítems${r.skipped > 0 ? ` (${r.skipped} ya estaban)` : ''}.`
-            : r.claimsChecked === 0
-              ? 'No hay reclamos recientes con devolución en ML.'
-              : 'Lista actualizada.');
+        this.fetchResult.set(returnsFetchMessage(r));
       },
       onError: (e) => this.fetchResult.set(errorMessage(e, 'Error al actualizar.'))
     });

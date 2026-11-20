@@ -1,4 +1,4 @@
-import { Component, HostListener, inject, OnInit, OnDestroy } from '@angular/core';
+import { Component, HostListener, inject, OnInit, OnDestroy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
@@ -6,13 +6,25 @@ import { AuthService, AuthStatus } from '../../core/services/auth.service';
 import { SyncService } from '../../core/services/sync.service';
 import { SessionService } from '../../core/services/session.service';
 import { CanWriteDirective } from '../../shared/directives/can-write.directive';
+import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
+import { mediaSignal, PHONE_QUERY } from '../../shared/utils/media-signal';
+
+export type ChannelKey = 'ml' | 'tn';
+export type ChannelState = 'ok' | 'expired' | 'off';
+
+/** Un canal tal como lo muestra la lista del celular. */
+export interface ChannelView {
+  key: ChannelKey;
+  name: string;
+  state: ChannelState;
+}
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule],
+  imports: [CanWriteDirective, CommonModule, BottomSheetComponent],
   templateUrl: './dashboard.component.html',
-  styleUrl: './dashboard.component.scss'
+  styleUrls: ['./dashboard.component.scss', './dashboard-phone.scss']
 })
 export class DashboardComponent implements OnInit, OnDestroy {
   status: AuthStatus | null = null;
@@ -24,6 +36,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
   disconnectingTN = false;
   private navSub: unknown;
   readonly session = inject(SessionService);
+
+  /** En el celular: lista tipo Ajustes (un canal por fila) y hojas; el escritorio no cambia. */
+  readonly phone = mediaSignal(PHONE_QUERY);
+  /** Hoja abierta en el celular: un canal conectado o "Sincronizar precios". */
+  readonly sheet = signal<ChannelKey | 'sync' | null>(null);
+  /** Desconectar pide confirmar en la hoja: se corta la sincronización de stock. */
+  readonly confirmDisconnect = signal(false);
 
   constructor(
     private auth: AuthService,
@@ -94,6 +113,47 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.error = 'No se pudo conectar con el backend. Revisá que la URL del backend esté bien configurada y que el servicio esté en línea.';
       }
     });
+  }
+
+  channels(): ChannelView[] {
+    const s = this.status;
+    if (!s) return [];
+    const state = (on: boolean, expired?: boolean): ChannelState => (on ? 'ok' : expired ? 'expired' : 'off');
+    return [
+      { key: 'ml', name: 'Mercado Libre', state: state(s.mercadolibre, s.mercadolibreExpired) },
+      { key: 'tn', name: 'Tienda Nube', state: state(s.tiendanube, s.tiendanubeExpired) },
+    ];
+  }
+
+  channel(key: ChannelKey): ChannelView | undefined {
+    return this.channels().find(c => c.key === key);
+  }
+
+  openSheet(key: ChannelKey | 'sync') {
+    this.confirmDisconnect.set(false);
+    this.sheet.set(key);
+  }
+
+  closeSheet() {
+    this.sheet.set(null);
+    this.confirmDisconnect.set(false);
+  }
+
+  connect(key: ChannelKey) {
+    if (key === 'ml') this.connectML(); else this.connectTN();
+  }
+
+  reconnect(key: ChannelKey) {
+    if (key === 'ml') this.reconnectML(); else this.reconnectTN();
+  }
+
+  disconnect(key: ChannelKey) {
+    this.closeSheet();
+    if (key === 'ml') this.disconnectML(); else this.disconnectTN();
+  }
+
+  isDisconnecting(key: ChannelKey): boolean {
+    return key === 'ml' ? this.disconnectingML : this.disconnectingTN;
   }
 
   connectML() {

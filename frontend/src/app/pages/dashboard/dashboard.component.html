@@ -1,4 +1,4 @@
-<div class="dashboard">
+<div class="dashboard" [class.is-phone]="phone()">
   <h1>Conexiones</h1>
   <p class="subtitle">Estado de la conexión con Mercado Libre y Tienda Nube.</p>
 
@@ -8,6 +8,115 @@
 
   @if (loading) {
     <p class="loading-msg">Cargando estado…</p>
+  } @else if (status && phone()) {
+    <div class="cx-h">Canales</div>
+    <div class="cx-list">
+      @for (c of channels(); track c.key) {
+        @if (c.state === 'ok') {
+          <button type="button" class="cx-row" (click)="openSheet(c.key)">
+            <span class="cx-logo {{ c.key }}">{{ c.key | uppercase }}</span>
+            <span class="cx-info">
+              <span class="cx-name">{{ c.name }}</span>
+              <span class="zc-badge ok"><i class="ti ti-check" aria-hidden="true"></i> Conectado</span>
+            </span>
+            <i class="ti ti-chevron-right cx-chev" aria-hidden="true"></i>
+          </button>
+        } @else {
+          <div class="cx-row">
+            <span class="cx-logo {{ c.key }}">{{ c.key | uppercase }}</span>
+            <span class="cx-info">
+              <span class="cx-name">{{ c.name }}</span>
+              @if (c.state === 'expired') {
+                <span class="zc-badge warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i> Sesión vencida</span>
+              } @else {
+                <span class="zc-badge err">Desconectado</span>
+              }
+            </span>
+            <ng-container *zcCanWrite>
+              @if (c.state === 'expired') {
+                <button type="button" class="cx-btn" (click)="reconnect(c.key)"><i class="ti ti-refresh" aria-hidden="true"></i> Reconectar</button>
+              } @else {
+                <button type="button" class="cx-btn" (click)="connect(c.key)"><i class="ti ti-plug" aria-hidden="true"></i> Conectar</button>
+              }
+            </ng-container>
+          </div>
+        }
+      }
+    </div>
+    <p class="cx-note" *zcCanWrite>
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      Al conectar se abre Mercado Libre o Tienda Nube; cuando termines, volvé a la app.
+    </p>
+
+    <div class="cx-h">Más</div>
+    <div class="cx-list">
+      @if (status.mercadolibre && status.tiendanube && session.isAdmin()) {
+        <button type="button" class="cx-row" (click)="openSheet('sync')">
+          <i class="ti ti-refresh cx-icon brand" aria-hidden="true"></i>
+          <span class="cx-info">
+            <span class="cx-name">Sincronizar todos los precios</span>
+            <span class="cx-sub">Manda el precio de cada canal a ML y a TN</span>
+          </span>
+          <i class="ti ti-chevron-right cx-chev" aria-hidden="true"></i>
+        </button>
+      }
+      <details class="cx-how">
+        <summary class="cx-row">
+          <i class="ti ti-help-circle cx-icon" aria-hidden="true"></i>
+          <span class="cx-info"><span class="cx-name">Cómo funciona</span></span>
+          <i class="ti ti-chevron-down cx-chev" aria-hidden="true"></i>
+        </summary>
+        <ul>
+          <li>Cada producto se une entre ML y TN por su <strong>SKU</strong>.</li>
+          <li>Cuando hay una venta en un canal, el hub descuenta el stock en el otro.</li>
+          <li>Cada canal tiene su propio precio; "Sincronizar precios" los manda a los dos.</li>
+        </ul>
+      </details>
+    </div>
+
+    @if (sheet(); as open) {
+      @if (open === 'sync') {
+        <zc-bottom-sheet title="Sincronizar precios" subtitle="Mercado Libre y Tienda Nube" (closed)="closeSheet()">
+          <p class="cx-explain"><i class="ti ti-info-circle" aria-hidden="true"></i> Manda los precios configurados en Productos a cada canal (ML y TN).</p>
+          <button type="button" class="zc-btn primary cx-full" (click)="syncAllPrices()" [disabled]="syncing">
+            <i class="ti ti-refresh" aria-hidden="true"></i> {{ syncing ? 'Sincronizando…' : 'Sincronizar todos los precios' }}
+          </button>
+          @if (syncResult && !syncing) {
+            <div class="sync-result">
+              @for (entry of syncResult | keyvalue; track entry.key) {
+                <div class="sync-row">
+                  <code>{{ entry.key }}</code>
+                  <span class="zc-badge" [class.ok]="entry.value.ml" [class.err]="!entry.value.ml">ML {{ entry.value.ml ? '✓' : '—' }}</span>
+                  <span class="zc-badge" [class.ok]="entry.value.tn" [class.err]="!entry.value.tn">TN {{ entry.value.tn ? '✓' : '—' }}</span>
+                </div>
+              }
+            </div>
+          }
+        </zc-bottom-sheet>
+      } @else if (channel(open)) {
+        @let c = channel(open)!;
+        <zc-bottom-sheet [title]="c.name" subtitle="Conectado" (closed)="closeSheet()">
+          <span sheet-lead class="cx-logo {{ c.key }}">{{ c.key | uppercase }}</span>
+          <p class="cx-explain">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            Las ventas de {{ c.name }} descuentan el stock en {{ c.key === 'ml' ? 'Tienda Nube' : 'Mercado Libre' }}. Si lo desconectás, eso se corta hasta que lo vuelvas a conectar.
+          </p>
+          <ng-container *zcCanWrite>
+            @if (confirmDisconnect()) {
+              <p class="cx-confirm">¿Desconectar {{ c.name }}?</p>
+              <div class="cx-btns">
+                <button type="button" class="zc-btn" (click)="confirmDisconnect.set(false)">Cancelar</button>
+                <button type="button" class="zc-btn cx-danger" [disabled]="isDisconnecting(c.key)" (click)="disconnect(c.key)">Desconectar</button>
+              </div>
+            } @else {
+              <button type="button" class="zc-btn cx-full cx-danger" (click)="confirmDisconnect.set(true)">
+                <i class="ti ti-plug-off" aria-hidden="true"></i> Desconectar
+              </button>
+            }
+          </ng-container>
+        </zc-bottom-sheet>
+      }
+    }
   } @else if (status) {
     <section class="connections">
       <h2>Canales</h2>

@@ -1,16 +1,23 @@
 <div class="sync-page">
 
-  <div class="page-header">
+  <div class="page-header" [class.ph-head]="phone()">
+    @if (!phone()) {
     <div class="page-header-main">
       <h1>Historial y cola</h1>
       <p class="page-desc">Cada venta en ML o TN descuenta el stock en la otra plataforma según el SKU vinculado.</p>
     </div>
+    }
     @if (config(); as config) {
       @if (config.hasDatabase && !loading()) {
         <span class="sync-status-badge" [class.active]="config.enabled" [class.inactive]="!config.enabled">
           <span class="status-dot"></span>
           {{ config.enabled ? 'Sync activa' : 'Sync inactiva' }}
         </span>
+      }
+      @if (phone() && !loading()) {
+        <button type="button" class="ph-estado" (click)="estadoOpen.set(true)" aria-label="Estado de la sincronización">
+          <i class="ti ti-settings" aria-hidden="true"></i>
+        </button>
       }
     }
   </div>
@@ -30,6 +37,13 @@
       </div>
     }
 
+    @if (phone()) {
+      @if (config.hasDatabase) {
+        <zc-sync-phone [initialFocus]="phoneFocus()" />
+      } @else {
+        <p class="muted">Configurá la base de datos para ver el historial, las devoluciones y la cola.</p>
+      }
+    } @else {
     <zc-tabs
       [tabs]="tabs()"
       [activeKey]="activeTab()"
@@ -38,7 +52,46 @@
 
     @switch (activeTab()) {
       @case ('estado') {
-        <div class="tab-panel">
+        <div class="tab-panel"><ng-container [ngTemplateOutlet]="estadoTpl" [ngTemplateOutletContext]="{ $implicit: config }" /></div>
+      }
+
+      @case ('devoluciones') {
+        @if (config.hasDatabase) {
+          <zc-sync-devoluciones />
+        } @else {
+          <div class="tab-panel"><p class="muted">Configurá la base de datos para gestionar devoluciones.</p></div>
+        }
+      }
+
+      @case ('cola') {
+        @if (config.hasDatabase) {
+          <zc-sync-cola />
+        } @else {
+          <div class="tab-panel"><p class="muted">Configurá la base de datos para ver la cola de actualizaciones.</p></div>
+        }
+      }
+
+      @case ('historial') {
+        @if (config.hasDatabase) {
+          <zc-sync-historial />
+        } @else {
+          <div class="tab-panel"><p class="muted">El historial se guarda cuando hay una base de datos configurada.</p></div>
+        }
+      }
+    }
+    }
+
+    @if (estadoOpen()) {
+      <zc-bottom-sheet title="Estado" subtitle="Sincronización y webhooks" (closed)="estadoOpen.set(false)">
+        <div class="ph-estado-body"><ng-container [ngTemplateOutlet]="estadoTpl" [ngTemplateOutletContext]="{ $implicit: config }" /></div>
+      </zc-bottom-sheet>
+    }
+
+  }
+  }
+</div>
+
+<ng-template #estadoTpl let-config>
 
           <div class="card">
             <div class="card-section-label">Sincronización automática</div>
@@ -76,34 +129,4 @@
             </div>
           </div>
 
-        </div>
-      }
-
-      @case ('devoluciones') {
-        @if (config.hasDatabase) {
-          <zc-sync-devoluciones />
-        } @else {
-          <div class="tab-panel"><p class="muted">Configurá la base de datos para gestionar devoluciones.</p></div>
-        }
-      }
-
-      @case ('cola') {
-        @if (config.hasDatabase) {
-          <zc-sync-cola />
-        } @else {
-          <div class="tab-panel"><p class="muted">Configurá la base de datos para ver la cola de actualizaciones.</p></div>
-        }
-      }
-
-      @case ('historial') {
-        @if (config.hasDatabase) {
-          <zc-sync-historial />
-        } @else {
-          <div class="tab-panel"><p class="muted">El historial se guarda cuando hay una base de datos configurada.</p></div>
-        }
-      }
-    }
-
-  }
-  }
-</div>
+</ng-template>
