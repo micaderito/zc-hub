@@ -64,20 +64,28 @@
   &.ordered { border-left-color: var(--brand); }
 }
 
-.dp-icon {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
+.dp-photo { position: relative; flex-shrink: 0; display: inline-flex; }
+.dp-thumb { --thumb-size: 48px; --thumb-radius: 11px; flex-shrink: 0; }
+.dp-mthumb { --thumb-size: 32px; --thumb-radius: 8px; flex-shrink: 0; }
+
+// Cantidad de modelos del pack, sobre la esquina de la foto (la de abajo es de la lupita).
+.dp-count {
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
   border-radius: 10px;
+  background: var(--surface);
+  border: 0.5px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: 0.66rem;
+  font-weight: 600;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
-  background: var(--warn-bg);
-  color: var(--warn);
-
-  &.out { background: var(--err-bg); color: var(--err); }
-  &.ordered { background: var(--brand-bg); color: var(--brand); }
+  pointer-events: none;
 }
 
 .dp-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }

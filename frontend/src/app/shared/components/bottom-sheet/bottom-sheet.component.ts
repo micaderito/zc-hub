@@ -4,6 +4,8 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
  * Hoja que sube desde abajo (celular). Encabezado con título/subtítulo y cruz; lo de adentro va por
  * content projection, y un `[sheet-lead]` opcional a la izquierda del título (ícono o foto).
  * Tocar el fondo o la cruz emite `closed`: quien la abre decide cuándo deja de renderizarla.
+ * Con `dialog`, fuera del celular (> 760px) se ve como un diálogo centrado: así el mismo contenido
+ * sirve en la tablet y la compu sin duplicar el formulario.
  */
 @Component({
   selector: 'zc-bottom-sheet',
@@ -25,10 +27,11 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
       <div class="bs-body"><ng-content /></div>
     </div>
   `,
-  host: { '(document:keydown.escape)': 'closed.emit()' },
+  host: { '(document:keydown.escape)': 'closed.emit()', '[class.as-dialog]': 'dialog()' },
 })
 export class BottomSheetComponent {
   readonly title = input.required<string>();
   readonly subtitle = input<string | null>(null);
+  readonly dialog = input(false);
   readonly closed = output<void>();
 }

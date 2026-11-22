@@ -355,66 +355,6 @@
     font-size: 0.68rem;
     color: var(--text-3);
   }
-
-  // ── Notificaciones ───────────────────────────────────────────────────────
-  .notif-list {
-    padding: 0.4rem;
-  }
-
-  .notif-row {
-    display: flex;
-    gap: 0.6rem;
-    padding: 0.6rem 0.65rem;
-    border-radius: var(--radius-md);
-
-    &.unread { background: var(--brand-bg); }
-  }
-
-  .unread-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--brand);
-    margin-top: 0.4rem;
-    flex-shrink: 0;
-
-    &.hidden { background: transparent; }
-  }
-
-  .notif-body { flex: 1; min-width: 0; }
-
-  .notif-title {
-    font-size: 0.8rem;
-    line-height: 1.35;
-  }
-
-  .notif-meta {
-    font-size: 0.7rem;
-    color: var(--text-3);
-    margin-top: 0.2rem;
-  }
-
-  .notif-actions {
-    display: flex;
-    gap: 0.3rem;
-    margin-top: 0.4rem;
-
-    button {
-      font-family: inherit;
-      font-size: 0.68rem;
-      background: none;
-      border: 0.5px solid var(--border);
-      color: var(--text-2);
-      border-radius: var(--radius-sm);
-      padding: 0.2rem 0.5rem;
-      cursor: pointer;
-
-      @include m.hover {
-        &:hover { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
-      }
-      @include m.touch { min-height: 40px; padding: 0 0.8rem; font-size: 0.78rem; }
-    }
-  }
 }
 
 // Aviso de que el armado del pedido se mudó a Pedidos (antes era la pestaña "Para reponer").
@@ -462,7 +402,6 @@
     .cell-actions.is-editing .zc-btn { flex: 1 1 0; }
     .icon-btn { gap: 0.35rem; padding: 0 0.8rem; font-family: inherit; font-size: 0.78rem; }
     .btn-txt { display: inline; }
-    .notif-actions { flex-wrap: wrap; }
   }
 }
 

@@ -1,0 +1,125 @@
+@let canWrite = !session.isReadOnly();
+<div class="sa-toolbar">
+  <zc-search-bar
+    class="sa-search"
+    [value]="search()"
+    (valueChange)="search.set($event)"
+    placeholder="Buscar producto, SKU o pack…"
+    ariaLabel="Buscar productos sin alerta"
+  />
+  @if (canWrite && filtered().length) {
+    <button type="button" class="sa-all" (click)="toggleAllFiltered()">
+      <i class="ti {{ allFilteredSelected() ? 'ti-square-check' : 'ti-checks' }}" aria-hidden="true"></i>
+      {{ allFilteredSelected() ? 'Destildar' : 'Tildar' }} {{ search().trim() ? 'los ' + filtered().length + ' que coinciden' : 'todos (' + filtered().length + ')' }}
+    </button>
+  }
+</div>
+
+@if (loading()) {
+  <p class="sa-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
+} @else if (filtered().length === 0) {
+  <p class="sa-empty">
+    @if (products().length === 0) {
+      Todos los productos coincidentes ya tienen una alerta configurada.
+    } @else {
+      Sin coincidencias para "{{ search() }}".
+    }
+  </p>
+} @else if (phone()) {
+  @if (canWrite) { <p class="sa-tip">Tocá los productos que quieras vigilar y configurales la alerta juntos.</p> }
+  <div class="sa-list">
+    @for (p of filtered(); track p.sku) {
+      <button type="button" class="sa-row" [class.on]="isSelected(p)" [disabled]="!canWrite" [attr.aria-pressed]="canWrite ? isSelected(p) : null" (click)="toggle(p)">
+        <zc-product-thumb class="sa-thumb" [src]="p.thumbnail" [title]="label(p)" [subtitle]="'SKU ' + p.sku" />
+        <span class="sa-info">
+          <span class="sa-title">{{ label(p) }}</span>
+          <span class="sa-sub">
+            <span><span class="stock-dot ml"></span>{{ p.stockMl ?? '—' }} <span class="stock-dot tn"></span>{{ p.stockTn ?? '—' }}</span>
+            <span class="sa-sku">{{ p.sku }}</span>
+            @if (p.pack) { <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ p.pack.name }}</span> }
+          </span>
+        </span>
+        @if (canWrite) {
+          <span class="sa-check" aria-hidden="true"><i class="ti ti-check"></i></span>
+        }
+      </button>
+    }
+  </div>
+} @else {
+  <div class="zc-card sa-table-wrap">
+    <table class="sa-table">
+      <thead>
+        <tr>
+          @if (canWrite) {
+            <th class="c-check">
+              <input type="checkbox" aria-label="Tildar todos los que se ven"
+                [checked]="allFilteredSelected()" [indeterminate]="someFilteredSelected() && !allFilteredSelected()"
+                (change)="toggleAllFiltered()" />
+            </th>
+          }
+          <th>Producto</th>
+          <th class="c-pack">Pack</th>
+          <th class="num">Stock ML</th>
+          <th class="num">Stock TN</th>
+          @if (canWrite) { <th></th> }
+        </tr>
+      </thead>
+      <tbody>
+        @for (p of filtered(); track p.sku) {
+          <tr [class.on]="isSelected(p)" [class.clickable]="canWrite" (click)="toggle(p)">
+            @if (canWrite) {
+              <td class="c-check">
+                <input type="checkbox" [attr.aria-label]="'Tildar ' + label(p)" [checked]="isSelected(p)"
+                  (click)="$event.stopPropagation()" (change)="toggle(p)" />
+              </td>
+            }
+            <td>
+              <div class="sa-prod">
+                <zc-product-thumb class="sa-thumb" [src]="p.thumbnail" [title]="label(p)" [subtitle]="'SKU ' + p.sku" />
+                <div class="sa-prod-text">
+                  <div class="sa-name">{{ label(p) }}</div>
+                  <div class="sa-sku">{{ p.sku }}</div>
+                </div>
+              </div>
+            </td>
+            <td class="c-pack">
+              @if (p.pack) {
+                <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ p.pack.name }}</span>
+              } @else {
+                <span class="sa-dim">—</span>
+              }
+            </td>
+            <td class="num">{{ p.stockMl ?? '—' }}</td>
+            <td class="num">{{ p.stockTn ?? '—' }}</td>
+            @if (canWrite) {
+              <td class="c-act">
+                <button type="button" class="zc-btn small" (click)="$event.stopPropagation(); configureOne(p)" [attr.aria-label]="'Configurar alerta para ' + label(p)">
+                  <i class="ti ti-bell-plus" aria-hidden="true"></i><span class="c-act-txt"> Configurar alerta</span>
+                </button>
+              </td>
+            }
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}
+
+<p class="sa-foot">
+  <i class="ti ti-info-circle" aria-hidden="true"></i>
+  Solo se listan productos con el mismo SKU coincidente en ML y TN — el mismo universo de "Vigilar productos" en Reglas.
+</p>
+
+@if (canWrite && selectedCount() > 0) {
+  <div class="sa-bar" role="region" aria-label="Productos tildados">
+    <span class="sa-bar-count"><b>{{ selectedCount() }}</b> {{ selectedCount() === 1 ? 'tildado' : 'tildados' }}</span>
+    <button type="button" class="sa-bar-clear" (click)="clearSelection()">Limpiar</button>
+    <button type="button" class="zc-btn primary sa-bar-go" (click)="configureSelected()">
+      <i class="ti ti-bell-plus" aria-hidden="true"></i> Configurar alerta
+    </button>
+  </div>
+}
+
+@if (target(); as t) {
+  <zc-threshold-sheet [target]="t" [dialog]="true" (saved)="onSaved()" (closed)="target.set(null)" />
+}

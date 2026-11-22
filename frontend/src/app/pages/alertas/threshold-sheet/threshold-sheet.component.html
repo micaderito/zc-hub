@@ -1,4 +1,20 @@
-<zc-bottom-sheet [title]="target().label" [subtitle]="subtitle()" (closed)="closed.emit()">
+<zc-bottom-sheet [title]="title()" [subtitle]="subtitle()" [dialog]="dialog()" (closed)="closed.emit()">
+  @if (leadThumb() !== undefined) {
+    <zc-product-thumb sheet-lead class="ts-lead" [src]="leadThumb()" [title]="title()" [subtitle]="subtitle()" />
+  }
+  @if (bulk(); as items) {
+    @if (items.length > 1) {
+      <ul class="ts-bulk">
+        @for (it of bulkPreview(); track it.sku) {
+          <li>
+            <zc-product-thumb class="ts-bulk-thumb" [src]="it.thumbnail" [title]="it.label" [subtitle]="'SKU ' + it.sku" />
+            <span>{{ it.label }}</span>
+          </li>
+        }
+        @if (bulkRest() > 0) { <li class="ts-bulk-more">y {{ bulkRest() }} más</li> }
+      </ul>
+    }
+  }
   @if (session.isReadOnly()) {
     <p class="ts-explain">
       <i class="ti ti-info-circle" aria-hidden="true"></i>
@@ -39,7 +55,7 @@
         </button>
       }
       <button type="button" class="ts-btn primary" [disabled]="busy()" (click)="save()">
-        {{ busy() ? 'Guardando…' : isNew() ? 'Crear alerta' : 'Guardar' }}
+        {{ busy() ? 'Guardando…' : (bulk()?.length ?? 0) > 1 ? 'Crear ' + bulk()!.length + ' alertas' : isNew() ? 'Crear alerta' : 'Guardar' }}
       </button>
     </div>
   }

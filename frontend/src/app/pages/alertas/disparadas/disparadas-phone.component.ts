@@ -6,6 +6,7 @@ import { StockAlertRule } from '../../../core/services/alerts.service';
 import { BottomSheetComponent } from '../../../shared/components/bottom-sheet/bottom-sheet.component';
 import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
 import { ThresholdSheetComponent, ThresholdTarget } from '../threshold-sheet/threshold-sheet.component';
+import { ProductThumbComponent } from '../../../shared/components/product-thumb/product-thumb.component';
 
 /** Sección de la lista por urgencia. Lo que ya está en un pedido pendiente va aparte, aunque esté en 0. */
 export type Bucket = 'out' | 'low' | 'ordered';
@@ -25,6 +26,19 @@ export function isActiveMember(m: CatalogMember): boolean {
   return m.alertState === 'out' || m.alertState === 'still-low';
 }
 
+/** Foto de la unidad: la del primer modelo con alerta que tenga foto, si no la de cualquiera. */
+export function unitThumb(u: CatalogUnit): string | null {
+  return u.members.find((m) => isActiveMember(m) && m.thumbnail)?.thumbnail
+    ?? u.members.find((m) => m.thumbnail)?.thumbnail
+    ?? null;
+}
+
+/** Todas las fotos de los modelos (sin repetir), para recorrerlas en el zoom: primero los con alerta. */
+export function unitPhotos(u: CatalogUnit): string[] {
+  const ordered = [...u.members.filter(isActiveMember), ...u.members.filter((m) => !isActiveMember(m))];
+  return [...new Set(ordered.map((m) => m.thumbnail).filter((t): t is string => !!t))];
+}
+
 /**
  * Disparadas en el celular: tres números arriba (se tocan para filtrar), la lista separada por
  * urgencia y una hoja con el detalle de cada unidad. Recibe la lista ya buscada/filtrada por
@@ -33,7 +47,7 @@ export function isActiveMember(m: CatalogMember): boolean {
 @Component({
   selector: 'zc-disparadas-phone',
   standalone: true,
-  imports: [DatePipe, RouterLink, BottomSheetComponent, CanWriteDirective, ThresholdSheetComponent],
+  imports: [DatePipe, RouterLink, BottomSheetComponent, CanWriteDirective, ThresholdSheetComponent, ProductThumbComponent],
   templateUrl: './disparadas-phone.component.html',
   styleUrl: './disparadas-phone.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -44,6 +58,8 @@ export class DisparadasPhoneComponent {
   readonly rules = input<StockAlertRule[]>([]);
 
   readonly buckets = BUCKETS;
+  readonly unitThumb = unitThumb;
+  readonly unitPhotos = unitPhotos;
   readonly bucketFilter = signal<Bucket | null>(null);
 
   readonly counts = computed(() => {
@@ -98,6 +114,7 @@ export class DisparadasPhoneComponent {
       stockMl: m.stockMl,
       stockTn: m.stockTn,
       threshold: m.threshold,
+      thumbnail: m.thumbnail ?? null,
       mutedUntil: this.rules().find((r) => r.sku === m.sku)?.mutedUntil ?? null,
     });
   }

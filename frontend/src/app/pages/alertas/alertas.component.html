@@ -29,134 +29,14 @@
   <!-- ══════════════════════════ Notificaciones ══════════════════════════ -->
   @if (activeTab() === 'notificaciones') {
     <div class="tab-panel">
-      <div class="toolbar">
-        <div class="seg">
-          <button type="button" [class.on]="notifUnreadOnly()" (click)="notifUnreadOnly.set(true)">Sin leer</button>
-          <button type="button" [class.on]="!notifUnreadOnly()" (click)="notifUnreadOnly.set(false)">Todas</button>
-        </div>
-        <div class="spacer"></div>
-        @if (unreadCount() > 0) {
-          <button type="button" class="zc-btn small" *zcCanWrite (click)="markAllNotificationsRead()">
-            <i class="ti ti-checks" aria-hidden="true"></i> Marcar todas como leídas
-          </button>
-        }
-      </div>
-
-      @if (notifications().length === 0) {
-        <p class="empty">No hay notificaciones{{ notifUnreadOnly() ? ' sin leer' : '' }}.</p>
-      } @else {
-        <div class="zc-card notif-list">
-          @for (n of notifications(); track n.id) {
-            <div class="notif-row" [class.unread]="!n.readAt">
-              <span class="unread-dot" [class.hidden]="!!n.readAt"></span>
-              <div class="notif-body">
-                <div class="notif-title">Quedan <b>{{ n.stockEffective }}</b> de <b>{{ n.productLabel ?? n.sku }}</b></div>
-                <div class="notif-meta">
-                  <span class="prod-sku">{{ n.sku }}</span>
-                  · umbral {{ n.threshold }}
-                  · {{ n.createdAt | date: 'dd/MM/yy HH:mm' }}
-                </div>
-                <div class="notif-actions" *zcCanWrite>
-                  @if (!n.readAt) {
-                    <button type="button" (click)="markNotificationRead(n.id)">Marcar leída</button>
-                  }
-                  <button type="button" (click)="muteFromNotification(n.sku)">Silenciar 7 días</button>
-                </div>
-              </div>
-            </div>
-          }
-        </div>
-      }
+      <zc-alertas-notificaciones />
     </div>
   }
 
   <!-- ══════════════════════════ Sin alertas ══════════════════════════ -->
   @if (activeTab() === 'sin-alertas') {
     <div class="tab-panel">
-      <div class="toolbar">
-        <zc-search-bar
-          class="restock-search"
-          [value]="unwatchedSearch()"
-          (valueChange)="unwatchedSearch.set($event)"
-          placeholder="Buscar producto, SKU o pack…"
-          ariaLabel="Buscar productos sin alerta"
-        />
-      </div>
-
-      @if (unwatchedLoading()) {
-        <p class="loading-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
-      } @else if (filteredUnwatched().length === 0) {
-        <p class="empty">
-          @if (unwatchedProducts().length === 0) {
-            Todos los productos coincidentes ya tienen una alerta configurada.
-          } @else {
-            Sin coincidencias para "{{ unwatchedSearch() }}".
-          }
-        </p>
-      } @else if (phone()) {
-        <div class="ph-list">
-          @for (p of filteredUnwatched(); track p.sku) {
-            <div class="ph-row">
-              <zc-product-thumb class="ph-thumb" [src]="p.thumbnail" [title]="p.productLabel ?? p.sku" [subtitle]="'SKU ' + p.sku" />
-              <div class="ph-info">
-                <div class="ph-title">{{ p.productLabel ?? p.sku }}</div>
-                <div class="ph-sub">
-                  <span><span class="stock-dot ml"></span>{{ p.stockMl ?? '—' }} <span class="stock-dot tn"></span>{{ p.stockTn ?? '—' }}</span>
-                  <span class="ph-sku">{{ p.sku }}</span>
-                  @if (p.pack) { <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ p.pack.name }}</span> }
-                </div>
-              </div>
-              <button type="button" class="ph-add" *zcCanWrite (click)="openNewRuleSheet(p)" [attr.aria-label]="'Crear alerta para ' + (p.productLabel ?? p.sku)">
-                <i class="ti ti-bell-plus" aria-hidden="true"></i>
-              </button>
-            </div>
-          }
-        </div>
-      } @else {
-        <div class="zc-card table-scroll">
-          <table class="zc-table">
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th>Pack</th>
-                <th class="num">Stock ML</th>
-                <th class="num">Stock TN</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (p of filteredUnwatched(); track p.sku) {
-                <tr>
-                  <td class="cell-main">
-                    <div class="prod-cell">
-                      <div class="prod-name">{{ p.productLabel ?? p.sku }}</div>
-                      <div class="prod-sku">{{ p.sku }}</div>
-                    </div>
-                  </td>
-                  <td data-label="Pack" class="cell-wide">
-                    @if (p.pack) {
-                      <span class="zc-badge"><i class="ti ti-stack-2" aria-hidden="true"></i> {{ p.pack.name }}</span>
-                    } @else {
-                      <span class="hint">—</span>
-                    }
-                  </td>
-                  <td class="num" data-label="Stock ML">{{ p.stockMl ?? '—' }}</td>
-                  <td class="num" data-label="Stock TN">{{ p.stockTn ?? '—' }}</td>
-                  <td class="actions-cell cell-actions">
-                    <button type="button" class="zc-btn small" *zcCanWrite (click)="configureAlert(p)">
-                      <i class="ti ti-bell-plus" aria-hidden="true"></i> Configurar alerta
-                    </button>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-      }
-      <p class="hint footnote">
-        <i class="ti ti-info-circle" aria-hidden="true"></i>
-        Solo se listan productos con el mismo SKU coincidente en ML y TN — el mismo universo de "Vigilar productos" en Reglas.
-      </p>
+      <zc-alertas-sin-alerta [products]="unwatchedProducts()" [loading]="unwatchedLoading()" />
     </div>
   }
 

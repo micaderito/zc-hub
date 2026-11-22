@@ -1,0 +1,71 @@
+@let canWrite = !session.isReadOnly();
+<div class="nt-toolbar">
+  <div class="nt-seg" role="group" aria-label="Qué notificaciones ver">
+    <button type="button" [class.on]="unreadOnly()" [attr.aria-pressed]="unreadOnly()" (click)="unreadOnly.set(true)">
+      Sin leer @if (unreadCount()) { <span class="nt-count">{{ unreadCount() }}</span> }
+    </button>
+    <button type="button" [class.on]="!unreadOnly()" [attr.aria-pressed]="!unreadOnly()" (click)="unreadOnly.set(false)">Todas</button>
+  </div>
+  @if (canWrite && unreadCount() > 0) {
+    <button type="button" class="nt-all" (click)="markAllRead()">
+      <i class="ti ti-checks" aria-hidden="true"></i> Marcar todas como leídas
+    </button>
+  }
+</div>
+
+@if (query.isLoading()) {
+  <p class="nt-msg"><i class="ti ti-loader-2" aria-hidden="true"></i> Cargando…</p>
+} @else if (notifications().length === 0) {
+  <div class="nt-empty">
+    <i class="ti ti-bell-check" aria-hidden="true"></i>
+    <p>No hay notificaciones{{ unreadOnly() ? ' sin leer' : '' }}.</p>
+  </div>
+} @else {
+  @for (g of groups(); track g.day) {
+    <div class="nt-day">{{ g.day }}</div>
+    <div class="nt-list">
+      @for (n of g.items; track n.id) {
+        @let st = nowState(n);
+        <article class="nt-item" [class.unread]="!n.readAt">
+          <span class="nt-photo">
+            <zc-product-thumb class="nt-thumb" [src]="n.thumbnail" [title]="label(n)" [subtitle]="'SKU ' + n.sku" />
+            @if (!n.readAt) { <span class="nt-dot" aria-label="Sin leer"></span> }
+          </span>
+
+          <div class="nt-body">
+            <div class="nt-title">{{ label(n) }}</div>
+            <div class="nt-line">
+              <span class="nt-was" [class.err]="n.stockEffective <= 0">
+                {{ n.stockEffective <= 0 ? 'Se quedó sin stock' : 'Quedaban ' + n.stockEffective }}
+              </span>
+              <span class="nt-meta">umbral {{ n.threshold }} · {{ n.createdAt | date: 'HH:mm' }}</span>
+            </div>
+            <div class="nt-line">
+              @if (st) {
+                <span class="nt-now {{ st.cls }}"><i class="ti {{ st.icon }}" aria-hidden="true"></i> {{ st.text }}</span>
+              }
+              <span class="nt-sku">{{ n.sku }}</span>
+            </div>
+          </div>
+
+          @if (canWrite) {
+            <div class="nt-actions">
+              @if (!n.readAt) {
+                <button type="button" class="nt-btn" [disabled]="busyId() === n.id" (click)="markRead(n)" aria-label="Marcar como leída" title="Marcar como leída">
+                  <i class="ti ti-check" aria-hidden="true"></i><span class="nt-btn-txt">Leída</span>
+                </button>
+              }
+              @if (mutedSkus().has(n.sku)) {
+                <span class="nt-muted"><i class="ti ti-bell-off" aria-hidden="true"></i><span class="nt-btn-txt">Silenciada</span></span>
+              } @else {
+                <button type="button" class="nt-btn" [disabled]="busyId() === n.id" (click)="mute(n)" aria-label="Silenciar 7 días" title="Silenciar 7 días">
+                  <i class="ti ti-bell-off" aria-hidden="true"></i><span class="nt-btn-txt">Silenciar 7 días</span>
+                </button>
+              }
+            </div>
+          }
+        </article>
+      }
+    </div>
+  }
+}

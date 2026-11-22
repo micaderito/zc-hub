@@ -14,7 +14,10 @@
   </div>
   @for (u of s.units; track u.key) {
     <button type="button" class="dp-card {{ s.key }}" (click)="open(u)">
-      <span class="dp-icon {{ s.key }}"><i class="ti {{ isMulti(u) ? 'ti-stack-2' : 'ti-box' }}" aria-hidden="true"></i></span>
+      <span class="dp-photo">
+        <zc-product-thumb class="dp-thumb" [src]="unitThumb(u)" [photos]="unitPhotos(u)" [title]="title(u)" [subtitle]="subtitle(u)" [placeholderIcon]="isMulti(u) ? 'ti-stack-2' : 'ti-box'" />
+        @if (isMulti(u)) { <span class="dp-count" aria-hidden="true">{{ u.members.length }}</span> }
+      </span>
       <span class="dp-info">
         <span class="dp-title">{{ title(u) }}</span>
         @if (isMulti(u)) {
@@ -44,7 +47,7 @@
 
 @if (openUnit(); as u) {
   <zc-bottom-sheet [title]="title(u)" [subtitle]="subtitle(u)" (closed)="close()">
-    <span sheet-lead class="dp-icon {{ bucket(u) }}"><i class="ti {{ isMulti(u) ? 'ti-stack-2' : 'ti-box' }}" aria-hidden="true"></i></span>
+    <zc-product-thumb sheet-lead class="dp-thumb" [src]="unitThumb(u)" [photos]="unitPhotos(u)" [title]="title(u)" [subtitle]="subtitle(u)" [placeholderIcon]="isMulti(u) ? 'ti-stack-2' : 'ti-box'" />
 
     <div class="dp-stats">
       <div class="dp-stat">
@@ -67,6 +70,7 @@
     <div class="dp-members">
       @for (m of ms.shown; track m.sku) {
         <button type="button" class="dp-member" [class.dim]="stateClass(m) === 'plain'" (click)="editThreshold(m)">
+          <zc-product-thumb class="dp-mthumb" [src]="m.thumbnail" [title]="m.label" [subtitle]="'SKU ' + m.sku" />
           <span class="zc-badge {{ stateClass(m) }} dp-num">{{ m.stockEffective ?? '—' }}</span>
           <span class="dp-mname">{{ m.label }}<small>{{ m.sku }}</small></span>
           <span class="dp-mstock"><span class="stock-dot ml"></span>{{ m.stockMl ?? '—' }} <span class="stock-dot tn"></span>{{ m.stockTn ?? '—' }}@if (m.threshold !== null) { · ≤ {{ m.threshold }} }</span>

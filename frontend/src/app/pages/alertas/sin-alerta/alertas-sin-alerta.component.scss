@@ -1,0 +1,225 @@
+@use 'mobile' as m;
+
+:host { display: block; }
+
+.sa-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.sa-search { flex: 1 1 240px; max-width: 320px; }
+
+.sa-all {
+  font: inherit;
+  font-size: 0.76rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  i { color: var(--brand); font-size: 1rem; }
+  @include m.hover { &:hover { border-color: var(--border-strong); color: var(--text); } }
+  @include m.touch { min-height: 40px; }
+}
+
+.sa-msg, .sa-empty { font-size: 0.82rem; color: var(--text-2); }
+.sa-msg { display: flex; align-items: center; gap: 0.4rem; }
+.sa-empty { padding: 1.5rem 0; text-align: center; }
+
+.sa-foot {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+
+.stock-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  margin-right: 3px;
+  &.ml { background: var(--ml); }
+  &.tn { background: var(--tn); }
+}
+
+.sa-thumb { --thumb-size: 40px; --thumb-radius: 9px; flex-shrink: 0; }
+.sa-sku { font-size: 0.7rem; color: var(--text-3); }
+.sa-dim { color: var(--text-3); }
+
+// ── Tabla (tablet y compu) ──
+.sa-table-wrap { overflow-x: auto; padding: 0; }
+
+.sa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+
+  th, td {
+    padding: 0.5rem 0.65rem;
+    text-align: left;
+    border-bottom: 0.5px solid var(--border);
+    vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+
+  th {
+    font-size: 0.64rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .c-check { width: 36px; padding-right: 0; }
+  .c-check input { width: 16px; height: 16px; accent-color: var(--brand); cursor: pointer; }
+  .c-act { text-align: right; white-space: nowrap; }
+  .c-pack .zc-badge { white-space: nowrap; }
+
+  tr.clickable { cursor: pointer; }
+  tr.on td { background: var(--brand-bg); }
+  @include m.hover { tr.clickable:not(.on):hover td { background: var(--surface-2); } }
+}
+
+.sa-prod { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+.sa-prod-text { min-width: 0; }
+.sa-name { font-weight: 500; line-height: 1.3; }
+
+// Tablet: la columna Pack y el texto del botón se van; el ícono alcanza (tiene aria-label).
+@include m.tablet-down {
+  .sa-table {
+    .c-pack { display: none; }
+    .c-act-txt { display: none; }
+    .c-check input { width: 20px; height: 20px; }
+  }
+}
+
+// ── Lista (celular) ──
+.sa-tip { margin: 0 2px 8px; font-size: 0.74rem; color: var(--text-3); }
+
+.sa-list {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.sa-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 62px;
+  padding: 10px 12px;
+  border: none;
+  border-top: 0.5px solid var(--border);
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+
+  &:first-child { border-top: none; }
+  &:disabled { cursor: default; opacity: 1; }
+  &.on { background: var(--brand-bg); }
+}
+
+.sa-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.sa-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sa-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.74rem;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.sa-check {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  font-size: 0.9rem;
+
+  .sa-row.on & { background: var(--brand); border-color: var(--brand); color: var(--brand-contrast); }
+}
+
+// ── Barra de la selección ──
+.sa-bar {
+  position: sticky;
+  bottom: calc(var(--zc-tabbar-h, 0px) + 12px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.6rem 0.55rem 0.9rem;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 0.5px solid var(--border-strong);
+  box-shadow: 0 8px 24px rgba(10, 12, 20, 0.16);
+  font-size: 0.82rem;
+
+  b { font-variant-numeric: tabular-nums; }
+}
+
+.sa-bar-count { color: var(--text-2); b { color: var(--text); } }
+
+.sa-bar-clear {
+  font: inherit;
+  font-size: 0.78rem;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.3rem;
+}
+
+.sa-bar-go { margin-left: auto; }
+
+@include m.phone {
+  .sa-search { flex: 1 1 100%; max-width: none; }
+  .sa-all { flex: 1 1 100%; justify-content: center; }
+
+  // En el celu la barra va fija arriba de las pestañas de abajo, como un botón flotante.
+  .sa-bar {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--zc-tabbar-h, 0px) + 10px);
+    z-index: 20;
+    margin: 0;
+    padding: 8px 8px 8px 14px;
+    border-radius: 14px;
+  }
+  .sa-bar-go { min-height: 44px; }
+  // Lugar para que la barra fija no tape la última fila.
+  .sa-foot { margin-bottom: 76px; }
+}
