@@ -115,3 +115,26 @@
   font-size: 0.82rem;
   color: var(--text-2);
 }
+
+.ts-lead { --thumb-size: 40px; --thumb-radius: 10px; flex-shrink: 0; }
+
+// Alta en masa: los productos que se van a vigilar.
+.ts-bulk {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 4px 0;
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 5px 10px;
+    font-size: 0.82rem;
+    span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
+  .ts-bulk-more { color: var(--text-3); font-size: 0.76rem; padding-left: 12px; }
+}
+
+.ts-bulk-thumb { --thumb-size: 28px; --thumb-radius: 7px; flex-shrink: 0; }

@@ -716,7 +716,18 @@ link (`/alertas?tab=reponer` redirige a `/pedidos`). Diseño: `docs/plans/2026-1
   abre `zc-threshold-sheet` (crear/cambiar/silenciar/quitar). "Vigilar productos" va en una hoja,
   Notificaciones sale de las pestañas (está en la campanita de arriba) y el aviso de Pedidos no se
   muestra. Se elige con `mediaSignal(PHONE_QUERY)` (`shared/utils/media-signal.ts`), no con CSS: el
-  escritorio no cambia. Ojo en los specs: el navegador de Karma es más angosto que 760px, así que un
+  escritorio no cambia.
+  **Fotos, Notificaciones y alta en masa** (2026-11-22). Disparadas muestra la foto real de cada
+  producto con `<zc-product-thumb>` (celu, tablet y compu): el catálogo de Pedidos ahora trae
+  `members[].thumbnail` (`buildThumbBySku` en alertsService, de la foto del catálogo, ML primero); la
+  de un pack es la del primer modelo con alerta y el zoom recorre las de todos (`unitThumb`/`unitPhotos`).
+  **Notificaciones** (`notificaciones/`) agrupa por día y cada aviso trae foto, con cuánto avisó y cómo
+  está HOY (sin stock / quedan N / repuesto): pide `GET /alerts/notifications?enrich=1` con su propia
+  clave de caché. `enrich` es opt-in a propósito: lee el snapshot entero (egress) y la campanita sondea
+  cada minuto sin él. **Sin alertas** (`sin-alerta/`): se tildan varios (tabla con tildes en tablet y
+  compu, filas que se tocan en el celu) y "Configurar alerta" les crea la misma regla de una
+  (`zc-threshold-sheet` con `items`). Esa hoja, con `dialog`, es un diálogo centrado fuera del celu
+  (`zc-bottom-sheet` acepta `[dialog]`). Ojo en los specs: el navegador de Karma es más angosto que 760px, así que un
   spec que espera la tabla tiene que mockear `matchMedia` (ver `alertas-disparadas.component.spec.ts`).
 - **Siempre se pide por pack.** La unidad es el pack del hub; un SKU sin pack se pide por el bulto de
   Precios (`product_costs.bulk_qty`, 1 si no hay). Un pack surtido muestra TODOS sus modelos aunque

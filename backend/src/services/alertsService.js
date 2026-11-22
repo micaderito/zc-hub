@@ -40,6 +40,17 @@ export function buildStockBySku(snapshotData) {
   return map;
 }
 
+/**
+ * Map<sku, url> con la miniatura de cada SKU sacada del snapshot (la de ML primero, si no la de TN).
+ * Sin requests extra: la foto ya viene en la foto del catálogo.
+ */
+export function buildThumbBySku(snapshotData) {
+  const map = new Map();
+  for (const r of snapshotData?.mlRows || []) if (r.sku && r.thumbnail && !map.has(r.sku)) map.set(r.sku, r.thumbnail);
+  for (const r of snapshotData?.tnRows || []) if (r.sku && r.thumbnail && !map.has(r.sku)) map.set(r.sku, r.thumbnail);
+  return map;
+}
+
 /** min(ML, TN); si falta uno de los dos, vale el otro; `null` si el SKU no está en ninguno. */
 export function effectiveStock(entry) {
   if (!entry) return null;
@@ -174,12 +185,33 @@ export async function getUnwatchedProducts() {
 }
 
 /** Bandeja de notificaciones (pestaña Notificaciones + cajón lateral) con el contador de no leídas. */
-export async function getNotificationsInbox({ unreadOnly = false, limit = 50, offset = 0 } = {}) {
-  const [{ rows, total }, unreadCount] = await Promise.all([
+/**
+ * Bandeja de notificaciones (pestaña Notificaciones + cajón lateral) con el contador de no leídas.
+ *
+ * Con `enrich` cada aviso suma la foto del producto y el stock de AHORA (para mostrar si ya se
+ * repuso). Es opcional a propósito: leer el snapshot es leerlo entero de Postgres (egress), y la
+ * campanita sondea cada minuto sin necesitar nada de esto — solo lo pide la página de Alertas.
+ */
+export async function getNotificationsInbox({ unreadOnly = false, limit = 50, offset = 0, enrich = false } = {}) {
+  const [{ rows, total }, unreadCount, snap] = await Promise.all([
     listStockNotifications({ unreadOnly, limit, offset }),
     countUnreadNotifications(),
+    enrich ? getAnalysisSnapshot() : null,
   ]);
-  return { notifications: rows, total, unreadCount };
+  if (!enrich) return { notifications: rows, total, unreadCount };
+  const stockBySku = buildStockBySku(snap?.data);
+  const thumbBySku = buildThumbBySku(snap?.data);
+  const notifications = rows.map((n) => {
+    const entry = stockBySku.get(n.sku);
+    return {
+      ...n,
+      thumbnail: thumbBySku.get(n.sku) ?? null,
+      stockNowMl: entry?.ml ?? null,
+      stockNowTn: entry?.tn ?? null,
+      stockNow: effectiveStock(entry),
+    };
+  });
+  return { notifications, total, unreadCount };
 }
 
 /**

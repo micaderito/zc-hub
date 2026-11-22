@@ -44,6 +44,11 @@ export interface StockNotification {
   stockEffective: number;
   readAt: string | null;
   createdAt: string;
+  /** Solo con `enrich`: foto del producto y stock de AHORA (para saber si ya se repuso). */
+  thumbnail?: string | null;
+  stockNowMl?: number | null;
+  stockNowTn?: number | null;
+  stockNow?: number | null;
 }
 
 export interface NotificationsInbox {
@@ -108,15 +113,17 @@ export class AlertsService {
     this.invalidateAll();
   }
 
-  getNotifications(opts?: { unreadOnly?: boolean; limit?: number; offset?: number }): Observable<NotificationsInbox> {
+  /** `enrich` suma foto y stock de ahora (lee el snapshot: solo la página de Alertas, no la campanita que sondea). */
+  getNotifications(opts?: { unreadOnly?: boolean; limit?: number; offset?: number; enrich?: boolean }): Observable<NotificationsInbox> {
     let params = new HttpParams();
+    if (opts?.enrich) params = params.set('enrich', '1');
     if (opts?.unreadOnly) params = params.set('unread', '1');
     if (opts?.limit != null) params = params.set('limit', String(opts.limit));
     if (opts?.offset != null) params = params.set('offset', String(opts.offset));
     return this.http.get<NotificationsInbox>(`${this.api.baseUrl}/alerts/notifications`, { params });
   }
 
-  getNotificationsPromise(opts?: { unreadOnly?: boolean; limit?: number; offset?: number }): Promise<NotificationsInbox> {
+  getNotificationsPromise(opts?: { unreadOnly?: boolean; limit?: number; offset?: number; enrich?: boolean }): Promise<NotificationsInbox> {
     return lastValueFrom(this.getNotifications(opts));
   }
 

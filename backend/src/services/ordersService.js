@@ -16,7 +16,7 @@ import {
   placeSupplierOrder, receiveSupplierOrder, deleteSupplierOrderDraft,
   getOrderDefaults, setOrderDefaults, setRestockCutoff, listSuppliers, listProductSuppliers,
 } from '../db.js';
-import { buildStockBySku, effectiveStock, computeShortfall } from './alertsService.js';
+import { buildStockBySku, buildThumbBySku, effectiveStock, computeShortfall } from './alertsService.js';
 import { buildDiscountContext, suppliersOf } from '../lib/discountResolver.js';
 
 const ACTIVE_ALERT_STATES = new Set(['still-low', 'out']);
@@ -228,6 +228,7 @@ export function buildCatalog({
 }) {
   const stockBySku = buildStockBySku(snapshotData);
   const labelBySku = buildLabelBySku(snapshotData);
+  const thumbBySku = buildThumbBySku(snapshotData);
   const costsBySku = new Map(costs.map((c) => [c.sku, c]));
   const skuCodeBySku = new Map(skuCodeMap.map((m) => [m.sku, m.code]));
   const packCodeById = new Map(packCodeMap.map((m) => [m.packId, m.code]));
@@ -241,6 +242,7 @@ export function buildCatalog({
     return {
       sku,
       label: labelBySku.get(sku) ?? rule?.productLabel ?? sku,
+      thumbnail: thumbBySku.get(sku) ?? null,
       stockMl: entry?.ml ?? null,
       stockTn: entry?.tn ?? null,
       stockEffective,

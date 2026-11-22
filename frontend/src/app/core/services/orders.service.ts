@@ -73,6 +73,8 @@ export type MemberAlertState = 'still-low' | 'out' | 'restocked' | 'unknown' | '
 export interface CatalogMember {
   sku: string;
   label: string;
+  /** Miniatura del producto (la de la foto del catálogo: ML primero, si no TN). */
+  thumbnail?: string | null;
   stockMl: number | null;
   stockTn: number | null;
   stockEffective: number | null;

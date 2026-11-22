@@ -109,4 +109,43 @@ describe('ThresholdSheetComponent', () => {
     expect(text).toContain('Avisa cuando queden 3 o menos');
     expect(fixture.nativeElement.querySelector('.ts-btn')).toBeNull();
   });
+
+  describe('en masa (items)', () => {
+    const items = [
+      { sku: 'A', label: 'Cuaderno A5', thumbnail: 'https://ml/a-I.jpg' },
+      { sku: 'B', label: 'Cuaderno A4', thumbnail: null },
+      { sku: 'C', label: 'Repuesto', thumbnail: null },
+    ];
+
+    it('crea la misma alerta para todos, avisa con `saved` y cierra', async () => {
+      create(target({ sku: '', label: '', threshold: null, items }));
+      let saved = 0;
+      component.saved.subscribe(() => saved++);
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Alerta para 3 productos');
+      expect(text).toContain('Crear 3 alertas');
+      expect(text).not.toContain('Quitar');
+      component.value.set(5);
+      await component.save();
+      expect(alerts.saveRule.calls.allArgs()).toEqual([['A', 5, 'Cuaderno A5'], ['B', 5, 'Cuaderno A4'], ['C', 5, 'Repuesto']]);
+      expect(saved).toBe(1);
+      expect(closed).toBe(1);
+    });
+
+    it('con uno solo muestra su nombre y su foto', () => {
+      create(target({ sku: '', label: '', threshold: null, items: [items[0]] }));
+      expect(component.title()).toBe('Cuaderno A5');
+      expect(component.subtitle()).toBe('A');
+      expect(component.leadThumb()).toBe('https://ml/a-I.jpg');
+      expect(fixture.nativeElement.textContent).toContain('Crear alerta');
+    });
+
+    it('si falla alguna no cierra y lo dice', async () => {
+      create(target({ sku: '', label: '', threshold: null, items }));
+      alerts.saveRule.and.rejectWith(new Error(''));
+      await component.save();
+      expect(closed).toBe(0);
+      expect(component.error()).toContain('algunas alertas');
+    });
+  });
 });

@@ -8,7 +8,8 @@ import { matchSearchByTokens } from '../../../core/services/conflicts.service';
 import { SearchBarComponent } from '../../../shared/components/search-bar/search-bar.component';
 import { CanWriteDirective } from '../../../shared/directives/can-write.directive';
 import { PHONE_QUERY, mediaSignal } from '../../../shared/utils/media-signal';
-import { DisparadasPhoneComponent } from './disparadas-phone.component';
+import { DisparadasPhoneComponent, unitPhotos, unitThumb } from './disparadas-phone.component';
+import { ProductThumbComponent } from '../../../shared/components/product-thumb/product-thumb.component';
 
 /** Filtro de proveedor: `''` = todos, `'none'` = sin proveedor, o la clave de uno. */
 type SupplierFilter = string;
@@ -22,7 +23,7 @@ type SupplierFilter = string;
 @Component({
   selector: 'zc-alertas-disparadas',
   standalone: true,
-  imports: [DatePipe, FormsModule, RouterLink, SearchBarComponent, CanWriteDirective, DisparadasPhoneComponent],
+  imports: [DatePipe, FormsModule, RouterLink, SearchBarComponent, CanWriteDirective, DisparadasPhoneComponent, ProductThumbComponent],
   templateUrl: './alertas-disparadas.component.html',
   styleUrl: './alertas-disparadas.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -36,6 +37,8 @@ export class AlertasDisparadasComponent {
 
   /** En el celular la tabla se reemplaza por la lista por urgencia (`zc-disparadas-phone`). */
   readonly phone = mediaSignal(PHONE_QUERY);
+  readonly unitThumb = unitThumb;
+  readonly unitPhotos = unitPhotos;
 
   readonly search = signal('');
   readonly supplierFilter = signal<SupplierFilter>('');
