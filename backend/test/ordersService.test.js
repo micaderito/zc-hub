@@ -65,7 +65,7 @@ test('buildCatalog: packs con todos sus modelos + SKUs sueltos por bulto, con cÃ
     packs: [PACK_CI],
     snapshotData: {
       mlRows: [
-        { sku: 'CI-1', title: 'Cuaderno A5', variationName: 'rayado', stock: 0 },
+        { sku: 'CI-1', title: 'Cuaderno A5', variationName: 'rayado', thumbnail: 'https://ml/ci1-I.jpg', stock: 0 },
         { sku: 'CI-2', title: 'Cuaderno A4', variationName: null, stock: 6 },
         { sku: 'CI-3', title: 'Cuaderno A5 liso', variationName: null, stock: 7 },
         { sku: 'LG', title: 'Lapicera gel', variationName: null, stock: 4 },
@@ -90,6 +90,8 @@ test('buildCatalog: packs con todos sus modelos + SKUs sueltos por bulto, con cÃ
   assert.equal(ci.depositoStock, 8);
   assert.equal(ci.suggestedQty, 1); // falta 2 de CI-1, 8/3 â†’ 2 por modelo â†’ 1 pack
   assert.equal(ci.members[0].label, 'Cuaderno A5 (rayado)');
+  assert.equal(ci.members[0].thumbnail, 'https://ml/ci1-I.jpg', 'la foto del snapshot');
+  assert.equal(ci.members[1].thumbnail, null);
 
   const lg = units.find((u) => u.key === 'sku:LG');
   assert.equal(lg.unitsPerPack, 12, 'sin pack se pide por el bulto de Precios');

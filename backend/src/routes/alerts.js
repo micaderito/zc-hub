@@ -75,13 +75,14 @@ alertsRoutes.post('/:sku/mute', async (req, res) => {
   }
 });
 
-/** Bandeja de notificaciones (pestaña Notificaciones + cajón lateral). ?unread=1&limit=&offset= */
+/** Bandeja de notificaciones (pestaña Notificaciones + cajón lateral). ?unread=1&limit=&offset=&enrich=1 (foto + stock de ahora) */
 alertsRoutes.get('/notifications', async (req, res) => {
   try {
     const inbox = await getNotificationsInbox({
       unreadOnly: req.query.unread === '1' || req.query.unread === 'true',
       limit: Math.min(Number(req.query.limit) || 50, 200),
       offset: Number(req.query.offset) || 0,
+      enrich: req.query.enrich === '1',
     });
     res.json(inbox);
   } catch (e) {

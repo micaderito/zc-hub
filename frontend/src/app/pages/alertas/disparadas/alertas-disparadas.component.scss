@@ -31,8 +31,11 @@
     &.open { transform: rotate(90deg); }
   }
 
-  .pack-icon { color: var(--brand); }
-  .box-icon { color: var(--text-3); margin-left: 1.15rem; }
+  .unit-thumb { --thumb-size: 40px; --thumb-radius: 9px; }
+  // Sin caret (no es pack): se corre para quedar alineado con las fotos de los packs.
+  .thumb-slot { display: inline-flex; flex-shrink: 0; }
+  .thumb-slot.solo { margin-left: 1.15rem; }
+  .member-thumb { --thumb-size: 30px; --thumb-radius: 7px; }
   .strong { font-weight: 500; }
 
   .unit-summary {
@@ -63,6 +66,6 @@
     td .hint, td .zc-badge { white-space: normal; }
     tr.member { margin-left: 1rem; }
     tr.member td:first-child { padding-left: 0; }
-    .box-icon { margin-left: 0; }
+    .thumb-slot.solo { margin-left: 0; }
   }
 }

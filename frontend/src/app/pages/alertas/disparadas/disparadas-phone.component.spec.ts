@@ -5,7 +5,7 @@ import { QueryClient } from '@tanstack/angular-query-experimental';
 import { AlertsService } from '../../../core/services/alerts.service';
 import { CatalogMember, CatalogUnit } from '../../../core/services/orders.service';
 import { SessionService } from '../../../core/services/session.service';
-import { DisparadasPhoneComponent, bucketOf } from './disparadas-phone.component';
+import { DisparadasPhoneComponent, bucketOf, unitPhotos, unitThumb } from './disparadas-phone.component';
 
 const member = (over: Partial<CatalogMember> = {}): CatalogMember => ({
   sku: 'A', label: 'Cuaderno A5', stockMl: 1, stockTn: 2, stockEffective: 1, depositoStock: null, threshold: 3, alertState: 'still-low', ...over,
@@ -94,5 +94,27 @@ describe('DisparadasPhoneComponent', () => {
     fixture.detectChanges();
     expect(component.thresholdTarget()).toEqual(jasmine.objectContaining({ sku: 'L', threshold: 3, mutedUntil: '2099-01-01' }));
     expect(fixture.nativeElement.querySelector('zc-threshold-sheet')).not.toBeNull();
+  });
+
+  it('muestra la foto real del producto (con zoom), no un ícono', () => {
+    const withPhoto = unit({ members: [member({ thumbnail: 'https://ml/a-I.jpg' })] });
+    fixture.componentRef.setInput('units', [withPhoto]);
+    fixture.detectChanges();
+    const img = fixture.nativeElement.querySelector('.dp-card img') as HTMLImageElement;
+    expect(img?.getAttribute('src')).toBe('https://ml/a-I.jpg');
+    expect(fixture.nativeElement.querySelector('.dp-card [role="button"]')).not.toBeNull();
+  });
+
+  it('la foto de un pack es la del modelo con alerta, y el zoom recorre todas', () => {
+    const p = unit({
+      key: 'pack:2', members: [
+        member({ sku: 'V', alertState: 'watching', thumbnail: 'v.jpg' }),
+        member({ sku: 'L', alertState: 'out', thumbnail: 'l.jpg' }),
+        member({ sku: 'R', alertState: 'watching', thumbnail: null }),
+      ],
+    });
+    expect(unitThumb(p)).toBe('l.jpg');
+    expect(unitPhotos(p)).toEqual(['l.jpg', 'v.jpg']);
+    expect(unitThumb(unit({ members: [member({ thumbnail: null })] }))).toBeNull();
   });
 });

@@ -509,3 +509,38 @@ test('borrar un pack deja a sus SKUs sin pack, sin tocar reglas ni historial', a
   assert.equal(rows[0].pack, null, 'el producto queda sin pack');
   assert.equal(dbState.rules.has('SKU-PACK'), true, 'la regla no se borra');
 });
+
+test('getNotificationsInbox: con enrich suma foto y stock de ahora; sin enrich no lee el snapshot', async () => {
+  addRule('SKU-FOTO', 3);
+  const low = makeSnapshot({
+    mlRows: [{ sku: 'SKU-FOTO', title: 'Agenda', thumbnail: 'https://ml/foto-I.jpg', stock: 1 }],
+    tnRows: [{ sku: 'SKU-FOTO', productName: 'Agenda', thumbnail: 'https://tn/foto.jpg', stock: 2 }],
+  });
+  await alertsService.evaluateStockAlerts(low.data);
+  // Después se repuso: el aviso guarda el stock de cuando avisó, `stockNow` el de hoy.
+  dbState.snapshot = makeSnapshot({
+    mlRows: [{ sku: 'SKU-FOTO', title: 'Agenda', thumbnail: 'https://ml/foto-I.jpg', stock: 10 }],
+    tnRows: [{ sku: 'SKU-FOTO', productName: 'Agenda', thumbnail: 'https://tn/foto.jpg', stock: 12 }],
+  });
+
+  const plain = await alertsService.getNotificationsInbox();
+  const n0 = plain.notifications.find((n) => n.sku === 'SKU-FOTO');
+  assert.equal(n0.thumbnail, undefined);
+
+  const rich = await alertsService.getNotificationsInbox({ enrich: true });
+  const n = rich.notifications.find((x) => x.sku === 'SKU-FOTO');
+  assert.equal(n.thumbnail, 'https://ml/foto-I.jpg', 'la de ML primero');
+  assert.equal(n.stockEffective, 1);
+  assert.equal(n.stockNow, 10);
+  assert.equal(n.stockNowMl, 10);
+  assert.equal(n.stockNowTn, 12);
+});
+
+test('buildThumbBySku: ML primero, TN si ML no tiene foto', () => {
+  const map = alertsService.buildThumbBySku({
+    mlRows: [{ sku: 'A', thumbnail: 'ml-a' }, { sku: 'B', thumbnail: null }],
+    tnRows: [{ sku: 'A', thumbnail: 'tn-a' }, { sku: 'B', thumbnail: 'tn-b' }],
+  });
+  assert.equal(map.get('A'), 'ml-a');
+  assert.equal(map.get('B'), 'tn-b');
+});

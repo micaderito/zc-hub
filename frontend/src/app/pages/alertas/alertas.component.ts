@@ -11,7 +11,6 @@ import {
   ALERTS_NOTIFICATIONS_QUERY_KEY,
   ALERTS_UNWATCHED_QUERY_KEY,
   StockAlertRule,
-  UnwatchedProduct,
 } from '../../core/services/alerts.service';
 import { ConflictsService, mlLabel } from '../../core/services/conflicts.service';
 import { TabsComponent, TabDef } from '../../shared/components/tabs/tabs.component';
@@ -24,6 +23,8 @@ import { AlertasDisparadasComponent } from './disparadas/alertas-disparadas.comp
 import { BottomSheetComponent } from '../../shared/components/bottom-sheet/bottom-sheet.component';
 import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 import { ThresholdSheetComponent, ThresholdTarget } from './threshold-sheet/threshold-sheet.component';
+import { AlertasNotificacionesComponent } from './notificaciones/alertas-notificaciones.component';
+import { AlertasSinAlertaComponent } from './sin-alerta/alertas-sin-alerta.component';
 
 type Tab = 'disparadas' | 'notificaciones' | 'sin-alertas' | 'reglas';
 
@@ -41,7 +42,7 @@ import { ProductThumbComponent } from '../../shared/components/product-thumb/pro
 @Component({
   selector: 'app-alertas',
   standalone: true,
-  imports: [CanWriteDirective, CommonModule, NgTemplateOutlet, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent, AlertasDisparadasComponent, ProductThumbComponent, BottomSheetComponent, ThresholdSheetComponent],
+  imports: [CanWriteDirective, CommonModule, NgTemplateOutlet, FormsModule, RouterLink, TabsComponent, SearchBarComponent, ConfirmDialogComponent, AlertasDisparadasComponent, ProductThumbComponent, BottomSheetComponent, ThresholdSheetComponent, AlertasNotificacionesComponent, AlertasSinAlertaComponent],
   templateUrl: './alertas.component.html',
   styleUrls: ['./alertas.component.scss', './alertas-phone.component.scss'],
 })
@@ -75,15 +76,6 @@ export class AlertasComponent {
     });
   }
 
-  openNewRuleSheet(p: UnwatchedProduct): void {
-    this.thresholdTarget.set({
-      sku: p.sku,
-      label: p.productLabel ?? p.sku,
-      stockMl: p.stockMl,
-      stockTn: p.stockTn,
-      threshold: null,
-    });
-  }
 
   onTabChange(key: string): void {
     this.activeTab.set(key as Tab);
@@ -121,29 +113,18 @@ export class AlertasComponent {
 
   /* ══════════════════════════ Notificaciones ══════════════════════════ */
 
-  readonly notifUnreadOnly = signal(false);
-
+  /**
+   * Solo para el contador de la pestaña: misma clave y misma consulta que la campanita del layout
+   * (sin `enrich`), así no suma un request. La lista con fotos la pide `zc-alertas-notificaciones`.
+   */
   readonly notificationsQuery = injectQuery(() => ({
-    queryKey: [...ALERTS_NOTIFICATIONS_QUERY_KEY, this.notifUnreadOnly()],
-    queryFn: () => this.alertsSvc.getNotificationsPromise({ unreadOnly: this.notifUnreadOnly(), limit: 100 }),
+    queryKey: [...ALERTS_NOTIFICATIONS_QUERY_KEY, false],
+    queryFn: () => this.alertsSvc.getNotificationsPromise({ limit: 15 }),
     refetchOnWindowFocus: false,
     staleTime: 30 * 1000,
   }));
 
-  readonly notifications = computed(() => this.notificationsQuery.data()?.notifications ?? []);
   readonly unreadCount = computed(() => this.notificationsQuery.data()?.unreadCount ?? 0);
-
-  async markNotificationRead(id: number): Promise<void> {
-    await this.alertsSvc.markNotificationsRead({ ids: [id] });
-  }
-
-  async markAllNotificationsRead(): Promise<void> {
-    await this.alertsSvc.markNotificationsRead({ all: true });
-  }
-
-  async muteFromNotification(sku: string): Promise<void> {
-    await this.alertsSvc.muteRule(sku, 7);
-  }
 
   /* ══════════════════════════ Sin alertas ══════════════════════════ */
 
@@ -156,28 +137,6 @@ export class AlertasComponent {
 
   readonly unwatchedLoading = computed(() => this.unwatchedQuery.isLoading());
   readonly unwatchedProducts = computed(() => this.unwatchedQuery.data()?.products ?? []);
-  readonly unwatchedSearch = signal('');
-
-  readonly filteredUnwatched = computed(() => {
-    const q = this.unwatchedSearch().trim().toLowerCase();
-    const rows = this.unwatchedProducts();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      r.sku.toLowerCase().includes(q) ||
-      (r.productLabel || '').toLowerCase().includes(q) ||
-      (r.pack?.name || '').toLowerCase().includes(q)
-    );
-  });
-
-  /** Manda a Reglas con el producto ya tildado en "Vigilar productos" — solo falta el umbral. */
-  configureAlert(product: UnwatchedProduct): void {
-    if (this.phone()) { this.openNewRuleSheet(product); return; }
-    this.selectedNewSkus.set(new Map([
-      [product.sku, { sku: product.sku, label: product.productLabel ?? product.sku, thumbnail: product.thumbnail }],
-    ]));
-    this.newRuleQuery.set(product.sku);
-    this.activeTab.set('reglas');
-  }
 
   /* ══════════════════════════ Reglas ══════════════════════════ */
 
