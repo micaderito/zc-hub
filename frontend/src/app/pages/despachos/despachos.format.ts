@@ -44,6 +44,14 @@ export function saleLabel(p: DispatchPackage): string {
   return `Venta #${p.saleId}`;
 }
 
+/** "Juan Pérez (JUANP)" en ML; en TN quien recibe. Solo el nombre si es igual al apodo. */
+export function buyerLabel(p: DispatchPackage): string | null {
+  if (p.buyerName && p.buyer && p.channel === 'ml' && p.buyerName.toLowerCase() !== p.buyer.toLowerCase()) {
+    return `${p.buyerName} (${p.buyer})`;
+  }
+  return p.buyer || p.buyerName || null;
+}
+
 export function saleUrl(p: DispatchPackage): string | null {
   if (p.channel !== 'ml' || !p.orderIds?.length) return null;
   return `https://www.mercadolibre.com.ar/ventas/${p.orderIds[0]}/detalle`;

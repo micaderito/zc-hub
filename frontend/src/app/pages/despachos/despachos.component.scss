@@ -78,6 +78,16 @@
   .sk-thumb, .sk-line { animation: none; }
 }
 
+/* Buscador (escritorio y celu) + aviso de resultados */
+.ds-search { max-width: 460px; margin-bottom: 12px; }
+.ds-search-result {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  background: var(--brand-bg); color: var(--text); border-radius: 8px;
+  padding: 8px 12px; font-size: 12.5px; margin-bottom: 11px;
+  > i { color: var(--brand); }
+  > span { flex: 1; min-width: 0; }
+}
+
 /* KPIs */
 .ds-kpis {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px;
@@ -247,6 +257,7 @@
 @include m.phone {
   :host { padding: 12px 16px 90px; }
   .ds-progress { top: var(--zc-topbar-h); margin: -12px -16px 9px; }
+  .ds-search { max-width: none; margin-bottom: 10px; }
 }
 .ds-phone-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px;

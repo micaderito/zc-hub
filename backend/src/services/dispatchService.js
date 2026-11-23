@@ -276,6 +276,7 @@ export function buildMlPackages(orders, { shipments, slas, items, notes = new Ma
       saleId,
       orderIds: group.map((o) => String(o.id)),
       buyer: first?.buyer?.nickname ?? null,
+      buyerName: mlBuyerName(first, shipment),
       city: shipment?.destination?.shipping_address?.city?.name ?? shipment?.receiver_address?.city?.name ?? null,
       createdAt: first?.date_created ?? null,
       shipmentId: shipmentId ? String(shipmentId) : null,
@@ -334,6 +335,17 @@ export function buildMlPackages(orders, { shipments, slas, items, notes = new Ma
   return { pending, cancelled };
 }
 
+/**
+ * Nombre y apellido del comprador de ML (el `buyer` es el apodo). La orden suele traer
+ * `first_name`/`last_name`; si no, el destinatario del envío. Sirve para buscar por nombre.
+ */
+export function mlBuyerName(order, shipment) {
+  const full = [order?.buyer?.first_name, order?.buyer?.last_name].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ');
+  if (full) return full;
+  const receiver = shipment?.destination?.receiver_name ?? shipment?.receiver_address?.receiver_name ?? null;
+  return receiver ? String(receiver).trim() || null : null;
+}
+
 /** Una orden cancelada solo se avisa si llegó a cobrarse: un pago rechazado nunca fue un pedido a armar. */
 function wasRealSale(group) {
   return group.some((o) => (o.payments || []).some((p) => p.date_approved || p.status === 'approved' || p.status === 'refunded'));
@@ -384,6 +396,8 @@ export function buildTnPackage(order, { cancelled = false } = {}) {
     saleId: String(order.id),
     orderNumber: order?.number != null ? String(order.number) : null,
     buyer: order?.contact_name ?? order?.customer?.name ?? null,
+    // El que paga (`customer`) puede no ser el que recibe (`contact_name`): se guarda para buscar.
+    buyerName: order?.customer?.name && order.customer.name !== order?.contact_name ? order.customer.name : null,
     city: addr.city ?? null,
     createdAt: order?.paid_at ?? order?.created_at ?? null,
     shipStatus: order?.shipping_status ?? null,

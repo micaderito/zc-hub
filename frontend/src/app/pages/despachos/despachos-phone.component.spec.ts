@@ -125,4 +125,24 @@ describe('DespachosPhoneComponent', () => {
     expect(el.querySelector('.dp-row')!.textContent).toContain('Despachado 11:00');
     expect(el.querySelector('.dp-tick')).toBeNull();
   });
+
+  it('buscando: ningún número marcado, sin barra de avance ni "no hay nada"; tocar uno vuelve a esa vista', () => {
+    render([section('ml', [pkg({ saleId: 'a' })])], { searching: true, tab: 'all' });
+    expect(el.querySelector('.dp-tile.on')).toBeNull();
+    expect(el.querySelector('.dp-progress')).toBeNull();
+    const tabs: string[] = [];
+    component.tabChange.subscribe((t) => tabs.push(t));
+    (el.querySelectorAll('.dp-tile')[2] as HTMLButtonElement).click();
+    (el.querySelectorAll('.dp-tile')[0] as HTMLButtonElement).click();
+    expect(tabs).toEqual(['upcoming', 'today']);
+    expect(component.onlyOverdue()).toBe(true);
+
+    render([], { searching: true, tab: 'all' });
+    expect(el.textContent).not.toContain('No hay nada pendiente');
+  });
+
+  it('muestra nombre y apodo del comprador de ML', () => {
+    render([section('ml', [pkg({ saleId: 'a', buyer: 'JUANP', buyerName: 'Juan Pérez', items: [item(), item({ sku: 'B' })] })])]);
+    expect(el.querySelector('.dp-row')!.textContent).toContain('Juan Pérez (JUANP)');
+  });
 });

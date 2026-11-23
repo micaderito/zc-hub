@@ -877,6 +877,15 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   aparte de la lista (ver arriba); si falla (429), el paquete sale igual sin nota.
   TN: `owner_note` (la de la vendedora) y `note` (la del comprador, rotulada "Comprador:"), que ya
   vienen en la orden, así que llegan con la lista.
+- **Buscador** (2026-11-23, `despachos.search.ts`): por nro de venta (pack u orden de ML, número o
+  id de TN; se puede pegar "Venta #…"), SKU, comprador (apodo de ML + `buyerName`, nombre y apellido
+  de la orden o el destinatario del envío; en TN quien pagó si no es quien recibe) y título/variante,
+  sin mayúsculas ni acentos, todas las palabras. **Filtra en el navegador**, no en el backend: la
+  lista ya llega entera (no se pagina, ~150 paquetes), así cada tecla no le pega al backend ni a
+  ML/TN; el texto normalizado se arma una vez por lista y hay debounce de 200 ms. Un número corto
+  tiene que arrancar donde arranca un número ("1234" no matchea en el medio de una venta de ML).
+  Buscando se ve TODO (Hoy, Próximos días, despachados desplegados, cancelados), los números y las
+  pestañas cuentan lo encontrado y elegir una pestaña / tocar un número del celu borra la búsqueda.
 - **En el celular** (2026-11-19, prototipo `docs/prototype/despachos-mobile.html`, opción B): en vez de
   las tarjetas, `zc-despachos-phone` (`pages/despachos/despachos-phone.component.*`) — tres números
   arriba que filtran (Atrasados = solo esa sección dentro de Hoy / Para hoy / Próximos días, que cambia
