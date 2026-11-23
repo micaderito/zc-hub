@@ -33,7 +33,10 @@ export interface DispatchPackage {
   orderIds?: string[];
   /** TN: nro de orden visible. */
   orderNumber?: string | null;
+  /** ML: apodo. TN: quien recibe. */
   buyer: string | null;
+  /** ML: nombre y apellido. TN: quien pagó, si no es quien recibe. Para buscar. */
+  buyerName?: string | null;
   city: string | null;
   createdAt: string | null;
   logisticType: string | null;

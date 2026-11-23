@@ -10,7 +10,7 @@
   </button>
 </div>
 
-@if (view() !== 'upcoming' && progress().total) {
+@if (view() !== 'upcoming' && !searching() && progress().total) {
   <div class="dp-progress">
     <div class="dp-progress-t">
       <b>{{ progress().done }} de {{ progress().total }} preparados</b>
@@ -94,7 +94,7 @@
 }
 
 @if (openPackage(); as p) {
-  <zc-bottom-sheet [title]="p.buyer || saleLabel(p)" [subtitle]="(p.city ? p.city + ' · ' : '') + saleLabel(p)" (closed)="close()">
+  <zc-bottom-sheet [title]="buyerLabel(p) || saleLabel(p)" [subtitle]="(p.city ? p.city + ' · ' : '') + saleLabel(p)" (closed)="close()">
     <span sheet-lead class="ch big" [class.ml]="p.channel === 'ml'" [class.tn]="p.channel === 'tn'">{{ p.channel === 'ml' ? 'ML' : 'TN' }}</span>
 
     <div class="dp-facts">
