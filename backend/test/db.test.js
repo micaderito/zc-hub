@@ -374,6 +374,35 @@ test('getAuditLog: filtra por origen', async () => {
   assert.equal(listParams[0], 'manual');
 });
 
+test('getAuditLog: filtra por cancelaciones aparte de devoluciones', async () => {
+  let listParams;
+  state.responder = (sql, p) => {
+    if (sql.startsWith('SELECT COUNT')) return { rows: [{ total: 0 }] };
+    listParams = p;
+    return { rows: [] };
+  };
+  await db.getAuditLog(10, 0, '', 'cancelacion');
+  assert.equal(listParams[0], 'cancelacion');
+});
+
+test('insertAuditLog: una cancelación guarda los datos de la venta', async () => {
+  let params;
+  state.responder = (sql, p) => { params = p; return { rows: [] }; };
+  await db.insertAuditLog({ source: 'cancelacion', channelSale: 'mercadolibre', orderId: '9', quantity: 2, productLabel: 'Cancelación ML', updatedChannel: 'tiendanube' });
+  assert.equal(params[12], 'cancelacion');
+  assert.equal(params[1], '9');
+  assert.equal(params[7], 2);
+});
+
+test('insertAuditLog: una tarea vieja con source devolucion y label de cancelación se guarda como cancelación', async () => {
+  let params;
+  state.responder = (sql, p) => { params = p; return { rows: [] }; };
+  await db.insertAuditLog({ source: 'devolucion', productLabel: 'Cancelación TN', channelSale: 'tiendanube', orderId: '9', updatedChannel: 'mercadolibre' });
+  assert.equal(params[12], 'cancelacion');
+  await db.insertAuditLog({ source: 'devolucion', productLabel: 'Devolución aprobada', channelSale: 'mercadolibre', orderId: '9', updatedChannel: 'tiendanube' });
+  assert.equal(params[12], 'devolucion');
+});
+
 test('getAuditLog: un origen inventado se ignora en vez de filtrar por nada', async () => {
   let listSql;
   state.responder = (sql) => {

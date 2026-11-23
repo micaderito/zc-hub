@@ -500,3 +500,32 @@ test('notas de TN: la de la vendedora y la del comprador', () => {
   ]);
   assert.deepEqual(svc.buildTnPackage({ id: 6, note: '', products: [] }).notes, []);
 });
+
+// ── Campos para el buscador (la búsqueda se hace en el front sobre esta lista) ──
+
+test('buscador: cada línea trae su SKU y el paquete el apodo y el nombre del comprador', async () => {
+  state.orders = [
+    mlOrder(1, { packId: 900, items: [{ id: 'MLA1', sku: 'S1', qty: 1 }], buyer: { nickname: 'JUANP', first_name: 'Juan', last_name: 'Pérez' } }),
+    mlOrder(2, { packId: 900, items: [{ id: 'MLA2', sku: 'S2', qty: 1 }] }),
+  ];
+  state.shipments = { 500: shipment(500) };
+  state.slas = { 500: { status: 'on_time', expected_date: '2026-10-09T13:00:00.000-03:00' } };
+  const r = await svc.getDispatchList({ now: NOW });
+  const pkg = r.packages[0];
+  assert.equal(pkg.buyer, 'JUANP');
+  assert.equal(pkg.buyerName, 'Juan Pérez');
+  assert.deepEqual(pkg.items.map((i) => i.sku), ['S1', 'S2']);
+  assert.deepEqual(pkg.orderIds, ['1', '2']);
+});
+
+test('mlBuyerName: nombre de la orden, si no el destinatario del envío, si no null', () => {
+  assert.equal(svc.mlBuyerName({ buyer: { first_name: ' Ana ', last_name: 'Gómez' } }, null), 'Ana Gómez');
+  assert.equal(svc.mlBuyerName({ buyer: { nickname: 'X' } }, { destination: { receiver_name: 'Luis Díaz' } }), 'Luis Díaz');
+  assert.equal(svc.mlBuyerName({ buyer: {} }, { receiver_address: { receiver_name: 'Eva' } }), 'Eva');
+  assert.equal(svc.mlBuyerName({ buyer: {} }, null), null);
+});
+
+test('TN: buyerName solo si quien paga no es quien recibe', () => {
+  assert.equal(svc.buildTnPackage({ id: 1, contact_name: 'María', customer: { name: 'María' }, products: [] }).buyerName, null);
+  assert.equal(svc.buildTnPackage({ id: 2, contact_name: 'María', customer: { name: 'Pedro Ruiz' }, products: [] }).buyerName, 'Pedro Ruiz');
+});

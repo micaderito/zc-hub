@@ -41,6 +41,12 @@ export class DespachosPhoneComponent {
   readonly showDispatched = input(false);
   /** `YYYY-MM-DD` de hoy según el backend, y el reloj de la página (cuenta regresiva). */
   readonly today = input('');
+  /**
+   * Hay una búsqueda activa (vive en la página): las secciones ya vienen filtradas y de todas las
+   * fechas, los números cuentan lo encontrado y ningún número queda marcado. Tocar uno borra la
+   * búsqueda (`tabChange`, la página la limpia) y vuelve a la lista normal.
+   */
+  readonly searching = input(false);
 
   readonly tabChange = output<DispatchTab>();
   readonly channelChange = output<ChannelFilter>();
@@ -52,13 +58,14 @@ export class DespachosPhoneComponent {
   /** Atrasados es un filtro propio del celu adentro de Hoy. */
   readonly onlyOverdue = signal(false);
 
-  readonly view = computed<PhoneView>(() =>
-    this.tab() === 'upcoming' ? 'upcoming' : this.onlyOverdue() ? 'overdue' : 'today');
+  readonly view = computed<PhoneView | null>(() =>
+    this.searching() ? null : this.tab() === 'upcoming' ? 'upcoming' : this.onlyOverdue() ? 'overdue' : 'today');
 
   readonly visibleSections = computed(() =>
     this.view() === 'overdue' ? this.sections().filter((s) => s.key === 'overdue') : this.sections());
 
-  readonly empty = computed(() => !this.visibleSections().some((s) => !s.collapsible) && !this.cancelled().length);
+  /** Sin nada que mostrar. Buscando, el "no hay resultados" lo dice la página. */
+  readonly empty = computed(() => !this.searching() && !this.visibleSections().some((s) => !s.collapsible) && !this.cancelled().length);
 
   /** Avance del día: cuántos de Hoy (atrasados incluidos) ya están tildados. */
   readonly progress = computed(() => {
@@ -67,6 +74,11 @@ export class DespachosPhoneComponent {
   });
 
   pick(v: PhoneView): void {
+    if (this.searching()) {
+      this.onlyOverdue.set(v === 'overdue');
+      this.tabChange.emit(v === 'upcoming' ? 'upcoming' : 'today');
+      return;
+    }
     if (v === 'upcoming') {
       this.onlyOverdue.set(false);
       this.tabChange.emit('upcoming');
@@ -122,12 +134,12 @@ export class DespachosPhoneComponent {
   /** Un producto: su nombre. Varios: quién compró y cuántos. */
   rowTitle(p: DispatchPackage): string {
     if (p.items.length === 1) return p.items[0].title;
-    return `${p.buyer || fmt.saleLabel(p)} · ${fmt.units(p)} productos`;
+    return `${fmt.buyerLabel(p) || fmt.saleLabel(p)} · ${fmt.units(p)} productos`;
   }
 
   /** Con un solo producto el comprador va en la segunda línea (en el título no entró). */
   rowWho(p: DispatchPackage): string {
-    const who = p.items.length === 1 ? p.buyer : null;
+    const who = p.items.length === 1 ? fmt.buyerLabel(p) : null;
     return [who, p.city].filter(Boolean).join(' · ');
   }
 
@@ -156,6 +168,7 @@ export class DespachosPhoneComponent {
   }
 
   readonly saleLabel = fmt.saleLabel;
+  readonly buyerLabel = fmt.buyerLabel;
   readonly saleUrl = fmt.saleUrl;
   readonly shippingLabel = fmt.shippingLabel;
   readonly dateTime = fmt.dateTime;

@@ -11,13 +11,18 @@ import {
 import { ProductThumbComponent } from '../../shared/components/product-thumb/product-thumb.component';
 import { PHONE_QUERY, mediaSignal } from '../../shared/utils/media-signal';
 import { DespachosPhoneComponent } from './despachos-phone.component';
+import { SearchBarComponent } from '../../shared/components/search-bar/search-bar.component';
 import * as fmt from './despachos.format';
+import { buildSearchIndex, matchesTerms, searchTerms } from './despachos.search';
 import { countdown, dayLabel, timeAr } from './despachos.format';
 
 export { countdown, dayLabel } from './despachos.format';
 
 export type DispatchTab = 'today' | 'upcoming' | 'all';
 export type ChannelFilter = 'all' | 'ml' | 'tn';
+
+/** Espera entre la última tecla y filtrar. */
+export const SEARCH_DEBOUNCE_MS = 200;
 
 export interface DispatchSection {
   key: string;
@@ -39,7 +44,7 @@ export interface DispatchSection {
 @Component({
   selector: 'app-despachos',
   standalone: true,
-  imports: [ProductThumbComponent, DespachosPhoneComponent],
+  imports: [ProductThumbComponent, DespachosPhoneComponent, SearchBarComponent],
   templateUrl: './despachos.component.html',
   styleUrl: './despachos.component.scss',
 })
@@ -56,6 +61,19 @@ export class DespachosComponent {
   readonly showDispatched = signal(false);
   readonly refreshing = signal(false);
   readonly errorMsg = signal<string | null>(null);
+
+  /**
+   * Buscador: lo que está escrito (`searchInput`) y lo que filtra (`search`, con debounce). Filtra
+   * en el navegador sobre la lista ya cargada, sin pedirle nada al backend (ver despachos.search.ts).
+   * Mientras hay búsqueda, se busca en TODO (Hoy, Próximos días, despachados y cancelados): elegir
+   * una pestaña la borra y vuelve a la lista normal.
+   */
+  readonly searchInput = signal('');
+  readonly search = signal('');
+  private readonly terms = computed(() => searchTerms(this.search()));
+  readonly searching = computed(() => this.terms().length > 0);
+  /** La pestaña que se ve: con búsqueda, "Todo". */
+  readonly activeTab = computed<DispatchTab>(() => (this.searching() ? 'all' : this.tab()));
 
   /** Tildes/vistos locales mientras viaja el request (update optimista). */
   private readonly preparedOverride = signal(new Map<string, boolean>());
@@ -97,6 +115,13 @@ export class DespachosComponent {
   constructor() {
     const timer = setInterval(() => this.now.set(Date.now()), 30_000);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    effect((onCleanup) => {
+      const value = this.searchInput();
+      // Borrar es al instante; escribir espera a que se deje de tipear.
+      if (!value.trim()) { this.search.set(''); return; }
+      const t = setTimeout(() => this.search.set(value), SEARCH_DEBOUNCE_MS);
+      onCleanup(() => clearTimeout(t));
+    }, { allowSignalWrites: true });
     // Los tildes optimistas viven hasta que llega la lista con el dato ya guardado.
     effect(() => {
       this.query.data();
@@ -129,10 +154,32 @@ export class DespachosComponent {
       });
   });
 
+  /** Texto normalizado de cada paquete: se arma una vez por lista, no por tecla. */
+  private readonly searchIndex = computed(() => buildSearchIndex(this.data()?.packages ?? [], (p) => this.key(p)));
+
+  /** Canal + búsqueda: de acá salen los números, las pestañas y las secciones. */
   private readonly byChannel = computed(() => {
     const ch = this.channel();
-    return this.packages().filter((p) => ch === 'all' || p.channel === ch);
+    const terms = this.terms();
+    const index = this.searchIndex();
+    return this.packages().filter((p) => (ch === 'all' || p.channel === ch) && matchesTerms(index.get(this.key(p)), terms));
   });
+
+  /** Cuántos paquetes encontró la búsqueda (todas las secciones, cancelados incluidos). */
+  readonly searchCount = computed(() => {
+    const hide = this.hidePrepared();
+    return this.byChannel().filter((p) => !(hide && p.preparedAt && p.bucket !== 'cancelled' && p.bucket !== 'dispatched')).length;
+  });
+
+  setTab(t: DispatchTab): void {
+    this.clearSearch();
+    this.tab.set(t);
+  }
+
+  clearSearch(): void {
+    this.searchInput.set('');
+    this.search.set('');
+  }
 
   readonly cancelled = computed(() => this.byChannel().filter((p) => p.bucket === 'cancelled'));
   readonly dispatched = computed(() => this.byChannel().filter((p) => p.bucket === 'dispatched'));
@@ -215,14 +262,15 @@ export class DespachosComponent {
       title: `Ya despachados (${pkgs.length})`,
       hint: 'Ya los dejaste en el punto',
       tone: 'ok',
-      collapsible: true,
+      // Plegada de entrada; buscando no se pliega, si no el resultado no se vería.
+      collapsible: !this.searching(),
       packages: pkgs,
     }];
   });
 
   /** Secciones con cosas por despachar (sin "Ya despachados"): define si se muestra "no hay nada pendiente". */
   readonly pendingSections = computed<DispatchSection[]>(() => {
-    switch (this.tab()) {
+    switch (this.activeTab()) {
       case 'today': return this.todaySections();
       case 'upcoming': return this.upcomingSections();
       default: return [...this.todaySections(), ...this.upcomingSections()];
@@ -230,13 +278,13 @@ export class DespachosComponent {
   });
 
   readonly sections = computed<DispatchSection[]>(() =>
-    this.tab() === 'upcoming' ? this.pendingSections() : [...this.pendingSections(), ...this.dispatchedSection()]);
+    this.activeTab() === 'upcoming' ? this.pendingSections() : [...this.pendingSections(), ...this.dispatchedSection()]);
 
   isCollapsed(s: DispatchSection): boolean {
     return !!s.collapsible && !this.showDispatched();
   }
 
-  readonly showCancelled = computed(() => this.tab() !== 'upcoming' && this.cancelled().length > 0);
+  readonly showCancelled = computed(() => this.activeTab() !== 'upcoming' && this.cancelled().length > 0);
 
   key(p: Pick<DispatchPackage, 'channel' | 'saleId'>): string {
     return `${p.channel}:${p.saleId}`;
@@ -295,6 +343,7 @@ export class DespachosComponent {
   // ── Formato ──
 
   saleLabel(p: DispatchPackage): string { return fmt.saleLabel(p); }
+  buyerLabel(p: DispatchPackage): string | null { return fmt.buyerLabel(p); }
   saleUrl(p: DispatchPackage): string | null { return fmt.saleUrl(p); }
   shippingLabel(p: DispatchPackage): string | null { return fmt.shippingLabel(p); }
   dateTime(iso: string | null | undefined): string { return fmt.dateTime(iso); }

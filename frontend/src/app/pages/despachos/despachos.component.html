@@ -16,6 +16,8 @@
         <i class="ti ti-refresh" [class.spin]="busy()" aria-hidden="true"></i>
       </button>
     </header>
+    <zc-search-bar class="ds-search" [value]="searchInput()" (valueChange)="searchInput.set($event)"
+                   placeholder="Buscar por nro de venta, SKU, comprador o producto" ariaLabel="Buscar paquetes" />
   } @else {
     <header class="ds-head">
       <div>
@@ -35,6 +37,9 @@
       </button>
     </header>
 
+    <zc-search-bar class="ds-search" [value]="searchInput()" (valueChange)="searchInput.set($event)"
+                   placeholder="Buscar por nro de venta, SKU, comprador o producto" ariaLabel="Buscar paquetes" />
+
     <div class="ds-kpis">
       <div class="kpi" [class.err]="counts().overdue > 0">
         <span>Atrasados</span><b>{{ counts().overdue }}</b>
@@ -46,13 +51,13 @@
 
     <div class="ds-toolbar">
       <div class="tabs" role="tablist">
-        <button type="button" role="tab" [class.on]="tab() === 'today'" [attr.aria-selected]="tab() === 'today'" (click)="tab.set('today')">
+        <button type="button" role="tab" [class.on]="activeTab() === 'today'" [attr.aria-selected]="activeTab() === 'today'" (click)="setTab('today')">
           Hoy <span class="count">{{ counts().today }}</span>
         </button>
-        <button type="button" role="tab" [class.on]="tab() === 'upcoming'" [attr.aria-selected]="tab() === 'upcoming'" (click)="tab.set('upcoming')">
+        <button type="button" role="tab" [class.on]="activeTab() === 'upcoming'" [attr.aria-selected]="activeTab() === 'upcoming'" (click)="setTab('upcoming')">
           Próximos días <span class="count">{{ counts().upcoming }}</span>
         </button>
-        <button type="button" role="tab" [class.on]="tab() === 'all'" [attr.aria-selected]="tab() === 'all'" (click)="tab.set('all')">Todo</button>
+        <button type="button" role="tab" [class.on]="activeTab() === 'all'" [attr.aria-selected]="activeTab() === 'all'" (click)="setTab('all')">Todo</button>
       </div>
       <div class="filters">
         <button type="button" class="fchip" [class.on]="channel() === 'all'" (click)="channel.set('all')">Todos</button>
@@ -66,6 +71,20 @@
       </div>
     </div>
 
+  }
+
+  @if (searching() && !query.isLoading()) {
+    <div class="ds-search-result" role="status">
+      <i class="ti ti-search" aria-hidden="true"></i>
+      <span>
+        @if (searchCount()) {
+          {{ searchCount() }} {{ searchCount() === 1 ? 'paquete' : 'paquetes' }} para «{{ search() }}» · en todas las fechas
+        } @else {
+          Ningún paquete coincide con «{{ search() }}»@if (channel() !== 'all') { en {{ channel() === 'ml' ? 'Mercado Libre' : 'Tienda Nube' }} }
+        }
+      </span>
+      <button type="button" class="link" (click)="clearSearch()">Limpiar</button>
+    </div>
   }
 
   @if (errors().ml) {
@@ -98,12 +117,13 @@
       [sections]="sections()"
       [cancelled]="showCancelled() ? cancelled() : []"
       [counts]="counts()"
-      [tab]="tab()"
+      [tab]="activeTab()"
+      [searching]="searching()"
       [channel]="channel()"
       [hidePrepared]="hidePrepared()"
       [showDispatched]="showDispatched()"
       [today]="today()"
-      (tabChange)="tab.set($event)"
+      (tabChange)="setTab($event)"
       (channelChange)="channel.set($event)"
       (hidePreparedChange)="hidePrepared.set($event)"
       (showDispatchedChange)="showDispatched.set($event)"
@@ -135,7 +155,7 @@
       </section>
     }
 
-    @if (!pendingSections().length && !showCancelled()) {
+    @if (!pendingSections().length && !showCancelled() && !searching()) {
       <div class="ds-empty">
         <i class="ti ti-circle-check" aria-hidden="true"></i>
         <p>
@@ -184,7 +204,7 @@
                 <span class="pk-sale">{{ saleLabel(p) }}</span>
               }
               <span class="pk-meta">
-                @if (p.buyer) { {{ p.buyer }} }
+                @if (buyerLabel(p); as who) { {{ who }} }
                 @if (p.city) { · {{ p.city }} }
                 @if (units(p) > 1) { · {{ units(p) }} productos }
               </span>

@@ -425,7 +425,7 @@ test('onTiendaNubeOrderCancelled: atribuye la restitución con delta positivo', 
   assert.equal(dbState.attributions.length, 1);
   assert.equal(dbState.attributions[0].delta, 3);
   assert.equal(dbState.attributions[0].productLabel, 'Cancelación TN');
-  assert.equal(dbState.attributions[0].source, 'devolucion');
+  assert.equal(dbState.attributions[0].source, 'cancelacion');
 });
 
 test('onMercadoLibreOrderPaid: registra el movimiento de ML aunque el descuento en TN falle', async () => {
@@ -552,8 +552,8 @@ test('espejo: cuando ML devolvió la unidad, también se registra y atribuye el 
   assert.equal(dbState.attributions.length, 1);
   assert.equal(dbState.attributions[0].delta, 1, 'la cantidad cancelada, no la diferencia mlStock-tnStock');
   assert.equal(dbState.attributions[0].productLabel, 'Cancelación ML');
-  // No 'venta': el filtro "Devoluciones" del historial tiene que encontrar también este lado.
-  assert.equal(dbState.attributions[0].source, 'devolucion');
+  // No 'venta': el filtro "Cancelaciones" del historial tiene que encontrar también este lado.
+  assert.equal(dbState.attributions[0].source, 'cancelacion');
 });
 
 test('espejo: si falla la escritura en TN, el lado ML del historial se registra igual', async () => {

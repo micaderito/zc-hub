@@ -75,7 +75,7 @@
         <div class="audit-main">
           <div class="audit-title">{{ row.productDisplay || row.sku }}</div>
           <div class="audit-meta">
-            <span class="source-tag" [class.manual]="row.source === 'manual'" [class.externo]="row.source === 'externo'">{{ auditSourceLabel(row.source) }}</span>
+            <span class="source-tag" [class.manual]="row.source === 'manual'" [class.externo]="row.source === 'externo'" [class.cancelacion]="row.source === 'cancelacion'">{{ auditSourceLabel(row.source) }}</span>
             <code>{{ row.sku }}</code>
             @if (row.packId || row.orderId) {
               <span>Pack <code>{{ row.packId || row.orderId }}</code></span>

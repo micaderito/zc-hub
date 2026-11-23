@@ -138,6 +138,18 @@ export async function initDb() {
       `);
     });
 
+    // 2026-11-23: las cancelaciones tienen su propio origen ('cancelacion'), aparte de las
+    // devoluciones aprobadas. Hasta acá las dos se guardaban como 'devolucion' y el filtro
+    // "Devoluciones" del Historial mezclaba cancelaciones con devoluciones.
+    await runOnceMigration(p, '2026-11-23_split_source_cancelacion', async (client) => {
+      await client.query(`
+        UPDATE sync_audit
+        SET source = 'cancelacion'
+        WHERE source = 'devolucion'
+          AND product_label IN ('Cancelación ML', 'Cancelación TN')
+      `);
+    });
+
     await p.query(`
       CREATE TABLE IF NOT EXISTS sync_pending_returns (
         id SERIAL PRIMARY KEY,
@@ -1078,6 +1090,17 @@ export async function releaseOrderProcessingClaim(channelSale, orderId, operatio
 }
 
 /**
+ * Origen con el que se guarda una fila del historial. Una tarea de la cola encolada antes de que
+ * existiera 'cancelacion' (2026-11-23) todavía trae 'devolucion' con el label "Cancelación ML/TN":
+ * el label es el que dice qué pasó.
+ */
+export function normalizeAuditSource(source, productLabel) {
+  const s = source || 'venta';
+  if (s === 'devolucion' && /^cancelaci[oó]n\b/i.test(String(productLabel || ''))) return 'cancelacion';
+  return s;
+}
+
+/**
  * Registra una línea del historial de sincronización.
  * @param {object} row - { channelSale, orderId, packId?, sku, productLabel?, productDisplay?, quantity, updatedChannel, stockBefore, stockAfter, saleItemId?, notificationPayload? }
  * orderId = id de la orden individual (ML: order.id; TN: order id).
@@ -1095,12 +1118,12 @@ export async function insertAuditLog(row) {
     const payloadStr = row.notificationPayload != null
       ? (typeof row.notificationPayload === 'string' ? row.notificationPayload : JSON.stringify(row.notificationPayload))
       : null;
-    const source = row.source || 'venta';
+    const source = normalizeAuditSource(row.source, row.productLabel);
     // Un cambio manual (o uno externo, hecho desde el panel del canal) no nace de una orden: no
     // tiene canal de venta, nº de orden ni cantidad vendida. Esos campos van NULL; el qué pasó lo
     // cuentan stock_before/stock_after. Las filas de venta mantienen los defaults de siempre ('' y
     // 0) para no cambiar lo ya guardado.
-    const fromSale = source === 'venta' || source === 'devolucion';
+    const fromSale = source === 'venta' || source === 'devolucion' || source === 'cancelacion';
     await p.query(
       `INSERT INTO sync_audit (channel_sale, order_id, pack_id, sale_item_id, sku, product_label, product_display, quantity, updated_channel, stock_before, stock_after, notification_payload, source, actor)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
@@ -1171,7 +1194,7 @@ export async function attributeStockChangeToSale(args) {
         )
         RETURNING id`,
       [
-        args.source || 'venta',
+        normalizeAuditSource(args.source, args.productLabel),
         args.productLabel ?? null,
         args.productDisplay ?? null,
         args.channelSale ?? null,
@@ -1203,7 +1226,7 @@ const AUDIT_COLUMNS = `id, channel_sale AS "channelSale", order_id AS "orderId",
  * 'externo' = cambio detectado en ML/TN que no corresponde a ninguna venta ni escritura del hub
  * (típicamente lo editaron desde el panel del canal).
  */
-export const AUDIT_SOURCES = ['venta', 'manual', 'devolucion', 'externo'];
+export const AUDIT_SOURCES = ['venta', 'manual', 'cancelacion', 'devolucion', 'externo'];
 
 function mapAuditRow(r) {
   return {
@@ -1219,7 +1242,7 @@ function mapAuditRow(r) {
  * @param {number} limit
  * @param {number} offset
  * @param {string} [search] - nº de venta (pack_id), nº de orden (order_id), id. ítem (sale_item_id) o SKU; busca en los cuatro.
- * @param {string} [source] - filtra por origen ('venta' | 'manual' | 'devolucion'); vacío = todos.
+ * @param {string} [source] - filtra por origen ('venta' | 'manual' | 'cancelacion' | 'devolucion' | 'externo'); vacío = todos.
  */
 export async function getAuditLog(limit = 100, offset = 0, search = '', source = '') {
   const p = getPool();

@@ -29,6 +29,7 @@ export class SyncHistorialComponent {
     { key: '', label: 'Todos' },
     { key: 'venta', label: 'Ventas' },
     { key: 'manual', label: 'Manuales' },
+    { key: 'cancelacion', label: 'Cancelaciones' },
     { key: 'devolucion', label: 'Devoluciones' },
     { key: 'externo', label: 'Externos' },
   ];

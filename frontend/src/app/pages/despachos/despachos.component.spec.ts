@@ -247,8 +247,114 @@ describe('DespachosComponent', () => {
     expect(component.sections().length).toBe(0);
   });
 
+  describe('buscador', () => {
+    const many = () => [
+      pkg({ saleId: '2000099', orderIds: ['4000011', '4000012'], buyer: 'JUANP', buyerName: 'Juan Pérez' }),
+      pkg({ saleId: 'b', items: [{ ...pkg().items[0], sku: 'CUAD-A4', title: 'Cuaderno Éxito A4' }] }),
+      pkg({ saleId: 'u', bucket: 'upcoming', bufferedDay: '2026-10-12', items: [{ ...pkg().items[0], sku: 'CUAD-A5', title: 'Cuaderno Éxito A5' }] }),
+      pkg({ saleId: '777', channel: 'tn', orderNumber: '1234', buyer: 'María', deadline: null, deadlineDay: null }),
+      pkg({
+        saleId: 'z', bucket: 'dispatched', deadline: null, deadlineDay: null, state: { label: 'Despachado', tone: 'ok' },
+        items: [{ ...pkg().items[0], sku: 'CUAD-B', title: 'Cuaderno rayado' }],
+      }),
+    ];
+    const ids = () => component.sections().flatMap((s) => s.packages).map((p) => p.saleId);
+
+    async function type(q: string) {
+      component.searchInput.set(q);
+      fixture.detectChanges();
+      await settle(260);
+      fixture.detectChanges();
+    }
+
+    it('espera a que se deje de tipear y no le pide nada al backend', async () => {
+      await load(many());
+      const calls = svc.getList.calls.count();
+      component.searchInput.set('cuaderno');
+      fixture.detectChanges();
+      expect(component.search()).toBe('');
+      await settle(260);
+      expect(component.search()).toBe('cuaderno');
+      expect(svc.getList.calls.count()).toBe(calls);
+    });
+
+    it('busca por título sin acentos ni mayúsculas, en todas las fechas y con los despachados desplegados', async () => {
+      await load(many());
+      await type('EXITO');
+      expect(component.activeTab()).toBe('all');
+      expect(ids()).toEqual(['b', 'u']);
+      await type('cuaderno');
+      expect(ids()).toEqual(['b', 'u', 'z']);
+      expect(fixture.nativeElement.textContent).toContain('Venta #z');
+      expect(fixture.nativeElement.textContent).toContain('3 paquetes para «cuaderno»');
+    });
+
+    it('por SKU, nro de venta (pack u orden), nro de orden de TN y comprador (apodo o nombre)', async () => {
+      await load(many());
+      await type('cuad-a5');
+      expect(ids()).toEqual(['u']);
+      await type('Venta #2000099');
+      expect(ids()).toEqual(['2000099']);
+      await type('4000012');
+      expect(ids()).toEqual(['2000099']);
+      await type('#1234');
+      expect(ids()).toEqual(['777']);
+      await type('perez juan');
+      expect(ids()).toEqual(['2000099']);
+      await type('maria');
+      expect(ids()).toEqual(['777']);
+      // Un número corto no matchea en el medio de otro (los ML de prueba tienen 2000012345).
+      await type('1234');
+      expect(ids()).toEqual(['777']);
+      await type('sku cuad-b');
+      expect(ids()).toEqual(['z']);
+    });
+
+    it('los números y las pestañas cuentan lo encontrado; elegir una pestaña borra la búsqueda', async () => {
+      await load(many());
+      await type('exito');
+      expect(component.counts().today).toBe(1);
+      expect(component.counts().upcoming).toBe(1);
+      expect(fixture.nativeElement.querySelector('.ds-kpis').textContent).toContain('Próximos días');
+      (fixture.nativeElement.querySelectorAll('.tabs button')[0] as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.searchInput()).toBe('');
+      expect(component.activeTab()).toBe('today');
+      expect(component.counts().today).toBe(3);
+    });
+
+    it('sin resultados lo dice (no "no hay nada pendiente") y Limpiar vuelve a la lista', async () => {
+      await load(many());
+      await type('zzz');
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Ningún paquete coincide con «zzz»');
+      expect(text).not.toContain('No hay nada pendiente');
+      (fixture.nativeElement.querySelector('.ds-search-result .link') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(component.searching()).toBe(false);
+      expect(ids()).toEqual(['2000099', 'b', '777', 'z']);
+    });
+
+    it('muestra el nombre del comprador junto al apodo', async () => {
+      await load(many());
+      expect(fixture.nativeElement.textContent).toContain('Juan Pérez (JUANP)');
+    });
+  });
+
   describe('en el celular', () => {
     beforeEach(() => asPhone());
+
+    it('el buscador también está en el celu y filtra la lista compacta', async () => {
+      await load([pkg({ saleId: 'a' }), pkg({ saleId: 'b', items: [{ ...pkg().items[0], sku: 'X9', title: 'Repuesto' }] })]);
+      const input = fixture.nativeElement.querySelector('zc-search-bar input') as HTMLInputElement;
+      input.value = 'x9';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      await settle(260);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelectorAll('.dp-row').length).toBe(1);
+      expect(fixture.nativeElement.textContent).toContain('1 paquete para «x9»');
+    });
 
     it('muestra la lista compacta en vez de las tarjetas y el encabezado de escritorio', async () => {
       await load([pkg({ saleId: 'a' }), pkg({ saleId: 'b', items: [pkg().items[0], { ...pkg().items[0], sku: 'X', title: 'Repuesto' }] })]);
