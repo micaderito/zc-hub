@@ -352,6 +352,7 @@ export class ProductHistoryDialogComponent {
     if (row.productLabel) return row.productLabel;
     if (row.source === 'manual') return 'Cambio manual';
     if (row.source === 'externo') return row.updatedChannel === 'mercadolibre' ? 'Cambio en ML' : 'Cambio en TN';
+    if (row.source === 'cancelacion') return 'Cancelación';
     if (row.source === 'devolucion') return 'Devolución';
     return 'Venta';
   }

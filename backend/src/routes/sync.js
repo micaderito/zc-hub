@@ -130,7 +130,7 @@ syncRoutes.post('/reprocess-order', async (req, res) => {
 
 /**
  * Historial de cambios de stock.
- * Query: limit, offset, orderId (busca por nº venta, id. ítem o SKU), source ('venta'|'manual'|'devolucion'|'externo').
+ * Query: limit, offset, orderId (busca por nº venta, id. ítem o SKU), source ('venta'|'manual'|'cancelacion'|'devolucion'|'externo').
  */
 syncRoutes.get('/audit', async (req, res) => {
   try {
