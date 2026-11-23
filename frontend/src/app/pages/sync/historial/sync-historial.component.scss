@@ -215,6 +215,12 @@
       color: var(--brand);
     }
 
+    // Mismo color que el chip "Cancelación ML/TN" de la fila.
+    &.cancelacion {
+      background: var(--warn-bg);
+      color: var(--warn);
+    }
+
     // Cambio hecho desde el panel de ML/TN, sin pasar por el hub.
     &.externo {
       background: var(--warn-bg);

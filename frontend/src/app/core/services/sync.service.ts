@@ -8,12 +8,12 @@ export interface SyncConfig {
 }
 
 /**
- * De dónde salió un cambio de stock. 'venta' y 'devolucion' los produce la sincronización
- * automática; 'manual' es alguien tocando el stock desde Precio y stock; 'externo' es un cambio
+ * De dónde salió un cambio de stock. 'venta', 'cancelacion' (se canceló una orden de ML/TN) y
+ * 'devolucion' (se aprobó una devolución pendiente) los produce la sincronización automática; 'manual' es alguien tocando el stock desde Precio y stock; 'externo' es un cambio
  * que detectamos en ML o TN y que no corresponde a ninguna venta ni a nada que haya hecho el hub
  * (típicamente lo editaron desde el panel del canal).
  */
-export type AuditSource = 'venta' | 'manual' | 'devolucion' | 'externo';
+export type AuditSource = 'venta' | 'manual' | 'cancelacion' | 'devolucion' | 'externo';
 
 /**
  * Quién movió el stock: 'hub' lo escribió la app (el descuento espejo de una venta, una devolución,

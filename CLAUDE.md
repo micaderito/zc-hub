@@ -197,6 +197,13 @@ De paso se encontró que el filtro **"Devoluciones" del Historial** (`sync.compo
 en `sync_audit` — todo caía al default `'venta'`. Se agregó en los 4 puntos donde se restaura
 stock por cancelación o devolución aprobada, así el filtro que ya existía en la UI queda con datos.
 
+**Cancelación ≠ devolución** (2026-11-23): las restauraciones por orden cancelada (`Cancelación
+ML`/`Cancelación TN`) se guardan con `source: 'cancelacion'` y tienen su propio filtro
+"Cancelaciones" y tag en el Historial; `'devolucion'` queda solo para "Devolución aprobada"
+(`approvePendingReturn`). La migración `2026-11-23_split_source_cancelacion` reetiquetó las filas
+viejas por `product_label`, y `normalizeAuditSource` (`db.js`) corrige las tareas de la cola
+encoladas antes con `'devolucion'`.
+
 ### Cola de tareas (`ml_pending_tasks`): locks que vencen
 
 El worker (`backend/src/lib/mlTaskQueue.js`, tick cada 500 ms, espaciado hasta 5 s con la cola

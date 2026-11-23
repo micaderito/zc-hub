@@ -573,7 +573,7 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
       saleItemId: variationId ? `${itemId}:${variationId}` : String(itemId),
       productLabel: 'Cancelación ML',
       productDisplay: mlOrderItemDisplay(oi),
-      source: 'devolucion',
+      source: 'cancelacion',
     });
 
     // updateVariantStock lanza si TN rechaza: lo contenemos por ítem para que un producto que
@@ -600,7 +600,7 @@ export async function onMercadoLibreOrderCancelled(orderItems, orderId = '', ord
 
     const saleItemId = orderItems.length > 1 && oi.id != null && oi.id !== '' ? String(oi.id) : null;
     await insertAuditLog({
-      source: 'devolucion',
+      source: 'cancelacion',
       channelSale: 'mercadolibre',
       orderId: realOrderId,
       packId,
@@ -632,7 +632,7 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
     const productId = item.product_id ?? item.productId;
     const saleItemId = productId != null ? `${productId}:${variantId}` : String(variantId);
     const auditCtx = {
-      source: 'devolucion',
+      source: 'cancelacion',
       channelSale: 'tiendanube',
       orderId: String(orderId),
       saleItemId,
@@ -655,7 +655,7 @@ export async function onTiendaNubeOrderCancelled(orderItems, orderId = '', order
       saleItemId,
       productLabel: 'Cancelación TN',
       productDisplay: tnOrderItemDisplay(item),
-      source: 'devolucion',
+      source: 'cancelacion',
     });
     if (out.ok) {
       console.log('[Sync] TN cancelación %s: SKU %s encolado en ML (taskId %s)', orderId, sku, out.taskId);

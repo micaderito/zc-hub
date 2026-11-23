@@ -128,6 +128,11 @@ describe('SyncHistorialComponent', () => {
     it('etiqueta el origen de cada fila del historial', () => {
       expect(component.auditSourceLabel('manual')).toBe('Manual');
       expect(component.auditSourceLabel('devolucion')).toBe('Devolución');
+      expect(component.auditSourceLabel('cancelacion')).toBe('Cancelación');
+    });
+
+    it('ofrece filtrar cancelaciones aparte de devoluciones', () => {
+      expect(component.auditSourceOptions.map(o => o.key)).toEqual(['', 'venta', 'manual', 'cancelacion', 'devolucion', 'externo']);
       expect(component.auditSourceLabel('venta')).toBe('Venta');
     });
 

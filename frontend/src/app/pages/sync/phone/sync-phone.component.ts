@@ -25,6 +25,7 @@ export const AUDIT_SOURCE_OPTIONS: { key: AuditSource | ''; label: string }[] = 
   { key: '', label: 'Todos' },
   { key: 'venta', label: 'Ventas' },
   { key: 'manual', label: 'Manuales' },
+  { key: 'cancelacion', label: 'Cancelaciones' },
   { key: 'devolucion', label: 'Devoluciones' },
   { key: 'externo', label: 'Externos' },
 ];
@@ -277,7 +278,7 @@ export class SyncPhoneComponent implements OnInit {
 
   rowBadge(row: SyncAuditRow): string {
     if (row.revertedAt) return 'plain';
-    if (row.source === 'devolucion') return 'ok';
+    if (row.source === 'devolucion' || row.source === 'cancelacion') return 'ok';
     if (row.source === 'externo') return 'warn';
     if (row.source === 'manual') return 'plain';
     return 'busy';

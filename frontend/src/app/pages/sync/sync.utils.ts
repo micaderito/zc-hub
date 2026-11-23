@@ -19,6 +19,7 @@ export function channelLabel(ch: string): string {
 /** Etiqueta del origen de un movimiento del historial. */
 export function auditSourceLabel(source: AuditSource): string {
   if (source === 'manual') return 'Manual';
+  if (source === 'cancelacion') return 'Cancelación';
   if (source === 'devolucion') return 'Devolución';
   if (source === 'externo') return 'Externo';
   return 'Venta';
