@@ -505,3 +505,81 @@ test(
     }
   },
 );
+
+test(
+  'renameSkuEverywhere: pasa todo al SKU nuevo, gana lo que ya tenía el nuevo y es idempotente',
+  { skip: hasDb ? false : 'requiere DATABASE_URL (correr con el .env symlinkeado del worktree, o el de backend/)' },
+  async () => {
+    const db = await import('../src/db.js');
+    const pg = (await import('pg')).default;
+    const pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined,
+    });
+    assert.equal(await db.initDb(), true);
+    const s = Date.now();
+    const A = `t-ren-a-${s}`;
+    const B = `t-ren-b-${s}`;
+    let packId = null;
+    const q = (sql, params) => pool.query(sql, params);
+    try {
+      // A tiene de todo; B ya tiene costo y ajuste de precio de ML (esos ganan).
+      await q(`INSERT INTO product_costs (sku, bulk_price, bulk_qty, label) VALUES ($1, 100, 1, 'viejo'), ($2, 200, 1, 'nuevo')`, [A, B]);
+      await q(`INSERT INTO price_overrides (sku, channel, value) VALUES ($1,'ml',10), ($1,'tn',11), ($2,'ml',20)`, [A, B]);
+      await q(`INSERT INTO sku_code_map (sku, code, supplier) VALUES ($1, 'C-1', 'punto_cero')`, [A]);
+      await q(`INSERT INTO stock_alerts (sku, threshold) VALUES ($1, 3)`, [A]);
+      packId = (await q(`INSERT INTO product_packs (name) VALUES ($1) RETURNING id`, [`t-ren-pack-${s}`])).rows[0].id;
+      await q(`INSERT INTO pack_skus (sku, pack_id) VALUES ($1, $2)`, [A, packId]);
+      await q(`INSERT INTO product_suppliers (target_type, target_id, supplier_key) VALUES ('sku', $1, 'punto_cero')`, [A]);
+      await q(`INSERT INTO restock_order_overrides (target_type, target_id, qty) VALUES ('sku', $1, 4)`, [A]);
+      await q(`INSERT INTO restock_dismissed (sku) VALUES ($1)`, [A]);
+      await q(`INSERT INTO deposito_stock (sku, label) VALUES ($1, 't-ren')`, [A]);
+      await q(`INSERT INTO sync_audit (channel_sale, order_id, sku, quantity, updated_channel, stock_before, stock_after) VALUES ('mercadolibre','t',$1,1,'tiendanube',2,1)`, [A]);
+      await q(`INSERT INTO stock_notifications (sku, threshold, stock_effective) VALUES ($1, 3, 1)`, [A]);
+
+      const res = await db.renameSkuEverywhere(A, B, 'parche');
+      assert.ok(res, 'no debería fallar');
+      assert.deepEqual(Object.keys(res.discarded).sort(), ['price_overrides', 'product_costs']);
+
+      const one = async (sql) => (await q(sql, [B])).rows;
+      assert.equal((await one(`SELECT label FROM product_costs WHERE sku = $1`))[0].label, 'nuevo', 'gana el costo del nuevo');
+      assert.deepEqual((await one(`SELECT channel, value::int AS v FROM price_overrides WHERE sku = $1 ORDER BY channel`)).map((r) => [r.channel, r.v]), [['ml', 20], ['tn', 11]]);
+      assert.equal((await one(`SELECT code FROM sku_code_map WHERE sku = $1`))[0].code, 'C-1');
+      assert.equal((await one(`SELECT threshold FROM stock_alerts WHERE sku = $1`))[0].threshold, 3);
+      assert.equal((await one(`SELECT pack_id FROM pack_skus WHERE sku = $1`))[0].pack_id, packId);
+      assert.equal((await one(`SELECT 1 FROM product_suppliers WHERE target_type='sku' AND target_id = $1`)).length, 1);
+      assert.equal((await one(`SELECT qty FROM restock_order_overrides WHERE target_type='sku' AND target_id = $1`))[0].qty, 4);
+      assert.equal((await one(`SELECT 1 FROM restock_dismissed WHERE sku = $1`)).length, 1);
+      assert.equal((await one(`SELECT 1 FROM deposito_stock WHERE sku = $1`)).length, 1);
+      assert.equal((await one(`SELECT 1 FROM sync_audit WHERE sku = $1`)).length, 1);
+      assert.equal((await one(`SELECT 1 FROM stock_notifications WHERE sku = $1`)).length, 1);
+
+      // No queda nada en A.
+      for (const [t, c] of [['product_costs', 'sku'], ['price_overrides', 'sku'], ['sku_code_map', 'sku'], ['stock_alerts', 'sku'],
+        ['pack_skus', 'sku'], ['product_suppliers', 'target_id'], ['restock_order_overrides', 'target_id'], ['restock_dismissed', 'sku'],
+        ['deposito_stock', 'sku'], ['sync_audit', 'sku'], ['stock_notifications', 'sku']]) {
+        assert.equal((await q(`SELECT 1 FROM ${t} WHERE ${c} = $1`, [A])).rowCount, 0, `${t} no debería quedar con el SKU viejo`);
+      }
+
+      const log = (await q(`SELECT source, discarded_json FROM sku_renames WHERE from_sku = $1`, [A])).rows;
+      assert.equal(log.length, 1);
+      assert.equal(log[0].source, 'parche');
+      assert.equal(JSON.parse(log[0].discarded_json).product_costs[0].label, 'viejo', 'queda registrado lo que se descartó');
+
+      // Idempotente: la segunda vez no encuentra nada y no deja otra fila en el registro.
+      assert.deepEqual(await db.renameSkuEverywhere(A, B, 'webhook'), { moved: {}, discarded: {} });
+      assert.equal((await q(`SELECT 1 FROM sku_renames WHERE from_sku = $1`, [A])).rowCount, 1);
+    } finally {
+      for (const sku of [A, B]) {
+        for (const [t, c] of [['product_costs', 'sku'], ['price_overrides', 'sku'], ['sku_code_map', 'sku'], ['stock_alerts', 'sku'],
+          ['pack_skus', 'sku'], ['product_suppliers', 'target_id'], ['restock_order_overrides', 'target_id'], ['restock_dismissed', 'sku'],
+          ['deposito_stock', 'sku'], ['sync_audit', 'sku'], ['stock_notifications', 'sku']]) {
+          await q(`DELETE FROM ${t} WHERE ${c} = $1`, [sku]);
+        }
+      }
+      await q(`DELETE FROM sku_renames WHERE from_sku = $1`, [A]);
+      if (packId != null) await q(`DELETE FROM product_packs WHERE id = $1`, [packId]);
+      await pool.end();
+    }
+  },
+);
