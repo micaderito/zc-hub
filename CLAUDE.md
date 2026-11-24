@@ -838,6 +838,15 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   para drop_off/xd_drop_off: es lo de siempre.
 - **Fotos**: `getItems` multiget → `pictures[].secure_url` de la variación (por `picture_ids`, en su
   orden) o del ítem; thumbnail = misma URL con sufijo `-I`. TN trae `products[].image.src` en la orden.
+  **Fotos que faltaban** (2026-11-23): `getItems` saltea en silencio una tanda de 20 que falla (429,
+  5xx) y esos productos salían sin foto durante toda la caché. Ahora `loadItemPhotos` recuerda las fotos
+  por ítem 6 h (`ITEM_PHOTOS_TTL_MS`, solo lo que usa `mlPicturesFor`) y pide solo lo que no tiene;
+  lo que ML no devolvió se pide una segunda vez, y si igual falta se usa la foto vencida. Si quedó
+  algún producto sin foto, la caché de la lista dura 10 s en vez de 60. En el navegador,
+  `zc-product-thumb` reintenta una vez una foto que no cargó y si no muestra el ícono de "sin foto".
+- **El "504 Gateway Timeout" de la consola era del service worker**, no de Railway: el SW de la PWA
+  intercepta todos los GET y cambia cualquier `fetch` cortado por un 504 falso. Los pedidos a la API
+  van con `ngsw-bypass` (`ngswBypassInterceptor`) y no pasan por el SW, así se ve el error real.
 - **TN**: `listOrders` (`lib/tiendanube.js`) con `status=open&payment_status=paid` y
   `shipping_status=unpacked` + `unfulfilled` (dedupe por id). TN no tiene horario límite: va a "Hoy",
   por antigüedad. TN contesta 404 a una página vacía: es lista vacía, no error.

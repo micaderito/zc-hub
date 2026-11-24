@@ -30,6 +30,8 @@ export const CANCELLED_WINDOW_HOURS = 48;
 const CACHE_TTL_MS = 60_000;
 /** Cuánto se recuerda el SLA de un envío (ver loadMl). */
 export const SLA_TTL_MS = 10 * 60_000;
+/** Fotos de un ítem de ML: casi nunca cambian, se recuerdan por proceso. */
+export const ITEM_PHOTOS_TTL_MS = 6 * MS_HOUR;
 
 // ─────────────────────────── funciones puras (sin red ni base) ───────────────────────────
 
@@ -496,6 +498,57 @@ async function mapLimit(list, limit, fn) {
   return out;
 }
 
+/** Fotos por ítem de ML (`{ at, value }`): solo lo que usa mlPicturesFor, para no guardar el ítem entero. */
+const itemPhotosMemo = new Map();
+const ITEM_PHOTOS_FIELDS = 'id,pictures,variations,secure_thumbnail';
+
+function slimItem(it) {
+  return {
+    id: it.id,
+    pictures: (it.pictures || []).map((p) => ({ id: p.id, secure_url: p.secure_url, url: p.url })),
+    variations: (it.variations || []).map((v) => ({ id: v.id, picture_ids: v.picture_ids || [] })),
+    secure_thumbnail: it.secure_thumbnail ?? null,
+  };
+}
+
+/**
+ * Fotos de los ítems de la lista. Se piden solo las que no están en memoria (o vencieron), y lo que
+ * ML no devolvió (una tanda del multiget con 429/5xx se pierde entera: getItems la saltea) se pide
+ * una segunda vez. Si igual falta, se usa la foto vencida si hay: una foto vieja es mejor que
+ * ninguna. `missing` = ítems que quedaron sin foto.
+ */
+async function loadItemPhotos(token, itemIds, now) {
+  const items = new Map();
+  let toFetch = [];
+  for (const id of itemIds) {
+    // Sin `fresh()`: ese borra lo vencido, y acá lo vencido sirve de respaldo si ML no contesta.
+    const hit = itemPhotosMemo.get(id);
+    if (hit && now.getTime() - hit.at <= ITEM_PHOTOS_TTL_MS) items.set(id, hit.value);
+    else toFetch.push(id);
+  }
+  const fromMemo = items.size;
+  const requested = toFetch.length;
+  for (let attempt = 0; attempt < 2 && toFetch.length; attempt++) {
+    const got = await ml.getItems(token, toFetch, ITEM_PHOTOS_FIELDS).catch((e) => {
+      console.warn('[Despachos] fotos ML:', e?.message);
+      return [];
+    });
+    for (const it of got || []) {
+      if (!it?.id) continue;
+      const slim = slimItem(it);
+      items.set(String(it.id), slim);
+      itemPhotosMemo.set(String(it.id), { at: now.getTime(), value: slim });
+    }
+    toFetch = toFetch.filter((id) => !items.has(id));
+  }
+  for (const id of toFetch) {
+    const stale = itemPhotosMemo.get(id);
+    if (stale) items.set(id, stale.value);
+  }
+  pruneMemo(itemPhotosMemo, ITEM_PHOTOS_TTL_MS, now);
+  return { items, fromMemo, requested, missing: toFetch.filter((id) => !items.has(id)) };
+}
+
 /** `{ 'ready_to_ship/printed': 3, … }` — para confirmar en los logs los substatus reales de la cuenta. */
 function countByStatus(shipments) {
   const out = {};
@@ -581,15 +634,16 @@ async function loadMl(now) {
     const sid = getShipmentIdFromOrder(o);
     return String(o.status).toLowerCase() === 'cancelled' || (sid && shownIds.has(String(sid)));
   });
-  const itemIds = [...new Set(shown.flatMap((o) => (o.order_items || []).map((it) => it?.item?.id)).filter(Boolean))];
-  const itemList = itemIds.length ? await ml.getItems(token, itemIds, 'id,pictures,variations,secure_thumbnail') : [];
-  const items = new Map(itemList.map((it) => [String(it.id), it]));
+  const itemIds = [...new Set(shown.flatMap((o) => (o.order_items || []).map((it) => String(it?.item?.id ?? ''))).filter(Boolean))];
+  const photos = await loadItemPhotos(token, itemIds, now);
+  const items = photos.items;
+  if (photos.missing.length) mlPhotosMissing = true;
 
   const tEnd = Date.now();
   console.info(
     `[Despachos] ML en ${tEnd - t0} ms — órdenes ${tOrders - t0} ms (${orders.length}, ${relevant.length} relevantes)`
     + ` · envíos+SLA ${tShipments - tOrders} ms (${shipmentIds.length} envíos, ${memoHits} de memoria, ${slaCount} SLA)`
-    + ` · fotos ${tEnd - tShipments} ms (${itemIds.length} ítems)`,
+    + ` · fotos ${tEnd - tShipments} ms (${itemIds.length} ítems, ${photos.fromMemo} de memoria, ${photos.requested} pedidos, ${photos.missing.length} sin foto)`,
   );
 
   const { pending, cancelled } = buildMlPackages(relevant, { shipments, slas, items, now });
@@ -618,19 +672,24 @@ async function loadTn(now) {
   return [...pending, ...cancelled];
 }
 
-let cache = null; // { at, packages, errors }
+let cache = null; // { at, packages, errors, photosMissing }
+/** La última carga de ML dejó productos sin foto: la caché no dura los 60 s (ver getDispatchList). */
+let mlPhotosMissing = false;
+/** Con fotos faltantes la lista se vuelve a armar a los pocos segundos, no al minuto. */
+const CACHE_TTL_PHOTOS_MISSING_MS = 10_000;
 /** Carga de ML+TN en curso, compartida entre requests simultáneos. */
 let inFlight = null;
 
 async function loadAll(now) {
   const errors = {};
+  mlPhotosMissing = false;
   const [mlRes, tnRes] = await Promise.allSettled([loadMl(now), loadTn(now)]);
   const packages = [];
   if (mlRes.status === 'fulfilled') packages.push(...mlRes.value);
   else { errors.ml = describeError(mlRes.reason); console.warn('[Despachos] ML:', mlRes.reason?.message); }
   if (tnRes.status === 'fulfilled') packages.push(...tnRes.value);
   else { errors.tn = describeError(tnRes.reason); console.warn('[Despachos] TN:', tnRes.reason?.message); }
-  cache = { at: now.getTime(), packages, errors };
+  cache = { at: now.getTime(), packages, errors, photosMissing: mlPhotosMissing };
 }
 
 /**
@@ -641,7 +700,8 @@ async function loadAll(now) {
 export async function getDispatchList({ refresh = false, now = new Date() } = {}) {
   // Las marcas son del hub (no de ML/TN): se leen en paralelo con la carga.
   const marksP = db.getDispatchMarks();
-  if (refresh || !cache || now.getTime() - cache.at > CACHE_TTL_MS) {
+  const ttl = cache?.photosMissing ? CACHE_TTL_PHOTOS_MISSING_MS : CACHE_TTL_MS;
+  if (refresh || !cache || now.getTime() - cache.at > ttl) {
     // Una carga en vuelo se comparte: abrir la página y apretar "Actualizar" a la vez (o dos
     // personas mirando) no dispara dos tandas enteras contra ML. La que está en vuelo ya es fresca.
     if (!inFlight) inFlight = loadAll(now).finally(() => { inFlight = null; });
@@ -708,4 +768,6 @@ export function _resetDispatchCache() {
   notesCache = null;
   finalShipments.clear();
   slaMemo.clear();
+  itemPhotosMemo.clear();
+  mlPhotosMissing = false;
 }
