@@ -949,6 +949,20 @@ export async function initDb() {
     `);
     await p.query(`DELETE FROM publication_edits WHERE status IN ('done', 'discarded') AND updated_at < NOW() - INTERVAL '30 days'`);
 
+    // Cada cambio de SKU que se propagó a todo el hub (renameSkuEverywhere): de qué a qué, desde
+    // dónde se detectó y lo que se descartó porque el SKU nuevo ya tenía el suyo (gana el nuevo).
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS sku_renames (
+        id SERIAL PRIMARY KEY,
+        from_sku VARCHAR(128) NOT NULL,
+        to_sku VARCHAR(128) NOT NULL,
+        source VARCHAR(16),
+        moved_json TEXT,
+        discarded_json TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
     return true;
   } catch (e) {
     console.error('DB init error:', e.message);
@@ -3434,6 +3448,66 @@ async function withDepositoTx(name, fn, fallback) {
   } finally {
     client.release();
   }
+}
+
+// ── Cambio de SKU: se propaga a todo el hub ─────────────────────────────────
+// Lo que el hub guarda por SKU con clave única: si el SKU nuevo ya tiene la fila, gana la suya y la
+// del viejo se descarta (queda en sku_renames.discarded_json). `keys` = el resto de la clave.
+const SKU_KEYED_TABLES = [
+  { table: 'product_costs', col: 'sku', keys: [] },
+  { table: 'price_overrides', col: 'sku', keys: ['channel'] },
+  { table: 'sku_code_map', col: 'sku', keys: ['supplier'] },
+  { table: 'stock_alerts', col: 'sku', keys: [] },
+  { table: 'pack_skus', col: 'sku', keys: [] },
+  { table: 'product_suppliers', col: 'target_id', keys: ['supplier_key'], filter: "target_type = 'sku'" },
+  { table: 'restock_order_overrides', col: 'target_id', keys: [], filter: "target_type = 'sku'" },
+  { table: 'restock_dismissed', col: 'sku', keys: [] },
+];
+// Sin clave única (filas del depósito e historial): se pasan todas al SKU nuevo. product_packs.sku
+// NO va: es el código del proveedor para el pack, no un SKU de canal.
+const SKU_PLAIN_TABLES = [
+  'deposito_stock', 'sync_audit', 'price_audit', 'stock_notifications', 'sync_pending_returns',
+  'ml_sales_items', 'price_apply_items', 'supplier_order_lines',
+];
+
+/**
+ * Pasa todo lo que el hub tiene en el SKU `from` al SKU `to`, en una transacción. Idempotente:
+ * correrlo de nuevo no encuentra nada en `from`. Devuelve `{ moved, discarded }` por tabla, o
+ * `null` si no hay base o falló (se loguea; el cambio de SKU en el canal ya está hecho igual).
+ */
+export async function renameSkuEverywhere(from, to, source = null) {
+  const a = String(from || '').trim();
+  const b = String(to || '').trim();
+  if (!a || !b || a === b) return null;
+  return withDepositoTx('renameSkuEverywhere', async (client) => {
+    const moved = {};
+    const discarded = {};
+    for (const { table, col, keys, filter } of SKU_KEYED_TABLES) {
+      const f = filter ? ` AND ${filter}` : '';
+      const f2 = filter ? ` AND ${filter.replace(/(\w+) =/, 't2.$1 =')}` : '';
+      const sameKey = keys.map((k) => ` AND t2.${k} = ${table}.${k}`).join('');
+      const up = await client.query(
+        `UPDATE ${table} SET ${col} = $2
+          WHERE ${col} = $1${f}
+            AND NOT EXISTS (SELECT 1 FROM ${table} t2 WHERE t2.${col} = $2${f2}${sameKey})`,
+        [a, b]
+      );
+      if (up.rowCount) moved[table] = up.rowCount;
+      const del = await client.query(`DELETE FROM ${table} WHERE ${col} = $1${f} RETURNING *`, [a]);
+      if (del.rowCount) discarded[table] = del.rows;
+    }
+    for (const table of SKU_PLAIN_TABLES) {
+      const up = await client.query(`UPDATE ${table} SET sku = $2 WHERE sku = $1`, [a, b]);
+      if (up.rowCount) moved[table] = up.rowCount;
+    }
+    if (Object.keys(moved).length || Object.keys(discarded).length) {
+      await client.query(
+        `INSERT INTO sku_renames (from_sku, to_sku, source, moved_json, discarded_json) VALUES ($1, $2, $3, $4, $5)`,
+        [a, b, source, JSON.stringify(moved), Object.keys(discarded).length ? JSON.stringify(discarded) : null]
+      );
+    }
+    return { moved, discarded };
+  }, null);
 }
 
 async function insertDepositoMovement(client, item, kind, delta, actor) {

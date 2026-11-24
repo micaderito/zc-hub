@@ -28,7 +28,8 @@ const storeState = {
   resolutionCalls: [],
 };
 
-const dbState = { hasDb: false, snapshot: null, setSnapshotCalls: [], auditLogs: [], priceAudits: [] };
+const dbState = { hasDb: false, snapshot: null, setSnapshotCalls: [], auditLogs: [], priceAudits: [], renames: [] };
+const alertCalls = [];
 
 const mlState = { responder: null, getItemImpl: null, getItemStatusOverride: null };
 const tnState = { getProductsImpl: null, getProductImpl: null };
@@ -63,6 +64,7 @@ before(async () => {
       invalidateAnalysisCache: async () => { dbState.snapshot = null; },
       insertAuditLog: async (row) => { dbState.auditLogs.push(row); },
       insertPriceAudit: async (row) => { dbState.priceAudits.push(row); },
+      renameSkuEverywhere: async (from, to, source) => { dbState.renames.push({ from, to, source }); return { moved: { product_costs: 1 }, discarded: {} }; },
     },
   });
   mock.module('../src/lib/mercadolibre.js', {
@@ -85,7 +87,7 @@ before(async () => {
     },
   });
   mock.module('../src/services/alertsService.js', {
-    exports: { evaluateStockAlerts: async () => {} },
+    exports: { evaluateStockAlerts: async () => { alertCalls.push(dbState.renames.length); } },
   });
   conflictsService = await import('../src/services/conflictsService.js');
 });
@@ -103,6 +105,8 @@ beforeEach(() => {
   dbState.setSnapshotCalls = [];
   dbState.auditLogs = [];
   dbState.priceAudits = [];
+  dbState.renames = [];
+  alertCalls.length = 0;
   mlState.responder = null;
   conflictsService.__resetStockEchoesForTests();
   mlState.getItemImpl = null;
@@ -932,4 +936,55 @@ test('readTnSnapshotRow: fila inexistente en el snapshot → null', async () => 
   dbState.snapshot = snapshotWithTnVariant();
   const row = await conflictsService.readTnSnapshotRow(999, 999);
   assert.equal(row, null);
+});
+
+// ── Cambio de SKU: se propaga a todo el hub (skuRename.js + storeSnapshot) ──────────────────────
+
+function snapshotSkuPair(mlSku, tnSku) {
+  return {
+    at: Date.now(),
+    data: {
+      mlRows: [{ type: 'ml', itemId: 'MLA1', variationId: null, title: 'X', sku: mlSku, hasSku: true, price: 1, stock: 1 }],
+      tnRows: [{ type: 'tn', productId: 5, variantId: 50, productName: 'X', sku: tnSku, hasSku: true, price: 1, stock: 1 }],
+      mlConnected: true, tnConnected: true,
+    },
+  };
+}
+const flush = () => new Promise((r) => setTimeout(r, 10));
+
+test('cambio de SKU: con la otra punta todavía en el viejo no se mueve nada; al cambiarla, sí (una vez)', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotSkuPair('A', 'A');
+  await conflictsService.patchMlSku('MLA1', null, 'B');
+  await flush();
+  assert.deepEqual(dbState.renames, [], 'TN sigue usando A: no es huérfano');
+  await conflictsService.patchTnSku(5, 50, 'B');
+  await flush();
+  assert.deepEqual(dbState.renames, [{ from: 'A', to: 'B', source: 'parche' }]);
+  // Las alertas se evalúan DESPUÉS de mover los datos al SKU nuevo.
+  assert.equal(alertCalls.at(-1), 1);
+});
+
+test('cambio de SKU desde el panel de ML: el webhook lo detecta y lo propaga', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotSkuPair('A', 'B');
+  mlState.getItemImpl = (id) => (id === 'MLA1'
+    ? { id: 'MLA1', title: 'X', catalog_listing: false, seller_sku: 'B', price: 1, available_quantity: 1 }
+    : null);
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  await flush();
+  assert.deepEqual(dbState.renames, [{ from: 'A', to: 'B', source: 'webhook' }]);
+  // El webhook que llega después ya encuentra B: no se repite.
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  await flush();
+  assert.equal(dbState.renames.length, 1);
+});
+
+test('cambio de SKU: sacar la publicación del catálogo no es un renombre', async () => {
+  dbState.hasDb = true;
+  dbState.snapshot = snapshotSkuPair('A', 'B');
+  mlState.getItemImpl = () => null; // 404: el ítem se borró
+  await conflictsService.refreshMlItemInSnapshot('tok', 'MLA1');
+  await flush();
+  assert.deepEqual(dbState.renames, []);
 });

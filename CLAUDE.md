@@ -1618,6 +1618,39 @@ que se elija otra cosa.
   `SessionService` resuelve `HttpClient` de forma perezosa a propósito: la directiva lo inyecta en
   casi todas las pantallas y así sus specs no necesitan proveer `HttpClient`.
 
+### Cambio de SKU: se propaga a todo el hub
+
+Hasta 2026-11-23, cambiarle el SKU a una variante (Vincular SKUs, Publicaciones → Vincular, Editar
+publicación, la Cola ML, o desde el panel de ML/TN) solo escribía el canal y parchaba la foto: el
+costo, el código del proveedor, la alerta, el pack, el proveedor, el depósito y el historial quedaban
+huérfanos en el SKU viejo.
+
+**Se detecta en un solo lugar: `storeSnapshot`** (`conflictsService.js`), por donde pasan todos los
+cambios (parches, webhooks y el crawl). `detectSkuRenames` (`services/skuRename.js`, puro) compara la
+foto anterior con la nueva: la misma fila (variación de ML / variante de TN) pasa de A a B **y A ya
+no la usa ninguna fila de ningún canal**. Si TN sigue con A porque solo se cambió ML, no se mueve nada
+todavía (A sigue en uso); se mueve cuando cambie la otra punta. No es renombre: una publicación que
+desaparece, un SKU vaciado, A que pasa a dos SKUs distintos (ambiguo) ni un intercambio A ↔ B (los dos
+siguen en uso): se loguea `[SkuRename]` y no se toca. El índice previo (`lastSkuIndex`) se arma al
+CARGAR la foto, porque `patchSnapshot` la muta en el lugar; tras reiniciar el backend sin foto cargada
+no hay contra qué comparar.
+
+`renameSkuEverywhere(from, to, source)` (`db.js`) lo mueve en una transacción, idempotente, ANTES de
+evaluar las alertas. **Gana el nuevo**: en las tablas con clave única (`product_costs`,
+`price_overrides`, `sku_code_map` —incluye las marcas de "sacado"—, `stock_alerts`, `pack_skus`,
+`product_suppliers` y `restock_order_overrides` con `target_type = 'sku'`, `restock_dismissed`), si B
+ya tiene la fila se queda la suya y la de A se borra. El resto pasa entero: `deposito_stock` y el
+historial (`sync_audit`, `price_audit`, `stock_notifications`, `sync_pending_returns`,
+`ml_sales_items`, `price_apply_items`, `supplier_order_lines` — solo el SKU; el código que se mandó a
+la fábrica no cambia). Cada renombre queda en `sku_renames` (`source`: `parche` / `webhook` / `crawl`,
+lo movido y lo descartado). No se tocan `product_packs.sku` (es el código del proveedor del pack),
+`ml_pending_tasks` ni los borradores (`product_drafts`, `publication_edits`).
+
+Ojo: `ml_sales_items` se reescribe con el SKU que trae la orden de ML cada vez que el barrido de
+ventas reprocesa una orden de los últimos 30 días, así que una venta reciente puede volver al SKU
+viejo en el informe de Ventas. No afecta stock ni nada de lo de arriba. La caché de la foto de Precios
+(15 s) no se invalida: el renombre se ve ahí en la próxima lectura.
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
@@ -1628,7 +1661,7 @@ por variación) y la atribución/encolado del reintento del historial, `backend/
 recuperación de locks vencidos, `backend/test/mlTaskQueue.test.js` el latido y `stock_probe`,
 `backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
 despachado, envío no consultable, caché por pack, cancelación del vendedor, reintento del espejo),
-y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
+`backend/test/skuRename.test.js` + los casos de cambio de SKU al final de `conflictsService.test.js` la detección de renombres (y `renameSkuEverywhere` contra Postgres real en `publishJobsRealDb.test.js`), y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
 ajuste rápido de cantidad, filas inexistentes, la usuaria que llega al historial y
 `GET /:id/movimientos`; el SQL del historial contra Postgres real en `publishJobsRealDb.test.js`, y
 en el front `deposito.component.spec.ts` + `deposito-history.component.spec.ts`). El historial de los dos canales está cubierto
