@@ -6,6 +6,7 @@ import { provideTanStackQuery, QueryClient } from '@tanstack/angular-query-exper
 
 import { routes } from './app.routes';
 import { errorInterceptor } from './core/interceptors/error.interceptor';
+import { ngswBypassInterceptor } from './core/interceptors/ngsw-bypass.interceptor';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { SessionService } from './core/services/session.service';
 import { AppUpdateService } from './core/services/app-update.service';
@@ -16,7 +17,7 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes),
     // authInterceptor va primero: pone el header Authorization antes de que errorInterceptor
     // (o cualquier otro) mire la respuesta.
-    provideHttpClient(withInterceptors([authInterceptor, errorInterceptor])),
+    provideHttpClient(withInterceptors([ngswBypassInterceptor, authInterceptor, errorInterceptor])),
     provideTanStackQuery(new QueryClient({
       defaultOptions: {
         queries: {

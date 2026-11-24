@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 
-import { ProductThumbComponent } from './product-thumb.component';
+import { ProductThumbComponent, THUMB_RETRY_MS } from './product-thumb.component';
 import { largePhotoUrl } from './photo-url';
 import { PhotoLightboxService } from '../photo-lightbox/photo-lightbox.service';
 
@@ -105,6 +105,47 @@ describe('ProductThumbComponent', () => {
       .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
     expect(lightbox()).not.toBeNull();
+  });
+
+  describe('si la foto no carga', () => {
+    const img = () => (fixture.nativeElement as HTMLElement).querySelector('img');
+    const fail = () => { img()!.dispatchEvent(new Event('error')); fixture.detectChanges(); };
+
+    it('reintenta una vez y, si vuelve a fallar, muestra el ícono de sin foto', fakeAsync(() => {
+      fixture.componentRef.setInput('src', 'https://http2.mlstatic.com/D_1-I.jpg');
+      fixture.detectChanges();
+      fail();
+      expect(img()).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('.thumb-placeholder')).not.toBeNull();
+      tick(THUMB_RETRY_MS);
+      fixture.detectChanges();
+      expect(img()!.getAttribute('src')).toBe('https://http2.mlstatic.com/D_1-I.jpg?zcr=1');
+      fail();
+      tick(THUMB_RETRY_MS * 2);
+      fixture.detectChanges();
+      expect(img()).toBeNull();
+    }));
+
+    it('una foto nueva arranca de cero', fakeAsync(() => {
+      fixture.componentRef.setInput('src', 'https://x.test/a.jpg');
+      fixture.detectChanges();
+      fail();
+      fixture.componentRef.setInput('src', 'https://x.test/b.jpg');
+      fixture.detectChanges();
+      expect(img()!.getAttribute('src')).toBe('https://x.test/b.jpg');
+      tick(THUMB_RETRY_MS);
+      fixture.detectChanges();
+      expect(img()!.getAttribute('src')).toBe('https://x.test/b.jpg', 'el reintento de la vieja no pisa la nueva');
+    }));
+
+    it('una foto local (blob:) no se reintenta', fakeAsync(() => {
+      fixture.componentRef.setInput('src', 'blob:http://localhost/abc');
+      fixture.detectChanges();
+      fail();
+      tick(THUMB_RETRY_MS);
+      fixture.detectChanges();
+      expect(img()).toBeNull();
+    }));
   });
 });
 

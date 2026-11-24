@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import { PhotoLightboxService } from '../photo-lightbox/photo-lightbox.service';
 import { largePhotoUrl } from './photo-url';
 
@@ -18,28 +18,38 @@ import { largePhotoUrl } from './photo-url';
  *   - `'none'`: solo la miniatura, sin zoom.
  * - Tamaño con `--thumb-size` (36px por defecto; `100%` llena el contenedor) y radio con
  *   `--thumb-radius`. La lupita se puede correr con `--thumb-zoom-top/right/bottom/left`.
+ * - Si la foto no carga (el CDN de ML a veces corta alguna), reintenta una vez a los
+ *   `THUMB_RETRY_MS` y, si vuelve a fallar, muestra el ícono de "sin foto" en vez de la imagen rota.
  *
  * Usa `<span role="button">` y no `<button>` a propósito: muchas miniaturas viven adentro de un
  * `<button>` o un `<label>`, donde un botón anidado es HTML inválido.
  */
+/** Espera antes de volver a pedir una foto que no cargó. */
+export const THUMB_RETRY_MS = 2000;
+
+/** Misma URL con un parámetro para que el navegador la vuelva a pedir (el CDN lo ignora). */
+function retryUrl(src: string): string {
+  return `${src}${src.includes('?') ? '&' : '?'}zcr=1`;
+}
+
 @Component({
   selector: 'zc-product-thumb',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (src()) {
+    @if (shownSrc()) {
       @if (zoom() === 'none') {
-        <img [src]="src()" [alt]="alt()" class="thumb-img" draggable="false" />
+        <img [src]="shownSrc()" [alt]="alt()" class="thumb-img" draggable="false" (error)="onError()" />
       } @else if (zoom() === 'image') {
         <span class="thumb-wrap zoomable" role="button" tabindex="0" [attr.aria-label]="label()" [attr.title]="label()"
               (click)="open($event)" (pointerdown)="$event.stopPropagation()"
               (keydown.enter)="open($event)" (keydown.space)="open($event)">
-          <img [src]="src()" [alt]="alt()" class="thumb-img" draggable="false" />
+          <img [src]="shownSrc()" [alt]="alt()" class="thumb-img" draggable="false" (error)="onError()" />
           <span class="zoom" aria-hidden="true"><i class="ti ti-zoom-in"></i></span>
         </span>
       } @else {
         <span class="thumb-wrap">
-          <img [src]="src()" [alt]="alt()" class="thumb-img" draggable="false" />
+          <img [src]="shownSrc()" [alt]="alt()" class="thumb-img" draggable="false" (error)="onError()" />
           <span class="zoom zoom-btn" role="button" tabindex="0" [attr.aria-label]="label()" [attr.title]="label()"
                 (click)="open($event)" (pointerdown)="$event.stopPropagation()" (mousedown)="$event.stopPropagation()"
                 (keydown.enter)="open($event)" (keydown.space)="open($event)">
@@ -136,6 +146,7 @@ import { largePhotoUrl } from './photo-url';
 })
 export class ProductThumbComponent {
   private readonly lightbox = inject(PhotoLightboxService);
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly src = input<string | null | undefined>();
   /** Fotos para recorrer en el zoom (default: solo `src`, en grande). */
@@ -150,6 +161,43 @@ export class ProductThumbComponent {
   readonly alt = input('');
   /** Ícono (Tabler) cuando no hay foto. */
   readonly placeholderIcon = input('ti-photo-off');
+
+  /** Cómo va la carga de `src`: si cambia `src`, se arranca de cero. */
+  private readonly load = signal<{ src: string; attempt: number; failed: boolean } | null>(null);
+
+  /** La URL que va en el `<img>`: `null` (ícono) si no hay foto o no cargó tampoco al reintentar. */
+  protected readonly shownSrc = computed(() => {
+    const src = this.src();
+    if (!src) return null;
+    const st = this.load();
+    if (!st || st.src !== src) return src;
+    if (st.failed) return null;
+    return st.attempt > 0 ? retryUrl(src) : src;
+  });
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.clearRetry());
+  }
+
+  onError(): void {
+    const src = this.src();
+    if (!src) return;
+    const st = this.load();
+    const attempt = st && st.src === src ? st.attempt : 0;
+    this.clearRetry();
+    this.load.set({ src, attempt, failed: true });
+    // Un `blob:`/`data:` (foto recién elegida) no se arregla reintentando.
+    if (attempt > 0 || !/^https?:/i.test(src)) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      if (this.src() === src) this.load.set({ src, attempt: 1, failed: false });
+    }, THUMB_RETRY_MS);
+  }
+
+  private clearRetry(): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+  }
 
   protected readonly label = computed(() => (this.title() ? `Ver foto de ${this.title()}` : 'Ver foto en grande'));
 

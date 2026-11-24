@@ -18,8 +18,9 @@
 
 import { tokens, getMlToken, tryRefreshMlToken, setMlTokenKnownInvalid, setTnTokenKnownInvalid } from '../store.js';
 import { setResolutionFromAnalysis } from '../store.js';
-import { hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot, invalidateAnalysisCache, insertAuditLog, insertPriceAudit } from '../db.js';
+import { hasDatabase, getAnalysisSnapshot, setAnalysisSnapshot, invalidateAnalysisCache, insertAuditLog, insertPriceAudit, renameSkuEverywhere } from '../db.js';
 import { evaluateStockAlerts } from './alertsService.js';
+import { skuIndex, detectSkuRenames } from './skuRename.js';
 import { rememberStockWrite, consumeStockEcho, mlStockEchoKey, tnStockEchoKey, matchPriceEcho, mlPriceEchoKey, tnPriceEchoKey, __resetStockEchoesForTests } from '../lib/stockEcho.js';
 import * as ml from '../lib/mercadolibre.js';
 import * as tn from '../lib/tiendanube.js';
@@ -231,16 +232,52 @@ function withSnapshotLock(fn) {
   return run;
 }
 
+/**
+ * SKU de cada fila de la última foto que vio este proceso (ver skuRename.js). Se arma al CARGAR la
+ * foto, antes de que un parche la modifique: `patchSnapshot` muta `snap.data` en el lugar (sin base,
+ * es el mismo objeto que `memSnapshot.data`), así que comparar objetos no serviría.
+ */
+let lastSkuIndex = null;
+
 async function loadSnapshot() {
-  if (hasDatabase()) return getAnalysisSnapshot();
-  return memSnapshot;
+  const snap = hasDatabase() ? await getAnalysisSnapshot() : memSnapshot;
+  if (snap?.data?.mlRows) lastSkuIndex = skuIndex(snap.data);
+  return snap;
 }
-async function storeSnapshot(data) {
+
+/**
+ * @param {object} data filas crudas { mlRows, tnRows }
+ * @param {'parche'|'webhook'|'crawl'} [source] de dónde vino el cambio (solo para sku_renames)
+ */
+async function storeSnapshot(data, source = 'parche') {
+  const { renames, skipped } = detectSkuRenames(lastSkuIndex, data);
+  lastSkuIndex = skuIndex(data);
   memSnapshot = { at: Date.now(), data };
   if (hasDatabase()) await setAnalysisSnapshot(data);
-  // Fire-and-forget: evaluar las alertas de stock es I/O de Postgres aparte, no tiene que demorar
-  // la escritura del snapshot ni correr dentro de withSnapshotLock (ver alertsService.js).
-  evaluateStockAlerts(data).catch((e) => console.error('[Alerts] evaluateStockAlerts falló:', e.message));
+  for (const s of skipped) {
+    console.log(`[SkuRename] ${s.from} → ${s.to.join(', ')}: no se propaga (${s.reason === 'in_use' ? 'el SKU viejo sigue en uso' : 'pasó a varios SKUs distintos'}).`);
+  }
+  // Fire-and-forget: es I/O de Postgres aparte, no tiene que demorar la escritura del snapshot ni
+  // correr dentro de withSnapshotLock (ver alertsService.js). Los renombres van ANTES de evaluar las
+  // alertas, así la regla ya está en el SKU nuevo cuando se mira su stock.
+  propagateSkuRenames(renames, source)
+    .then(() => evaluateStockAlerts(data))
+    .catch((e) => console.error('[Alerts] evaluateStockAlerts falló:', e.message));
+}
+
+/** Pasa al SKU nuevo todo lo que el hub tenía en el viejo (costo, código, alerta, pack, historial…). */
+async function propagateSkuRenames(renames, source) {
+  for (const { from, to } of renames) {
+    try {
+      const res = await renameSkuEverywhere(from, to, source);
+      if (!res) continue;
+      const moved = Object.entries(res.moved).map(([t, n]) => `${t} ${n}`).join(', ') || 'nada';
+      const lost = Object.entries(res.discarded).map(([t, rows]) => `${t} ${rows.length}`).join(', ');
+      console.log(`[SkuRename] ${from} → ${to} (${source}): movido ${moved}${lost ? ` · descartado (el nuevo ya tenía): ${lost}` : ''}`);
+    } catch (e) {
+      console.error(`[SkuRename] ${from} → ${to} falló:`, e.message);
+    }
+  }
 }
 
 /** Dedupe: un solo crawl completo a la vez por proceso. */
@@ -248,7 +285,7 @@ let crawlInFlight = null;
 function crawlAndStore() {
   if (crawlInFlight) return crawlInFlight;
   crawlInFlight = fetchRawRows()
-    .then(async (rows) => { await withSnapshotLock(() => storeSnapshot(rows)); return rows; })
+    .then(async (rows) => { await withSnapshotLock(() => storeSnapshot(rows, 'crawl')); return rows; })
     .finally(() => { crawlInFlight = null; });
   return crawlInFlight;
 }
@@ -311,6 +348,7 @@ export async function invalidateSnapshot() {
 export function __resetSnapshotCacheForTests() {
   memSnapshot = null;
   crawlInFlight = null;
+  lastSkuIndex = null;
 }
 
 export { __resetStockEchoesForTests };
@@ -558,13 +596,13 @@ function computeAnalysis({ mlRows = [], tnRows = [], mlConnected = false, tnConn
  * pisaría al terminar con datos de antes de la edición (el usuario ve el SKU/precio/stock
  * "volver" al valor viejo). Esperar el crawl garantiza que el parche se aplique último.
  */
-async function patchSnapshot(mutator) {
+async function patchSnapshot(mutator, source = 'parche') {
   if (crawlInFlight) await crawlInFlight.catch(() => {});
   await withSnapshotLock(async () => {
     const snap = await loadSnapshot();
     if (!snap?.data?.mlRows) return;
     const changed = mutator(snap.data);
-    if (changed) await storeSnapshot(snap.data);
+    if (changed) await storeSnapshot(snap.data, source);
   });
 }
 
@@ -909,7 +947,7 @@ export async function refreshMlItemInSnapshot(accessToken, itemId) {
     data.mlRows = data.mlRows.filter((r) => r.itemId !== itemId);
     data.mlRows.push(...newRows);
     return data.mlRows.length !== before || newRows.length > 0;
-  });
+  }, 'webhook');
   await recordStockChanges('mercadolibre', changes);
   await recordPriceChanges('mercadolibre', priceChanges);
   return { ok: true };
@@ -960,7 +998,7 @@ export async function refreshTnProductInSnapshot(accessToken, storeId, productId
     data.tnRows = data.tnRows.filter((r) => String(r.productId) !== String(productId));
     data.tnRows.push(...newRows);
     return data.tnRows.length !== before || newRows.length > 0;
-  });
+  }, 'webhook');
   await recordStockChanges('tiendanube', changes);
   await recordPriceChanges('tiendanube', priceChanges);
   return { ok: true };

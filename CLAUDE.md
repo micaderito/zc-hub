@@ -248,6 +248,12 @@ insumo no resucita en cada reinicio del backend.
 El ajuste rápido de cantidad (`PATCH /:id/ajustar`, botones +/-1 de la tabla) es un delta sobre el
 valor guardado, no pisa un valor absoluto — evita que dos clics simultáneos se pisen entre sí.
 
+**Productos en 0 no se listan** (2026-11-23): `GET /api/deposito` (`isListedDepositoItem`) y el
+front esconden las filas `producto` con cantidad 0 — escritorio y celu, siempre (sin tilde para
+verlas, a pedido de la usuaria). No se borran: el historial queda y volver a darlo de alta con ese
+SKU **reusa la fila en 0** (`createDepositoItem`) en vez de dejar otra escondida. El embalaje en 0 sí
+se ve (es el aviso de que hay que comprar). Un 0 no cambia `getDepositoStockBySku`.
+
 **Historial por fila** (2026-11-17, `deposito_movements`): cada alta, ajuste (+/−), cambio de
 cantidad al editar y baja deja una fila con `delta`, `quantity_after` y quién (`req.user.username`),
 en la MISMA transacción que el cambio (`withDepositoTx` en `db.js`). El ajuste registra lo que cambió
@@ -838,6 +844,15 @@ ni de una tabla: son pocos pedidos por día y lo que importa es el estado de aho
   para drop_off/xd_drop_off: es lo de siempre.
 - **Fotos**: `getItems` multiget → `pictures[].secure_url` de la variación (por `picture_ids`, en su
   orden) o del ítem; thumbnail = misma URL con sufijo `-I`. TN trae `products[].image.src` en la orden.
+  **Fotos que faltaban** (2026-11-23): `getItems` saltea en silencio una tanda de 20 que falla (429,
+  5xx) y esos productos salían sin foto durante toda la caché. Ahora `loadItemPhotos` recuerda las fotos
+  por ítem 6 h (`ITEM_PHOTOS_TTL_MS`, solo lo que usa `mlPicturesFor`) y pide solo lo que no tiene;
+  lo que ML no devolvió se pide una segunda vez, y si igual falta se usa la foto vencida. Si quedó
+  algún producto sin foto, la caché de la lista dura 10 s en vez de 60. En el navegador,
+  `zc-product-thumb` reintenta una vez una foto que no cargó y si no muestra el ícono de "sin foto".
+- **El "504 Gateway Timeout" de la consola era del service worker**, no de Railway: el SW de la PWA
+  intercepta todos los GET y cambia cualquier `fetch` cortado por un 504 falso. Los pedidos a la API
+  van con `ngsw-bypass` (`ngswBypassInterceptor`) y no pasan por el SW, así se ve el error real.
 - **TN**: `listOrders` (`lib/tiendanube.js`) con `status=open&payment_status=paid` y
   `shipping_status=unpacked` + `unfulfilled` (dedupe por id). TN no tiene horario límite: va a "Hoy",
   por antigüedad. TN contesta 404 a una página vacía: es lista vacía, no error.
@@ -1618,6 +1633,39 @@ que se elija otra cosa.
   `SessionService` resuelve `HttpClient` de forma perezosa a propósito: la directiva lo inyecta en
   casi todas las pantallas y así sus specs no necesitan proveer `HttpClient`.
 
+### Cambio de SKU: se propaga a todo el hub
+
+Hasta 2026-11-23, cambiarle el SKU a una variante (Vincular SKUs, Publicaciones → Vincular, Editar
+publicación, la Cola ML, o desde el panel de ML/TN) solo escribía el canal y parchaba la foto: el
+costo, el código del proveedor, la alerta, el pack, el proveedor, el depósito y el historial quedaban
+huérfanos en el SKU viejo.
+
+**Se detecta en un solo lugar: `storeSnapshot`** (`conflictsService.js`), por donde pasan todos los
+cambios (parches, webhooks y el crawl). `detectSkuRenames` (`services/skuRename.js`, puro) compara la
+foto anterior con la nueva: la misma fila (variación de ML / variante de TN) pasa de A a B **y A ya
+no la usa ninguna fila de ningún canal**. Si TN sigue con A porque solo se cambió ML, no se mueve nada
+todavía (A sigue en uso); se mueve cuando cambie la otra punta. No es renombre: una publicación que
+desaparece, un SKU vaciado, A que pasa a dos SKUs distintos (ambiguo) ni un intercambio A ↔ B (los dos
+siguen en uso): se loguea `[SkuRename]` y no se toca. El índice previo (`lastSkuIndex`) se arma al
+CARGAR la foto, porque `patchSnapshot` la muta en el lugar; tras reiniciar el backend sin foto cargada
+no hay contra qué comparar.
+
+`renameSkuEverywhere(from, to, source)` (`db.js`) lo mueve en una transacción, idempotente, ANTES de
+evaluar las alertas. **Gana el nuevo**: en las tablas con clave única (`product_costs`,
+`price_overrides`, `sku_code_map` —incluye las marcas de "sacado"—, `stock_alerts`, `pack_skus`,
+`product_suppliers` y `restock_order_overrides` con `target_type = 'sku'`, `restock_dismissed`), si B
+ya tiene la fila se queda la suya y la de A se borra. El resto pasa entero: `deposito_stock` y el
+historial (`sync_audit`, `price_audit`, `stock_notifications`, `sync_pending_returns`,
+`ml_sales_items`, `price_apply_items`, `supplier_order_lines` — solo el SKU; el código que se mandó a
+la fábrica no cambia). Cada renombre queda en `sku_renames` (`source`: `parche` / `webhook` / `crawl`,
+lo movido y lo descartado). No se tocan `product_packs.sku` (es el código del proveedor del pack),
+`ml_pending_tasks` ni los borradores (`product_drafts`, `publication_edits`).
+
+Ojo: `ml_sales_items` se reescribe con el SKU que trae la orden de ML cada vez que el barrido de
+ventas reprocesa una orden de los últimos 30 días, así que una venta reciente puede volver al SKU
+viejo en el informe de Ventas. No afecta stock ni nada de lo de arriba. La caché de la foto de Precios
+(15 s) no se invalida: el renombre se ve ahí en la próxima lectura.
+
 ### Tests
 `backend/test/mercadolibre.test.js` cubre `updateItemOrVariationPrice` y
 `updateItemOrVariationStock` (con variación, sin variación, ítem sin variaciones, y error de
@@ -1628,7 +1676,7 @@ por variación) y la atribución/encolado del reintento del historial, `backend/
 recuperación de locks vencidos, `backend/test/mlTaskQueue.test.js` el latido y `stock_probe`,
 `backend/test/routesWebhooks.test.js` el flujo completo de cancelación (entrega fallida, envío
 despachado, envío no consultable, caché por pack, cancelación del vendedor, reintento del espejo),
-y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
+`backend/test/skuRename.test.js` + los casos de cambio de SKU al final de `conflictsService.test.js` la detección de renombres (y `renameSkuEverywhere` contra Postgres real en `publishJobsRealDb.test.js`), y `backend/test/routesDeposito.test.js` el CRUD de Depósito Marañón (validación producto/embalaje,
 ajuste rápido de cantidad, filas inexistentes, la usuaria que llega al historial y
 `GET /:id/movimientos`; el SQL del historial contra Postgres real en `publishJobsRealDb.test.js`, y
 en el front `deposito.component.spec.ts` + `deposito-history.component.spec.ts`). El historial de los dos canales está cubierto
