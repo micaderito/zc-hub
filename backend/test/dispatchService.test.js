@@ -38,6 +38,7 @@ before(async () => {
       },
       getItems: async (_t, ids) => {
         state.calls.getItems.push(ids);
+        if (state.itemsFn) return state.itemsFn(ids, state.calls.getItems.length);
         return state.items;
       },
       getOrderNotes: async (_t, id) => {
@@ -72,6 +73,7 @@ beforeEach(() => {
   state.shipments = {};
   state.slas = {};
   state.items = [];
+  state.itemsFn = null;
   state.tnByShipping = { unpacked: [], unfulfilled: [] };
   state.tnCancelled = [];
   state.marks = new Map();
@@ -389,6 +391,7 @@ test('si ML falla, TN se devuelve igual con el error de ML', async () => {
 test('caché de 60 s: la segunda visita no le pega a ML, refresh sí', async () => {
   state.orders = [mlOrder(1)];
   state.shipments = { 500: shipment(500) };
+  state.items = [{ id: 'MLA1', pictures: [{ id: 'p', secure_url: 'https://x/p-O.jpg' }] }];
   await svc.getDispatchList({ now: NOW });
   await svc.getDispatchList({ now: new Date(NOW.getTime() + 30_000) });
   assert.equal(state.calls.getShipment.length, 1);
@@ -528,4 +531,72 @@ test('mlBuyerName: nombre de la orden, si no el destinatario del envío, si no n
 test('TN: buyerName solo si quien paga no es quien recibe', () => {
   assert.equal(svc.buildTnPackage({ id: 1, contact_name: 'María', customer: { name: 'María' }, products: [] }).buyerName, null);
   assert.equal(svc.buildTnPackage({ id: 2, contact_name: 'María', customer: { name: 'Pedro Ruiz' }, products: [] }).buyerName, 'Pedro Ruiz');
+});
+
+// ── fotos de ML: memo, reintento y caché corta si faltan ────────────────────
+
+const pic = (id) => ({ id, pictures: [{ id: `p${id}`, secure_url: `https://x/${id}-O.jpg` }] });
+const twoItemOrders = () => [
+  mlOrder(1, { shipId: 501, items: [{ id: 'MLA1', sku: 'S1', qty: 1 }] }),
+  mlOrder(2, { shipId: 502, items: [{ id: 'MLA2', sku: 'S2', qty: 1 }] }),
+];
+const thumbsBySale = (r) => Object.fromEntries(r.packages.map((p) => [p.saleId, p.items[0].thumb]));
+
+test('fotos: lo que una tanda de getItems perdió se pide de nuevo, solo eso', async () => {
+  state.orders = twoItemOrders();
+  state.shipments = { 501: shipment(501), 502: shipment(502) };
+  // 1.ª llamada: ML perdió MLA2 (tanda con 429). 2.ª: la devuelve.
+  state.itemsFn = (ids, n) => (n === 1 ? [pic('MLA1')] : ids.map(pic));
+  const r = await svc.getDispatchList({ now: NOW });
+  assert.deepEqual(state.calls.getItems.map((ids) => [...ids].sort()), [['MLA1', 'MLA2'], ['MLA2']]);
+  assert.deepEqual(thumbsBySale(r), { 1: 'https://x/MLA1-I.jpg', 2: 'https://x/MLA2-I.jpg' });
+});
+
+test('fotos: una segunda carga no vuelve a pedir lo que ya está en memoria', async () => {
+  state.orders = twoItemOrders();
+  state.shipments = { 501: shipment(501), 502: shipment(502) };
+  state.itemsFn = (ids) => ids.map(pic);
+  await svc.getDispatchList({ now: NOW });
+  state.calls.getItems = [];
+  const r = await svc.getDispatchList({ refresh: true, now: new Date(NOW.getTime() + 60_000) });
+  assert.deepEqual(state.calls.getItems, []);
+  assert.equal(thumbsBySale(r)['2'], 'https://x/MLA2-I.jpg');
+});
+
+test('fotos: vencida la memoria y ML sin contestar, se usa la foto vieja', async () => {
+  state.orders = twoItemOrders();
+  state.shipments = { 501: shipment(501), 502: shipment(502) };
+  state.itemsFn = (ids) => ids.map(pic);
+  await svc.getDispatchList({ now: NOW });
+  state.itemsFn = () => [];
+  const later = new Date(NOW.getTime() + svc.ITEM_PHOTOS_TTL_MS + 60_000);
+  const r = await svc.getDispatchList({ refresh: true, now: later });
+  assert.equal(state.calls.getItems.length, 3, 'una carga + dos intentos');
+  assert.deepEqual(thumbsBySale(r), { 1: 'https://x/MLA1-I.jpg', 2: 'https://x/MLA2-I.jpg' });
+});
+
+test('fotos: si quedaron productos sin foto, la caché dura segundos y no un minuto', async () => {
+  state.orders = twoItemOrders();
+  state.shipments = { 501: shipment(501), 502: shipment(502) };
+  state.itemsFn = (ids) => ids.filter((id) => id === 'MLA1').map(pic);
+  const r1 = await svc.getDispatchList({ now: NOW });
+  assert.equal(thumbsBySale(r1)['2'], null);
+  // A los 5 s sigue la caché.
+  await svc.getDispatchList({ now: new Date(NOW.getTime() + 5_000) });
+  assert.equal(state.calls.getItems.length, 2);
+  // A los 15 s recarga y ahora ML la trae.
+  state.itemsFn = (ids) => ids.map(pic);
+  const r2 = await svc.getDispatchList({ now: new Date(NOW.getTime() + 15_000) });
+  assert.deepEqual(state.calls.getItems.at(-1), ['MLA2'], 'solo pide la que faltaba');
+  assert.equal(thumbsBySale(r2)['2'], 'https://x/MLA2-I.jpg');
+});
+
+test('fotos: con todas las fotos la caché dura el minuto de siempre', async () => {
+  state.orders = twoItemOrders();
+  state.shipments = { 501: shipment(501), 502: shipment(502) };
+  state.itemsFn = (ids) => ids.map(pic);
+  await svc.getDispatchList({ now: NOW });
+  state.calls.getShipment = [];
+  await svc.getDispatchList({ now: new Date(NOW.getTime() + 30_000) });
+  assert.deepEqual(state.calls.getShipment, []);
 });
