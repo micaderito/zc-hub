@@ -3444,15 +3444,36 @@ async function insertDepositoMovement(client, item, kind, delta, actor) {
   );
 }
 
-/** Alta de una fila de depósito (producto vinculado a un SKU o insumo de embalaje). */
+/**
+ * Alta de una fila de depósito (producto vinculado a un SKU o insumo de embalaje). Un producto en 0
+ * no se lista (`GET /api/deposito`), así que volver a darlo de alta reusa esa fila en vez de dejar
+ * una segunda escondida con el mismo SKU: el historial sigue en una sola fila.
+ */
 export async function createDepositoItem(data = {}, actor = null) {
   return withDepositoTx('createDepositoItem', async (client) => {
+    const quantity = Number.isFinite(Number(data.quantity)) ? Number(data.quantity) : 0;
+    if ((data.itemType || 'producto') === 'producto' && data.sku) {
+      const empty = await client.query(
+        `SELECT id FROM deposito_stock WHERE sku = $1 AND item_type = 'producto' AND quantity <= 0
+         ORDER BY updated_at DESC LIMIT 1 FOR UPDATE`,
+        [data.sku]
+      );
+      if (empty.rows[0]) {
+        const u = await client.query(
+          `UPDATE deposito_stock SET label = $2, quantity = $3, unit = $4, notes = $5, updated_at = NOW()
+           WHERE id = $1 ${DEPOSITO_RETURNING}`,
+          [empty.rows[0].id, data.label, quantity, data.unit || 'unidades', data.notes || null]
+        );
+        const item = mapDepositoItem(u.rows[0]);
+        if (item.quantity !== 0) await insertDepositoMovement(client, item, 'alta', item.quantity, actor);
+        return item;
+      }
+    }
     const r = await client.query(
       `INSERT INTO deposito_stock (sku, label, item_type, quantity, unit, notes)
        VALUES ($1, $2, $3, $4, $5, $6) ${DEPOSITO_RETURNING}`,
       [
-        data.sku || null, data.label, data.itemType || 'producto',
-        Number.isFinite(Number(data.quantity)) ? Number(data.quantity) : 0,
+        data.sku || null, data.label, data.itemType || 'producto', quantity,
         data.unit || 'unidades', data.notes || null,
       ]
     );

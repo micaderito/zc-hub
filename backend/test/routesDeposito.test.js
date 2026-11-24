@@ -77,6 +77,16 @@ test('GET /: lista el stock de depósito', async () => {
   assert.equal(body.items.length, 1);
 });
 
+test('GET /: no lista los productos en 0 (el embalaje en 0 sí)', async () => {
+  dbState.items = [
+    { id: 1, sku: 'A', label: 'Cuaderno agotado', itemType: 'producto', quantity: 0, unit: 'unidades' },
+    { id: 2, sku: 'B', label: 'Cuaderno', itemType: 'producto', quantity: 4, unit: 'unidades' },
+    { id: 3, sku: null, label: 'Burbupack', itemType: 'embalaje', quantity: 0, unit: 'rollos' },
+  ];
+  const body = await (await fetch(`${baseUrl}/`)).json();
+  assert.deepEqual(body.items.map((i) => i.id), [2, 3]);
+});
+
 test('POST /: sin label → 400', async () => {
   const res = await fetch(`${baseUrl}/`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

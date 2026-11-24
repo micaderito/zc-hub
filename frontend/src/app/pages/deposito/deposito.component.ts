@@ -57,7 +57,13 @@ export class DepositoComponent {
     staleTime: 15_000,
   }));
 
-  readonly items = computed<DepositoItem[]>(() => this.itemsQuery.data()?.items ?? []);
+  /**
+   * Un producto en 0 no se muestra (ya no está en el depósito). El backend ya no lo lista; se filtra
+   * también acá por si la respuesta viene de la caché. Restar hasta 0 lo saca de la lista (y cierra
+   * su hoja); volver a darlo de alta reusa la fila con su historial. El embalaje en 0 sí se ve.
+   */
+  readonly items = computed<DepositoItem[]>(() =>
+    (this.itemsQuery.data()?.items ?? []).filter((i) => !(i.itemType === 'producto' && i.quantity <= 0)));
   readonly search = signal('');
 
   readonly filteredItems = computed(() => {
