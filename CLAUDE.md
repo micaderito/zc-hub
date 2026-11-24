@@ -248,6 +248,12 @@ insumo no resucita en cada reinicio del backend.
 El ajuste rápido de cantidad (`PATCH /:id/ajustar`, botones +/-1 de la tabla) es un delta sobre el
 valor guardado, no pisa un valor absoluto — evita que dos clics simultáneos se pisen entre sí.
 
+**Productos en 0 no se listan** (2026-11-23): `GET /api/deposito` (`isListedDepositoItem`) y el
+front esconden las filas `producto` con cantidad 0 — escritorio y celu, siempre (sin tilde para
+verlas, a pedido de la usuaria). No se borran: el historial queda y volver a darlo de alta con ese
+SKU **reusa la fila en 0** (`createDepositoItem`) en vez de dejar otra escondida. El embalaje en 0 sí
+se ve (es el aviso de que hay que comprar). Un 0 no cambia `getDepositoStockBySku`.
+
 **Historial por fila** (2026-11-17, `deposito_movements`): cada alta, ajuste (+/−), cambio de
 cantidad al editar y baja deja una fila con `delta`, `quantity_after` y quién (`req.user.username`),
 en la MISMA transacción que el cambio (`withDepositoTx` en `db.js`). El ajuste registra lo que cambió

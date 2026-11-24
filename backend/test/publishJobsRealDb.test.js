@@ -459,6 +459,8 @@ test(
     });
     assert.equal(await db.initDb(), true);
     let id = null;
+    let prodId = null;
+    let otherId = null;
     try {
       const item = await db.createDepositoItem({ label: `t-dep-${Date.now()}`, itemType: 'embalaje', quantity: 3, unit: 'rollos' }, 'test');
       id = item.id;
@@ -476,7 +478,25 @@ test(
       );
       assert.ok(moves.every((m) => m.actor === 'test' && m.label === item.label));
       assert.equal(await db.adjustDepositoQuantity(id, 1, 'test'), null, 'una fila borrada no se ajusta');
+
+      // Un producto en 0 no se lista: darlo de alta otra vez reusa esa fila (mismo id e historial).
+      const sku = `t-dep-sku-${Date.now()}`;
+      const prod = await db.createDepositoItem({ sku, label: 'Cuaderno', itemType: 'producto', quantity: 2 }, 'test');
+      prodId = prod.id;
+      await db.adjustDepositoQuantity(prodId, -2, 'test');
+      const again = await db.createDepositoItem({ sku, label: 'Cuaderno', itemType: 'producto', quantity: 5 }, 'test');
+      assert.equal(again.id, prodId);
+      assert.equal(again.quantity, 5);
+      assert.deepEqual((await db.getDepositoMovements(prodId)).map((m) => [m.kind, m.delta]), [['alta', 5], ['ajuste', -2], ['alta', 2]]);
+      const other = await db.createDepositoItem({ sku, label: 'Cuaderno', itemType: 'producto', quantity: 1 }, 'test');
+      otherId = other.id;
+      assert.notEqual(otherId, prodId, 'con stock no se reusa: es otra fila del mismo SKU, como antes');
     } finally {
+      for (const extra of [prodId, otherId]) {
+        if (extra == null) continue;
+        await pool.query('DELETE FROM deposito_movements WHERE item_id = $1', [extra]);
+        await pool.query('DELETE FROM deposito_stock WHERE id = $1', [extra]);
+      }
       if (id != null) {
         await pool.query('DELETE FROM deposito_movements WHERE item_id = $1', [id]);
         await pool.query('DELETE FROM deposito_stock WHERE id = $1', [id]);

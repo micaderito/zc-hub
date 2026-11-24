@@ -21,10 +21,19 @@ function validateBody(body) {
   return null;
 }
 
-/** Todo el stock de depósito. */
+/**
+ * Un producto en 0 no se lista: ya no está en el depósito y a la usuaria no le sirve verlo. La fila
+ * NO se borra (su historial queda y volver a darlo de alta la reusa, ver createDepositoItem). El
+ * embalaje en 0 sí se lista: es justo el aviso de que hay que comprar más.
+ */
+export function isListedDepositoItem(item) {
+  return !(item.itemType === 'producto' && Number(item.quantity) <= 0);
+}
+
+/** Todo el stock de depósito, sin los productos en 0. */
 depositoRoutes.get('/', async (_req, res) => {
   try {
-    res.json({ items: await getDepositoItems() });
+    res.json({ items: (await getDepositoItems()).filter(isListedDepositoItem) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

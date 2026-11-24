@@ -61,6 +61,7 @@ describe('DepositoComponent — lista del celular, hoja de detalle e historial',
   const items = [
     { id: 1, sku: '39000', label: 'Cuaderno rayado', itemType: 'producto', quantity: 3, unit: 'unidades', notes: 'Caja 3', createdAt: null, updatedAt: null },
     { id: 2, sku: null, label: 'Burbupack', itemType: 'embalaje', quantity: 0, unit: 'rollos', notes: null, createdAt: null, updatedAt: null },
+    { id: 3, sku: '39001', label: 'Cuaderno agotado', itemType: 'producto', quantity: 0, unit: 'unidades', notes: null, createdAt: null, updatedAt: null },
   ];
 
   function setup() {
@@ -100,6 +101,15 @@ describe('DepositoComponent — lista del celular, hoja de detalle e historial',
     const rows = el.querySelectorAll('.dp-row');
     expect(rows[0].querySelector('.dp-row-sub')!.textContent).toContain('39000 · Caja 3');
     expect(rows[1].querySelector('.dp-row-qty')!.classList).toContain('zero');
+  });
+
+  it('un producto en 0 no aparece (ni en la lista del celu, ni en la tabla, ni en los totales); el embalaje en 0 sí', async () => {
+    const { fixture, c } = setup();
+    await ready(fixture);
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.textContent).not.toContain('Cuaderno agotado');
+    expect(el.querySelectorAll('.dp-table tbody tr').length).toBe(2);
+    expect(c.totals()).toEqual({ total: 2, productos: 1, embalaje: 1 });
   });
 
   it('tocar una fila abre la hoja con el +/−, los atajos y el historial', async () => {
